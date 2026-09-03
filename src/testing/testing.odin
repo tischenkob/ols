@@ -1130,3 +1130,27 @@ expect_inlay_hints :: proc(t: ^testing.T, src: ^Source) {
 		}
 	}
 }
+
+expect_folding_ranges :: proc(t: ^testing.T, src: ^Source, expected: []server.FoldingRange) {
+	spall.trace(#procedure)
+
+	setup(src)
+	defer teardown(src)
+
+	ranges := server.get_folding_ranges(src.document)
+	expected := slice.clone(expected, context.temp_allocator)
+	slice.sort_by(expected, server.folding_range_less)
+
+	testing.expectf(
+		t,
+		len(expected) == len(ranges),
+		"\nExpected %d folding ranges, but received %d:\n%v",
+		len(expected),
+		len(ranges),
+		ranges,
+	)
+
+	for i in 0 ..< min(len(expected), len(ranges)) {
+		testing.expectf(t, expected[i] == ranges[i], "\n[%d]: Expected %v but received %v", i, expected[i], ranges[i])
+	}
+}
