@@ -195,6 +195,60 @@ source_remove_cursor :: proc(src: ^Source) -> (cursor: common.Position) {
 	return common.get_relative_token_position(marker_pos, transmute([]u8)source^, 0)
 }
 
+// Selection between `{[` and `]}`. Without `{[`, the cursor marker is used and the range is empty.
+source_remove_selection :: proc(src: ^Source) -> common.Range {
+	source: ^string
+	if src.main != "" {
+		source = &src.main
+	} else if len(src.files) > 0 {
+		source = &src.files[0].source
+	}
+
+	if source == nil {
+		log.error("Cannot get selection from an empty file")
+		return {}
+	}
+
+	START :: "{["
+	END :: "]}"
+
+	start := strings.index(source^, START)
+	if start < 0 {
+		cursor := source_remove_cursor(src)
+		return {cursor, cursor}
+	}
+
+	//Only search after the start marker, Odin source has plenty of `]}` of its own.
+	end := strings.index(source[start + len(START):], END)
+	if end < 0 {
+		log.errorf("Didn't find %s after %s in `%s`", END, START, source^)
+		return {}
+	}
+	end += start + len(START)
+
+	new_source := strings.concatenate(
+		{source[:start], source[start + len(START):end], source[end + len(END):]},
+		context.temp_allocator,
+	)
+	source^ = new_source
+
+	text := transmute([]u8)source^
+	return {
+		common.get_relative_token_position(start, text, 0),
+		common.get_relative_token_position(end - len(START), text, 0),
+	}
+}
+
+// Runs f against the parsed and indexed document, with the `{[`…`]}` or `{*}` range.
+with_document :: proc(t: ^testing.T, src: ^Source, f: proc(t: ^testing.T, src: ^Source, range: common.Range)) {
+	range := source_remove_selection(src)
+
+	setup(src)
+	defer teardown(src)
+
+	f(t, src, range)
+}
+
 expect_signature_labels :: proc(
 	t: ^testing.T,
 	src: ^Source,
@@ -743,12 +797,11 @@ expect_prepare_rename_range :: proc(t: ^testing.T, src: ^Source, expect_range: c
 expect_action :: proc(t: ^testing.T, src: ^Source, expect_action_names: []string, ctx: server.CodeActionContext = {}) {
 	spall.trace(#procedure)
 
-	cursor := source_remove_cursor(src)
+	input_range := source_remove_selection(src)
 
 	setup(src)
 	defer teardown(src)
 
-	input_range := common.Range{cursor, cursor}
 	actions, ok := server.get_code_actions(src.document, ctx, input_range, &src.config)
 	if !ok {
 		log.error("Failed to find actions")
@@ -778,12 +831,11 @@ expect_action :: proc(t: ^testing.T, src: ^Source, expect_action_names: []string
 expect_action_with_edit :: proc(t: ^testing.T, src: ^Source, action_name: string, expected_new_text: string) {
 	spall.trace(#procedure)
 
-	cursor := source_remove_cursor(src)
+	input_range := source_remove_selection(src)
 
 	setup(src)
 	defer teardown(src)
 
-	input_range := common.Range{cursor, cursor}
 	actions, ok := server.get_code_actions(src.document, {}, input_range, &src.config)
 	if !ok {
 		log.error("Failed to find actions")
@@ -830,12 +882,11 @@ expect_action_applied :: proc(
 ) {
 	spall.trace(#procedure)
 
-	cursor := source_remove_cursor(src)
+	input_range := source_remove_selection(src)
 
 	setup(src)
 	defer teardown(src)
 
-	input_range := common.Range{cursor, cursor}
 	actions, ok := server.get_code_actions(src.document, ctx, input_range, &src.config)
 	if !ok {
 		log.error("Failed to find actions")
@@ -861,6 +912,28 @@ expect_action_applied :: proc(
 	}
 
 	log.errorf("Action '%s' not found in actions: %v", action_name, actions)
+}
+
+expect_action_missing :: proc(t: ^testing.T, src: ^Source, action_name: string) {
+	spall.trace(#procedure)
+
+	input_range := source_remove_selection(src)
+
+	setup(src)
+	defer teardown(src)
+
+	actions, ok := server.get_code_actions(src.document, {}, input_range, &src.config)
+	if !ok {
+		log.error("Failed to find actions")
+		return
+	}
+
+	for action in actions {
+		if action.title == action_name {
+			log.errorf("Expected action '%s' to be missing, but received %v", action_name, actions)
+			return
+		}
+	}
 }
 
 @(private)

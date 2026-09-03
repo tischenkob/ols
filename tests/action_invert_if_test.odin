@@ -416,3 +416,39 @@ main :: proc() {
 	// Should have the invert action for an if statement nested inside an else-if body
 	test.expect_action(t, &source, {INVERT_IF_ACTION})
 }
+
+@(test)
+action_invert_if_selection :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	x := 5
+	{[if x >= 0 {
+		foo()
+	}]}
+}
+`,
+		config = {enable_code_action_invert_if = true},
+	}
+
+	test.expect_action(t, &source, {INVERT_IF_ACTION})
+}
+
+@(test)
+action_invert_if_missing_outside_if :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	x{*} := 5
+	if x >= 0 {
+		foo()
+	}
+}
+`,
+		config = {enable_code_action_invert_if = true},
+	}
+
+	test.expect_action_missing(t, &source, INVERT_IF_ACTION)
+}

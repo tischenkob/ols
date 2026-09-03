@@ -110,17 +110,30 @@ get_code_actions :: proc(
 		)
 	}
 
-	if config.enable_code_action_invert_if {
-		add_invert_if_action(
-			document,
-			position_context.position,
-			strings.clone(document.uri.uri, context.temp_allocator),
-			&actions,
-		)
+	absolute_range, range_ok := common.get_absolute_range(range, document.text[:document.used_text])
+	if !range_ok {
+		return actions[:], true
+	}
+
+	action_ctx := ActionContext {
+		document         = document,
+		ast_context      = &ast_context,
+		position_context = &position_context,
+		range            = absolute_range,
+		uri              = strings.clone(document.uri.uri, context.temp_allocator),
+		config           = config,
+		actions          = &actions,
+	}
+
+	for action_proc in action_procs {
+		action_proc(&action_ctx)
 	}
 
 	return actions[:], true
 }
+
+@(private = "file")
+action_procs := [?]proc(^ActionContext){add_invert_if_action}
 
 
 make_unused_import_edits :: proc(
