@@ -365,6 +365,7 @@ get_block_body_text :: proc(src: string, stmt: ^ast.Stmt, base_indent: string) -
 }
 
 // Invert a condition expression
+@(private = "package")
 invert_condition :: proc(src: string, cond: ^ast.Expr) -> (string, bool) {
 	if cond == nil {
 		return "", false
