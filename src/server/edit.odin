@@ -232,10 +232,15 @@ local_type_text :: proc(ctx: ^ActionContext, ident: ^ast.Ident) -> (string, bool
 // untyped constants have no name to write.
 symbol_type_text :: proc(ast_context: ^AstContext, symbol: Symbol, name: string) -> (string, bool) {
 	symbol := symbol
-	if _, is_untyped := symbol.value.(SymbolUntypedValue); is_untyped && .Mutable not_in symbol.flags {
+	_, is_untyped := symbol.value.(SymbolUntypedValue)
+	if is_untyped && .Mutable not_in symbol.flags {
 		return "", false
 	}
 	construct_ident_symbol_info(&symbol, name, ast_context.document_package)
+	// An untyped value copied from another variable carries that variable's name, not a type.
+	if is_untyped {
+		symbol.type_name = ""
+	}
 
 	text := strings.builder_make(context.temp_allocator)
 	if symbol.type_name != "" {
@@ -286,4 +291,77 @@ value_states_type :: proc(value: ^ast.Expr, callee: Symbol, callee_ok: bool) -> 
 		return true
 	}
 	return false
+}
+
+Node_At :: struct {
+	node, parent: ^ast.Node,
+}
+
+// Every node containing pos, outermost first.
+nodes_at :: proc(roots: []^ast.Stmt, pos: int) -> []Node_At {
+	Data :: struct {
+		pos:   int,
+		stack: [dynamic]^ast.Node,
+		found: [dynamic]Node_At,
+	}
+
+	data := Data {
+		pos   = pos,
+		stack = make([dynamic]^ast.Node, context.temp_allocator),
+		found = make([dynamic]Node_At, context.temp_allocator),
+	}
+
+	visitor := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			data := (^Data)(visitor.data)
+			if node == nil {
+				pop(&data.stack)
+				return nil
+			}
+			if node.pos.offset > data.pos || data.pos > node.end.offset {
+				return nil
+			}
+			parent: ^ast.Node
+			if len(data.stack) > 0 {
+				parent = data.stack[len(data.stack) - 1]
+			}
+			append(&data.found, Node_At{node = node, parent = parent})
+			append(&data.stack, node)
+			return visitor
+		},
+	}
+
+	for root in roots {
+		ast.walk(&visitor, root)
+	}
+	return data.found[:]
+}
+
+strip_space :: proc(s: string) -> string {
+	sb := strings.builder_make(context.temp_allocator)
+	for c in s {
+		if !strings.is_space(c) {
+			strings.write_rune(&sb, c)
+		}
+	}
+	return strings.to_string(sb)
+}
+
+node_text :: proc(src: string, node: ^ast.Node) -> string {
+	return src[node.pos.offset:node.end.offset]
+}
+
+append_replace_range :: proc(ctx: ^ActionContext, start, end: int, title: string, text: string) {
+	edits := make([]TextEdit, 1, context.temp_allocator)
+	edits[0] = TextEdit {
+		range   = range_of(ctx, start, end),
+		newText = text,
+	}
+	append(ctx.actions, make_code_action(ctx, title, "refactor.rewrite", edits))
+}
+
+// Source between the braces, without the newline after `{` and trailing whitespace.
+block_inner_text :: proc(src: string, block: ^ast.Block_Stmt) -> string {
+	return strings.trim_left(strings.trim_right_space(src[block.open.offset + 1:block.close.offset]), "\r\n")
 }
