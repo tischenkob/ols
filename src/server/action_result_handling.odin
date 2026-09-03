@@ -130,15 +130,6 @@ add_result_handling_action :: proc(ctx: ^ActionContext) {
 	append(ctx.actions, make_code_action(ctx, "Handle result with if", "refactor.rewrite", edits))
 }
 
-append_insert :: proc(ctx: ^ActionContext, at: int, title, kind, text: string) {
-	edits := make([]TextEdit, 1, context.temp_allocator)
-	edits[0] = {
-		range   = range_of(ctx, at, at),
-		newText = text,
-	}
-	append(ctx.actions, make_code_action(ctx, title, kind, edits))
-}
-
 // One type per value: `a, b: int` yields int twice.
 @(private = "package")
 field_types :: proc(fields: []^ast.Field) -> []^ast.Expr {
