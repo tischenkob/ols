@@ -1131,6 +1131,34 @@ expect_inlay_hints :: proc(t: ^testing.T, src: ^Source) {
 	}
 }
 
+LintExpect :: struct {
+	line: int, // zero based
+	code: string,
+}
+
+expect_lint_diagnostics :: proc(t: ^testing.T, src: ^Source, expected: []LintExpect) {
+	spall.trace(#procedure)
+
+	setup(src)
+	defer teardown(src)
+
+	diagnostics := server.lint_document(src.document, &src.config)
+
+	testing.expectf(
+		t,
+		len(expected) == len(diagnostics),
+		"\nExpected %d lint diagnostics, but received %d:\n%v",
+		len(expected),
+		len(diagnostics),
+		diagnostics,
+	)
+
+	for i in 0 ..< min(len(expected), len(diagnostics)) {
+		got := LintExpect{diagnostics[i].range.start.line, diagnostics[i].code}
+		testing.expectf(t, expected[i] == got, "\n[%d]: Expected %v but received %v", i, expected[i], got)
+	}
+}
+
 expect_folding_ranges :: proc(t: ^testing.T, src: ^Source, expected: []server.FoldingRange) {
 	spall.trace(#procedure)
 

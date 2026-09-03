@@ -352,7 +352,7 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config) {
 				uri.uri,
 				Diagnostic {
 					code = "checker",
-					severity = map_diagnostic_severity(error.type),
+					severity = map_diagnostic_severity(error.type, message),
 					range = {
 						// odin will sometimes report errors on column 0, so we ensure we don't provide a negative column/line to the client
 						start = {character = max(error.pos.column - 1, 0), line = max(error.pos.line - 1, 0)},
@@ -393,6 +393,9 @@ start_check_process :: proc(
 		append(&cmd, fmt.tprintf("-define:%s=%s", k, v))
 	}
 	append(&cmd, entry_point_opt, "-json-errors")
+	if config.enable_checker_vet_shadowing {
+		append(&cmd, "-vet-shadowing")
+	}
 	args, _ := strings.split(config.checker_args, " ", context.temp_allocator)
 	for arg in args {
 		if arg != "" {
@@ -425,8 +428,13 @@ start_check_process :: proc(
 }
 
 @(private = "file")
-map_diagnostic_severity :: proc(type: string) -> DiagnosticSeverity {
+map_diagnostic_severity :: proc(type: string, message: string) -> DiagnosticSeverity {
 	if strings.equal_fold(type, "warning") {
+		return .Warning
+	}
+
+	// -vet-shadowing is our flag, not the user's build, so its errors show as warnings.
+	if strings.contains(message, "shadows declaration") {
 		return .Warning
 	}
 

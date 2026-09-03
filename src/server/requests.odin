@@ -418,6 +418,16 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	config.enable_code_action_unwrap = ols_config.enable_code_action_unwrap.(bool) or_else config.enable_code_action_unwrap
 	config.enable_organize_imports_on_save =
 		ols_config.enable_organize_imports_on_save.(bool) or_else config.enable_organize_imports_on_save
+	config.enable_lint_self_assignment =
+		ols_config.enable_lint_self_assignment.(bool) or_else config.enable_lint_self_assignment
+	config.enable_lint_identical_branches =
+		ols_config.enable_lint_identical_branches.(bool) or_else config.enable_lint_identical_branches
+	config.enable_lint_unreachable_code =
+		ols_config.enable_lint_unreachable_code.(bool) or_else config.enable_lint_unreachable_code
+	config.enable_lint_float_equality =
+		ols_config.enable_lint_float_equality.(bool) or_else config.enable_lint_float_equality
+	config.enable_checker_vet_shadowing =
+		ols_config.enable_checker_vet_shadowing.(bool) or_else config.enable_checker_vet_shadowing
 	config.verbose = ols_config.verbose.(bool) or_else config.verbose
 	config.file_log = ols_config.file_log.(bool) or_else config.file_log
 
@@ -908,6 +918,11 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_unwrap = true
 	config.enable_inlay_hints_variable_types = true
 	config.enable_organize_imports_on_save = true
+	config.enable_lint_self_assignment = true
+	config.enable_lint_identical_branches = true
+	config.enable_lint_unreachable_code = true
+	config.enable_lint_float_equality = true
+	config.enable_checker_vet_shadowing = true
 }
 
 get_builtin_path :: proc(allocator := context.allocator) -> string {
@@ -1219,6 +1234,7 @@ notification_did_open :: proc(
 	document := document_get(open_params.textDocument.uri)
 
 	check_unused_imports(document, config)
+	run_lints(document, config)
 
 	push_diagnostics(writer)
 
@@ -1319,6 +1335,7 @@ notification_did_save :: proc(
 	document := document_get(save_params.textDocument.uri)
 	if document != nil {
 		check_unused_imports(document, config)
+		run_lints(document, config)
 
 		if config.enable_organize_imports_on_save {
 			organize_imports_on_save(document, config, writer)

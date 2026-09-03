@@ -213,6 +213,31 @@
 			"type": "string",
 			"description": "Pass custom arguments to `odin check`."
 		},
+		"enable_checker_vet_shadowing": {
+			"type": "boolean",
+			"description": "Pass `-vet-shadowing` to `odin check` and report shadowed declarations as warnings.",
+			"default": true
+		},
+		"enable_lint_self_assignment": {
+			"type": "boolean",
+			"description": "Warn when a variable is assigned to itself.",
+			"default": true
+		},
+		"enable_lint_identical_branches": {
+			"type": "boolean",
+			"description": "Warn when the if and else branches, or both ternary branches, are identical.",
+			"default": true
+		},
+		"enable_lint_unreachable_code": {
+			"type": "boolean",
+			"description": "Mark statements after return, break, continue, fallthrough, panic or unreachable as unnecessary.",
+			"default": true
+		},
+		"enable_lint_float_equality": {
+			"type": "boolean",
+			"description": "Report == and != comparisons on floats.",
+			"default": true
+		},
 		"checker_skip_packages": {
 			"type": "array",
 			"items": {

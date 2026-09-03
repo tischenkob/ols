@@ -12,6 +12,7 @@ DiagnosticType :: enum {
 	Syntax,
 	Unused,
 	Check,
+	Lint,
 }
 
 diagnostics: [DiagnosticType]map[string][dynamic]Diagnostic
