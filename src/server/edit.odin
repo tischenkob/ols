@@ -365,3 +365,17 @@ append_replace_range :: proc(ctx: ^ActionContext, start, end: int, title: string
 block_inner_text :: proc(src: string, block: ^ast.Block_Stmt) -> string {
 	return strings.trim_left(strings.trim_right_space(src[block.open.offset + 1:block.close.offset]), "\r\n")
 }
+
+// Deletes whole lines first..=last (zero based). The last line of the document has no trailing
+// newline to consume.
+delete_lines_edit :: proc(ctx: ^ActionContext, first, last: int) -> TextEdit {
+	edit := TextEdit {
+		range = {start = {line = first, character = 0}, end = {line = last + 1, character = 0}},
+	}
+	if _, ok := common.get_last_column(last + 1, ctx.document.text); !ok {
+		if column, ok := common.get_last_column(last, ctx.document.text); ok {
+			edit.range.end = {line = last, character = column}
+		}
+	}
+	return edit
+}
