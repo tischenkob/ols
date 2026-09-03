@@ -134,6 +134,10 @@ Options:
 
 - `enable_code_action_do_block`: Enables the code actions converting a one-statement block to a `do` body and back. Defaults to true.
 
+- `enable_code_action_fill_struct`: Enables the code action filling the missing fields of a struct literal with zero values. Defaults to true.
+
+- `enable_code_action_if_to_switch`: Enables the code action converting an if/else-if chain of equality tests to a switch. Defaults to true.
+
 - `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&` and to merge nested ifs. Defaults to true.
 
 - `enable_code_action_rewrite_expression`: Enables the code actions to flip a comparison, apply De Morgan's law and convert between compound and plain assignment. Defaults to true.

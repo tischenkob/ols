@@ -165,6 +165,16 @@
 			"description": "Enables the code actions converting a one-statement block to a `do` body and back.",
 			"default": true
 		},
+		"enable_code_action_fill_struct": {
+			"type": "boolean",
+			"description": "Enables the code action filling the missing fields of a struct literal with zero values.",
+			"default": true
+		},
+		"enable_code_action_if_to_switch": {
+			"type": "boolean",
+			"description": "Enables the code action converting an if/else-if chain of equality tests to a switch.",
+			"default": true
+		},
 		"enable_inlay_hints_variable_types": {
 			"type": "boolean",
 			"description": "Turn on inlay hints for inferred variable types.",
