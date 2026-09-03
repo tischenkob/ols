@@ -16,6 +16,9 @@ import "src:server"
 USAGE :: `usage: ols query <command> [--root DIR]
   def     FILE:LINE:COL
   refs    FILE:LINE:COL
+  impl    FILE:LINE:COL
+  callers FILE:LINE:COL
+  callees FILE:LINE:COL
   hover   FILE:LINE:COL
   symbols FILE
   actions FILE:LINE:COL[-LINE:COL] [--apply TITLE]
@@ -112,6 +115,25 @@ run :: proc(args: []string) -> int {
 	case "refs":
 		locations, _ := server.get_references(document, position)
 		return print_nonempty(locations)
+	case "impl":
+		return print_nonempty(server.get_implementation_locations(document, position))
+	case "callers", "callees":
+		items := server.prepare_call_hierarchy(document, position)
+		if len(items) == 0 {
+			fmt.eprintln("no procedure at position")
+			return 1
+		}
+		calls := make([dynamic]Call, context.temp_allocator)
+		if command == "callers" {
+			for call in server.incoming_calls(items[0]) {
+				append(&calls, Call{call.from.name, call.from.uri, call.from.selectionRange, call.fromRanges})
+			}
+		} else {
+			for call in server.outgoing_calls(items[0]) {
+				append(&calls, Call{call.to.name, call.to.uri, call.to.selectionRange, call.fromRanges})
+			}
+		}
+		return print_nonempty(calls[:])
 	case "hover":
 		hover, valid, _ := server.get_hover_information(document, position)
 		if !valid {
@@ -282,6 +304,13 @@ check :: proc(dir: string) -> int {
 Entry :: struct {
 	uri:        string,
 	diagnostic: server.Diagnostic,
+}
+
+Call :: struct {
+	name:       string,
+	uri:        string,
+	range:      common.Range,
+	fromRanges: []common.Range,
 }
 
 lint :: proc(target: string) -> int {

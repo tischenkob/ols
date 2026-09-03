@@ -30,6 +30,16 @@ package smoke
 add :: proc(a, b: int) -> int {
 	return a + b
 }
+
+twice :: proc(a: int) -> int {
+	return add(a, a)
+}
+
+add_f :: proc(a, b: f32) -> f32 {
+	return a + b
+}
+
+combine :: proc{add, add_f}
 ODIN
 cat > "$dir/bad/bad.odin" <<'ODIN'
 package bad
@@ -52,6 +62,11 @@ expect() {
 expect def "util.odin" "$OLS" query def "$dir/main.odin:6:11"
 expect refs "main.odin" "$OLS" query refs "$dir/util.odin:3:1"
 expect hover "add" "$OLS" query hover "$dir/main.odin:6:11"
+expect impl '"line": 10' "$OLS" query impl "$dir/util.odin:15:1"
+expect callers "main.odin" "$OLS" query callers "$dir/util.odin:3:1"
+expect callers-group '"combine"' "$OLS" query callers "$dir/util.odin:3:1"
+expect callees '"add"' "$OLS" query callees "$dir/util.odin:7:1"
+expect callees-group '"add_f"' "$OLS" query callees "$dir/util.odin:15:1"
 expect symbols '"main"' "$OLS" query symbols "$dir/main.odin"
 expect actions "Invert if" "$OLS" query actions "$dir/main.odin:7:2"
 expect actions-apply "main.odin" "$OLS" query actions "$dir/main.odin:10:11-10:20" --apply "Extract variable"
