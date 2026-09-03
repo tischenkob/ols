@@ -366,6 +366,34 @@ block_inner_text :: proc(src: string, block: ^ast.Block_Stmt) -> string {
 	return strings.trim_left(strings.trim_right_space(src[block.open.offset + 1:block.close.offset]), "\r\n")
 }
 
+// The lines of a block at their current depth. A `do` body has no braces; its one statement is
+// placed one level below ind.
+block_lines :: proc(src: string, block: ^ast.Block_Stmt, ind, unit: string) -> string {
+	if block.uses_do {
+		return strings.concatenate({ind, unit, node_text(src, block.stmts[0])}, context.temp_allocator)
+	}
+	return block_inner_text(src, block)
+}
+
+// One indentation level: what inner adds to ind when it sits on its own deeper line, else the
+// indentation of the first indented line of the file, else a tab.
+indent_unit :: proc(src, ind: string, inner: ^ast.Node) -> string {
+	if inner != nil {
+		deeper := get_line_indentation(src, inner.pos.offset)
+		if len(deeper) > len(ind) && strings.has_prefix(deeper, ind) {
+			return deeper[len(ind):]
+		}
+	}
+	rest := src
+	for line in strings.split_lines_iterator(&rest) {
+		ws := len(line) - len(strings.trim_left(line, " \t"))
+		if ws > 0 && ws < len(line) {
+			return line[:ws]
+		}
+	}
+	return "\t"
+}
+
 // Deletes whole lines first..=last (zero based). The last line of the document has no trailing
 // newline to consume.
 delete_lines_edit :: proc(ctx: ^ActionContext, first, last: int) -> TextEdit {

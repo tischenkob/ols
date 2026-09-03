@@ -61,6 +61,7 @@ Config :: struct {
 	enable_code_action_add_explicit_type:    bool,
 	enable_code_action_ternary:              bool,
 	enable_code_action_unwrap:               bool,
+	enable_code_action_do_block:             bool,
 	enable_organize_imports_on_save:         bool,
 	enable_lint_self_assignment:             bool,
 	enable_lint_identical_branches:          bool,

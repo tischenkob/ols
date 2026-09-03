@@ -160,6 +160,11 @@
 			"description": "Enables the code actions to unwrap a block, if or loop body and to remove a redundant else.",
 			"default": true
 		},
+		"enable_code_action_do_block": {
+			"type": "boolean",
+			"description": "Enables the code actions converting a one-statement block to a `do` body and back.",
+			"default": true
+		},
 		"enable_inlay_hints_variable_types": {
 			"type": "boolean",
 			"description": "Turn on inlay hints for inferred variable types.",

@@ -461,6 +461,7 @@ OlsConfig :: struct {
 	enable_code_action_add_explicit_type:    Maybe(bool),
 	enable_code_action_ternary:              Maybe(bool),
 	enable_code_action_unwrap:               Maybe(bool),
+	enable_code_action_do_block:             Maybe(bool),
 	enable_organize_imports_on_save:         Maybe(bool),
 	enable_lint_self_assignment:             Maybe(bool),
 	enable_lint_identical_branches:          Maybe(bool),

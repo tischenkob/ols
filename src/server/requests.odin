@@ -416,6 +416,7 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_add_explicit_type.(bool) or_else config.enable_code_action_add_explicit_type
 	config.enable_code_action_ternary = ols_config.enable_code_action_ternary.(bool) or_else config.enable_code_action_ternary
 	config.enable_code_action_unwrap = ols_config.enable_code_action_unwrap.(bool) or_else config.enable_code_action_unwrap
+	config.enable_code_action_do_block = ols_config.enable_code_action_do_block.(bool) or_else config.enable_code_action_do_block
 	config.enable_organize_imports_on_save =
 		ols_config.enable_organize_imports_on_save.(bool) or_else config.enable_organize_imports_on_save
 	config.enable_lint_self_assignment =
@@ -923,6 +924,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_add_explicit_type = true
 	config.enable_code_action_ternary = true
 	config.enable_code_action_unwrap = true
+	config.enable_code_action_do_block = true
 	config.enable_inlay_hints_variable_types = true
 	config.enable_organize_imports_on_save = true
 	config.enable_lint_self_assignment = true
