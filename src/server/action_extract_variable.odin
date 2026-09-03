@@ -2,7 +2,6 @@
 
 package server
 
-import "core:fmt"
 import "core:odin/ast"
 import "core:slice"
 import "core:strings"
@@ -243,19 +242,5 @@ pick_name :: proc(ctx: ^ActionContext, expr: ^ast.Expr) -> string {
 		base = e.field.name
 	}
 
-	probe: ast.Ident
-	probe.pos = expr.pos
-	probe.name = base
-	for i := 2; is_taken(ctx, probe); i += 1 {
-		probe.name = fmt.tprintf("%s%d", base, i)
-	}
-	return probe.name
-}
-
-is_taken :: proc(ctx: ^ActionContext, ident: ast.Ident) -> bool {
-	if ident.name in ctx.ast_context.globals {
-		return true
-	}
-	_, ok := get_local(ctx.ast_context^, ident)
-	return ok
+	return fresh_name(ctx, base, expr.pos)
 }

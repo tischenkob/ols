@@ -92,34 +92,3 @@ add_fill_struct_action :: proc(ctx: ^ActionContext) {
 	title := len(lit.elems) == 0 ? "Fill all fields" : "Fill missing fields"
 	append_replace_range(ctx, lit.open.offset, lit.close.offset + 1, title, strings.to_string(sb))
 }
-
-// `{}` is the zero literal for every aggregate, including enums and unions. The scalar forms are
-// the shortest ones the compiler accepts for each basic type.
-zero_value_text :: proc(symbol: Symbol, resolved: bool) -> string {
-	if !resolved {
-		return "{}"
-	}
-	if symbol.pointers > 0 {
-		return "nil"
-	}
-	#partial switch v in symbol.value {
-	case SymbolBasicValue:
-		switch v.ident.name {
-		case "bool", "b8", "b16", "b32", "b64":
-			return "false"
-		case "string", "cstring":
-			return `""`
-		case "rawptr", "any", "typeid":
-			return "nil"
-		}
-		return "0"
-	case SymbolMultiPointerValue,
-	     SymbolSliceValue,
-	     SymbolDynamicArrayValue,
-	     SymbolMapValue,
-	     SymbolProcedureValue,
-	     SymbolProcedureGroupValue:
-		return "nil"
-	}
-	return "{}"
-}
