@@ -1,6 +1,8 @@
 package server
 
+import "base:runtime"
 import "core:odin/ast"
+import "core:slice"
 import "core:strings"
 
 import "src:common"
@@ -96,19 +98,21 @@ find_stmt_list_at :: proc(root: ^ast.Node, start, end: int) -> (StmtListAt, bool
 }
 
 IdentUse :: struct {
-	ident:  ^ast.Ident,
-	parent: ^ast.Node,
+	ident:   ^ast.Ident,
+	parents: []^ast.Node, // outermost first
 }
 
 collect_ident_uses :: proc(root: ^ast.Node, allocator := context.temp_allocator) -> []IdentUse {
 	Data :: struct {
-		uses:  [dynamic]IdentUse,
-		stack: [dynamic]^ast.Node,
+		uses:      [dynamic]IdentUse,
+		stack:     [dynamic]^ast.Node,
+		allocator: runtime.Allocator,
 	}
 
 	data := Data {
-		uses  = make([dynamic]IdentUse, allocator),
-		stack = make([dynamic]^ast.Node, context.temp_allocator),
+		uses      = make([dynamic]IdentUse, allocator),
+		stack     = make([dynamic]^ast.Node, context.temp_allocator),
+		allocator = allocator,
 	}
 
 	visitor := ast.Visitor {
@@ -120,11 +124,7 @@ collect_ident_uses :: proc(root: ^ast.Node, allocator := context.temp_allocator)
 				return nil
 			}
 			if ident, ok := node.derived.(^ast.Ident); ok {
-				parent: ^ast.Node
-				if len(data.stack) > 0 {
-					parent = data.stack[len(data.stack) - 1]
-				}
-				append(&data.uses, IdentUse{ident = ident, parent = parent})
+				append(&data.uses, IdentUse{ident = ident, parents = slice.clone(data.stack[:], data.allocator)})
 			}
 			append(&data.stack, node)
 			return visitor
@@ -135,26 +135,45 @@ collect_ident_uses :: proc(root: ^ast.Node, allocator := context.temp_allocator)
 	return data.uses[:]
 }
 
+// Assignment, address-of and `using` targets count as writes, also through the base of a
+// selector, index, slice or deref: `x.y = 1` and `&x[i]` write x.
 is_write :: proc(use: IdentUse) -> bool {
-	if use.parent == nil {
+	target: ^ast.Expr = use.ident
+	i := len(use.parents) - 1
+	for ; i >= 0; i -= 1 {
+		#partial switch p in use.parents[i].derived {
+		case ^ast.Selector_Expr:
+			if p.expr == target {
+				target = p
+				continue
+			}
+		case ^ast.Index_Expr:
+			if p.expr == target {
+				target = p
+				continue
+			}
+		case ^ast.Slice_Expr:
+			if p.expr == target {
+				target = p
+				continue
+			}
+		case ^ast.Deref_Expr:
+			target = p
+			continue
+		}
+		break
+	}
+	if i < 0 {
 		return false
 	}
 
-	#partial switch p in use.parent.derived {
+	#partial switch p in use.parents[i].derived {
 	case ^ast.Assign_Stmt:
-		for lhs in p.lhs {
-			if lhs == use.ident {
-				return true
-			}
-		}
+		return slice.contains(p.lhs, target)
 	case ^ast.Unary_Expr:
 		return p.op.kind == .And
 	case ^ast.Using_Stmt:
-		for expr in p.list {
-			if expr == use.ident {
-				return true
-			}
-		}
+		return slice.contains(p.list, target)
 	}
 	return false
 }
