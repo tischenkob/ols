@@ -5,6 +5,7 @@ import "core:testing"
 import test "src:testing"
 
 INVERT_IF_ACTION :: "Invert if"
+EARLY_RETURN_ACTION :: "Invert if (early return)"
 
 @(test)
 action_invert_if_simple :: proc(t: ^testing.T) {
@@ -333,11 +334,11 @@ main :: proc() {
 	}
 
 	expected := `if x <= 0 {
-	if x < 0 {
-		statement2()
-	} else {
-		statement3()
-	}
+		if x < 0 {
+			statement2()
+		} else {
+			statement3()
+		}
 	} else {
 		statement1()
 	}`
@@ -451,4 +452,181 @@ main :: proc() {
 	}
 
 	test.expect_action_missing(t, &source, INVERT_IF_ACTION)
+}
+
+@(test)
+invert_if_early_return_last_statement :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	x := 5
+	if x{*} > 0 {
+		foo()
+		bar()
+	}
+}
+`,
+		config = {enable_code_action_invert_if = true},
+	}
+
+	expected := `package test
+
+main :: proc() {
+	x := 5
+	if x <= 0 {
+		return
+	}
+	foo()
+	bar()
+}
+`
+
+	test.expect_action_applied(t, &source, EARLY_RETURN_ACTION, expected)
+}
+
+@(test)
+invert_if_early_return_with_following_statements :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	if x{*} > 0 {
+		foo() // keep me
+		return
+	}
+	bar()
+
+	// between
+	baz()
+}
+`,
+		config = {enable_code_action_invert_if = true},
+	}
+
+	expected := `package test
+
+main :: proc() {
+	if x <= 0 {
+		bar()
+
+		// between
+		baz()
+		return
+	}
+	foo() // keep me
+}
+`
+
+	test.expect_action_applied(t, &source, EARLY_RETURN_ACTION, expected)
+}
+
+@(test)
+invert_if_early_return_following_ends_with_return :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	if x{*} > 0 {
+		foo()
+		return
+	}
+	bar()
+	return
+}
+`,
+		config = {enable_code_action_invert_if = true},
+	}
+
+	expected := `package test
+
+main :: proc() {
+	if x <= 0 {
+		bar()
+		return
+	}
+	foo()
+}
+`
+
+	test.expect_action_applied(t, &source, EARLY_RETURN_ACTION, expected)
+}
+
+@(test)
+invert_if_early_return_not_offered :: proc(t: ^testing.T) {
+	only_plain_invert :: proc(t: ^testing.T, main: string) {
+		missing := test.Source{main = main, config = {enable_code_action_invert_if = true}}
+		test.expect_action_missing(t, &missing, EARLY_RETURN_ACTION)
+		plain := test.Source{main = main, config = {enable_code_action_invert_if = true}}
+		test.expect_action(t, &plain, {INVERT_IF_ACTION})
+	}
+
+	// Inside a loop.
+	only_plain_invert(t, `package test
+
+main :: proc() {
+	for {
+		if x{*} > 0 {
+			foo()
+		}
+	}
+}
+`)
+
+	// With else.
+	only_plain_invert(t, `package test
+
+main :: proc() {
+	if x{*} > 0 {
+		foo()
+	} else {
+		bar()
+	}
+}
+`)
+
+	// With init.
+	only_plain_invert(t, `package test
+
+main :: proc() {
+	if ok{*} := f(); ok {
+		foo()
+	}
+}
+`)
+
+	// Proc with a result.
+	only_plain_invert(t, `package test
+
+main :: proc() -> int {
+	if x{*} > 0 {
+		foo()
+	}
+	return 1
+}
+`)
+
+	// Not last and the body does not end with return.
+	only_plain_invert(t, `package test
+
+main :: proc() {
+	if x{*} > 0 {
+		foo()
+	}
+	bar()
+}
+`)
+
+	// A following defer would run before the moved statements.
+	only_plain_invert(t, `package test
+
+main :: proc() {
+	if x{*} > 0 {
+		foo()
+		return
+	}
+	defer bar()
+	baz()
+}
+`)
 }

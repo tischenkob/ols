@@ -127,8 +127,8 @@
 		},
 		"enable_code_action_invert_if": {
 			"type": "boolean",
-			"description": "Enables a code action to invert if statements.",
-			"default": false
+			"description": "Enables the code actions to invert if statements and to rewrite them as early returns.",
+			"default": true
 		},
 		"struct_fields_underscore_visibility": {
   			"type": "string",

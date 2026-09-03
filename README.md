@@ -115,7 +115,7 @@ Options:
 
 - `enable_comp_lit_signature_help_use_docs`: Put signature help for comp lits in the documentation. This will allow it to be rendered nicely using markdown in editors that render the label without colour on one line.
 
-- `enable_code_action_invert_if`: Enables a code action to invert if statements.
+- `enable_code_action_invert_if`: Enables the code actions to invert if statements and to rewrite them as early returns. Defaults to true.
 
 - `struct_fields_underscore_visibility`: Controls visibility of struct fields starting with `_`:
   - `""` (default): no hiding, all fields are visible

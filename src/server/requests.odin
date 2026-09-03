@@ -727,6 +727,7 @@ request_initialize :: proc(
 	config.enable_checker_only_saved = true
 	config.enable_checker_workspace_diagnostics = false
 	config.enable_auto_import = true
+	config.enable_code_action_invert_if = true
 
 	read_ols_config :: proc(file: string, config: ^common.Config, uri: common.Uri) -> (ok: bool) {
 		data, err := os.read_entire_file(file, context.temp_allocator)
