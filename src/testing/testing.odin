@@ -967,6 +967,22 @@ expect_action_applied :: proc(
 	expected: string,
 	ctx: server.CodeActionContext = {},
 ) {
+	text, ok := apply_action(t, src, action_name, ctx)
+	if ok {
+		testing.expectf(t, text == expected, "\nExpected:\n%s\n\nGot:\n%s", expected, text)
+	}
+}
+
+// The document text with the edits of the named action applied, in the temp allocator.
+apply_action :: proc(
+	t: ^testing.T,
+	src: ^Source,
+	action_name: string,
+	ctx: server.CodeActionContext = {},
+) -> (
+	string,
+	bool,
+) {
 	spall.trace(#procedure)
 
 	input_range := source_remove_selection(src)
@@ -978,7 +994,7 @@ expect_action_applied :: proc(
 	defer delete(actions)
 	if !ok {
 		log.error("Failed to find actions")
-		return
+		return "", false
 	}
 
 	for action in actions {
@@ -990,16 +1006,15 @@ expect_action_applied :: proc(
 
 		if !found {
 			log.errorf("Action '%s' found but has no edits", action_name)
-			return
+			return "", false
 		}
 
 		text := common.apply_text_edits(edits, string(src.document.text))
-
-		testing.expectf(t, text == expected, "\nExpected:\n%s\n\nGot:\n%s", expected, text)
-		return
+		return strings.clone(text, context.temp_allocator), true
 	}
 
 	log.errorf("Action '%s' not found in actions: %v", action_name, actions)
+	return "", false
 }
 
 expect_save_imports_applied :: proc(t: ^testing.T, src: ^Source, expected: string) {

@@ -9,48 +9,52 @@ import "core:strings"
 
 import "src:common"
 
-/*
- * The general idea behind inverting if statements is to allow 
- * if statements to be inverted without changing their behavior.
- * The examples of these changes are provided in the tests.
- * We should be careful to only allow this code action when it is safe to do so.
- * So for now, we only support only one level of if statements without else-if chains.
- */
-
-@(private="package")
+@(private = "package")
 add_invert_if_action :: proc(ctx: ^ActionContext) {
 	if !ctx.config.enable_code_action_invert_if {
 		return
 	}
 
 	if_stmt := find_if_stmt_at_position(ctx.document.ast.decls[:], ctx.range.start)
-	if if_stmt == nil {
+	if if_stmt == nil || if_stmt.body == nil {
+		return
+	}
+	body, is_block := if_stmt.body.derived.(^ast.Block_Stmt)
+	if !is_block {
 		return
 	}
 
-	new_text, ok := generate_inverted_if(ctx.document, if_stmt)
+	new_text, ok := generate_inverted_if(ctx.document.ast.src, if_stmt, body)
 	if !ok {
 		return
 	}
 
-	range := common.get_token_range(if_stmt^, ctx.document.ast.src)
-
 	edits := make([]TextEdit, 1, context.temp_allocator)
-	edits[0] = TextEdit{range = range, newText = new_text}
-
+	edits[0] = TextEdit {
+		range   = range_of(ctx, if_stmt.pos.offset, if_stmt.end.offset),
+		newText = new_text,
+	}
 	append(ctx.actions, make_code_action(ctx, "Invert if", "refactor.more", edits))
 
-	add_early_return_action(ctx, if_stmt)
+	add_early_exit_action(ctx, if_stmt, body)
 }
 
-// Offered only for an if that is a direct child of a proc body without results, so the added bare
-// `return` leaves the proc and cannot be captured by a loop or switch.
-add_early_return_action :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt) {
-	if if_stmt.else_stmt != nil || if_stmt.init != nil || if_stmt.label != nil || if_stmt.body == nil {
-		return
-	}
-	body, is_block := if_stmt.body.derived.(^ast.Block_Stmt)
-	if !is_block || len(body.stmts) == 0 {
+Exit :: enum {
+	Return,
+	Continue,
+	Break,
+}
+
+exit_text := [Exit]string {
+	.Return   = "return",
+	.Continue = "continue",
+	.Break    = "break",
+}
+
+// The if must be a direct child of a proc body without results, a loop body or a case body, so
+// the added bare exit leaves that construct.
+add_early_exit_action :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt, body: ^ast.Block_Stmt) {
+	if if_stmt.else_stmt != nil || if_stmt.init != nil || if_stmt.label != nil || len(body.stmts) == 0 {
 		return
 	}
 
@@ -58,29 +62,40 @@ add_early_return_action :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt) {
 	if function == nil || function.body == nil {
 		return
 	}
-	if function.type != nil && function.type.results != nil && len(function.type.results.list) > 0 {
-		return
-	}
-	proc_body, proc_body_is_block := function.body.derived.(^ast.Block_Stmt)
-	if !proc_body_is_block {
-		return
-	}
-	list, found := find_stmt_list_at(function.body, if_stmt.pos.offset, if_stmt.end.offset)
-	if !found ||
-	   raw_data(list.stmts) != raw_data(proc_body.stmts) ||
-	   len(list.stmts) != len(proc_body.stmts) ||
-	   list.first > list.last ||
-	   list.stmts[list.first] != if_stmt {
-		return
-	}
 
-	src := ctx.document.ast.src
-	cond, ok := invert_condition(src, if_stmt.cond)
+	stmts, exit, close, ok := enclosing_list(function, if_stmt)
 	if !ok {
 		return
 	}
+	index := -1
+	for stmt, i in stmts {
+		if stmt == if_stmt {
+			index = i
+		}
+	}
+	if index < 0 {
+		return
+	}
+	following := stmts[index + 1:]
+	for stmt in following {
+		#partial switch s in stmt.derived {
+		case ^ast.Defer_Stmt:
+			return
+		case ^ast.Branch_Stmt:
+			if s.tok.kind == .Fallthrough {
+				return
+			}
+		}
+	}
+
+	src := ctx.document.ast.src
+	cond, cond_ok := invert_condition(src, if_stmt.cond)
+	if !cond_ok {
+		return
+	}
 	ind := get_line_indentation(src, if_stmt.pos.offset)
-	following := list.stmts[list.first + 1:]
+	unit := indent_unit(src, ind, body.uses_do ? nil : body.stmts[0])
+	deeper := strings.concatenate({ind, unit}, context.temp_allocator)
 
 	sb := strings.builder_make(context.temp_allocator)
 	strings.write_string(&sb, "if ")
@@ -88,58 +103,121 @@ add_early_return_action :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt) {
 	strings.write_string(&sb, " {\n")
 
 	replace_end := if_stmt.end.offset
-	body_end := body.close.offset
+	body_text: string
 
 	if len(following) == 0 {
-		strings.write_string(&sb, ind)
-		strings.write_string(&sb, "\treturn\n")
-		strings.write_string(&sb, ind)
-		strings.write_string(&sb, "}\n")
+		strings.write_string(&sb, deeper)
+		strings.write_string(&sb, exit_text[exit])
+		strings.write_byte(&sb, '\n')
+		body_text = block_lines(src, body, ind, unit)
 	} else {
-		last_body := body.stmts[len(body.stmts) - 1]
-		ret, is_return := last_body.derived.(^ast.Return_Stmt)
-		if !is_return || len(ret.results) > 0 {
+		last := body.stmts[len(body.stmts) - 1]
+		if len(body.stmts) < 2 || !is_bare_exit(last, exit) {
 			return
 		}
-		for stmt in following {
-			if _, is_defer := stmt.derived.(^ast.Defer_Stmt); is_defer {
-				return
-			}
+		// Lines after the if, blank lines at both ends dropped.
+		start := if_stmt.end.offset
+		for start < len(src) && src[start] != '\n' {
+			start += 1
 		}
-		body_end = ret.pos.offset
-
-		following_text, following_end := source_lines(src, following[0].pos.offset, proc_body.close.offset)
-		replace_end = following_end
-		strings.write_string(&sb, reindent(following_text, ind, strings.concatenate({ind, "\t"}, context.temp_allocator)))
+		end := close
+		for end > start && strings.is_space(rune(src[end - 1])) {
+			end -= 1
+		}
+		replace_end = end
+		strings.write_string(&sb, reindent(strings.trim_left(src[start:end], "\r\n"), ind, deeper))
 		strings.write_byte(&sb, '\n')
-		if _, ends_with_return := following[len(following) - 1].derived.(^ast.Return_Stmt); !ends_with_return {
-			strings.write_string(&sb, ind)
-			strings.write_string(&sb, "\treturn\n")
+		if !is_bare_exit(following[len(following) - 1], exit) {
+			strings.write_string(&sb, deeper)
+			strings.write_string(&sb, exit_text[exit])
+			strings.write_byte(&sb, '\n')
 		}
-		strings.write_string(&sb, ind)
-		strings.write_string(&sb, "}\n")
+		body_text = strings.trim_left(strings.trim_right_space(src[body.open.offset + 1:last.pos.offset]), "\r\n")
 	}
-
-	body_text, _ := source_lines(src, body.stmts[0].pos.offset, body_end)
-	strings.write_string(&sb, reindent(body_text, strings.concatenate({ind, "\t"}, context.temp_allocator), ind))
+	strings.write_string(&sb, ind)
+	strings.write_string(&sb, "}\n")
+	strings.write_string(&sb, reindent(body_text, deeper, ind))
 
 	edits := make([]TextEdit, 1, context.temp_allocator)
 	edits[0] = TextEdit {
 		range   = range_of(ctx, if_stmt.pos.offset, replace_end),
 		newText = strings.trim_right_space(strings.to_string(sb)),
 	}
-	append(ctx.actions, make_code_action(ctx, "Invert if (early return)", "refactor.rewrite", edits))
+	title := fmt.tprintf("Invert if (early %s)", exit_text[exit])
+	append(ctx.actions, make_code_action(ctx, title, "refactor.rewrite", edits))
 }
 
-// Source from the start of the line holding `from` up to `to`, trailing whitespace removed, so
-// comments and blank lines between statements survive. Returns the text and its end offset.
-source_lines :: proc(src: string, from, to: int) -> (string, int) {
-	start := from
-	for start > 0 && src[start - 1] != '\n' {
-		start -= 1
+// The statement list holding the if, the exit that leaves its owner, and the offset up to which
+// following statements extend.
+enclosing_list :: proc(
+	function: ^ast.Proc_Lit,
+	if_stmt: ^ast.If_Stmt,
+) -> (
+	stmts: []^ast.Stmt,
+	exit: Exit,
+	close: int,
+	ok: bool,
+) {
+	chain := nodes_at({function.body}, if_stmt.pos.offset)
+	parent, owner: ^ast.Node
+	for at in chain {
+		if at.node == if_stmt {
+			parent = at.parent
+		}
 	}
-	text := strings.trim_right_space(src[start:to])
-	return text, start + len(text)
+	for at in chain {
+		if at.node == parent {
+			owner = at.parent
+		}
+	}
+	if parent == nil {
+		return
+	}
+
+	#partial switch p in parent.derived {
+	case ^ast.Block_Stmt:
+		if p.uses_do {
+			return
+		}
+		stmts = p.stmts
+		close = p.close.offset
+		if owner == nil {
+			exit = .Return
+			if function.type != nil && function.type.results != nil && len(function.type.results.list) > 0 {
+				return
+			}
+		} else {
+			#partial switch _ in owner.derived {
+			case ^ast.For_Stmt, ^ast.Range_Stmt:
+				exit = .Continue
+			case:
+				return
+			}
+		}
+	case ^ast.Case_Clause:
+		if len(p.body) == 0 {
+			return
+		}
+		stmts = p.body
+		close = p.body[len(p.body) - 1].end.offset
+		exit = .Break
+	case:
+		return
+	}
+	return stmts, exit, close, true
+}
+
+is_bare_exit :: proc(stmt: ^ast.Stmt, exit: Exit) -> bool {
+	#partial switch s in stmt.derived {
+	case ^ast.Return_Stmt:
+		return exit == .Return && len(s.results) == 0
+	case ^ast.Branch_Stmt:
+		if s.label != nil {
+			return false
+		}
+		return (exit == .Continue && s.tok.kind == .Continue) || (exit == .Break && s.tok.kind == .Break)
+	}
+	return false
 }
 
 // Find the innermost if statement that contains the given position
@@ -265,103 +343,90 @@ find_if_stmt_in_node :: proc(node: ^ast.Node, position: common.AbsolutePosition,
 	return nil
 }
 
-// Generate the inverted if statement text
-generate_inverted_if :: proc(document: ^Document, if_stmt: ^ast.If_Stmt) -> (string, bool) {
-	src := document.ast.src
+// The replacement starts at the `if`, so a label stays in place. Bodies keep their depth; a
+// `do` body becomes a block. An empty else is dropped, so inverting twice gives the input back.
+generate_inverted_if :: proc(src: string, if_stmt: ^ast.If_Stmt, body: ^ast.Block_Stmt) -> (string, bool) {
+	cond, ok := invert_condition(src, if_stmt.cond)
+	if !ok {
+		return "", false
+	}
 
-	indent := get_line_indentation(src, if_stmt.pos.offset)
+	ind := get_line_indentation(src, if_stmt.pos.offset)
+	unit := indent_unit(src, ind, first_own_line_stmt(if_stmt))
+	deeper := strings.concatenate({ind, unit}, context.temp_allocator)
 
 	sb := strings.builder_make(context.temp_allocator)
-
-	if if_stmt.label != nil {
-		label_text := src[if_stmt.label.pos.offset:if_stmt.label.end.offset]
-		strings.write_string(&sb, label_text)
-		strings.write_string(&sb, ": ")
-	}
-
 	strings.write_string(&sb, "if ")
-
 	if if_stmt.init != nil {
-		init_text := src[if_stmt.init.pos.offset:if_stmt.init.end.offset]
-		strings.write_string(&sb, init_text)
+		strings.write_string(&sb, node_text(src, if_stmt.init))
 		strings.write_string(&sb, "; ")
 	}
+	strings.write_string(&sb, cond)
+	strings.write_string(&sb, " {\n")
 
-	if if_stmt.cond != nil {
-		inverted_cond, ok := invert_condition(src, if_stmt.cond)
-		if !ok {
+	new_else := block_lines(src, body, ind, unit)
+	new_then: string
+	chain: ^ast.If_Stmt
+	if if_stmt.else_stmt != nil {
+		#partial switch e in if_stmt.else_stmt.derived {
+		case ^ast.Block_Stmt:
+			new_then = block_lines(src, e, ind, unit)
+		case ^ast.If_Stmt:
+			// The else-if chain moves into the then block, one level deeper.
+			new_then = reindent(strings.concatenate({ind, node_text(src, e)}, context.temp_allocator), ind, deeper)
+		case:
 			return "", false
 		}
-		strings.write_string(&sb, inverted_cond)
+		// A then block holding only an if becomes the new else-if chain, which is what the
+		// inversion of a chain produces.
+		if !body.uses_do && len(body.stmts) == 1 {
+			if inner, is_if := body.stmts[0].derived.(^ast.If_Stmt);
+			   is_if && inner.label == nil && !has_comments_around(src, body, inner) {
+				chain = inner
+			}
+		}
 	}
 
-	strings.write_string(&sb, " ")
-
-	// Now we need to swap the bodies
-
-	if if_stmt.else_stmt != nil {
-		else_body_text := get_block_body_text(src, if_stmt.else_stmt, indent)
-		then_body_text := get_block_body_text(src, if_stmt.body, indent)
-
-		strings.write_string(&sb, "{\n")
-		strings.write_string(&sb, else_body_text)
-		strings.write_string(&sb, indent)
-		strings.write_string(&sb, "} else {\n")
-		strings.write_string(&sb, then_body_text)
-		strings.write_string(&sb, indent)
-		strings.write_string(&sb, "}")
-	} else {
-		then_body_text := get_block_body_text(src, if_stmt.body, indent)
-
-		strings.write_string(&sb, "{\n")
-		strings.write_string(&sb, indent)
-		strings.write_string(&sb, "} else {\n")
-		strings.write_string(&sb, then_body_text)
-		strings.write_string(&sb, indent)
-		strings.write_string(&sb, "}")
+	if len(new_then) > 0 {
+		strings.write_string(&sb, new_then)
+		strings.write_byte(&sb, '\n')
+	}
+	strings.write_string(&sb, ind)
+	strings.write_byte(&sb, '}')
+	if chain != nil {
+		strings.write_string(&sb, " else ")
+		text := reindent(strings.concatenate({deeper, node_text(src, chain)}, context.temp_allocator), deeper, ind)
+		strings.write_string(&sb, strings.trim_prefix(text, ind))
+	} else if len(new_else) > 0 {
+		strings.write_string(&sb, " else {\n")
+		strings.write_string(&sb, new_else)
+		strings.write_byte(&sb, '\n')
+		strings.write_string(&sb, ind)
+		strings.write_byte(&sb, '}')
 	}
 
 	return strings.to_string(sb), true
 }
 
-// Extract the body text from a block statement (without the braces)
-get_block_body_text :: proc(src: string, stmt: ^ast.Stmt, base_indent: string) -> string {
-	if stmt == nil {
-		return ""
-	}
-
-	#partial switch block in stmt.derived {
-	case ^ast.Block_Stmt:
-		if len(block.stmts) == 0 {
-			return ""
+// A statement inside one of the if's blocks that sits on its own line, to measure the indentation
+// unit from.
+first_own_line_stmt :: proc(if_stmt: ^ast.If_Stmt) -> ^ast.Node {
+	for stmt in ([]^ast.Stmt{if_stmt.body, if_stmt.else_stmt}) {
+		if stmt == nil {
+			continue
 		}
-
-		sb := strings.builder_make(context.temp_allocator)
-
-		for s in block.stmts {
-			if s == nil {
-				continue
-			}
-			stmt_indent := get_line_indentation(src, s.pos.offset)
-			stmt_text := src[s.pos.offset:s.end.offset]
-			strings.write_string(&sb, stmt_indent)
-			strings.write_string(&sb, stmt_text)
-			strings.write_string(&sb, "\n")
+		if block, is_block := stmt.derived.(^ast.Block_Stmt); is_block && !block.uses_do && len(block.stmts) > 0 {
+			return block.stmts[0]
 		}
-
-		return strings.to_string(sb)
-
-	case ^ast.If_Stmt:
-		// An else-if chain moves into the new then block, one level deeper than it sits now.
-		chain_indent := get_line_indentation(src, block.pos.offset)
-		chain := strings.concatenate({chain_indent, src[block.pos.offset:block.end.offset]}, context.temp_allocator)
-		deeper := strings.concatenate({chain_indent, "\t"}, context.temp_allocator)
-		return strings.concatenate({reindent(chain, chain_indent, deeper), "\n"}, context.temp_allocator)
 	}
+	return nil
+}
 
-	// Fallback: just return the statement text
-	stmt_text := src[stmt.pos.offset:stmt.end.offset]
-	return fmt.tprintf("%s%s\n", base_indent, stmt_text)
+@(private = "package")
+has_comments_around :: proc(src: string, block: ^ast.Block_Stmt, stmt: ^ast.Stmt) -> bool {
+	before := strings.trim_space(src[block.open.offset + 1:stmt.pos.offset])
+	after := strings.trim_space(src[stmt.end.offset:block.close.offset])
+	return before != "" || after != ""
 }
 
 // Invert a condition expression
@@ -380,26 +445,22 @@ invert_condition :: proc(src: string, cond: ^ast.Expr) -> (string, bool) {
 			return fmt.tprintf("%s %s %s", left_text, inverted_op, right_text), true
 		}
 
-		if c.op.kind == .Cmp_And || c.op.kind == .Cmp_Or {
-			// Just wrap with !()
-			cond_text := src[cond.pos.offset:cond.end.offset]
-			return fmt.tprintf("!(%s)", cond_text), true
-		}
-
 	case ^ast.Unary_Expr:
-		// If it's already negated with !, remove the negation
 		if c.op.kind == .Not {
-			inner_text := src[c.expr.pos.offset:c.expr.end.offset]
-			return inner_text, true
+			// `!(a && b)` comes back as `a && b`, the form the inversion of `a && b` produced.
+			if paren, is_paren := c.expr.derived.(^ast.Paren_Expr); is_paren && is_logical(paren.expr) {
+				return node_text(src, paren.expr), true
+			}
+			return node_text(src, c.expr), true
 		}
 
 	case ^ast.Paren_Expr:
+		if is_logical(c.expr) {
+			return fmt.tprintf("!%s", node_text(src, cond)), true
+		}
 		inner_inverted, ok := invert_condition(src, c.expr)
 		if ok {
-			if needs_parentheses(inner_inverted) {
-				return fmt.tprintf("(%s)", inner_inverted), true
-			}
-			return inner_inverted, true
+			return fmt.tprintf("(%s)", inner_inverted), true
 		}
 	}
 
@@ -409,6 +470,11 @@ invert_condition :: proc(src: string, cond: ^ast.Expr) -> (string, bool) {
 		return fmt.tprintf("!%s", cond_text), true
 	}
 	return fmt.tprintf("!(%s)", cond_text), true
+}
+
+is_logical :: proc(expr: ^ast.Expr) -> bool {
+	bin, is_binary := expr.derived.(^ast.Binary_Expr)
+	return is_binary && (bin.op.kind == .Cmp_And || bin.op.kind == .Cmp_Or)
 }
 
 // Check if an expression is simple (identifier, call, or already parenthesized)
@@ -421,13 +487,6 @@ is_simple_expr :: proc(expr: ^ast.Expr) -> bool {
 		return true
 	}
 	return false
-}
-
-// Check if a string needs parentheses (simple heuristic)
-needs_parentheses :: proc(s: string) -> bool {
-	// If it starts with ! and is not wrapped in parens, it might need them
-	// This is a simple heuristic
-	return strings.contains(s, " && ") || strings.contains(s, " || ")
 }
 
 // Get the inverted comparison operator
@@ -445,6 +504,10 @@ get_inverted_operator :: proc(op: tokenizer.Token_Kind) -> (string, bool) {
 		return "<=", true
 	case .Gt_Eq:
 		return "<", true
+	case .In:
+		return "not_in", true
+	case .Not_In:
+		return "in", true
 	}
 	return "", false
 }
