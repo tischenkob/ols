@@ -119,6 +119,8 @@ Options:
 
 - `enable_code_action_extract_variable`: Enables the code action to extract an expression into a local variable. Defaults to true.
 
+- `enable_code_action_inline_variable`: Enables the code action to inline a local variable into its uses. Defaults to true.
+
 - `struct_fields_underscore_visibility`: Controls visibility of struct fields starting with `_`:
   - `""` (default): no hiding, all fields are visible
   - `"file"`: hide fields when accessed from outside the declaring file 

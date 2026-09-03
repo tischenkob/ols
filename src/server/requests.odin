@@ -402,6 +402,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_invert_if.(bool) or_else config.enable_code_action_invert_if
 	config.enable_code_action_extract_variable =
 		ols_config.enable_code_action_extract_variable.(bool) or_else config.enable_code_action_extract_variable
+	config.enable_code_action_inline_variable =
+		ols_config.enable_code_action_inline_variable.(bool) or_else config.enable_code_action_inline_variable
 	config.verbose = ols_config.verbose.(bool) or_else config.verbose
 	config.file_log = ols_config.file_log.(bool) or_else config.file_log
 
@@ -731,6 +733,7 @@ request_initialize :: proc(
 	config.enable_auto_import = true
 	config.enable_code_action_invert_if = true
 	config.enable_code_action_extract_variable = true
+	config.enable_code_action_inline_variable = true
 
 	read_ols_config :: proc(file: string, config: ^common.Config, uri: common.Uri) -> (ok: bool) {
 		data, err := os.read_entire_file(file, context.temp_allocator)

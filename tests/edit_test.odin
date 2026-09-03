@@ -58,6 +58,10 @@ main :: proc() {
 	p := &x
 	x += 1
 	using x
+	x.y = 1
+	q := &x[0]
+	x^ = 2
+	foo(x.y)
 	y := x{*}
 }
 `,
@@ -70,7 +74,7 @@ main :: proc() {
 				append(&writes, server.is_write(use))
 			}
 		}
-		expected := []bool{false, true, true, true, true, false}
+		expected := []bool{false, true, true, true, true, true, true, true, false, false}
 		testing.expect_value(t, len(writes), len(expected))
 		for w, i in expected {
 			testing.expectf(t, writes[i] == w, "use %d: expected is_write %v", i, w)
