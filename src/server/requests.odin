@@ -409,6 +409,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_extract_procedure.(bool) or_else config.enable_code_action_extract_procedure
 	config.enable_code_action_split_merge_if =
 		ols_config.enable_code_action_split_merge_if.(bool) or_else config.enable_code_action_split_merge_if
+	config.enable_code_action_rewrite_expression =
+		ols_config.enable_code_action_rewrite_expression.(bool) or_else config.enable_code_action_rewrite_expression
 	config.enable_organize_imports_on_save =
 		ols_config.enable_organize_imports_on_save.(bool) or_else config.enable_organize_imports_on_save
 	config.verbose = ols_config.verbose.(bool) or_else config.verbose
@@ -891,6 +893,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_inline_variable = true
 	config.enable_code_action_extract_procedure = true
 	config.enable_code_action_split_merge_if = true
+	config.enable_code_action_rewrite_expression = true
 	config.enable_organize_imports_on_save = true
 }
 

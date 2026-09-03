@@ -150,6 +150,11 @@
 			"description": "Enables the code actions to split an if on && and to merge nested ifs.",
 			"default": true
 		},
+		"enable_code_action_rewrite_expression": {
+			"type": "boolean",
+			"description": "Enables the code actions to flip a comparison, apply De Morgan's law and convert between compound and plain assignment.",
+			"default": true
+		},
 		"enable_organize_imports_on_save": {
 			"type": "boolean",
 			"description": "Removes unused imports and adds missing ones on save through workspace/applyEdit.",

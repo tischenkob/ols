@@ -454,6 +454,7 @@ OlsConfig :: struct {
 	enable_code_action_inline_variable:      Maybe(bool),
 	enable_code_action_extract_procedure:    Maybe(bool),
 	enable_code_action_split_merge_if:       Maybe(bool),
+	enable_code_action_rewrite_expression:   Maybe(bool),
 	enable_organize_imports_on_save:         Maybe(bool),
 	struct_fields_underscore_visibility: 	 string,
 	enable_parser_errors:                    Maybe(bool),
