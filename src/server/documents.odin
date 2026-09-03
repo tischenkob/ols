@@ -381,6 +381,7 @@ document_refresh :: proc(document: ^Document, config: ^common.Config, writer: ^W
 
 	remove_diagnostics(.Syntax, uri.uri)
 	remove_diagnostics(.Unused, uri.uri)
+	run_lints(document, config)
 
 	if writer != nil && config.enable_parser_errors {
 		document.diagnosed_errors = true
