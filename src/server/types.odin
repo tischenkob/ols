@@ -472,6 +472,8 @@ OlsConfig :: struct {
 	enable_code_action_fill_struct:          Maybe(bool),
 	enable_code_action_if_to_switch:         Maybe(bool),
 	enable_code_action_result_handling:      Maybe(bool),
+	enable_code_action_generate_proc:        Maybe(bool),
+	enable_code_action_named_results:        Maybe(bool),
 	enable_organize_imports_on_save:         Maybe(bool),
 	enable_lint_self_assignment:             Maybe(bool),
 	enable_lint_identical_branches:          Maybe(bool),

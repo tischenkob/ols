@@ -140,6 +140,7 @@ append_insert :: proc(ctx: ^ActionContext, at: int, title, kind, text: string) {
 }
 
 // One type per value: `a, b: int` yields int twice.
+@(private = "package")
 field_types :: proc(fields: []^ast.Field) -> []^ast.Expr {
 	types := make([dynamic]^ast.Expr, context.temp_allocator)
 	for field in fields {
@@ -150,6 +151,7 @@ field_types :: proc(fields: []^ast.Field) -> []^ast.Expr {
 	return types[:]
 }
 
+@(private = "package")
 result_kind :: proc(type: ^ast.Expr) -> Result_Kind {
 	if type == nil {
 		return .Other
@@ -172,6 +174,7 @@ result_kind :: proc(type: ^ast.Expr) -> Result_Kind {
 	return .Other
 }
 
+@(private = "package")
 final_name :: proc(type: ^ast.Expr) -> string {
 	#partial switch t in type.derived {
 	case ^ast.Ident:

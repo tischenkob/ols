@@ -180,6 +180,16 @@
 			"description": "Enables the code actions adding or_return, or_else, an if on the ok/error result, or discarding the results of a call.",
 			"default": true
 		},
+		"enable_code_action_generate_proc": {
+			"type": "boolean",
+			"description": "Enables the code action generating a stub for a called procedure that does not exist.",
+			"default": true
+		},
+		"enable_code_action_named_results": {
+			"type": "boolean",
+			"description": "Enables the code action naming the results of a procedure.",
+			"default": true
+		},
 		"enable_inlay_hints_variable_types": {
 			"type": "boolean",
 			"description": "Turn on inlay hints for inferred variable types.",

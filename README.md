@@ -140,6 +140,10 @@ Options:
 
 - `enable_code_action_result_handling`: Enables the code actions adding `or_return`, `or_else`, an `if` on the ok/error result, or discarding the results of a call. Defaults to true.
 
+- `enable_code_action_generate_proc`: Enables the code action generating a stub for a called procedure that does not exist. Defaults to true.
+
+- `enable_code_action_named_results`: Enables the code action naming the results of a procedure. Defaults to true.
+
 - `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&` and to merge nested ifs. Defaults to true.
 
 - `enable_code_action_rewrite_expression`: Enables the code actions to flip a comparison, apply De Morgan's law and convert between compound and plain assignment. Defaults to true.
