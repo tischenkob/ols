@@ -176,6 +176,8 @@ lint_ignored_result :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
 
+import "testing"
+
 Allocator_Error :: enum {
 	None,
 	Out_Of_Memory,
@@ -193,7 +195,19 @@ append :: proc {
 	append_elem,
 }
 
+delete_slice :: proc(array: $T/[]$E, allocator := context.allocator) -> Allocator_Error {
+	return .None
+}
+
+delete :: proc {
+	delete_slice,
+}
+
 ok_proc :: proc() -> bool {
+	return true
+}
+
+set_env :: proc(key, value: string) -> bool {
 	return true
 }
 
@@ -212,24 +226,36 @@ int_proc :: proc() -> int {
 main :: proc() {
 	xs: [dynamic]int
 	append(&xs, 1)
+	s: []int
+	delete(s)
 	ok_proc()
 	_ = ok_proc()
+	set_env("a", "b")
 	(alloc_proc())
 	union_proc()
 	int_proc()
 	defer ok_proc()
 	if ok_proc() {
 	}
+	tt: ^testing.T
+	testing.expect(tt, true)
 }
 `,
+		packages = {
+			{
+				pkg = "testing",
+				source = `package testing
+T :: struct {}
+expect :: proc(t: ^T, ok: bool) -> bool {
+	return ok
+}
+`,
+			},
+		},
 		config = {enable_lint_ignored_result = true},
 	}
 
-	test.expect_lint_diagnostics(
-		t,
-		&source,
-		{{38, "ignored-result"}, {40, "ignored-result"}, {41, "ignored-result"}},
-	)
+	test.expect_lint_diagnostics(t, &source, {{54, "ignored-result"}, {56, "ignored-result"}, {58, "ignored-result"}})
 }
 
 @(test)
