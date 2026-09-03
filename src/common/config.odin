@@ -55,6 +55,7 @@ Config :: struct {
 	enable_code_action_extract_variable:     bool,
 	enable_code_action_inline_variable:      bool,
 	enable_code_action_extract_procedure:    bool,
+	enable_code_action_split_merge_if:       bool,
 	enable_organize_imports_on_save:         bool,
 	struct_fields_underscore_visibility:	 StructFieldUnderscoreMeaning,
 	enable_parser_errors:                    bool,

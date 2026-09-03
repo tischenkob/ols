@@ -145,6 +145,11 @@
 			"description": "Enables the code action to extract selected statements into a new procedure.",
 			"default": true
 		},
+		"enable_code_action_split_merge_if": {
+			"type": "boolean",
+			"description": "Enables the code actions to split an if on && and to merge nested ifs.",
+			"default": true
+		},
 		"enable_organize_imports_on_save": {
 			"type": "boolean",
 			"description": "Removes unused imports and adds missing ones on save through workspace/applyEdit.",

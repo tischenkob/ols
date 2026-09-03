@@ -124,6 +124,8 @@ Options:
 
 - `enable_code_action_extract_procedure`: Enables the code action to extract selected statements into a new procedure. Defaults to true.
 
+- `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&` and to merge nested ifs. Defaults to true.
+
 - `enable_organize_imports_on_save`: Removes unused imports and adds missing ones on save through `workspace/applyEdit`. Defaults to true.
 
 - `struct_fields_underscore_visibility`: Controls visibility of struct fields starting with `_`:
