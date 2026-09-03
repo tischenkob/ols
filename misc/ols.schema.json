@@ -145,6 +145,16 @@
 			"description": "Enables the code action to extract selected statements into a new procedure.",
 			"default": true
 		},
+		"enable_code_action_add_explicit_type": {
+			"type": "boolean",
+			"description": "Enables the code action to add the inferred type to a := declaration.",
+			"default": true
+		},
+		"enable_inlay_hints_variable_types": {
+			"type": "boolean",
+			"description": "Turn on inlay hints for inferred variable types.",
+			"default": true
+		},
 		"enable_code_action_split_merge_if": {
 			"type": "boolean",
 			"description": "Enables the code actions to split an if on && and to merge nested ifs.",

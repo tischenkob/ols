@@ -216,3 +216,74 @@ get_line_indentation :: proc(src: string, offset: int) -> string {
 
 	return src[line_start:indent_end]
 }
+
+// Type of a local as Odin source, resolved with locals gathered up to the current position.
+local_type_text :: proc(ctx: ^ActionContext, ident: ^ast.Ident) -> (string, bool) {
+	// Resolving a global type turns locals off and leaves them off.
+	ctx.ast_context.use_locals = true
+	symbol, ok := resolve_type_expression(ctx.ast_context, ident)
+	if !ok {
+		return "", false
+	}
+	return symbol_type_text(ctx.ast_context, symbol, ident.name)
+}
+
+// Named types print by name, with the package alias when foreign. Anonymous aggregates and
+// untyped constants have no name to write.
+symbol_type_text :: proc(ast_context: ^AstContext, symbol: Symbol, name: string) -> (string, bool) {
+	symbol := symbol
+	if _, is_untyped := symbol.value.(SymbolUntypedValue); is_untyped && .Mutable not_in symbol.flags {
+		return "", false
+	}
+	construct_ident_symbol_info(&symbol, name, ast_context.document_package)
+
+	text := strings.builder_make(context.temp_allocator)
+	if symbol.type_name != "" {
+		for _ in 0 ..< symbol.pointers {
+			strings.write_byte(&text, '^')
+		}
+		if symbol.type_pkg != "" && symbol.type_pkg != ast_context.document_package {
+			pkg_name := get_pkg_name(ast_context, symbol.type_pkg)
+			if pkg_name != "" && pkg_name != "$builtin" {
+				strings.write_string(&text, pkg_name)
+				strings.write_byte(&text, '.')
+			}
+		}
+		strings.write_string(&text, symbol.type_name)
+		#partial switch v in symbol.value {
+		case SymbolStructValue:
+			write_poly_list(&text, v.poly, v.poly_names)
+		case SymbolUnionValue:
+			write_poly_list(&text, v.poly, v.poly_names)
+		}
+	} else {
+		write_short_signature(&text, ast_context, symbol)
+	}
+
+	result := strings.to_string(text)
+	if result == "" || strings.contains(result, "{") {
+		return "", false
+	}
+	return result, true
+}
+
+// Initializers that already name their type, so an explicit type would repeat it. callee is
+// the resolved callee of a Call_Expr: a conversion like int(x) resolves to a type, not a proc.
+value_states_type :: proc(value: ^ast.Expr, callee: Symbol, callee_ok: bool) -> bool {
+	#partial switch v in value.derived {
+	case ^ast.Comp_Lit:
+		return v.type != nil
+	case ^ast.Type_Cast, ^ast.Auto_Cast, ^ast.Proc_Lit:
+		return true
+	case ^ast.Call_Expr:
+		if !callee_ok {
+			return false
+		}
+		#partial switch _ in callee.value {
+		case SymbolProcedureValue, SymbolAggregateValue, SymbolProcedureGroupValue:
+			return false
+		}
+		return true
+	}
+	return false
+}

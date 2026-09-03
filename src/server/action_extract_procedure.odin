@@ -103,9 +103,11 @@ add_extract_procedure_action :: proc(ctx: ^ActionContext) {
 		}
 		strings.write_string(&sb, input.ident.name)
 		strings.write_string(&sb, ": ")
-		if !write_type(&sb, ctx, input.ident) {
+		text, ok := local_type_text(ctx, input.ident)
+		if !ok {
 			return
 		}
+		strings.write_string(&sb, text)
 	}
 	strings.write_byte(&sb, ')')
 	if len(outputs) > 0 {
@@ -117,9 +119,11 @@ add_extract_procedure_action :: proc(ctx: ^ActionContext) {
 			if i > 0 {
 				strings.write_string(&sb, ", ")
 			}
-			if !write_type(&sb, ctx, output.ident) {
+			text, ok := local_type_text(ctx, output.ident)
+			if !ok {
 				return
 			}
+			strings.write_string(&sb, text)
 		}
 		if len(outputs) > 1 {
 			strings.write_byte(&sb, ')')
@@ -261,51 +265,6 @@ can_extract :: proc(stmts: []^ast.Stmt) -> bool {
 		ast.walk(&visitor, stmt)
 	}
 	return data.ok
-}
-
-// Named types print by name, with the package alias when foreign. Anonymous aggregates and
-// untyped constants have no name to write.
-write_type :: proc(sb: ^strings.Builder, ctx: ^ActionContext, ident: ^ast.Ident) -> bool {
-	// Resolving a global type turns locals off and leaves them off.
-	ctx.ast_context.use_locals = true
-	symbol, ok := resolve_type_expression(ctx.ast_context, ident)
-	if !ok {
-		return false
-	}
-	if _, is_untyped := symbol.value.(SymbolUntypedValue); is_untyped && .Mutable not_in symbol.flags {
-		return false
-	}
-	construct_ident_symbol_info(&symbol, ident.name, ctx.ast_context.document_package)
-
-	text := strings.builder_make(context.temp_allocator)
-	if symbol.type_name != "" {
-		for _ in 0 ..< symbol.pointers {
-			strings.write_byte(&text, '^')
-		}
-		if symbol.type_pkg != "" && symbol.type_pkg != ctx.ast_context.document_package {
-			pkg_name := get_pkg_name(ctx.ast_context, symbol.type_pkg)
-			if pkg_name != "" && pkg_name != "$builtin" {
-				strings.write_string(&text, pkg_name)
-				strings.write_byte(&text, '.')
-			}
-		}
-		strings.write_string(&text, symbol.type_name)
-		#partial switch v in symbol.value {
-		case SymbolStructValue:
-			write_poly_list(&text, v.poly, v.poly_names)
-		case SymbolUnionValue:
-			write_poly_list(&text, v.poly, v.poly_names)
-		}
-	} else {
-		write_short_signature(&text, ctx.ast_context, symbol)
-	}
-
-	result := strings.to_string(text)
-	if result == "" || strings.contains(result, "{") {
-		return false
-	}
-	strings.write_string(sb, result)
-	return true
 }
 
 // Inserts text after the top-level declaration containing offset, on its own line.

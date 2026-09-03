@@ -98,6 +98,8 @@ Options:
 
 - `enable_inlay_hints_implicit_return`: Turn on inlay hints for implicit return values.
 
+- `enable_inlay_hints_variable_types`: Turn on inlay hints for inferred variable types. Defaults to true.
+
 - `enable_inlay_hints_optional_result`: Adds inlay hints for unhandled optional result value. (#optional_ok and #optional_allocator_error)
 
 - `enable_semantic_tokens`: Turns on syntax highlighting.
@@ -123,6 +125,8 @@ Options:
 - `enable_code_action_inline_variable`: Enables the code action to inline a local variable into its uses. Defaults to true.
 
 - `enable_code_action_extract_procedure`: Enables the code action to extract selected statements into a new procedure. Defaults to true.
+
+- `enable_code_action_add_explicit_type`: Enables the code action to add the inferred type to a `:=` declaration. Defaults to true.
 
 - `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&` and to merge nested ifs. Defaults to true.
 
