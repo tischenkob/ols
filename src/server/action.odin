@@ -133,7 +133,7 @@ get_code_actions :: proc(
 }
 
 @(private = "file")
-action_procs := [?]proc(^ActionContext){add_invert_if_action}
+action_procs := [?]proc(^ActionContext){add_invert_if_action, add_extract_variable_action}
 
 
 make_unused_import_edits :: proc(

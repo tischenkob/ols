@@ -52,6 +52,7 @@ Config :: struct {
 	enable_comp_lit_signature_help:          bool,
 	enable_comp_lit_signature_help_use_docs: bool,
 	enable_code_action_invert_if:            bool,
+	enable_code_action_extract_variable:     bool,
 	struct_fields_underscore_visibility:	 StructFieldUnderscoreMeaning,
 	enable_parser_errors:                    bool,
 	enable_diagnostics:                      bool,

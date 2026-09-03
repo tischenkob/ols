@@ -117,6 +117,8 @@ Options:
 
 - `enable_code_action_invert_if`: Enables the code actions to invert if statements and to rewrite them as early returns. Defaults to true.
 
+- `enable_code_action_extract_variable`: Enables the code action to extract an expression into a local variable. Defaults to true.
+
 - `struct_fields_underscore_visibility`: Controls visibility of struct fields starting with `_`:
   - `""` (default): no hiding, all fields are visible
   - `"file"`: hide fields when accessed from outside the declaring file 
