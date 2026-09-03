@@ -175,6 +175,11 @@
 			"description": "Enables the code action converting an if/else-if chain of equality tests to a switch.",
 			"default": true
 		},
+		"enable_code_action_result_handling": {
+			"type": "boolean",
+			"description": "Enables the code actions adding or_return, or_else, an if on the ok/error result, or discarding the results of a call.",
+			"default": true
+		},
 		"enable_inlay_hints_variable_types": {
 			"type": "boolean",
 			"description": "Turn on inlay hints for inferred variable types.",

@@ -138,6 +138,8 @@ Options:
 
 - `enable_code_action_if_to_switch`: Enables the code action converting an if/else-if chain of equality tests to a switch. Defaults to true.
 
+- `enable_code_action_result_handling`: Enables the code actions adding `or_return`, `or_else`, an `if` on the ok/error result, or discarding the results of a call. Defaults to true.
+
 - `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&` and to merge nested ifs. Defaults to true.
 
 - `enable_code_action_rewrite_expression`: Enables the code actions to flip a comparison, apply De Morgan's law and convert between compound and plain assignment. Defaults to true.

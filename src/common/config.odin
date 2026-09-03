@@ -64,6 +64,7 @@ Config :: struct {
 	enable_code_action_do_block:             bool,
 	enable_code_action_fill_struct:          bool,
 	enable_code_action_if_to_switch:         bool,
+	enable_code_action_result_handling:      bool,
 	enable_organize_imports_on_save:         bool,
 	enable_lint_self_assignment:             bool,
 	enable_lint_identical_branches:          bool,

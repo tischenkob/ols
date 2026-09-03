@@ -426,6 +426,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_fill_struct.(bool) or_else config.enable_code_action_fill_struct
 	config.enable_code_action_if_to_switch =
 		ols_config.enable_code_action_if_to_switch.(bool) or_else config.enable_code_action_if_to_switch
+	config.enable_code_action_result_handling =
+		ols_config.enable_code_action_result_handling.(bool) or_else config.enable_code_action_result_handling
 	config.enable_organize_imports_on_save =
 		ols_config.enable_organize_imports_on_save.(bool) or_else config.enable_organize_imports_on_save
 	config.enable_lint_self_assignment =
@@ -858,7 +860,7 @@ request_initialize :: proc(
 				hoverProvider = config.enable_hover,
 				documentFormattingProvider = config.enable_format,
 				documentLinkProvider = {resolveProvider = false},
-				codeActionProvider = {resolveProvider = false, codeActionKinds = {"refactor.rewrite", "refactor.extract", "refactor.inline", "refactor.more", "source.organizeImports"}},
+				codeActionProvider = {resolveProvider = false, codeActionKinds = {"quickfix", "refactor.rewrite", "refactor.extract", "refactor.inline", "refactor.more", "source.organizeImports"}},
 				foldingRangeProvider = true,
 				implementationProvider = true,
 				callHierarchyProvider = true,
@@ -941,6 +943,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_do_block = true
 	config.enable_code_action_fill_struct = true
 	config.enable_code_action_if_to_switch = true
+	config.enable_code_action_result_handling = true
 	config.enable_inlay_hints_variable_types = true
 	config.enable_organize_imports_on_save = true
 	config.enable_lint_self_assignment = true

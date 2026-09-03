@@ -1,7 +1,9 @@
 package server
 
 import "base:runtime"
+import "core:fmt"
 import "core:odin/ast"
+import "core:odin/tokenizer"
 import "core:slice"
 import "core:strings"
 
@@ -406,4 +408,54 @@ delete_lines_edit :: proc(ctx: ^ActionContext, first, last: int) -> TextEdit {
 		}
 	}
 	return edit
+}
+
+// `{}` is the zero literal for every aggregate, including enums and unions. The scalar forms are
+// the shortest ones the compiler accepts for each basic type.
+zero_value_text :: proc(symbol: Symbol, resolved: bool) -> string {
+	if !resolved {
+		return "{}"
+	}
+	if symbol.pointers > 0 {
+		return "nil"
+	}
+	#partial switch v in symbol.value {
+	case SymbolBasicValue:
+		switch v.ident.name {
+		case "bool", "b8", "b16", "b32", "b64":
+			return "false"
+		case "string", "cstring":
+			return `""`
+		case "rawptr", "any", "typeid":
+			return "nil"
+		}
+		return "0"
+	case SymbolMultiPointerValue,
+	     SymbolSliceValue,
+	     SymbolDynamicArrayValue,
+	     SymbolMapValue,
+	     SymbolProcedureValue,
+	     SymbolProcedureGroupValue:
+		return "nil"
+	}
+	return "{}"
+}
+
+is_taken :: proc(ctx: ^ActionContext, ident: ast.Ident) -> bool {
+	if ident.name in ctx.ast_context.globals {
+		return true
+	}
+	_, ok := get_local(ctx.ast_context^, ident)
+	return ok
+}
+
+// base, else base2, base3... whichever is free among the locals visible at pos and the globals.
+fresh_name :: proc(ctx: ^ActionContext, base: string, pos: tokenizer.Pos) -> string {
+	probe: ast.Ident
+	probe.pos = pos
+	probe.name = base
+	for i := 2; is_taken(ctx, probe); i += 1 {
+		probe.name = fmt.tprintf("%s%d", base, i)
+	}
+	return probe.name
 }

@@ -133,7 +133,7 @@ get_code_actions :: proc(
 }
 
 @(private = "file")
-action_procs := [?]proc(^ActionContext){add_invert_if_action, add_extract_variable_action, add_inline_variable_action, add_extract_procedure_action, add_split_merge_if_action, add_rewrite_expression_action, add_explicit_type_action, add_ternary_action, add_unwrap_action, add_do_block_action, add_fill_struct_action, add_if_to_switch_action}
+action_procs := [?]proc(^ActionContext){add_invert_if_action, add_extract_variable_action, add_inline_variable_action, add_extract_procedure_action, add_split_merge_if_action, add_rewrite_expression_action, add_explicit_type_action, add_ternary_action, add_unwrap_action, add_do_block_action, add_fill_struct_action, add_if_to_switch_action, add_result_handling_action}
 
 
 make_unused_import_edits :: proc(
