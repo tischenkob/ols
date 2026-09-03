@@ -64,6 +64,34 @@ odin check "$dir" -no-entry-point
 echo "ok rename-apply check"
 expect check "not an int\|Cannot assign\|cannot" "$OLS" query check "$dir/bad"
 expect check-diagnostic '"diagnostic"' "$OLS" query check "$dir/bad"
+mkdir "$dir/lint"
+cat > "$dir/lint/a.odin" <<'ODIN'
+package lint
+
+import "core:os"
+
+@(private)
+never_called :: proc() {}
+
+BadName :: proc() -> bool {
+	x := 1
+	x = x
+	return x > 0
+}
+
+main :: proc() {
+	BadName()
+}
+ODIN
+cat > "$dir/lint/b.odin" <<'ODIN'
+package lint
+
+helper :: proc() {}
+ODIN
+for code in unused-declaration self-assignment ignored-result naming Unused; do
+	expect "lint-$code" "\"$code\"" "$OLS" query lint "$dir/lint"
+done
+expect lint-file self-assignment "$OLS" query lint "$dir/lint/a.odin"
 if "$OLS" query nonsense >/dev/null 2>&1; then echo "FAIL usage exit"; exit 1; fi
 echo "ok usage"
 echo "all ok"

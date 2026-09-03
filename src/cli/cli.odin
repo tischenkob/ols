@@ -6,6 +6,7 @@ import "core:log"
 import "core:os"
 import "core:path/filepath"
 import path "core:path/slashpath"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 
@@ -20,6 +21,7 @@ USAGE :: `usage: ols query <command> [--root DIR]
   actions FILE:LINE:COL[-LINE:COL] [--apply TITLE]
   rename  FILE:LINE:COL NEW [--apply]
   check   [DIR]
+  lint    FILE|DIR
 Lines and columns are 1-based, columns in bytes, as odin check prints them.
 --root defaults to the nearest directory with an ols.json above the file, else the cwd.
 `
@@ -71,6 +73,15 @@ run :: proc(args: []string) -> int {
 		dir = absolute(dir)
 		setup(root if root != "" else find_root(dir))
 		return check(dir)
+	}
+
+	if command == "lint" {
+		if len(rest_args) < 1 {
+			return usage()
+		}
+		target := absolute(rest_args[0])
+		setup(root if root != "" else find_root(target if os.is_directory(target) else path.dir(target, context.temp_allocator)))
+		return lint(target)
 	}
 
 	if len(rest_args) < 1 || (command == "rename" && len(rest_args) < 2) {
@@ -258,16 +269,60 @@ check :: proc(dir: string) -> int {
 	check_path := dir if !os.is_directory(dir) else strings.concatenate({dir, "/"}, context.temp_allocator)
 	server.check(.Saved, {check_path}, &common.config)
 
-	Entry :: struct {
-		uri:        string,
-		diagnostic: server.Diagnostic,
-	}
 	entries := make([dynamic]Entry, context.temp_allocator)
 	for uri, diagnostics in server.get_merged_diagnostics() {
 		for diagnostic in diagnostics {
 			append(&entries, Entry{uri, diagnostic})
 		}
 	}
+	print(entries[:])
+	return 0
+}
+
+Entry :: struct {
+	uri:        string,
+	diagnostic: server.Diagnostic,
+}
+
+lint :: proc(target: string) -> int {
+	files := []string{target}
+	if os.is_directory(target) {
+		err: os.Error
+		files, err = filepath.glob(path.join({target, "*.odin"}, context.temp_allocator), context.temp_allocator)
+		if err != nil {
+			fmt.eprintfln("cannot list %s: %v", target, err)
+			return 1
+		}
+	}
+
+	// document_open runs the per-file lints and the unused import check.
+	uris := make(map[string]struct{}, context.temp_allocator)
+	document: ^server.Document
+	for file in files {
+		ok: bool
+		document, _, _, ok = open(Target{file = file, start = {1, 1}, end = {1, 1}})
+		if !ok {
+			return 1
+		}
+		uris[document.uri.uri] = {}
+	}
+	if document != nil {
+		server.lint_unused_declarations(document, &common.config)
+	}
+
+	entries := make([dynamic]Entry, context.temp_allocator)
+	for type in ([]server.DiagnosticType{.Lint, .Unused, .Unused_Decl}) {
+		for uri, diagnostics in server.diagnostics[type] {
+			if uri not_in uris do continue
+			for diagnostic in diagnostics {
+				append(&entries, Entry{uri, diagnostic})
+			}
+		}
+	}
+	slice.sort_by(entries[:], proc(a, b: Entry) -> bool {
+		if a.uri != b.uri do return a.uri < b.uri
+		return a.diagnostic.range.start.line < b.diagnostic.range.start.line
+	})
 	print(entries[:])
 	return 0
 }

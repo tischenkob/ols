@@ -256,6 +256,7 @@ Support Language server features:
 - `actions FILE:LINE:COL[-LINE:COL] [--apply TITLE]`
 - `rename FILE:LINE:COL NEW [--apply]`
 - `check [DIR]`
+- `lint FILE|DIR`: per-file lints, unused imports and unused private declarations, without running the compiler
 
 ## Clients
 
