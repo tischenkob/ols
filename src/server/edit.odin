@@ -363,6 +363,15 @@ append_replace_range :: proc(ctx: ^ActionContext, start, end: int, title: string
 	append(ctx.actions, make_code_action(ctx, title, "refactor.rewrite", edits))
 }
 
+append_insert :: proc(ctx: ^ActionContext, at: int, title, kind, text: string) {
+	edits := make([]TextEdit, 1, context.temp_allocator)
+	edits[0] = {
+		range   = range_of(ctx, at, at),
+		newText = text,
+	}
+	append(ctx.actions, make_code_action(ctx, title, kind, edits))
+}
+
 // Source between the braces, without the newline after `{` and trailing whitespace.
 block_inner_text :: proc(src: string, block: ^ast.Block_Stmt) -> string {
 	return strings.trim_left(strings.trim_right_space(src[block.open.offset + 1:block.close.offset]), "\r\n")
