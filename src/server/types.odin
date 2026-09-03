@@ -33,6 +33,7 @@ ResponseParams :: union {
 	common.Range,
 	[]CodeAction,
 	[]DocumentHighlight,
+	[]FoldingRange,
 }
 
 RequestParams :: union {
@@ -151,6 +152,7 @@ ServerCapabilities :: struct {
 	workspaceSymbolProvider:    bool,
 	documentLinkProvider:       DocumentLinkOptions,
 	codeActionProvider:         CodeActionOptions,
+	foldingRangeProvider:       bool,
 }
 
 DidChangeWatchedFilesRegistrationOptions :: struct {
@@ -520,6 +522,16 @@ DocumentSymbol :: struct {
 	range:          common.Range,
 	selectionRange: common.Range,
 	children:       []DocumentSymbol,
+}
+
+FoldingRangeParams :: struct {
+	textDocument: TextDocumentIdentifier,
+}
+
+FoldingRange :: struct {
+	startLine: int,
+	endLine:   int,
+	kind:      string,
 }
 
 HoverParams :: struct {
