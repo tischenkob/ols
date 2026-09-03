@@ -469,6 +469,7 @@ OlsConfig :: struct {
 	enable_lint_ignored_result:              Maybe(bool),
 	enable_lint_unused_parameter:            Maybe(bool),
 	enable_lint_naming:                      Maybe(bool),
+	enable_lint_unused_declaration:          Maybe(bool),
 	enable_checker_vet_shadowing:            Maybe(bool),
 	struct_fields_underscore_visibility: 	 string,
 	enable_parser_errors:                    Maybe(bool),

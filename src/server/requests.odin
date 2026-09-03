@@ -431,6 +431,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	config.enable_lint_unused_parameter =
 		ols_config.enable_lint_unused_parameter.(bool) or_else config.enable_lint_unused_parameter
 	config.enable_lint_naming = ols_config.enable_lint_naming.(bool) or_else config.enable_lint_naming
+	config.enable_lint_unused_declaration =
+		ols_config.enable_lint_unused_declaration.(bool) or_else config.enable_lint_unused_declaration
 	config.enable_checker_vet_shadowing =
 		ols_config.enable_checker_vet_shadowing.(bool) or_else config.enable_checker_vet_shadowing
 	config.verbose = ols_config.verbose.(bool) or_else config.verbose
@@ -930,6 +932,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_lint_ignored_result = true
 	config.enable_lint_unused_parameter = true
 	config.enable_lint_naming = true
+	config.enable_lint_unused_declaration = true
 	config.enable_checker_vet_shadowing = true
 }
 
@@ -1344,6 +1347,7 @@ notification_did_save :: proc(
 	if document != nil {
 		check_unused_imports(document, config)
 		run_lints(document, config)
+		lint_unused_declarations(document, config)
 
 		if config.enable_organize_imports_on_save {
 			organize_imports_on_save(document, config, writer)

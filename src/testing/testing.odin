@@ -1159,6 +1159,45 @@ expect_lint_diagnostics :: proc(t: ^testing.T, src: ^Source, expected: []LintExp
 	}
 }
 
+Unused_Expect :: struct {
+	file: string,
+	line: int, // zero based
+}
+
+expect_unused_declarations :: proc(t: ^testing.T, src: ^Source, expected: []Unused_Expect) {
+	spall.trace(#procedure)
+
+	setup(src)
+	defer teardown(src)
+
+	// The saved document is in the index on save; setup only parses it.
+	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+
+	files := make([]server.Package_File, len(src.files), context.temp_allocator)
+	for f, i in src.files {
+		files[i] = {strings.join({"test", f.name}, "/", context.temp_allocator), f.source}
+	}
+
+	diagnostics, ok := server.unused_declarations("test", files, &src.config)
+	testing.expect(t, ok, "unused_declarations failed")
+
+	got := make([dynamic]Unused_Expect, context.temp_allocator)
+	for uri, diags in diagnostics {
+		for d in diags {
+			testing.expectf(t, d.code == "unused-declaration", "unexpected code %v", d.code)
+			append(&got, Unused_Expect{uri[strings.last_index(uri, "/") + 1:], d.range.start.line})
+		}
+	}
+	less :: proc(a, b: Unused_Expect) -> bool {
+		return a.file < b.file || (a.file == b.file && a.line < b.line)
+	}
+	slice.sort_by(got[:], less)
+	expected := slice.clone(expected, context.temp_allocator)
+	slice.sort_by(expected, less)
+
+	testing.expectf(t, slice.equal(expected, got[:]), "\nExpected %v but received %v", expected, got[:])
+}
+
 expect_folding_ranges :: proc(t: ^testing.T, src: ^Source, expected: []server.FoldingRange) {
 	spall.trace(#procedure)
 

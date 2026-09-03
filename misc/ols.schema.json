@@ -253,6 +253,11 @@
 			"description": "Report names that do not follow Odin conventions: snake_case procedures and variables, Ada_Case types and enum members, SCREAMING_SNAKE_CASE constants.",
 			"default": true
 		},
+		"enable_lint_unused_declaration": {
+			"type": "boolean",
+			"description": "On save, mark private declarations that nothing in their package references as unnecessary.",
+			"default": true
+		},
 		"checker_skip_packages": {
 			"type": "array",
 			"items": {
