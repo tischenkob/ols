@@ -6,6 +6,7 @@ import "core:mem"
 import "core:os"
 import "core:thread"
 
+import "src:cli"
 import "src:common"
 import "src:server"
 import "src:spall"
@@ -107,6 +108,9 @@ main :: proc() {
 	if len(os.args) > 1 && os.args[1] == "version" {
 		fmt.println("ols version", VERSION)
 		os.exit(0)
+	}
+	if len(os.args) > 1 && os.args[1] == "query" {
+		os.exit(cli.run(os.args[2:]))
 	}
 	reader := server.make_reader(os_read, cast(rawptr)os.stdin)
 	writer := server.make_writer(os_write, cast(rawptr)os.stdout)
