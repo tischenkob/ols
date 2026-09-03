@@ -18,40 +18,27 @@ import "src:common"
  */
 
 @(private="package")
-add_invert_if_action :: proc(
-	document: ^Document,
-	position: common.AbsolutePosition,
-	uri: string,
-	actions: ^[dynamic]CodeAction,
-) {
-	if_stmt := find_if_stmt_at_position(document.ast.decls[:], position)
+add_invert_if_action :: proc(ctx: ^ActionContext) {
+	if !ctx.config.enable_code_action_invert_if {
+		return
+	}
+
+	if_stmt := find_if_stmt_at_position(ctx.document.ast.decls[:], ctx.range.start)
 	if if_stmt == nil {
 		return
 	}
 
-	new_text, ok := generate_inverted_if(document, if_stmt)
+	new_text, ok := generate_inverted_if(ctx.document, if_stmt)
 	if !ok {
 		return
 	}
 
-	range := common.get_token_range(if_stmt^, document.ast.src)
+	range := common.get_token_range(if_stmt^, ctx.document.ast.src)
 
-	textEdits := make([dynamic]TextEdit, context.temp_allocator)
-	append(&textEdits, TextEdit{range = range, newText = new_text})
+	edits := make([]TextEdit, 1, context.temp_allocator)
+	edits[0] = TextEdit{range = range, newText = new_text}
 
-	workspaceEdit: WorkspaceEdit
-	workspaceEdit.changes = make(map[string][]TextEdit, 0, context.temp_allocator)
-	workspaceEdit.changes[uri] = textEdits[:]
-
-	append(
-		actions,
-		CodeAction {
-			kind = "refactor.more",
-			isPreferred = false,
-			title = "Invert if",
-			edit = workspaceEdit,
-		},
-	)
+	append(ctx.actions, make_code_action(ctx, "Invert if", "refactor.more", edits))
 }
 
 // Find the innermost if statement that contains the given position
@@ -233,22 +220,6 @@ generate_inverted_if :: proc(document: ^Document, if_stmt: ^ast.If_Stmt) -> (str
 	}
 
 	return strings.to_string(sb), true
-}
-
-// Get the indentation (leading whitespace) of the line containing the given offset
-@(private="package")
-get_line_indentation :: proc(src: string, offset: int) -> string {
-	line_start := offset
-	for line_start > 0 && src[line_start - 1] != '\n' {
-		line_start -= 1
-	}
-
-	indent_end := line_start
-	for indent_end < len(src) && (src[indent_end] == ' ' || src[indent_end] == '\t') {
-		indent_end += 1
-	}
-
-	return src[line_start:indent_end]
 }
 
 // Extract the body text from a block statement (without the braces)
