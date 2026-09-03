@@ -54,6 +54,7 @@ Config :: struct {
 	enable_code_action_invert_if:            bool,
 	enable_code_action_extract_variable:     bool,
 	enable_code_action_inline_variable:      bool,
+	enable_code_action_extract_procedure:    bool,
 	struct_fields_underscore_visibility:	 StructFieldUnderscoreMeaning,
 	enable_parser_errors:                    bool,
 	enable_diagnostics:                      bool,

@@ -140,6 +140,11 @@
 			"description": "Enables the code action to inline a local variable into its uses.",
 			"default": true
 		},
+		"enable_code_action_extract_procedure": {
+			"type": "boolean",
+			"description": "Enables the code action to extract selected statements into a new procedure.",
+			"default": true
+		},
 		"struct_fields_underscore_visibility": {
   			"type": "string",
   			"description": "Controls visibility of struct fields starting with `_`:\n\n- \"\" (default): no hiding; all fields are visible\n- \"file\": hide fields when accessed from outside the declaring file\n- \"package\": hide fields when accessed from outside the declaring package",

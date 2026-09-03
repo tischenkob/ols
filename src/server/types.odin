@@ -448,6 +448,7 @@ OlsConfig :: struct {
 	enable_code_action_invert_if:            Maybe(bool),
 	enable_code_action_extract_variable:     Maybe(bool),
 	enable_code_action_inline_variable:      Maybe(bool),
+	enable_code_action_extract_procedure:    Maybe(bool),
 	struct_fields_underscore_visibility: 	 string,
 	enable_parser_errors:                    Maybe(bool),
 	disable_parser_errors:                   Maybe(bool),
