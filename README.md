@@ -11,6 +11,7 @@ Note: This project is made to be up to date with the master branch of Odin.
 -   [Installation](#installation)
 	-   [Configuration](#Configuration)
 -   [Features](#features)
+-   [Command line queries](#command-line-queries)
 -   [Clients](#clients)
 	-   [Vs Code](#vs-code)
 	-   [Sublime](#sublime)
@@ -211,6 +212,16 @@ Support Language server features:
 -   References
 -   Signature help
 -   Hover
+
+## Command line queries
+
+`ols query <command>` prints LSP-shaped JSON. Positions are `file:line:col`, 1-based, columns in bytes. `--root DIR` sets the workspace, default: the nearest directory with an `ols.json` above the file, else the cwd.
+
+- `def`, `refs`, `hover` `FILE:LINE:COL`
+- `symbols FILE`
+- `actions FILE:LINE:COL[-LINE:COL] [--apply TITLE]`
+- `rename FILE:LINE:COL NEW [--apply]`
+- `check [DIR]`
 
 ## Clients
 
