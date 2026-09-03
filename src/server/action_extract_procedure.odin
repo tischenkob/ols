@@ -268,6 +268,7 @@ can_extract :: proc(stmts: []^ast.Stmt) -> bool {
 }
 
 // Inserts text after the top-level declaration containing offset, on its own line.
+@(private = "package")
 insert_after_decl :: proc(ctx: ^ActionContext, offset: int, text: string) -> (TextEdit, bool) {
 	for decl in ctx.document.ast.decls {
 		if offset < decl.pos.offset || decl.end.offset < offset {
