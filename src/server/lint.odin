@@ -289,6 +289,8 @@ lint_ignored_result :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 	if !is_resolved do return
 	value, is_proc := resolved.symbol.value.(SymbolProcedureValue)
 	if !is_proc do return
+	// testing.expect* return bool only for chaining.
+	if strings.has_suffix(resolved.symbol.pkg, "/testing") do return
 
 	results := value.return_types
 	// Either tag makes only the last result optional.
@@ -313,15 +315,17 @@ lint_ignored_result :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 	}
 }
 
-// bool, unions and anything named like an error must be handled by the caller.
+// bool, unions and anything named like an error must be handled by the caller,
+// except Allocator_Error, which delete/free/reserve callers ignore as a matter of course.
 @(private = "file")
 must_handle_type_name :: proc(type: ^ast.Expr) -> (string, bool) {
 	if type == nil do return "", false
 	#partial switch t in type.derived {
 	case ^ast.Ident:
+		if t.name == "Allocator_Error" do return "", false
 		if t.name == "bool" || strings.contains(t.name, "Err") do return t.name, true
 	case ^ast.Selector_Expr:
-		if t.field == nil || !strings.contains(t.field.name, "Err") do return "", false
+		if t.field == nil || t.field.name == "Allocator_Error" || !strings.contains(t.field.name, "Err") do return "", false
 		if pkg, ok := t.expr.derived.(^ast.Ident); ok do return fmt.tprintf("%s.%s", pkg.name, t.field.name), true
 		return t.field.name, true
 	case ^ast.Union_Type:
