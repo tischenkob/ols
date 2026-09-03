@@ -19,13 +19,14 @@ get_inlay_hints :: proc(
 	spall.trace(#procedure, document.fullpath)
 
 	Visitor_Data :: struct {
-		document: ^Document,
-		range:    common.Range,
-		symbols:  SymbolAndNodeMap,
-		config:   ^common.Config,
-		hints:    [dynamic]InlayHint,
-		depth:    int,
-		procs:    [dynamic]Proc_Data,
+		document:    ^Document,
+		range:       common.Range,
+		symbols:     SymbolAndNodeMap,
+		config:      ^common.Config,
+		ast_context: AstContext,
+		hints:       [dynamic]InlayHint,
+		depth:       int,
+		procs:       [dynamic]Proc_Data,
 	}
 
 	Proc_Data :: struct {
@@ -40,6 +41,17 @@ get_inlay_hints :: proc(
 		config   = config,
 		procs    = make([dynamic]Proc_Data, context.temp_allocator),
 		hints    = make([dynamic]InlayHint, context.temp_allocator),
+	}
+
+	if config.enable_inlay_hints_variable_types {
+		data.ast_context = make_ast_context(
+			document.ast,
+			document.imports,
+			document.package_name,
+			document.uri.uri,
+			document.fullpath,
+		)
+		get_globals(document.ast, &data.ast_context)
 	}
 
 	visitor := ast.Visitor{
@@ -64,9 +76,15 @@ get_inlay_hints :: proc(
 
 			data.depth += 1
 
+			if proc_lit, ok := node.derived.(^ast.Proc_Lit); ok {
+				results := proc_lit.type.results.list if proc_lit.type != nil && proc_lit.type.results != nil else {}
+				append(&data.procs, Proc_Data{data.depth, results})
+			}
+
 			add_param_hints(node, data)
 			add_return_hints(node, data)
 			add_result_hints(node, data)
+			add_variable_type_hints(node, data)
 
 			return visitor
 		},
@@ -293,11 +311,6 @@ get_inlay_hints :: proc(
 		is_or_return: bool
 
 		#partial switch v in node.derived {
-		case ^ast.Proc_Lit:
-			results := v.type.results.list if v.type != nil && v.type.results != nil else {}
-			append(&data.procs, Proc_Data{data.depth, results})
-			return
-
 		case ^ast.Return_Stmt:
 			if len(v.results) > 0 do return // explicit return, skip
 			return_node = &v.stmt_base
@@ -385,6 +398,42 @@ get_inlay_hints :: proc(
 		last := lhs[len(lhs)-1]
 		range := common.get_token_range(last^, string(data.document.text))
 		append(&data.hints, InlayHint{range.end, .Parameter, ", _"})
+
+		return true
+	}
+
+	/*
+		Adds type hints for variables declared with := inside procedures.
+	*/
+	add_variable_type_hints :: proc (
+		node: ^ast.Node,
+		data: ^Visitor_Data,
+	) -> (ok: bool) {
+
+		if !data.config.enable_inlay_hints_variable_types || len(data.procs) == 0 do return
+
+		decl := node.derived.(^ast.Value_Decl) or_return
+		if !decl.is_mutable || decl.type != nil || len(decl.values) == 0 do return
+
+		if len(decl.values) == 1 {
+			callee: Symbol
+			callee_ok: bool
+			if call, is_call := decl.values[0].derived.(^ast.Call_Expr); is_call {
+				resolved: SymbolAndNode
+				resolved, callee_ok = data.symbols[uintptr(call.expr)]
+				callee = resolved.symbol
+			}
+			if value_states_type(decl.values[0], callee, callee_ok) do return
+		}
+
+		for name in decl.names {
+			ident := name.derived.(^ast.Ident) or_continue
+			if ident.name == "_" do continue
+			resolved := data.symbols[uintptr(ident)] or_continue
+			text := symbol_type_text(&data.ast_context, resolved.symbol, ident.name) or_continue
+			range := common.get_token_range(ident, string(data.document.text))
+			append(&data.hints, InlayHint{range.end, .Type, fmt.tprintf(": %s", text)})
+		}
 
 		return true
 	}

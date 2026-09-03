@@ -320,3 +320,75 @@ ast_inlay_hints_optional_result :: proc(t: ^testing.T) {
 	test.expect_inlay_hints(t, &source)
 }
 
+
+@(test)
+ast_inlay_hints_variable_types :: proc(t: ^testing.T) {
+	source := test.Source {
+		main     = `package test
+
+		Point :: struct {
+			x: int,
+		}
+
+		two :: proc() -> (int, string) {
+			return 1, ""
+		}
+
+		counts :: proc() -> map[string]int {
+			return nil
+		}
+
+		items :: proc() -> []int {
+			return nil
+		}
+
+		main :: proc() {
+			pt: Point
+			x[[: int]] := 5
+			p[[: ^Point]] := &pt
+			a[[: int]], b[[: string]] := two()
+			_, c[[: string]] := two()
+			lit := Point{}
+			m[[: map[string]int]] := counts()
+			s[[: []int]] := items()
+			conv := f32(x)
+		}
+		`,
+		packages = {},
+		config = {
+			enable_inlay_hints_variable_types = true,
+		},
+	}
+
+	test.expect_inlay_hints(t, &source)
+}
+
+@(test)
+ast_inlay_hints_variable_types_foreign_package :: proc(t: ^testing.T) {
+	packages := make([dynamic]test.Package, context.temp_allocator)
+	append(&packages, test.Package{pkg = "my_package", source = `package my_package
+Builder :: struct {
+	buf: [dynamic]u8,
+}
+builder_make :: proc() -> Builder {
+	return {}
+}
+`})
+
+	source := test.Source {
+		main     = `package test
+
+		import "my_package"
+
+		main :: proc() {
+			sb[[: my_package.Builder]] := my_package.builder_make()
+		}
+		`,
+		packages = packages[:],
+		config = {
+			enable_inlay_hints_variable_types = true,
+		},
+	}
+
+	test.expect_inlay_hints(t, &source)
+}
