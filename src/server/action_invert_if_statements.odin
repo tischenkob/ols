@@ -145,6 +145,7 @@ source_lines :: proc(src: string, from, to: int) -> (string, int) {
 // Find the innermost if statement that contains the given position
 // This will NOT return else-if statements, only top-level if statements
 // Also will not return an if statement if the position is in its else clause
+@(private = "package")
 find_if_stmt_at_position :: proc(stmts: []^ast.Stmt, position: common.AbsolutePosition) -> ^ast.If_Stmt {
 	for stmt in stmts {
 		if stmt == nil {
