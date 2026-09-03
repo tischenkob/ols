@@ -457,6 +457,7 @@ OlsConfig :: struct {
 	enable_code_action_split_merge_if:       Maybe(bool),
 	enable_code_action_rewrite_expression:   Maybe(bool),
 	enable_code_action_add_explicit_type:    Maybe(bool),
+	enable_code_action_ternary:              Maybe(bool),
 	enable_organize_imports_on_save:         Maybe(bool),
 	struct_fields_underscore_visibility: 	 string,
 	enable_parser_errors:                    Maybe(bool),

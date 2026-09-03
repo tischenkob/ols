@@ -128,6 +128,8 @@ Options:
 
 - `enable_code_action_add_explicit_type`: Enables the code action to add the inferred type to a `:=` declaration. Defaults to true.
 
+- `enable_code_action_ternary`: Enables the code actions converting between an if/else and a ternary expression. Defaults to true.
+
 - `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&` and to merge nested ifs. Defaults to true.
 
 - `enable_code_action_rewrite_expression`: Enables the code actions to flip a comparison, apply De Morgan's law and convert between compound and plain assignment. Defaults to true.

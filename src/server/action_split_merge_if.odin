@@ -104,11 +104,6 @@ write_if_head :: proc(sb: ^strings.Builder, src: string, if_stmt: ^ast.If_Stmt, 
 	strings.write_string(sb, " {\n")
 }
 
-// Source between the braces, without the newline after `{` and trailing whitespace.
-block_inner_text :: proc(src: string, block: ^ast.Block_Stmt) -> string {
-	return strings.trim_left(strings.trim_right_space(src[block.open.offset + 1:block.close.offset]), "\r\n")
-}
-
 unparen_text :: proc(src: string, expr: ^ast.Expr) -> string {
 	if paren, ok := expr.derived.(^ast.Paren_Expr); ok {
 		return src[paren.expr.pos.offset:paren.expr.end.offset]

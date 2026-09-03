@@ -150,6 +150,11 @@
 			"description": "Enables the code action to add the inferred type to a := declaration.",
 			"default": true
 		},
+		"enable_code_action_ternary": {
+			"type": "boolean",
+			"description": "Enables the code actions converting between an if/else and a ternary expression.",
+			"default": true
+		},
 		"enable_inlay_hints_variable_types": {
 			"type": "boolean",
 			"description": "Turn on inlay hints for inferred variable types.",
