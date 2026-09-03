@@ -163,6 +163,10 @@ Options:
 
 - `enable_lint_float_equality`: Report `==` and `!=` comparisons on floats. Defaults to true.
 
+- `enable_lint_ignored_result`: Warn when a call statement discards a `bool`, union or error result that is not marked `#optional_ok` or `#optional_allocator_error`. Defaults to true.
+
+- `enable_lint_unused_parameter`: Mark procedure parameters that are never used in the body as unnecessary. Defaults to true.
+
 - `checker_skip_packages`: Paths to packages that should not be checked by `odin check` when using `enable_checker_workspace_diagnostics`.
 
 - `completion_exclude_attributes`: Filter procedures that include the provided attributes from completions. For example `@(test)`.

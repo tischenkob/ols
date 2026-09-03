@@ -466,6 +466,8 @@ OlsConfig :: struct {
 	enable_lint_identical_branches:          Maybe(bool),
 	enable_lint_unreachable_code:            Maybe(bool),
 	enable_lint_float_equality:              Maybe(bool),
+	enable_lint_ignored_result:              Maybe(bool),
+	enable_lint_unused_parameter:            Maybe(bool),
 	enable_checker_vet_shadowing:            Maybe(bool),
 	struct_fields_underscore_visibility: 	 string,
 	enable_parser_errors:                    Maybe(bool),

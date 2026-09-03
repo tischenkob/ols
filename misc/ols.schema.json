@@ -238,6 +238,16 @@
 			"description": "Report == and != comparisons on floats.",
 			"default": true
 		},
+		"enable_lint_ignored_result": {
+			"type": "boolean",
+			"description": "Warn when a call statement discards a bool, union or error result that is not marked optional.",
+			"default": true
+		},
+		"enable_lint_unused_parameter": {
+			"type": "boolean",
+			"description": "Mark procedure parameters that are never used in the body as unnecessary.",
+			"default": true
+		},
 		"checker_skip_packages": {
 			"type": "array",
 			"items": {

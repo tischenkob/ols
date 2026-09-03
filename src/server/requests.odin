@@ -426,6 +426,10 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_lint_unreachable_code.(bool) or_else config.enable_lint_unreachable_code
 	config.enable_lint_float_equality =
 		ols_config.enable_lint_float_equality.(bool) or_else config.enable_lint_float_equality
+	config.enable_lint_ignored_result =
+		ols_config.enable_lint_ignored_result.(bool) or_else config.enable_lint_ignored_result
+	config.enable_lint_unused_parameter =
+		ols_config.enable_lint_unused_parameter.(bool) or_else config.enable_lint_unused_parameter
 	config.enable_checker_vet_shadowing =
 		ols_config.enable_checker_vet_shadowing.(bool) or_else config.enable_checker_vet_shadowing
 	config.verbose = ols_config.verbose.(bool) or_else config.verbose
@@ -922,6 +926,8 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_lint_identical_branches = true
 	config.enable_lint_unreachable_code = true
 	config.enable_lint_float_equality = true
+	config.enable_lint_ignored_result = true
+	config.enable_lint_unused_parameter = true
 	config.enable_checker_vet_shadowing = true
 }
 

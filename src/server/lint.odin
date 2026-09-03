@@ -3,6 +3,7 @@ package server
 import "core:fmt"
 import "core:odin/ast"
 import "core:slice"
+import "core:strings"
 
 import "src:common"
 
@@ -11,6 +12,19 @@ LintContext :: struct {
 	config:   ^common.Config,
 	src:      string,
 	symbols:  Maybe(SymbolAndNodeMap),
+	// Nodes a lint excluded while visiting their parent: deferred statements and proc literals
+	// whose signature an attribute on the declaring Value_Decl fixes.
+	skip:     map[^ast.Node]struct{},
+}
+
+@(private = "file")
+lint_symbols :: proc(ctx: ^LintContext) -> SymbolAndNodeMap {
+	symbols, has_symbols := ctx.symbols.?
+	if !has_symbols {
+		symbols = resolve_entire_file(ctx.document)
+		ctx.symbols = symbols
+	}
+	return symbols
 }
 
 @(private = "file")
@@ -19,6 +33,8 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_identical_branches,
 	lint_unreachable_code,
 	lint_float_equality,
+	lint_ignored_result,
+	lint_unused_parameter,
 }
 
 // One AST walk; every lint sees every node and checks its own config key.
@@ -28,7 +44,12 @@ lint_document :: proc(document: ^Document, config: ^common.Config) -> []Diagnost
 		diags: [dynamic]Diagnostic,
 	}
 	w := Walker {
-		ctx = {document = document, config = config, src = string(document.text[:document.used_text])},
+		ctx = {
+			document = document,
+			config = config,
+			src = string(document.text[:document.used_text]),
+			skip = make(map[^ast.Node]struct{}, context.temp_allocator),
+		},
 		diags = make([dynamic]Diagnostic, context.temp_allocator),
 	}
 	visitor := ast.Visitor {
@@ -185,11 +206,17 @@ terminates :: proc(stmt: ^ast.Stmt) -> bool {
 			return true
 		}
 	case ^ast.Expr_Stmt:
-		call := s.expr.derived.(^ast.Call_Expr) or_return
-		callee := call.expr.derived.(^ast.Ident) or_return
-		return callee.name == "panic" || callee.name == "unreachable"
+		return is_panic_call(s)
 	}
 	return false
+}
+
+@(private = "file")
+is_panic_call :: proc(stmt: ^ast.Stmt) -> bool {
+	expr_stmt := stmt.derived.(^ast.Expr_Stmt) or_return
+	call := expr_stmt.expr.derived.(^ast.Call_Expr) or_return
+	callee := call.expr.derived.(^ast.Ident) or_return
+	return callee.name == "panic" || callee.name == "unreachable"
 }
 
 @(private = "file")
@@ -231,17 +258,174 @@ is_float_operand :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> bool {
 	case ^ast.Basic_Lit:
 		return e.tok.kind == .Float
 	case ^ast.Ident, ^ast.Selector_Expr:
-		symbols, has_symbols := ctx.symbols.?
-		if !has_symbols {
-			symbols = resolve_entire_file(ctx.document)
-			ctx.symbols = symbols
-		}
-		resolved := symbols[uintptr(expr)] or_return
+		resolved := lint_symbols(ctx)[uintptr(expr)] or_return
 		#partial switch v in resolved.symbol.value {
 		case SymbolBasicValue:
 			return slice.contains(untyped_map[.Float], v.ident.name)
 		case SymbolUntypedValue:
 			return v.type == .Float
+		}
+	}
+	return false
+}
+
+@(private = "file")
+lint_ignored_result :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnostic) {
+	if !ctx.config.enable_lint_ignored_result do return
+	if deferred, is_defer := node.derived.(^ast.Defer_Stmt); is_defer {
+		ctx.skip[deferred.stmt] = {}
+		return
+	}
+	stmt := node.derived.(^ast.Expr_Stmt) or_else nil
+	if stmt == nil || node in ctx.skip do return
+	expr := stmt.expr
+	for {
+		paren := expr.derived.(^ast.Paren_Expr) or_break
+		expr = paren.expr
+	}
+	call, is_call := expr.derived.(^ast.Call_Expr)
+	if !is_call do return
+	resolved, is_resolved := lint_symbols(ctx)[uintptr(call.expr)]
+	if !is_resolved do return
+	value, is_proc := resolved.symbol.value.(SymbolProcedureValue)
+	if !is_proc do return
+
+	results := value.return_types
+	// Either tag makes only the last result optional.
+	if len(results) > 0 &&
+	   len(results[len(results) - 1].names) <= 1 &&
+	   (.Optional_Ok in value.tags || .Optional_Allocator_Error in value.tags) {
+		results = results[:len(results) - 1]
+	}
+
+	for field in results {
+		name := must_handle_type_name(field.type) or_continue
+		append(
+			diags,
+			Diagnostic {
+				range = common.get_token_range(stmt, ctx.src),
+				severity = .Warning,
+				code = "ignored-result",
+				message = fmt.tprintf("result of %s is ignored (%s)", node_text(ctx.src, call.expr), name),
+			},
+		)
+		return
+	}
+}
+
+// bool, unions and anything named like an error must be handled by the caller.
+@(private = "file")
+must_handle_type_name :: proc(type: ^ast.Expr) -> (string, bool) {
+	if type == nil do return "", false
+	#partial switch t in type.derived {
+	case ^ast.Ident:
+		if t.name == "bool" || strings.contains(t.name, "Err") do return t.name, true
+	case ^ast.Selector_Expr:
+		if t.field == nil || !strings.contains(t.field.name, "Err") do return "", false
+		if pkg, ok := t.expr.derived.(^ast.Ident); ok do return fmt.tprintf("%s.%s", pkg.name, t.field.name), true
+		return t.field.name, true
+	case ^ast.Union_Type:
+		return "union", true
+	}
+	return "", false
+}
+
+@(private = "file")
+lint_unused_parameter :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnostic) {
+	if !ctx.config.enable_lint_unused_parameter do return
+
+	lit: ^ast.Proc_Lit
+	#partial switch n in node.derived {
+	case ^ast.Value_Decl:
+		// Visited before its Proc_Lit child, so the attributes are known by then.
+		if len(n.values) != 1 do return
+		lit = n.values[0].derived.(^ast.Proc_Lit) or_else nil
+		if lit == nil do return
+		if has_fixed_signature_attribute(n.attributes[:]) {
+			ctx.skip[lit] = {}
+		}
+		return
+	case ^ast.Proc_Lit:
+		lit = n
+	case:
+		return
+	}
+
+	if node in ctx.skip || lit.body == nil || lit.type == nil || lit.type.params == nil do return
+	if convention, is_string := lit.type.calling_convention.(string); is_string {
+		convention = strings.trim(convention, "\"`")
+		if convention != "odin" && convention != "contextless" do return
+	}
+	body, is_block := lit.body.derived.(^ast.Block_Stmt)
+	if !is_block do return
+	if len(body.stmts) == 0 || (len(body.stmts) == 1 && is_panic_call(body.stmts[0])) do return
+
+	poly_names := make(map[string]struct{}, context.temp_allocator)
+	for param in lit.type.params.list {
+		for name in param.names {
+			if poly, ok := name.derived.(^ast.Poly_Type); ok do poly_names[poly.type.name] = {}
+		}
+		for use in collect_ident_uses(param.type) {
+			if len(use.parents) > 0 {
+				if _, ok := use.parents[len(use.parents) - 1].derived.(^ast.Poly_Type); ok do poly_names[use.ident.name] = {}
+			}
+		}
+	}
+
+	uses := collect_ident_uses(lit.body)
+	for param in lit.type.params.list {
+		if .Using in param.flags do continue
+		if mentions_poly(param.type, poly_names) do continue
+		names: for name in param.names {
+			ident := name.derived.(^ast.Ident) or_continue
+			if strings.has_prefix(ident.name, "_") do continue
+			for use in uses {
+				if use.ident.name == ident.name && !is_field_name(use) do continue names
+			}
+			append(
+				diags,
+				Diagnostic {
+					range = common.get_token_range(ident, ctx.src),
+					severity = .Hint,
+					code = "unused-parameter",
+					message = fmt.tprintf("parameter %s is unused", ident.name),
+					tags = {.Unnecessary},
+				},
+			)
+		}
+	}
+}
+
+// The left side of `field = value` names a struct field or a parameter, not a variable.
+@(private = "file")
+is_field_name :: proc(use: IdentUse) -> bool {
+	if len(use.parents) == 0 do return false
+	field_value, ok := use.parents[len(use.parents) - 1].derived.(^ast.Field_Value)
+	return ok && field_value.field == use.ident
+}
+
+@(private = "file")
+mentions_poly :: proc(type: ^ast.Expr, poly_names: map[string]struct{}) -> bool {
+	if type == nil do return false
+	for use in collect_ident_uses(type) {
+		if use.ident.name in poly_names do return true
+	}
+	return false
+}
+
+@(private = "file")
+has_fixed_signature_attribute :: proc(attributes: []^ast.Attribute) -> bool {
+	for attribute in attributes {
+		for elem in attribute.elems {
+			name: string
+			#partial switch e in elem.derived {
+			case ^ast.Ident:
+				name = e.name
+			case ^ast.Field_Value:
+				field := e.field.derived.(^ast.Ident) or_continue
+				name = field.name
+			}
+			if name == "export" || name == "link_name" || strings.has_prefix(name, "deferred_") do return true
 		}
 	}
 	return false

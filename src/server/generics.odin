@@ -698,12 +698,14 @@ resolve_generic_function_symbol :: proc(
 
 
 	symbol := proc_symbol
+	orig := proc_symbol.value.(SymbolProcedureValue) or_else {}
 	symbol.value = SymbolProcedureValue {
-		return_types      = return_types[:],
-		arg_types         = argument_types[:],
-		orig_arg_types    = params[:],
-		orig_return_types = results[:],
-		inlining          = inlining,
+		return_types       = return_types[:],
+		arg_types          = argument_types[:],
+		orig_arg_types     = params[:],
+		orig_return_types  = results[:],
+		inlining           = inlining,
+		tags               = orig.tags,
 	}
 
 	return symbol, true
