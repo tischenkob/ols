@@ -23,6 +23,20 @@ send_notification :: proc(notification: Notification, writer: ^Writer) -> bool {
 	return true
 }
 
+//String ids cannot collide with the integer ids clients use for their own requests.
+@(private = "file")
+request_counter: int
+
+make_request_message :: proc(method: string, params: RequestParams) -> RequestMessage {
+	request_counter += 1
+	return RequestMessage {
+		jsonrpc = "2.0",
+		method = method,
+		id = fmt.tprintf("rols-%d", request_counter),
+		params = params,
+	}
+}
+
 send_request :: proc(request: RequestMessage, writer: ^Writer) -> bool {
 	data, error := marshal(request, {}, context.temp_allocator)
 
