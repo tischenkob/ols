@@ -723,46 +723,7 @@ request_initialize :: proc(
 		append(&config.workspace_folders, workspace)
 	}
 
-	config.enable_hover = true
-	config.enable_hover_layout = false
-	config.enable_format = true
-
-	config.enable_inlay_hints_params = false
-	config.enable_inlay_hints_default_params = false
-	config.enable_inlay_hints_implicit_return = false
-
-	config.enable_parser_errors = true
-	config.enable_diagnostics = true
-	config.thread_count = 2
-	config.enable_document_symbols = true
-	config.enable_completions = true
-	config.enable_format = true
-	config.enable_hover = true
-	config.enable_hover_layout = false
-	config.enable_semantic_tokens = false
-	config.enable_unused_imports_reporting = true
-	config.enable_unused_imports_on_change = false
-	config.enable_procedure_context = false
-	config.enable_snippets = false
-	config.enable_references = true
-	config.enable_document_highlights = true
-	config.enable_completion_matching = true
-	config.enable_document_links = true
-	config.enable_comp_lit_signature_help = false
-	config.verbose = false
-	config.file_log = false
-	config.odin_command = ""
-	config.checker_args = ""
-	config.enable_fake_method = false
-	config.enable_procedure_snippet = true
-	config.enable_checker_only_saved = true
-	config.enable_checker_workspace_diagnostics = false
-	config.enable_auto_import = true
-	config.enable_auto_import_skip_hidden_paths = true
-	config.enable_code_action_invert_if = true
-	config.enable_code_action_extract_variable = true
-	config.enable_code_action_inline_variable = true
-	config.enable_code_action_extract_procedure = true
+	apply_default_config(config)
 
 	read_ols_config :: proc(file: string, config: ^common.Config, uri: common.Uri) -> (ok: bool) {
 		data, err := os.read_entire_file(file, context.temp_allocator)
@@ -906,6 +867,48 @@ request_initialize :: proc(
 	}
 
 	return .None
+}
+
+apply_default_config :: proc(config: ^common.Config) {
+	config.enable_hover = true
+	config.enable_hover_layout = false
+	config.enable_format = true
+
+	config.enable_inlay_hints_params = false
+	config.enable_inlay_hints_default_params = false
+	config.enable_inlay_hints_implicit_return = false
+
+	config.enable_parser_errors = true
+	config.enable_diagnostics = true
+	config.thread_count = 2
+	config.enable_document_symbols = true
+	config.enable_completions = true
+	config.enable_format = true
+	config.enable_hover = true
+	config.enable_semantic_tokens = false
+	config.enable_unused_imports_reporting = true
+	config.enable_unused_imports_on_change = false
+	config.enable_procedure_context = false
+	config.enable_snippets = false
+	config.enable_references = true
+	config.enable_document_highlights = true
+	config.enable_completion_matching = true
+	config.enable_document_links = true
+	config.enable_comp_lit_signature_help = false
+	config.verbose = false
+	config.file_log = false
+	config.odin_command = ""
+	config.checker_args = ""
+	config.enable_fake_method = false
+	config.enable_procedure_snippet = true
+	config.enable_checker_only_saved = true
+	config.enable_checker_workspace_diagnostics = false
+	config.enable_auto_import = true
+	config.enable_auto_import_skip_hidden_paths = true
+	config.enable_code_action_invert_if = true
+	config.enable_code_action_extract_variable = true
+	config.enable_code_action_inline_variable = true
+	config.enable_code_action_extract_procedure = true
 }
 
 get_builtin_path :: proc(allocator := context.allocator) -> string {
