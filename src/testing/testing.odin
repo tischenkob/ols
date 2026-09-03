@@ -1272,6 +1272,21 @@ expect_calls :: proc(t: ^testing.T, src: ^Source, incoming: bool, expected: []Ca
 	testing.expectf(t, slice.equal(expected, got[:]), "\nExpected %v but received %v", expected, got[:])
 }
 
+// Lens titles on the first file, in declaration order.
+expect_code_lenses :: proc(t: ^testing.T, src: ^Source, expected: []string) {
+	setup(src)
+	defer teardown(src)
+
+	// Other files resolve names from the open document through the index.
+	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+
+	got := make([dynamic]string, context.temp_allocator)
+	for lens in server.get_code_lenses(src.document, &src.config, package_files(src)) {
+		append(&got, lens.command.title)
+	}
+	testing.expectf(t, slice.equal(expected, got[:]), "\nExpected %v but received %v", expected, got[:])
+}
+
 expect_implementation_locations :: proc(t: ^testing.T, src: ^Source, expected: []common.Location) {
 	cursor := source_remove_cursor(src)
 

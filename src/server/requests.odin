@@ -261,6 +261,7 @@ call_map: map[string]proc(_: json.Value, _: RequestId, _: ^common.Config, _: ^Wr
 	"textDocument/prepareCallHierarchy" = request_prepare_call_hierarchy,
 	"callHierarchy/incomingCalls"       = request_incoming_calls,
 	"callHierarchy/outgoingCalls"       = request_outgoing_calls,
+	"textDocument/codeLens"             = request_code_lens,
 	"window/progress"                   = request_noop,
 	"workspace/symbol"                  = request_workspace_symbols,
 	"workspace/didChangeConfiguration"  = notification_workspace_did_change_configuration,
@@ -438,6 +439,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	config.enable_lint_naming = ols_config.enable_lint_naming.(bool) or_else config.enable_lint_naming
 	config.enable_lint_unused_declaration =
 		ols_config.enable_lint_unused_declaration.(bool) or_else config.enable_lint_unused_declaration
+	config.enable_code_lens_references =
+		ols_config.enable_code_lens_references.(bool) or_else config.enable_code_lens_references
 	config.enable_checker_vet_shadowing =
 		ols_config.enable_checker_vet_shadowing.(bool) or_else config.enable_checker_vet_shadowing
 	config.verbose = ols_config.verbose.(bool) or_else config.verbose
@@ -855,6 +858,7 @@ request_initialize :: proc(
 				foldingRangeProvider = true,
 				implementationProvider = true,
 				callHierarchyProvider = true,
+				codeLensProvider = CodeLensOptions{resolveProvider = false} if config.enable_code_lens_references else nil,
 			},
 		},
 		id = id,
@@ -941,6 +945,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_lint_unused_parameter = true
 	config.enable_lint_naming = true
 	config.enable_lint_unused_declaration = true
+	config.enable_code_lens_references = true
 	config.enable_checker_vet_shadowing = true
 }
 

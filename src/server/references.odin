@@ -309,29 +309,7 @@ find_symbol_references :: proc(
 		return locations[:], true
 	}
 
-	sources := make([dynamic]Package_File, 0, ast_context.allocator)
-
-	if len(files) > 0 {
-		for file in files {
-			if file.fullpath != document.fullpath {
-				append(&sources, file)
-			}
-		}
-	} else {
-		fullpaths := make([dynamic]string, 0, ast_context.allocator)
-
-		when !ODIN_TEST {
-		for workspace in common.config.workspace_folders {
-			uri, _ := common.parse_uri(workspace.uri, context.temp_allocator)
-			common.search_for_odin_files(uri.path, document.fullpath, dir_blacklist, &fullpaths)
-		}
-		}
-
-		slice.sort(fullpaths[:])
-		for fullpath in slice.unique(fullpaths[:]) {
-			append(&sources, Package_File{fullpath = fullpath})
-		}
-	}
+	sources := workspace_odin_files(document.fullpath, files, ast_context.allocator)
 
 	reset_ast_context(ast_context)
 
@@ -452,6 +430,40 @@ find_symbol_references :: proc(
 	}
 
 	return locations[:], true
+}
+
+// Every .odin file in the workspace folders except exclude. files, when given, replaces the walk,
+// which is compiled out under ODIN_TEST; their texts stand in for the disk.
+workspace_odin_files :: proc(
+	exclude: string,
+	files: []Package_File,
+	allocator := context.temp_allocator,
+) -> []Package_File {
+	sources := make([dynamic]Package_File, 0, allocator)
+
+	if len(files) > 0 {
+		for file in files {
+			if file.fullpath != exclude {
+				append(&sources, file)
+			}
+		}
+		return sources[:]
+	}
+
+	fullpaths := make([dynamic]string, 0, allocator)
+
+	when !ODIN_TEST {
+		for workspace in common.config.workspace_folders {
+			uri, _ := common.parse_uri(workspace.uri, context.temp_allocator)
+			common.search_for_odin_files(uri.path, exclude, dir_blacklist, &fullpaths)
+		}
+	}
+
+	slice.sort(fullpaths[:])
+	for fullpath in slice.unique(fullpaths[:]) {
+		append(&sources, Package_File{fullpath = fullpath})
+	}
+	return sources[:]
 }
 
 get_references :: proc(

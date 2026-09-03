@@ -173,6 +173,8 @@ Options:
 
 - `enable_lint_unused_declaration`: On save, mark private declarations that nothing in their package references as unnecessary. Defaults to true.
 
+- `enable_code_lens_references`: Show a reference count above every top-level declaration. Defaults to true.
+
 - `checker_skip_packages`: Paths to packages that should not be checked by `odin check` when using `enable_checker_workspace_diagnostics`.
 
 - `completion_exclude_attributes`: Filter procedures that include the provided attributes from completions. For example `@(test)`.

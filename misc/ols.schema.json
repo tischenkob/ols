@@ -263,6 +263,11 @@
 			"description": "On save, mark private declarations that nothing in their package references as unnecessary.",
 			"default": true
 		},
+		"enable_code_lens_references": {
+			"type": "boolean",
+			"description": "Show a reference count above every top-level declaration.",
+			"default": true
+		},
 		"checker_skip_packages": {
 			"type": "array",
 			"items": {

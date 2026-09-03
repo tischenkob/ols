@@ -186,7 +186,6 @@ parse_package_file :: proc(file: Package_File, config: ^common.Config) -> (docum
 }
 
 // Value declarations at file scope, including those under `when`; foreign blocks are skipped.
-@(private = "file")
 top_level_decls :: proc(file: ast.File) -> map[^ast.Value_Decl][]^ast.Attribute {
 	decls := make(map[^ast.Value_Decl][]^ast.Attribute, context.temp_allocator)
 	for decl in file.decls do collect(decl, &decls)
