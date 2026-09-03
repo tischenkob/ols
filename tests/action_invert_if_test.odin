@@ -1,7 +1,10 @@
 package tests
 
+import "core:log"
+import "core:strings"
 import "core:testing"
 
+import "src:common"
 import test "src:testing"
 
 INVERT_IF_ACTION :: "Invert if"
@@ -629,4 +632,441 @@ main :: proc() {
 	baz()
 }
 `)
+}
+
+// Applies first_action at the cursor, then second_action at the same line and column of the
+// result. Returns the input without its marker and the final text.
+apply_twice :: proc(
+	t: ^testing.T,
+	main: string,
+	first_action, second_action: string,
+	config: common.Config,
+) -> (
+	original, result: string,
+) {
+	marker := strings.index(main, "{*}")
+	if marker < 0 {
+		log.error("No {*} marker")
+		return
+	}
+	line := strings.count(main[:marker], "\n")
+	column := marker - (strings.last_index_byte(main[:marker], '\n') + 1)
+	original, _ = strings.replace(main, "{*}", "", 1, context.temp_allocator)
+
+	first := test.Source{main = main, config = config}
+	once, ok := test.apply_action(t, &first, first_action)
+	if !ok {
+		return
+	}
+	start := 0
+	for _ in 0 ..< line {
+		start += strings.index_byte(once[start:], '\n') + 1
+	}
+	at := start + column
+	again := strings.concatenate({once[:at], "{*}", once[at:]}, context.temp_allocator)
+	second := test.Source{main = again, config = config}
+	result, _ = test.apply_action(t, &second, second_action)
+	return
+}
+
+// Inverting twice gives the input back, or expected when a normalisation applies.
+expect_invert_round_trip :: proc(t: ^testing.T, main: string, expected := "") {
+	original, result := apply_twice(t, main, INVERT_IF_ACTION, INVERT_IF_ACTION, {enable_code_action_invert_if = true})
+	want := expected if expected != "" else original
+	testing.expectf(t, result == want, "\nExpected:\n%s\n\nGot:\n%s", want, result)
+}
+
+expect_inverted :: proc(t: ^testing.T, main, expected: string) {
+	source := test.Source{main = main, config = {enable_code_action_invert_if = true}}
+	test.expect_action_applied(t, &source, INVERT_IF_ACTION, expected)
+	expect_invert_round_trip(t, main)
+}
+
+@(test)
+invert_if_keeps_comments :: proc(t: ^testing.T) {
+	expect_inverted(t, `package test
+
+main :: proc() {
+	if {*}x > 0 {
+		// leading
+		foo() // trailing
+		bar()
+		// end of block
+	} else {
+		// only a comment
+	}
+}
+`, `package test
+
+main :: proc() {
+	if x <= 0 {
+		// only a comment
+	} else {
+		// leading
+		foo() // trailing
+		bar()
+		// end of block
+	}
+}
+`)
+}
+
+@(test)
+invert_if_do_body :: proc(t: ^testing.T) {
+	main := `package test
+
+main :: proc() {
+	if {*}x > 0 do foo()
+}
+`
+	source := test.Source{main = main, config = {enable_code_action_invert_if = true}}
+	test.expect_action_applied(t, &source, INVERT_IF_ACTION, `package test
+
+main :: proc() {
+	if x <= 0 {
+	} else {
+		foo()
+	}
+}
+`)
+	expect_invert_round_trip(t, main, `package test
+
+main :: proc() {
+	if x > 0 {
+		foo()
+	}
+}
+`)
+}
+
+@(test)
+invert_if_else_do :: proc(t: ^testing.T) {
+	main := `package test
+
+main :: proc() {
+	if {*}x > 0 {
+		foo()
+	} else do bar()
+}
+`
+	source := test.Source{main = main, config = {enable_code_action_invert_if = true}}
+	test.expect_action_applied(t, &source, INVERT_IF_ACTION, `package test
+
+main :: proc() {
+	if x <= 0 {
+		bar()
+	} else {
+		foo()
+	}
+}
+`)
+	expect_invert_round_trip(t, main, `package test
+
+main :: proc() {
+	if x > 0 {
+		foo()
+	} else {
+		bar()
+	}
+}
+`)
+}
+
+@(test)
+invert_if_space_indentation :: proc(t: ^testing.T) {
+	expect_inverted(t, `package test
+
+main :: proc() {
+    if {*}x > 0 {
+        foo()
+    }
+}
+`, `package test
+
+main :: proc() {
+    if x <= 0 {
+    } else {
+        foo()
+    }
+}
+`)
+}
+
+@(test)
+invert_if_chain_round_trip :: proc(t: ^testing.T) {
+	expect_inverted(t, `package test
+
+main :: proc() {
+	if {*}x > 0 {
+		foo()
+	} else if x < 0 {
+		bar()
+	} else {
+		baz()
+	}
+}
+`, `package test
+
+main :: proc() {
+	if x <= 0 {
+		if x < 0 {
+			bar()
+		} else {
+			baz()
+		}
+	} else {
+		foo()
+	}
+}
+`)
+	expect_invert_round_trip(t, `package test
+
+main :: proc() {
+	if {*}x > 0 {
+		foo()
+	} else if x < 0 {
+		bar()
+	}
+}
+`)
+}
+
+@(test)
+invert_if_init_and_label :: proc(t: ^testing.T) {
+	expect_inverted(t, `package test
+
+main :: proc() {
+	if {*}v, ok := m[k]; ok {
+		foo(v)
+	}
+}
+`, `package test
+
+main :: proc() {
+	if v, ok := m[k]; !ok {
+	} else {
+		foo(v)
+	}
+}
+`)
+	expect_inverted(t, `package test
+
+main :: proc() {
+	lbl: if {*}x > 0 {
+		foo()
+		break lbl
+	}
+}
+`, `package test
+
+main :: proc() {
+	lbl: if x <= 0 {
+	} else {
+		foo()
+		break lbl
+	}
+}
+`)
+}
+
+@(test)
+invert_if_condition_forms :: proc(t: ^testing.T) {
+	forms := [][2]string {
+		{"!x", "x"},
+		{"a && b", "!(a && b)"},
+		{"a || b", "!(a || b)"},
+		{"!(a && b)", "a && b"},
+		{"x in set", "x not_in set"},
+		{"a < b", "a >= b"},
+		{"cond()", "!cond()"},
+		{"(a == b)", "(a != b)"},
+		{"p == nil", "p != nil"},
+		{"ok", "!ok"},
+	}
+	for form in forms {
+		main := strings.concatenate({`package test
+
+main :: proc() {
+	if {*}`, form[0], ` {
+		foo()
+	}
+}
+`}, context.temp_allocator)
+		expected := strings.concatenate({`package test
+
+main :: proc() {
+	if `, form[1], ` {
+	} else {
+		foo()
+	}
+}
+`}, context.temp_allocator)
+		expect_inverted(t, main, expected)
+	}
+}
+
+@(test)
+invert_if_round_trips_in_context :: proc(t: ^testing.T) {
+	// Nested if, multi-line call, defer and continue in the body; when, for and switch around it.
+	expect_invert_round_trip(t, `package test
+
+main :: proc() {
+	for x in 0 ..< 3 {
+		when ODIN_OS == .Darwin {
+			if {*}x > 0 {
+				defer bar()
+				if x > 1 {
+					continue
+				}
+				foo(
+					x,
+				)
+			}
+		}
+	}
+}
+`)
+	expect_invert_round_trip(t, `package test
+
+main :: proc() {
+	switch x {
+	case 1:
+		if {*}x > 0 {
+			foo()
+			break
+		}
+		foo()
+	}
+}
+`)
+}
+
+@(test)
+invert_if_early_continue :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	for x in 0 ..< 3 {
+		foo()
+		if {*}x > 0 {
+			bar()
+		}
+	}
+}
+`,
+		config = {enable_code_action_invert_if = true},
+	}
+	test.expect_action_applied(t, &source, "Invert if (early continue)", `package test
+
+main :: proc() {
+	for x in 0 ..< 3 {
+		foo()
+		if x <= 0 {
+			continue
+		}
+		bar()
+	}
+}
+`)
+
+	following := test.Source {
+		main = `package test
+
+main :: proc() {
+	for {
+		if {*}x > 0 {
+			foo()
+			continue
+		}
+		bar()
+	}
+}
+`,
+		config = {enable_code_action_invert_if = true},
+	}
+	test.expect_action_applied(t, &following, "Invert if (early continue)", `package test
+
+main :: proc() {
+	for {
+		if x <= 0 {
+			bar()
+			continue
+		}
+		foo()
+	}
+}
+`)
+}
+
+@(test)
+invert_if_early_break :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	switch x {
+	case 1:
+		if {*}x > 0 {
+			foo()
+		}
+	case:
+		bar()
+	}
+}
+`,
+		config = {enable_code_action_invert_if = true},
+	}
+	test.expect_action_applied(t, &source, "Invert if (early break)", `package test
+
+main :: proc() {
+	switch x {
+	case 1:
+		if x <= 0 {
+			break
+		}
+		foo()
+	case:
+		bar()
+	}
+}
+`)
+}
+
+@(test)
+invert_if_early_exit_not_offered :: proc(t: ^testing.T) {
+	fallthrough_case := test.Source {
+		main = `package test
+
+main :: proc() {
+	switch x {
+	case 1:
+		if {*}x > 0 {
+			foo()
+		}
+		fallthrough
+	case:
+		bar()
+	}
+}
+`,
+		config = {enable_code_action_invert_if = true},
+	}
+	test.expect_action_missing(t, &fallthrough_case, "Invert if (early break)")
+
+	not_last := test.Source {
+		main = `package test
+
+main :: proc() {
+	for {
+		if {*}x > 0 {
+			foo()
+		}
+		bar()
+	}
+}
+`,
+		config = {enable_code_action_invert_if = true},
+	}
+	test.expect_action_missing(t, &not_last, "Invert if (early continue)")
 }
