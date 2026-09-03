@@ -167,6 +167,8 @@ Options:
 
 - `enable_lint_unused_parameter`: Mark procedure parameters that are never used in the body as unnecessary. Defaults to true.
 
+- `enable_lint_naming`: Report names that do not follow Odin conventions: snake_case procedures and variables, Ada_Case types and enum members, SCREAMING_SNAKE_CASE constants. Defaults to true.
+
 - `checker_skip_packages`: Paths to packages that should not be checked by `odin check` when using `enable_checker_workspace_diagnostics`.
 
 - `completion_exclude_attributes`: Filter procedures that include the provided attributes from completions. For example `@(test)`.

@@ -17,7 +17,6 @@ LintContext :: struct {
 	skip:     map[^ast.Node]struct{},
 }
 
-@(private = "file")
 lint_symbols :: proc(ctx: ^LintContext) -> SymbolAndNodeMap {
 	symbols, has_symbols := ctx.symbols.?
 	if !has_symbols {
@@ -35,6 +34,7 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_float_equality,
 	lint_ignored_result,
 	lint_unused_parameter,
+	lint_naming,
 }
 
 // One AST walk; every lint sees every node and checks its own config key.
@@ -415,18 +415,24 @@ mentions_poly :: proc(type: ^ast.Expr, poly_names: map[string]struct{}) -> bool 
 
 @(private = "file")
 has_fixed_signature_attribute :: proc(attributes: []^ast.Attribute) -> bool {
-	for attribute in attributes {
-		for elem in attribute.elems {
-			name: string
-			#partial switch e in elem.derived {
-			case ^ast.Ident:
-				name = e.name
-			case ^ast.Field_Value:
-				field := e.field.derived.(^ast.Ident) or_continue
-				name = field.name
-			}
-			if name == "export" || name == "link_name" || strings.has_prefix(name, "deferred_") do return true
-		}
+	for name in attribute_names(attributes) {
+		if name == "export" || name == "link_name" || strings.has_prefix(name, "deferred_") do return true
 	}
 	return false
+}
+
+attribute_names :: proc(attributes: []^ast.Attribute) -> []string {
+	names := make([dynamic]string, context.temp_allocator)
+	for attribute in attributes {
+		for elem in attribute.elems {
+			#partial switch e in elem.derived {
+			case ^ast.Ident:
+				append(&names, e.name)
+			case ^ast.Field_Value:
+				field := e.field.derived.(^ast.Ident) or_continue
+				append(&names, field.name)
+			}
+		}
+	}
+	return names[:]
 }
