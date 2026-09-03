@@ -185,11 +185,55 @@ source_organize_imports :: proc(
 	config: ^common.Config,
 	actions: ^[dynamic]CodeAction,
 ) {
+	textEdits := organize_import_edits(document, ast_context, config, false)
+
+	workspaceEdit: WorkspaceEdit
+	workspaceEdit.changes = make(map[string][]TextEdit, 0, context.temp_allocator)
+	workspaceEdit.changes[uri] = textEdits
+
+	append(
+		actions,
+		CodeAction {
+			kind = "source.organizeImports",
+			isPreferred = true,
+			title = fmt.tprint("organize imports"),
+			edit = workspaceEdit,
+		},
+	)
+}
+
+// Removes unused imports and adds imports for unresolved `pkg.member` uses. With
+// only_unambiguous, an identifier that matches packages of the same name in more than one
+// collection gets no import, since there is nobody to ask which one was meant.
+organize_import_edits :: proc(
+	document: ^Document,
+	ast_context: ^AstContext,
+	config: ^common.Config,
+	only_unambiguous: bool,
+) -> []TextEdit {
 	removed_lines := make(map[int]struct{}, 0, context.temp_allocator)
 
 	textEdits := make_unused_import_edits(document, &removed_lines, context.temp_allocator)
 
 	used_unimported := find_used_not_imported(document, config, context.temp_allocator)
+
+	if only_unambiguous {
+		candidates := make(map[string]int, 0, context.temp_allocator)
+
+		for imp in used_unimported {
+			candidates[imp.base] += 1
+		}
+
+		unambiguous := make([dynamic]Package, 0, len(used_unimported), context.temp_allocator)
+
+		for imp in used_unimported {
+			if candidates[imp.base] == 1 {
+				append(&unambiguous, imp)
+			}
+		}
+
+		used_unimported = unambiguous[:]
+	}
 
 	// Anchor new imports at the end of an existing line and prefix the text with a newline, so
 	// the insert can never land inside a line that a removal edit deletes. The ast positions are
@@ -243,19 +287,7 @@ source_organize_imports :: proc(
 		append(&textEdits, import_edit)
 	}
 
-	workspaceEdit: WorkspaceEdit
-	workspaceEdit.changes = make(map[string][]TextEdit, 0, context.temp_allocator)
-	workspaceEdit.changes[uri] = textEdits[:]
-
-	append(
-		actions,
-		CodeAction {
-			kind = "source.organizeImports",
-			isPreferred = true,
-			title = fmt.tprint("organize imports"),
-			edit = workspaceEdit,
-		},
-	)
+	return textEdits[:]
 }
 
 

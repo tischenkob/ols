@@ -97,16 +97,17 @@ thread_request_main :: proc(data: rawptr) {
 			#partial switch v in id_value {
 			case json.String:
 				id = v
-				//Hack to support dynamic registering without changing too much
-				if v == "REGISTER_DYNAMIC_CAPABILITIES" {
-					json.destroy_value(root)
-					continue
-				}
 			case json.Integer:
 				id = v
 			case:
 				id = 0
 			}
+		}
+
+		//A reply to a request the server sent has an id and no method.
+		if "method" not_in root {
+			json.destroy_value(root)
+			continue
 		}
 
 		sync.mutex_lock(&requests_mutex)
@@ -406,6 +407,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_inline_variable.(bool) or_else config.enable_code_action_inline_variable
 	config.enable_code_action_extract_procedure =
 		ols_config.enable_code_action_extract_procedure.(bool) or_else config.enable_code_action_extract_procedure
+	config.enable_organize_imports_on_save =
+		ols_config.enable_organize_imports_on_save.(bool) or_else config.enable_organize_imports_on_save
 	config.verbose = ols_config.verbose.(bool) or_else config.verbose
 	config.file_log = ols_config.file_log.(bool) or_else config.file_log
 
@@ -771,6 +774,8 @@ request_initialize :: proc(
 	config.signature_offset_support =
 		initialize_params.capabilities.textDocument.signatureHelp.signatureInformation.parameterInformation.labelOffsetSupport
 
+	config.enable_organize_imports_on_save &= initialize_params.capabilities.workspace.applyEdit
+
 	completionTriggerCharacters := []string{".", ">", "#", "\"", "/", ":"}
 	signatureTriggerCharacters := []string{"(", ","}
 	signatureRetriggerCharacters := []string{","}
@@ -883,6 +888,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_extract_variable = true
 	config.enable_code_action_inline_variable = true
 	config.enable_code_action_extract_procedure = true
+	config.enable_organize_imports_on_save = true
 }
 
 get_builtin_path :: proc(allocator := context.allocator) -> string {
@@ -1294,6 +1300,10 @@ notification_did_save :: proc(
 	document := document_get(save_params.textDocument.uri)
 	if document != nil {
 		check_unused_imports(document, config)
+
+		if config.enable_organize_imports_on_save {
+			organize_imports_on_save(document, config, writer)
+		}
 	}
 
 	push_diagnostics(writer)

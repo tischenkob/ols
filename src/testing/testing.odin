@@ -914,6 +914,28 @@ expect_action_applied :: proc(
 	log.errorf("Action '%s' not found in actions: %v", action_name, actions)
 }
 
+expect_save_imports_applied :: proc(t: ^testing.T, src: ^Source, expected: string) {
+	spall.trace(#procedure)
+
+	setup(src)
+	defer teardown(src)
+
+	ast_context := server.make_ast_context(
+		src.document.ast,
+		src.document.imports,
+		src.document.package_name,
+		src.document.uri.uri,
+		src.document.fullpath,
+		context.temp_allocator,
+	)
+
+	edits := server.organize_import_edits(src.document, &ast_context, &src.config, true)
+
+	text := common.apply_text_edits(edits, string(src.document.text))
+
+	testing.expectf(t, text == expected, "\nExpected:\n%s\n\nGot:\n%s", expected, text)
+}
+
 expect_action_missing :: proc(t: ^testing.T, src: ^Source, action_name: string) {
 	spall.trace(#procedure)
 

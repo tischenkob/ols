@@ -35,13 +35,16 @@ ResponseParams :: union {
 	[]DocumentHighlight,
 }
 
+RequestParams :: union {
+	RegistrationParams,
+	ApplyWorkspaceEditParams,
+}
+
 RequestMessage :: struct {
 	jsonrpc: string,
 	method:  string,
 	id:      RequestId,
-	params:  union {
-		RegistrationParams,
-	},
+	params:  RequestParams,
 }
 
 ResponseMessage :: struct {
@@ -225,6 +228,7 @@ ClientCapabilities :: struct {
 }
 
 WorkspaceCapabilities :: struct {
+	applyEdit:             bool,
 	didChangeWatchedFiles: DidChangeWatchedFilesClientCapabilities,
 }
 
@@ -449,6 +453,7 @@ OlsConfig :: struct {
 	enable_code_action_extract_variable:     Maybe(bool),
 	enable_code_action_inline_variable:      Maybe(bool),
 	enable_code_action_extract_procedure:    Maybe(bool),
+	enable_organize_imports_on_save:         Maybe(bool),
 	struct_fields_underscore_visibility: 	 string,
 	enable_parser_errors:                    Maybe(bool),
 	disable_parser_errors:                   Maybe(bool),
@@ -606,6 +611,11 @@ TextDocumentEdit :: struct {
 
 WorkspaceEdit :: struct {
 	changes: map[string][]TextEdit,
+}
+
+ApplyWorkspaceEditParams :: struct {
+	label: string,
+	edit:  WorkspaceEdit,
 }
 
 WorkspaceSymbolParams :: struct {

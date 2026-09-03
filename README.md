@@ -124,6 +124,8 @@ Options:
 
 - `enable_code_action_extract_procedure`: Enables the code action to extract selected statements into a new procedure. Defaults to true.
 
+- `enable_organize_imports_on_save`: Removes unused imports and adds missing ones on save through `workspace/applyEdit`. Defaults to true.
+
 - `struct_fields_underscore_visibility`: Controls visibility of struct fields starting with `_`:
   - `""` (default): no hiding, all fields are visible
   - `"file"`: hide fields when accessed from outside the declaring file 

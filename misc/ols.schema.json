@@ -145,6 +145,11 @@
 			"description": "Enables the code action to extract selected statements into a new procedure.",
 			"default": true
 		},
+		"enable_organize_imports_on_save": {
+			"type": "boolean",
+			"description": "Removes unused imports and adds missing ones on save through workspace/applyEdit.",
+			"default": true
+		},
 		"struct_fields_underscore_visibility": {
   			"type": "string",
   			"description": "Controls visibility of struct fields starting with `_`:\n\n- \"\" (default): no hiding; all fields are visible\n- \"file\": hide fields when accessed from outside the declaring file\n- \"package\": hide fields when accessed from outside the declaring package",
