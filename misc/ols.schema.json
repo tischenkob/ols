@@ -155,6 +155,11 @@
 			"description": "Enables the code actions converting between an if/else and a ternary expression.",
 			"default": true
 		},
+		"enable_code_action_unwrap": {
+			"type": "boolean",
+			"description": "Enables the code actions to unwrap a block, if or loop body and to remove a redundant else.",
+			"default": true
+		},
 		"enable_inlay_hints_variable_types": {
 			"type": "boolean",
 			"description": "Turn on inlay hints for inferred variable types.",

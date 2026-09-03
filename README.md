@@ -130,6 +130,8 @@ Options:
 
 - `enable_code_action_ternary`: Enables the code actions converting between an if/else and a ternary expression. Defaults to true.
 
+- `enable_code_action_unwrap`: Enables the code actions to unwrap a block, if or loop body and to remove a redundant else. Defaults to true.
+
 - `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&` and to merge nested ifs. Defaults to true.
 
 - `enable_code_action_rewrite_expression`: Enables the code actions to flip a comparison, apply De Morgan's law and convert between compound and plain assignment. Defaults to true.

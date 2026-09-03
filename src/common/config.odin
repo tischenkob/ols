@@ -60,6 +60,7 @@ Config :: struct {
 	enable_code_action_rewrite_expression:   bool,
 	enable_code_action_add_explicit_type:    bool,
 	enable_code_action_ternary:              bool,
+	enable_code_action_unwrap:               bool,
 	enable_organize_imports_on_save:         bool,
 	struct_fields_underscore_visibility:	 StructFieldUnderscoreMeaning,
 	enable_parser_errors:                    bool,
