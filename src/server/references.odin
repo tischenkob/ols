@@ -243,15 +243,42 @@ resolve_references :: proc(
 ) {
 	spall.trace(#procedure, document.fullpath)
 
-	locations := make([dynamic]common.Location, 0, ast_context.allocator)
-	fullpaths := make([dynamic]string, 0, ast_context.allocator)
-
 	symbol, resolve_flag, ok := prepare_references(document, ast_context, position_context)
 	if !ok {
 		return {}, true
 	}
 
-	target_name := get_target_name(position_context, resolve_flag)
+	return find_symbol_references(
+		document,
+		ast_context,
+		symbol,
+		resolve_flag,
+		current_file_only,
+		include_declaration,
+		get_target_name(position_context, resolve_flag),
+	)
+}
+
+// References to symbol in document and then across the workspace. When files is given it replaces the
+// workspace walk and its texts are used instead of the disk. target_name, when known, skips files that
+// do not contain it.
+find_symbol_references :: proc(
+	document: ^Document,
+	ast_context: ^AstContext,
+	symbol: Symbol,
+	resolve_flag: ResolveReferenceFlag,
+	current_file_only := false,
+	include_declaration := true,
+	target_name := "",
+	files: []Package_File = {},
+) -> (
+	[]common.Location,
+	bool,
+) {
+	spall.trace(#procedure, document.fullpath)
+
+	locations := make([dynamic]common.Location, 0, ast_context.allocator)
+
 	symbols_and_nodes := resolve_entire_file_for_references(document, ast_context.allocator, resolve_flag, target_name)
 
 	for k, v in symbols_and_nodes {
@@ -282,11 +309,28 @@ resolve_references :: proc(
 		return locations[:], true
 	}
 
-	when !ODIN_TEST {
-	for workspace in common.config.workspace_folders {
-		uri, _ := common.parse_uri(workspace.uri, context.temp_allocator)
-		common.search_for_odin_files(uri.path, document.fullpath, dir_blacklist, &fullpaths)
-	}
+	sources := make([dynamic]Package_File, 0, ast_context.allocator)
+
+	if len(files) > 0 {
+		for file in files {
+			if file.fullpath != document.fullpath {
+				append(&sources, file)
+			}
+		}
+	} else {
+		fullpaths := make([dynamic]string, 0, ast_context.allocator)
+
+		when !ODIN_TEST {
+		for workspace in common.config.workspace_folders {
+			uri, _ := common.parse_uri(workspace.uri, context.temp_allocator)
+			common.search_for_odin_files(uri.path, document.fullpath, dir_blacklist, &fullpaths)
+		}
+		}
+
+		slice.sort(fullpaths[:])
+		for fullpath in slice.unique(fullpaths[:]) {
+			append(&sources, Package_File{fullpath = fullpath})
+		}
 	}
 
 	reset_ast_context(ast_context)
@@ -295,12 +339,12 @@ resolve_references :: proc(
 	arena: runtime.Arena
 	_ = runtime.arena_init(&arena, mem.Megabyte * 40, context.temp_allocator)
 
-	for fullpath in slice.unique(fullpaths[:]) {
+	for source in sources {
 
 		context.allocator = runtime.arena_allocator(&arena)
 		defer runtime.arena_free_all(&arena)
 
-		fullpath := fullpath
+		fullpath := source.fullpath
 		when ODIN_OS == .Windows {
 			path := common.get_case_sensitive_path(fullpath, context.temp_allocator)
 			fullpath, _ = filepath.replace_separators(path, '/', context.allocator)
@@ -308,14 +352,20 @@ resolve_references :: proc(
 		dir := filepath.dir(fullpath)
 		base := filepath.base(dir)
 
-		data, err := os.read_entire_file(fullpath, context.allocator)
+		text := source.text
 
-		if err != nil {
-			log.errorf("failed to read entire file for indexing %v: %v", fullpath, err)
-			continue
+		if text == "" {
+			data, err := os.read_entire_file(fullpath, context.allocator)
+
+			if err != nil {
+				log.errorf("failed to read entire file for indexing %v: %v", fullpath, err)
+				continue
+			}
+
+			text = string(data)
 		}
 
-		if target_name != "" && !strings.contains(string(data), target_name) {
+		if target_name != "" && !strings.contains(text, target_name) {
 			continue
 		}
 
@@ -338,7 +388,7 @@ resolve_references :: proc(
 
 		file := ast.File {
 			fullpath = fullpath,
-			src      = string(data),
+			src      = text,
 			pkg      = pkg,
 		}
 

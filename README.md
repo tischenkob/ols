@@ -251,7 +251,8 @@ Support Language server features:
 
 `ols query <command>` prints LSP-shaped JSON. Positions are `file:line:col`, 1-based, columns in bytes. `--root DIR` sets the workspace, default: the nearest directory with an `ols.json` above the file, else the cwd.
 
-- `def`, `refs`, `hover` `FILE:LINE:COL`
+- `def`, `refs`, `hover`, `impl` `FILE:LINE:COL`
+- `callers`, `callees` `FILE:LINE:COL`: the call hierarchy of the procedure at the position, as `[{name, uri, range, fromRanges}]`
 - `symbols FILE`
 - `actions FILE:LINE:COL[-LINE:COL] [--apply TITLE]`
 - `rename FILE:LINE:COL NEW [--apply]`

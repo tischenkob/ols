@@ -34,6 +34,9 @@ ResponseParams :: union {
 	[]CodeAction,
 	[]DocumentHighlight,
 	[]FoldingRange,
+	[]CallHierarchyItem,
+	[]CallHierarchyIncomingCall,
+	[]CallHierarchyOutgoingCall,
 }
 
 RequestParams :: union {
@@ -153,6 +156,8 @@ ServerCapabilities :: struct {
 	documentLinkProvider:       DocumentLinkOptions,
 	codeActionProvider:         CodeActionOptions,
 	foldingRangeProvider:       bool,
+	implementationProvider:     bool,
+	callHierarchyProvider:      bool,
 }
 
 DidChangeWatchedFilesRegistrationOptions :: struct {
@@ -528,6 +533,34 @@ DocumentSymbol :: struct {
 	range:          common.Range,
 	selectionRange: common.Range,
 	children:       []DocumentSymbol,
+}
+
+CallHierarchyItem :: struct {
+	name:           string,
+	kind:           SymbolKind,
+	detail:         string,
+	uri:            string,
+	range:          common.Range,
+	selectionRange: common.Range,
+}
+
+CallHierarchyIncomingCall :: struct {
+	from:       CallHierarchyItem,
+	fromRanges: []common.Range,
+}
+
+CallHierarchyOutgoingCall :: struct {
+	to:         CallHierarchyItem,
+	fromRanges: []common.Range,
+}
+
+CallHierarchyPrepareParams :: struct {
+	textDocument: TextDocumentIdentifier,
+	position:     common.Position,
+}
+
+CallHierarchyCallsParams :: struct {
+	item: CallHierarchyItem,
 }
 
 FoldingRangeParams :: struct {

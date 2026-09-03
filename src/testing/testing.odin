@@ -1188,12 +1188,7 @@ expect_unused_declarations :: proc(t: ^testing.T, src: ^Source, expected: []Unus
 	// The saved document is in the index on save; setup only parses it.
 	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
 
-	files := make([]server.Package_File, len(src.files), context.temp_allocator)
-	for f, i in src.files {
-		files[i] = {strings.join({"test", f.name}, "/", context.temp_allocator), f.source}
-	}
-
-	diagnostics, ok := server.unused_declarations("test", files, &src.config)
+	diagnostics, ok := server.unused_declarations("test", package_files(src), &src.config)
 	testing.expect(t, ok, "unused_declarations failed")
 
 	got := make([dynamic]Unused_Expect, context.temp_allocator)
@@ -1211,6 +1206,85 @@ expect_unused_declarations :: proc(t: ^testing.T, src: ^Source, expected: []Unus
 	slice.sort_by(expected, less)
 
 	testing.expectf(t, slice.equal(expected, got[:]), "\nExpected %v but received %v", expected, got[:])
+}
+
+@(private)
+package_files :: proc(src: ^Source) -> []server.Package_File {
+	files := make([]server.Package_File, len(src.files), context.temp_allocator)
+	for f, i in src.files {
+		files[i] = {strings.join({"test", f.name}, "/", context.temp_allocator), f.source}
+	}
+	return files
+}
+
+// Name of the call hierarchy item prepared at the cursor, "" when there is none.
+expect_call_hierarchy_item :: proc(t: ^testing.T, src: ^Source, expected: string) {
+	cursor := source_remove_cursor(src)
+
+	setup(src)
+	defer teardown(src)
+
+	items := server.prepare_call_hierarchy(src.document, cursor, package_files(src))
+	name := items[0].name if len(items) == 1 else ""
+	testing.expectf(t, name == expected, "\nExpected item %q but received %v", expected, items)
+}
+
+Call_Expect :: struct {
+	name:  string,
+	sites: int,
+}
+
+expect_incoming_calls :: proc(t: ^testing.T, src: ^Source, expected: []Call_Expect) {
+	expect_calls(t, src, true, expected)
+}
+
+expect_outgoing_calls :: proc(t: ^testing.T, src: ^Source, expected: []Call_Expect) {
+	expect_calls(t, src, false, expected)
+}
+
+@(private)
+expect_calls :: proc(t: ^testing.T, src: ^Source, incoming: bool, expected: []Call_Expect) {
+	cursor := source_remove_cursor(src)
+
+	setup(src)
+	defer teardown(src)
+
+	// Other files resolve names from the open document through the index.
+	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+
+	files := package_files(src)
+	items := server.prepare_call_hierarchy(src.document, cursor, files)
+	if !testing.expectf(t, len(items) == 1, "\nExpected one item but received %v", items) do return
+
+	got := make([dynamic]Call_Expect, context.temp_allocator)
+	if incoming {
+		for call in server.incoming_calls(items[0], files) do append(&got, Call_Expect{call.from.name, len(call.fromRanges)})
+	} else {
+		for call in server.outgoing_calls(items[0], files) do append(&got, Call_Expect{call.to.name, len(call.fromRanges)})
+	}
+	less :: proc(a, b: Call_Expect) -> bool {
+		return a.name < b.name
+	}
+	slice.sort_by(got[:], less)
+	expected := slice.clone(expected, context.temp_allocator)
+	slice.sort_by(expected, less)
+
+	testing.expectf(t, slice.equal(expected, got[:]), "\nExpected %v but received %v", expected, got[:])
+}
+
+expect_implementation_locations :: proc(t: ^testing.T, src: ^Source, expected: []common.Location) {
+	cursor := source_remove_cursor(src)
+
+	setup(src)
+	defer teardown(src)
+
+	locations := server.get_implementation_locations(src.document, cursor, package_files(src))
+	for &location in locations do location.uri = ""
+
+	_, _, all_good := compare_expected_slice_set(locations, expected, equals = proc(a, e: common.Location) -> bool {
+		return a.range == e.range
+	})
+	testing.expectf(t, all_good, "\nExpected %v but received %v", expected, locations)
 }
 
 expect_folding_ranges :: proc(t: ^testing.T, src: ^Source, expected: []server.FoldingRange) {

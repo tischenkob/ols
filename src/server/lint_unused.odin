@@ -156,7 +156,6 @@ unused_declarations :: proc(
 	return diagnostics, true
 }
 
-@(private = "file")
 parse_package_file :: proc(file: Package_File, config: ^common.Config) -> (document: Document, ok: bool) {
 	p := parser.Parser {
 		flags = {.Optional_Semicolons},
