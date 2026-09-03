@@ -23,51 +23,6 @@ add_rewrite_expression_action :: proc(ctx: ^ActionContext) {
 	add_compound_assignment(ctx, nodes)
 }
 
-Node_At :: struct {
-	node, parent: ^ast.Node,
-}
-
-// Every node containing pos, outermost first.
-nodes_at :: proc(roots: []^ast.Stmt, pos: int) -> []Node_At {
-	Data :: struct {
-		pos:   int,
-		stack: [dynamic]^ast.Node,
-		found: [dynamic]Node_At,
-	}
-
-	data := Data {
-		pos   = pos,
-		stack = make([dynamic]^ast.Node, context.temp_allocator),
-		found = make([dynamic]Node_At, context.temp_allocator),
-	}
-
-	visitor := ast.Visitor {
-		data = &data,
-		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
-			data := (^Data)(visitor.data)
-			if node == nil {
-				pop(&data.stack)
-				return nil
-			}
-			if node.pos.offset > data.pos || data.pos > node.end.offset {
-				return nil
-			}
-			parent: ^ast.Node
-			if len(data.stack) > 0 {
-				parent = data.stack[len(data.stack) - 1]
-			}
-			append(&data.found, Node_At{node = node, parent = parent})
-			append(&data.stack, node)
-			return visitor
-		},
-	}
-
-	for root in roots {
-		ast.walk(&visitor, root)
-	}
-	return data.found[:]
-}
-
 add_flip_comparison :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 	src := ctx.document.ast.src
 	#reverse for at in nodes {
@@ -280,27 +235,4 @@ contains_call :: proc(node: ^ast.Node) -> bool {
 	}
 	ast.walk(&visitor, node)
 	return found
-}
-
-strip_space :: proc(s: string) -> string {
-	sb := strings.builder_make(context.temp_allocator)
-	for c in s {
-		if !strings.is_space(c) {
-			strings.write_rune(&sb, c)
-		}
-	}
-	return strings.to_string(sb)
-}
-
-node_text :: proc(src: string, node: ^ast.Node) -> string {
-	return src[node.pos.offset:node.end.offset]
-}
-
-append_replace_range :: proc(ctx: ^ActionContext, start, end: int, title: string, text: string) {
-	edits := make([]TextEdit, 1, context.temp_allocator)
-	edits[0] = TextEdit {
-		range   = range_of(ctx, start, end),
-		newText = text,
-	}
-	append(ctx.actions, make_code_action(ctx, title, "refactor.rewrite", edits))
 }

@@ -28,6 +28,29 @@ main :: proc() {
 }
 
 @(test)
+action_add_explicit_type_from_variable :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	x := 5
+	y{*} := x
+}
+`,
+		packages = {},
+		config = {enable_code_action_add_explicit_type = true},
+	}
+
+	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+
+main :: proc() {
+	x := 5
+	y: int = x
+}
+`)
+}
+
+@(test)
 action_add_explicit_type_string :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
