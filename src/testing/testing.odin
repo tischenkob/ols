@@ -959,7 +959,12 @@ expect_action_missing :: proc(t: ^testing.T, src: ^Source, action_name: string) 
 	setup(src)
 	defer teardown(src)
 
-	actions, ok := server.get_code_actions(src.document, {}, input_range, &src.config)
+	// Other files resolve names from the open document through the index.
+	if len(src.files) > 1 {
+		server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+	}
+
+	actions, ok := server.get_code_actions(src.document, {}, input_range, &src.config, package_files(src))
 	if !ok {
 		log.error("Failed to find actions")
 		return
@@ -1215,6 +1220,61 @@ package_files :: proc(src: ^Source) -> []server.Package_File {
 		files[i] = {strings.join({"test", f.name}, "/", context.temp_allocator), f.source}
 	}
 	return files
+}
+
+// Applies the named action to the files of src and compares each file listed in expected by name.
+expect_action_applied_files :: proc(t: ^testing.T, src: ^Source, action_name: string, expected: []File) {
+	input_range := source_remove_selection(src)
+
+	setup(src)
+	defer teardown(src)
+
+	// Other files resolve names from the open document through the index.
+	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+
+	actions, ok := server.get_code_actions(src.document, {}, input_range, &src.config, package_files(src))
+	if !ok {
+		log.error("Failed to find actions")
+		return
+	}
+	for action in actions {
+		if action.title == action_name {
+			expect_workspace_edit(t, src, action.edit, expected)
+			return
+		}
+	}
+	log.errorf("Action '%s' not found in actions: %v", action_name, actions)
+}
+
+// Reorders the parameters of the procedure at the cursor. Empty expected means the reorder is refused.
+expect_reorder_params :: proc(t: ^testing.T, src: ^Source, order: []int, expected: []File) {
+	cursor := source_remove_cursor(src)
+
+	setup(src)
+	defer teardown(src)
+
+	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+
+	edit, ok := server.reorder_params(src.document, cursor, order, package_files(src))
+	if len(expected) == 0 {
+		testing.expectf(t, !ok, "Expected the reorder to be refused but received %v", edit)
+		return
+	}
+	if !testing.expectf(t, ok, "Expected a reorder but it was refused") do return
+	expect_workspace_edit(t, src, edit, expected)
+}
+
+@(private)
+expect_workspace_edit :: proc(t: ^testing.T, src: ^Source, edit: server.WorkspaceEdit, expected: []File) {
+	for f in src.files {
+		uri := common.create_uri(strings.join({"test", f.name}, "/", context.temp_allocator), context.temp_allocator)
+		text := common.apply_text_edits(edit.changes[uri.uri], f.source)
+		for want in expected {
+			if want.name == f.name {
+				testing.expectf(t, text == want.source, "\n%s expected:\n%s\n\nGot:\n%s", f.name, want.source, text)
+			}
+		}
+	}
 }
 
 // Name of the call hierarchy item prepared at the cursor, "" when there is none.

@@ -150,6 +150,10 @@ Options:
 
 - `enable_code_action_inline_proc`: Enables the code action inlining a procedure call. Defaults to true.
 
+- `enable_code_action_introduce_param`: Enables the code action turning a constant expression into a parameter passed by every caller. Defaults to true.
+
+- `enable_code_action_remove_param`: Enables the code action removing an unused parameter from a procedure and its callers. Defaults to true.
+
 - `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&` and to merge nested ifs. Defaults to true.
 
 - `enable_code_action_rewrite_expression`: Enables the code actions to flip a comparison, apply De Morgan's law and convert between compound and plain assignment. Defaults to true.
@@ -274,6 +278,7 @@ Support Language server features:
 - `symbols FILE`
 - `actions FILE:LINE:COL[-LINE:COL] [--apply TITLE]`
 - `rename FILE:LINE:COL NEW [--apply]`
+- `reorder-params FILE:LINE:COL --order 2,0,1 [--apply]`: position on a procedure name; `--order` lists the new parameter order by old index. Callers are updated. Refused when the procedure is used as a value or a caller names or omits arguments
 - `check [DIR]`
 - `lint FILE|DIR`: per-file lints, unused imports and unused private declarations, without running the compiler
 

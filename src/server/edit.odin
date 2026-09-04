@@ -17,6 +17,7 @@ ActionContext :: struct {
 	uri:              string,
 	config:           ^common.Config,
 	actions:          ^[dynamic]CodeAction,
+	files:            []Package_File, // in-memory package sources for the tests, else the workspace is read
 }
 
 make_code_action :: proc(ctx: ^ActionContext, title: string, kind: CodeActionKind, edits: []TextEdit) -> CodeAction {

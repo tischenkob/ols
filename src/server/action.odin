@@ -45,6 +45,7 @@ get_code_actions :: proc(
 	ctx: CodeActionContext,
 	range: common.Range,
 	config: ^common.Config,
+	files: []Package_File = {},
 ) -> (
 	[]CodeAction,
 	bool,
@@ -123,6 +124,7 @@ get_code_actions :: proc(
 		uri              = strings.clone(document.uri.uri, context.temp_allocator),
 		config           = config,
 		actions          = &actions,
+		files            = files,
 	}
 
 	for action_proc in action_procs {
@@ -133,7 +135,7 @@ get_code_actions :: proc(
 }
 
 @(private = "file")
-action_procs := [?]proc(^ActionContext){add_invert_if_action, add_extract_variable_action, add_inline_variable_action, add_extract_procedure_action, add_split_merge_if_action, add_rewrite_expression_action, add_explicit_type_action, add_ternary_action, add_unwrap_action, add_do_block_action, add_fill_struct_action, add_if_to_switch_action, add_result_handling_action, add_generate_proc_action, add_named_results_action, add_defer_delete_action, add_extract_constant_action, add_inline_proc_action}
+action_procs := [?]proc(^ActionContext){add_invert_if_action, add_extract_variable_action, add_inline_variable_action, add_extract_procedure_action, add_split_merge_if_action, add_rewrite_expression_action, add_explicit_type_action, add_ternary_action, add_unwrap_action, add_do_block_action, add_fill_struct_action, add_if_to_switch_action, add_result_handling_action, add_generate_proc_action, add_named_results_action, add_defer_delete_action, add_extract_constant_action, add_inline_proc_action, add_introduce_param_action, add_remove_param_action}
 
 
 make_unused_import_edits :: proc(

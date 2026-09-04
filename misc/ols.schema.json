@@ -205,6 +205,16 @@
 			"description": "Enables the code action inlining a procedure call.",
 			"default": true
 		},
+		"enable_code_action_introduce_param": {
+			"type": "boolean",
+			"description": "Enables the code action turning a constant expression into a parameter passed by every caller.",
+			"default": true
+		},
+		"enable_code_action_remove_param": {
+			"type": "boolean",
+			"description": "Enables the code action removing an unused parameter from a procedure and its callers.",
+			"default": true
+		},
 		"enable_inlay_hints_variable_types": {
 			"type": "boolean",
 			"description": "Turn on inlay hints for inferred variable types.",

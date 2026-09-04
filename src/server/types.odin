@@ -477,6 +477,8 @@ OlsConfig :: struct {
 	enable_code_action_defer_delete:         Maybe(bool),
 	enable_code_action_extract_constant:     Maybe(bool),
 	enable_code_action_inline_proc:          Maybe(bool),
+	enable_code_action_introduce_param:      Maybe(bool),
+	enable_code_action_remove_param:         Maybe(bool),
 	enable_organize_imports_on_save:         Maybe(bool),
 	enable_lint_self_assignment:             Maybe(bool),
 	enable_lint_identical_branches:          Maybe(bool),
