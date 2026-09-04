@@ -88,6 +88,14 @@ odin check "$dir" -no-entry-point
 echo "ok reorder-params-apply check"
 if "$OLS" query reorder-params "$dir/util.odin:3:1" --order 1,0 >/dev/null 2>&1; then echo "FAIL reorder-params group member"; exit 1; fi
 echo "ok reorder-params refused"
+expect move-new "scale.odin" "$OLS" query move "$dir/util.odin:17:1" --to scale.odin --apply
+grep -q "^scale :: proc" "$dir/scale.odin" && ! grep -q "^scale :: proc" "$dir/util.odin"
+odin check "$dir" -no-entry-point
+echo "ok move-new check"
+expect move-existing "main.odin" "$OLS" query move "$dir/util.odin:7:1" --to main.odin --apply
+grep -q "^twice :: proc" "$dir/main.odin" && ! grep -q "^twice :: proc" "$dir/util.odin"
+odin check "$dir" -no-entry-point
+echo "ok move-existing check"
 expect check "not an int\|Cannot assign\|cannot" "$OLS" query check "$dir/bad"
 expect check-diagnostic '"diagnostic"' "$OLS" query check "$dir/bad"
 mkdir "$dir/lint"

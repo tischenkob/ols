@@ -24,6 +24,7 @@ USAGE :: `usage: ols query <command> [--root DIR]
   actions FILE:LINE:COL[-LINE:COL] [--apply TITLE]
   rename  FILE:LINE:COL NEW [--apply]
   reorder-params FILE:LINE:COL --order 2,0,1 [--apply]
+  move    FILE:LINE:COL --to TARGET.odin [--apply]
   check   [DIR]
   lint    FILE|DIR
 Lines and columns are 1-based, columns in bytes, as odin check prints them.
@@ -39,7 +40,7 @@ Target :: struct {
 run :: proc(args: []string) -> int {
 	context.logger = log.create_console_logger(.Error)
 
-	root, apply_title, order_text := "", "", ""
+	root, apply_title, order_text, move_to := "", "", "", ""
 	apply := false
 	rest := make([dynamic]string, context.temp_allocator)
 
@@ -57,6 +58,12 @@ run :: proc(args: []string) -> int {
 				return usage()
 			}
 			order_text = args[i]
+		case "--to":
+			i += 1
+			if i == len(args) {
+				return usage()
+			}
+			move_to = args[i]
 		case "--apply":
 			apply = true
 			if len(rest) > 0 && rest[0] == "actions" && i + 1 < len(args) {
@@ -190,6 +197,26 @@ run :: proc(args: []string) -> int {
 		}
 		print(edit)
 		return 0
+	case "move":
+		if move_to == "" {
+			fmt.eprintln("--to names the target file")
+			return 2
+		}
+		if !filepath.is_abs(move_to) {
+			move_to = path.join({path.dir(target.file, context.temp_allocator), move_to}, context.temp_allocator)
+		}
+		edit, ok := server.move_declaration(document, position, common.create_uri(move_to, context.temp_allocator).uri)
+		if !ok {
+			fmt.eprintln(
+				"cannot move: the position must be on the name of a top-level declaration that is not file private and uses no file-private symbol, and --to must name a .odin file of the same directory",
+			)
+			return 1
+		}
+		if apply {
+			return apply_edit(edit)
+		}
+		print(edit)
+		return 0
 	}
 
 	return usage()
@@ -265,6 +292,7 @@ setup :: proc(root: string) {
 	config := &common.config
 	config.collections = make(map[string]string)
 	server.apply_default_config(config)
+	config.client_create_file_support = true
 
 	root_uri := common.create_uri(root, context.allocator)
 	config.workspace_folders = make([dynamic]common.WorkspaceFolder)
@@ -396,22 +424,47 @@ lint :: proc(target: string) -> int {
 
 apply_edit :: proc(edit: server.WorkspaceEdit) -> int {
 	written := make([dynamic]string, context.temp_allocator)
+	if changes, has := edit.documentChanges.?; has {
+		for change in changes {
+			switch c in change {
+			case server.CreateFile:
+				file := common.uri_to_path(c.uri, context.temp_allocator)
+				if !os.exists(file) {
+					if err := os.write_entire_file(file, ""); err != nil {
+						fmt.eprintfln("cannot create %s: %v", file, err)
+						return 1
+					}
+				}
+			case server.TextDocumentEdit:
+				if !apply_file_edits(c.textDocument.uri, c.edits, &written) {
+					return 1
+				}
+			}
+		}
+	}
 	for uri, edits in edit.changes {
-		file := common.uri_to_path(uri, context.temp_allocator)
-		text, err := os.read_entire_file(file, context.temp_allocator)
-		if err != nil {
-			fmt.eprintfln("cannot read %s: %v", file, err)
+		if !apply_file_edits(uri, edits, &written) {
 			return 1
 		}
-		new_text := common.apply_text_edits(edits, string(text))
-		if err := os.write_entire_file(file, transmute([]u8)new_text); err != nil {
-			fmt.eprintfln("cannot write %s: %v", file, err)
-			return 1
-		}
-		append(&written, file)
 	}
 	print(written[:])
 	return 0
+}
+
+apply_file_edits :: proc(uri: string, edits: []server.TextEdit, written: ^[dynamic]string) -> bool {
+	file := common.uri_to_path(uri, context.temp_allocator)
+	text, err := os.read_entire_file(file, context.temp_allocator)
+	if err != nil {
+		fmt.eprintfln("cannot read %s: %v", file, err)
+		return false
+	}
+	new_text := common.apply_text_edits(edits, string(text))
+	if err := os.write_entire_file(file, transmute([]u8)new_text); err != nil {
+		fmt.eprintfln("cannot write %s: %v", file, err)
+		return false
+	}
+	append(written, file)
+	return true
 }
 
 titles :: proc(actions: []server.CodeAction) -> []string {
