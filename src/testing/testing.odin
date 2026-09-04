@@ -802,7 +802,7 @@ expect_action :: proc(t: ^testing.T, src: ^Source, expect_action_names: []string
 	setup(src)
 	defer teardown(src)
 
-	actions, ok := server.get_code_actions(src.document, ctx, input_range, &src.config)
+	actions, ok := server.get_code_actions(src.document, ctx, input_range, &src.config, package_files(src))
 	if !ok {
 		log.error("Failed to find actions")
 	}
@@ -1264,16 +1264,56 @@ expect_reorder_params :: proc(t: ^testing.T, src: ^Source, order: []int, expecte
 	expect_workspace_edit(t, src, edit, expected)
 }
 
+// Moves the declaration at the cursor to target, a file name of the test package. Empty expected
+// means the move is refused.
+expect_move_declaration :: proc(t: ^testing.T, src: ^Source, target: string, expected: []File) {
+	cursor := source_remove_cursor(src)
+
+	setup(src)
+	defer teardown(src)
+
+	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+
+	edit, ok := server.move_declaration(src.document, cursor, test_uri(target), package_files(src))
+	if len(expected) == 0 {
+		testing.expectf(t, !ok, "Expected the move to be refused but received %v", edit)
+		return
+	}
+	if !testing.expectf(t, ok, "Expected a move but it was refused") do return
+	expect_workspace_edit(t, src, edit, expected)
+}
+
+@(private)
+test_uri :: proc(name: string) -> string {
+	return common.create_uri(strings.join({"test", name}, "/", context.temp_allocator), context.temp_allocator).uri
+}
+
+// Applies edit to the files of src, creating the files it creates, and compares each file listed
+// in expected by name.
 @(private)
 expect_workspace_edit :: proc(t: ^testing.T, src: ^Source, edit: server.WorkspaceEdit, expected: []File) {
+	texts := make(map[string]string, context.temp_allocator)
 	for f in src.files {
-		uri := common.create_uri(strings.join({"test", f.name}, "/", context.temp_allocator), context.temp_allocator)
-		text := common.apply_text_edits(edit.changes[uri.uri], f.source)
-		for want in expected {
-			if want.name == f.name {
-				testing.expectf(t, text == want.source, "\n%s expected:\n%s\n\nGot:\n%s", f.name, want.source, text)
+		texts[test_uri(f.name)] = f.source
+	}
+	if changes, has := edit.documentChanges.?; has {
+		for change in changes {
+			switch c in change {
+			case server.CreateFile:
+				if c.uri not_in texts {
+					texts[c.uri] = ""
+				}
+			case server.TextDocumentEdit:
+				texts[c.textDocument.uri] = common.apply_text_edits(c.edits, texts[c.textDocument.uri])
 			}
 		}
+	}
+	for uri, edits in edit.changes {
+		texts[uri] = common.apply_text_edits(edits, texts[uri])
+	}
+	for want in expected {
+		text, found := texts[test_uri(want.name)]
+		testing.expectf(t, found && text == want.source, "\n%s expected:\n%s\n\nGot:\n%s", want.name, want.source, text)
 	}
 }
 

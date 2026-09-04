@@ -238,11 +238,17 @@ ClientCapabilities :: struct {
 
 WorkspaceCapabilities :: struct {
 	applyEdit:             bool,
+	workspaceEdit:         WorkspaceEditClientCapabilities,
 	didChangeWatchedFiles: DidChangeWatchedFilesClientCapabilities,
 }
 
 DidChangeWatchedFilesClientCapabilities :: struct {
 	dynamicRegistration: bool,
+}
+
+WorkspaceEditClientCapabilities :: struct {
+	documentChanges:    bool,
+	resourceOperations: [dynamic]string,
 }
 
 RangeOptional :: union {
@@ -479,6 +485,7 @@ OlsConfig :: struct {
 	enable_code_action_inline_proc:          Maybe(bool),
 	enable_code_action_introduce_param:      Maybe(bool),
 	enable_code_action_remove_param:         Maybe(bool),
+	enable_code_action_move_decl:            Maybe(bool),
 	enable_organize_imports_on_save:         Maybe(bool),
 	enable_lint_self_assignment:             Maybe(bool),
 	enable_lint_identical_branches:          Maybe(bool),
@@ -683,8 +690,26 @@ TextDocumentEdit :: struct {
 	edits:        []TextEdit,
 }
 
+CreateFile :: struct {
+	kind:    string,
+	uri:     string,
+	options: CreateFileOptions,
+}
+
+CreateFileOptions :: struct {
+	ignoreIfExists: bool,
+}
+
+DocumentChange :: union {
+	CreateFile,
+	TextDocumentEdit,
+}
+
+// Clients apply documentChanges instead of changes when both are present, and a nil union is not
+// marshalled, so an edit that creates a file puts every edit in documentChanges.
 WorkspaceEdit :: struct {
-	changes: map[string][]TextEdit,
+	changes:         map[string][]TextEdit,
+	documentChanges: Maybe([]DocumentChange),
 }
 
 ApplyWorkspaceEditParams :: struct {

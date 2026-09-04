@@ -215,6 +215,11 @@
 			"description": "Enables the code action removing an unused parameter from a procedure and its callers.",
 			"default": true
 		},
+		"enable_code_action_move_decl": {
+			"type": "boolean",
+			"description": "Enables the code action moving a top-level declaration to another file of the package.",
+			"default": true
+		},
 		"enable_inlay_hints_variable_types": {
 			"type": "boolean",
 			"description": "Turn on inlay hints for inferred variable types.",

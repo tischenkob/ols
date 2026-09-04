@@ -442,6 +442,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_introduce_param.(bool) or_else config.enable_code_action_introduce_param
 	config.enable_code_action_remove_param =
 		ols_config.enable_code_action_remove_param.(bool) or_else config.enable_code_action_remove_param
+	config.enable_code_action_move_decl =
+		ols_config.enable_code_action_move_decl.(bool) or_else config.enable_code_action_move_decl
 	config.enable_organize_imports_on_save =
 		ols_config.enable_organize_imports_on_save.(bool) or_else config.enable_organize_imports_on_save
 	config.enable_lint_self_assignment =
@@ -832,6 +834,11 @@ request_initialize :: proc(
 
 	config.enable_organize_imports_on_save &= initialize_params.capabilities.workspace.applyEdit
 
+	workspace_edit := initialize_params.capabilities.workspace.workspaceEdit
+	for operation in workspace_edit.resourceOperations {
+		config.client_create_file_support |= workspace_edit.documentChanges && operation == "create"
+	}
+
 	completionTriggerCharacters := []string{".", ">", "#", "\"", "/", ":"}
 	signatureTriggerCharacters := []string{"(", ","}
 	signatureRetriggerCharacters := []string{","}
@@ -874,7 +881,7 @@ request_initialize :: proc(
 				hoverProvider = config.enable_hover,
 				documentFormattingProvider = config.enable_format,
 				documentLinkProvider = {resolveProvider = false},
-				codeActionProvider = {resolveProvider = false, codeActionKinds = {"quickfix", "refactor.rewrite", "refactor.extract", "refactor.inline", "refactor.more", "source.organizeImports"}},
+				codeActionProvider = {resolveProvider = false, codeActionKinds = {"quickfix", "refactor.rewrite", "refactor.extract", "refactor.inline", "refactor.more", "refactor.move", "source.organizeImports"}},
 				foldingRangeProvider = true,
 				implementationProvider = true,
 				callHierarchyProvider = true,
@@ -965,6 +972,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_inline_proc = true
 	config.enable_code_action_introduce_param = true
 	config.enable_code_action_remove_param = true
+	config.enable_code_action_move_decl = true
 	config.enable_inlay_hints_variable_types = true
 	config.enable_organize_imports_on_save = true
 	config.enable_lint_self_assignment = true

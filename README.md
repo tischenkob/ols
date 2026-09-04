@@ -154,6 +154,8 @@ Options:
 
 - `enable_code_action_remove_param`: Enables the code action removing an unused parameter from a procedure and its callers. Defaults to true.
 
+- `enable_code_action_move_decl`: Enables the code action moving a top-level declaration to another file of the package, or to a new file when the client can create files. Defaults to true.
+
 - `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&` and to merge nested ifs. Defaults to true.
 
 - `enable_code_action_rewrite_expression`: Enables the code actions to flip a comparison, apply De Morgan's law and convert between compound and plain assignment. Defaults to true.
@@ -279,6 +281,7 @@ Support Language server features:
 - `actions FILE:LINE:COL[-LINE:COL] [--apply TITLE]`
 - `rename FILE:LINE:COL NEW [--apply]`
 - `reorder-params FILE:LINE:COL --order 2,0,1 [--apply]`: position on a procedure name; `--order` lists the new parameter order by old index. Callers are updated. Refused when the procedure is used as a value or a caller names or omits arguments
+- `move FILE:LINE:COL --to TARGET.odin [--apply]`: position on a top-level declaration name; `--to` names a file of the same directory, created when missing. Refused for file-private declarations and those using file-private symbols
 - `check [DIR]`
 - `lint FILE|DIR`: per-file lints, unused imports and unused private declarations, without running the compiler
 
