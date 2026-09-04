@@ -355,14 +355,32 @@ lint_unused_parameter :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynam
 		return
 	}
 
-	if node in ctx.skip || lit.body == nil || lit.type == nil || lit.type.params == nil do return
+	if node in ctx.skip do return
+	for ident in unused_params(lit) {
+		append(
+			diags,
+			Diagnostic {
+				range = common.get_token_range(ident, ctx.src),
+				severity = .Hint,
+				code = "unused-parameter",
+				message = fmt.tprintf("parameter %s is unused", ident.name),
+				tags = {.Unnecessary},
+			},
+		)
+	}
+}
+
+// Parameters the body never reads. Skips foreign and non-Odin procedures, empty and panic-only
+// bodies, `using` and `_` names, and names tied to a polymorphic type.
+unused_params :: proc(lit: ^ast.Proc_Lit) -> []^ast.Ident {
+	if lit.body == nil || lit.type == nil || lit.type.params == nil do return {}
 	if convention, is_string := lit.type.calling_convention.(string); is_string {
 		convention = strings.trim(convention, "\"`")
-		if convention != "odin" && convention != "contextless" do return
+		if convention != "odin" && convention != "contextless" do return {}
 	}
 	body, is_block := lit.body.derived.(^ast.Block_Stmt)
-	if !is_block do return
-	if len(body.stmts) == 0 || (len(body.stmts) == 1 && is_panic_call(body.stmts[0])) do return
+	if !is_block do return {}
+	if len(body.stmts) == 0 || (len(body.stmts) == 1 && is_panic_call(body.stmts[0])) do return {}
 
 	poly_names := make(map[string]struct{}, context.temp_allocator)
 	for param in lit.type.params.list {
@@ -376,6 +394,7 @@ lint_unused_parameter :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynam
 		}
 	}
 
+	unused := make([dynamic]^ast.Ident, context.temp_allocator)
 	uses := collect_ident_uses(lit.body)
 	for param in lit.type.params.list {
 		if .Using in param.flags do continue
@@ -386,18 +405,10 @@ lint_unused_parameter :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynam
 			for use in uses {
 				if use.ident.name == ident.name && !is_field_name(use) do continue names
 			}
-			append(
-				diags,
-				Diagnostic {
-					range = common.get_token_range(ident, ctx.src),
-					severity = .Hint,
-					code = "unused-parameter",
-					message = fmt.tprintf("parameter %s is unused", ident.name),
-					tags = {.Unnecessary},
-				},
-			)
+			append(&unused, ident)
 		}
 	}
+	return unused[:]
 }
 
 // The left side of `field = value` names a struct field or a parameter, not a variable.
@@ -417,7 +428,6 @@ mentions_poly :: proc(type: ^ast.Expr, poly_names: map[string]struct{}) -> bool 
 	return false
 }
 
-@(private = "file")
 has_fixed_signature_attribute :: proc(attributes: []^ast.Attribute) -> bool {
 	for name in attribute_names(attributes) {
 		if name == "export" || name == "link_name" || strings.has_prefix(name, "deferred_") do return true

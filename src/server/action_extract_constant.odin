@@ -69,6 +69,7 @@ add_extract_constant_action :: proc(ctx: ^ActionContext) {
 	append(ctx.actions, make_code_action(ctx, "Extract constant", "refactor.extract", edits))
 }
 
+@(private = "package")
 is_constant :: proc(ctx: ^ActionContext, node: ^ast.Node) -> bool {
 	#partial switch n in node.derived {
 	case ^ast.Basic_Lit:
@@ -110,6 +111,7 @@ is_constant :: proc(ctx: ^ActionContext, node: ^ast.Node) -> bool {
 }
 
 // The parameter, variable or compared name the expression feeds, upper-cased.
+@(private = "package")
 const_name :: proc(ctx: ^ActionContext, expr: ^ast.Expr, parent: ^ast.Node) -> string {
 	base := ""
 	#partial switch p in parent.derived {
