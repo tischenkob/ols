@@ -434,6 +434,10 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_named_results.(bool) or_else config.enable_code_action_named_results
 	config.enable_code_action_defer_delete =
 		ols_config.enable_code_action_defer_delete.(bool) or_else config.enable_code_action_defer_delete
+	config.enable_code_action_extract_constant =
+		ols_config.enable_code_action_extract_constant.(bool) or_else config.enable_code_action_extract_constant
+	config.enable_code_action_inline_proc =
+		ols_config.enable_code_action_inline_proc.(bool) or_else config.enable_code_action_inline_proc
 	config.enable_organize_imports_on_save =
 		ols_config.enable_organize_imports_on_save.(bool) or_else config.enable_organize_imports_on_save
 	config.enable_lint_self_assignment =
@@ -953,6 +957,8 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_generate_proc = true
 	config.enable_code_action_named_results = true
 	config.enable_code_action_defer_delete = true
+	config.enable_code_action_extract_constant = true
+	config.enable_code_action_inline_proc = true
 	config.enable_inlay_hints_variable_types = true
 	config.enable_organize_imports_on_save = true
 	config.enable_lint_self_assignment = true

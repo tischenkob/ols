@@ -146,6 +146,10 @@ Options:
 
 - `enable_code_action_defer_delete`: Enables the code action adding a `defer` that frees an allocation. Defaults to true.
 
+- `enable_code_action_extract_constant`: Enables the code action extracting a constant expression into a file-scope constant. Defaults to true.
+
+- `enable_code_action_inline_proc`: Enables the code action inlining a procedure call. Defaults to true.
+
 - `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&` and to merge nested ifs. Defaults to true.
 
 - `enable_code_action_rewrite_expression`: Enables the code actions to flip a comparison, apply De Morgan's law and convert between compound and plain assignment. Defaults to true.

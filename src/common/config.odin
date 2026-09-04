@@ -68,6 +68,8 @@ Config :: struct {
 	enable_code_action_generate_proc:        bool,
 	enable_code_action_named_results:        bool,
 	enable_code_action_defer_delete:         bool,
+	enable_code_action_extract_constant:     bool,
+	enable_code_action_inline_proc:          bool,
 	enable_organize_imports_on_save:         bool,
 	enable_lint_self_assignment:             bool,
 	enable_lint_identical_branches:          bool,
