@@ -120,6 +120,7 @@ alone_on_line :: proc(src: string, decl: ^ast.Value_Decl) -> bool {
 	return true
 }
 
+@(private = "package")
 has_side_effect :: proc(value: ^ast.Expr) -> bool {
 	found: bool
 	visitor := ast.Visitor {

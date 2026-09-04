@@ -212,7 +212,6 @@ hierarchy_document :: proc(h: ^Call_Hierarchy, uri: string) -> ^Document {
 }
 
 // Value declarations at file scope, including those under `when` and in foreign blocks.
-@(private = "file")
 top_level_value_decls :: proc(file: ast.File) -> []^ast.Value_Decl {
 	decls := make([dynamic]^ast.Value_Decl, context.temp_allocator)
 	for decl in file.decls do collect(decl, &decls)
