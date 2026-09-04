@@ -23,6 +23,7 @@ USAGE :: `usage: ols query <command> [--root DIR]
   symbols FILE
   actions FILE:LINE:COL[-LINE:COL] [--apply TITLE]
   rename  FILE:LINE:COL NEW [--apply]
+  reorder-params FILE:LINE:COL --order 2,0,1 [--apply]
   check   [DIR]
   lint    FILE|DIR
 Lines and columns are 1-based, columns in bytes, as odin check prints them.
@@ -38,7 +39,7 @@ Target :: struct {
 run :: proc(args: []string) -> int {
 	context.logger = log.create_console_logger(.Error)
 
-	root, apply_title := "", ""
+	root, apply_title, order_text := "", "", ""
 	apply := false
 	rest := make([dynamic]string, context.temp_allocator)
 
@@ -50,6 +51,12 @@ run :: proc(args: []string) -> int {
 				return usage()
 			}
 			root = args[i]
+		case "--order":
+			i += 1
+			if i == len(args) {
+				return usage()
+			}
+			order_text = args[i]
 		case "--apply":
 			apply = true
 			if len(rest) > 0 && rest[0] == "actions" && i + 1 < len(args) {
@@ -165,6 +172,24 @@ run :: proc(args: []string) -> int {
 		}
 		print(edit)
 		return 0
+	case "reorder-params":
+		order, order_ok := parse_order(order_text)
+		if !order_ok {
+			fmt.eprintln("--order takes comma separated parameter indices, like 2,0,1")
+			return 2
+		}
+		edit, ok := server.reorder_params(document, position, order)
+		if !ok {
+			fmt.eprintln(
+				"cannot reorder: the position must be on the name of a plain procedure that is only ever called with every argument positional, and --order must list each index once",
+			)
+			return 1
+		}
+		if apply {
+			return apply_edit(edit)
+		}
+		print(edit)
+		return 0
 	}
 
 	return usage()
@@ -209,6 +234,19 @@ parse_target :: proc(s: string) -> (target: Target, ok: bool) {
 
 	target.file = absolute(target.file)
 	return target, target.start.x > 0 && target.start.y > 0 && target.end.x > 0 && target.end.y > 0
+}
+
+parse_order :: proc(text: string) -> ([]int, bool) {
+	parts := strings.split(text, ",", context.temp_allocator)
+	order := make([]int, len(parts), context.temp_allocator)
+	for part, i in parts {
+		ok: bool
+		order[i], ok = strconv.parse_int(strings.trim_space(part))
+		if !ok {
+			return {}, false
+		}
+	}
+	return order, len(order) > 0
 }
 
 find_root :: proc(dir: string) -> string {

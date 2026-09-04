@@ -22,6 +22,7 @@ main :: proc() {
 	}
 	total := value * 3 + 1
 	fmt.println(total)
+	fmt.println(scale(total, 2))
 }
 ODIN
 cat > "$dir/util.odin" <<'ODIN'
@@ -40,6 +41,10 @@ add_f :: proc(a, b: f32) -> f32 {
 }
 
 combine :: proc{add, add_f}
+
+scale :: proc(v, k: int) -> int {
+	return v * k
+}
 ODIN
 cat > "$dir/bad/bad.odin" <<'ODIN'
 package bad
@@ -77,6 +82,12 @@ expect rename-apply "util.odin" "$OLS" query rename "$dir/util.odin:3:1" plus --
 grep -q "plus(1, 2)" "$dir/main.odin" && grep -q "^plus ::" "$dir/util.odin"
 odin check "$dir" -no-entry-point
 echo "ok rename-apply check"
+expect reorder-params-apply "util.odin" "$OLS" query reorder-params "$dir/util.odin:17:1" --order 1,0 --apply
+grep -q "scale :: proc(k: int, v: int)" "$dir/util.odin" && grep -q "scale(2, total)" "$dir/main.odin"
+odin check "$dir" -no-entry-point
+echo "ok reorder-params-apply check"
+if "$OLS" query reorder-params "$dir/util.odin:3:1" --order 1,0 >/dev/null 2>&1; then echo "FAIL reorder-params group member"; exit 1; fi
+echo "ok reorder-params refused"
 expect check "not an int\|Cannot assign\|cannot" "$OLS" query check "$dir/bad"
 expect check-diagnostic '"diagnostic"' "$OLS" query check "$dir/bad"
 mkdir "$dir/lint"
