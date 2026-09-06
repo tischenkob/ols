@@ -266,6 +266,8 @@ remove_index_file :: proc(uri: common.Uri) -> common.Error {
 
 	corrected_uri := common.create_uri(fullpath, context.temp_allocator)
 
+	invalidate_document_symbols()
+
 	for k, &v in indexer.index.collection.packages {
 		for k2, v2 in v.symbols {
 			if strings.equal_fold(corrected_uri.uri, v2.uri) {
@@ -312,7 +314,7 @@ index_file :: proc(uri: common.Uri, text: string) -> common.Error {
 
 	dir := filepath.base(filepath.dir(fullpath))
 
-	pkg := new(ast.Package)
+	pkg := new(ast.Package, context.temp_allocator)
 	pkg.kind = .Normal
 	pkg.fullpath = fullpath
 	pkg.name = dir
@@ -342,6 +344,8 @@ index_file :: proc(uri: common.Uri, text: string) -> common.Error {
 	}
 
 	corrected_uri := common.create_uri(fullpath, context.temp_allocator)
+
+	invalidate_document_symbols()
 
 	for k, &v in indexer.index.collection.packages {
 		for k2, v2 in v.symbols {

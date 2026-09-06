@@ -315,7 +315,8 @@ find_symbol_references :: proc(
 
 
 	arena: runtime.Arena
-	_ = runtime.arena_init(&arena, mem.Megabyte * 40, context.temp_allocator)
+	_ = runtime.arena_init(&arena, mem.Megabyte * 8, runtime.default_allocator())
+	defer runtime.arena_destroy(&arena)
 
 	for source in sources {
 

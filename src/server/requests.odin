@@ -72,7 +72,7 @@ thread_request_main :: proc(data: rawptr) {
 
 		if (!success) {
 			log.error("Failed to read and parse header")
-			return
+			break
 		}
 
 		value: json.Value
@@ -80,14 +80,14 @@ thread_request_main :: proc(data: rawptr) {
 
 		if (!success) {
 			log.error("Failed to read and parse body")
-			return
+			break
 		}
 
 		root, ok := value.(json.Object)
 
 		if !ok {
 			log.error("No root object")
-			return
+			break
 		}
 
 		id: RequestId = nil
@@ -128,6 +128,10 @@ thread_request_main :: proc(data: rawptr) {
 
 		free_all(context.temp_allocator)
 	}
+
+	// A dead reader must not leave the main thread parked in sema_wait forever.
+	common.config.running = false
+	sync.sema_post(&requests_semaphore)
 }
 
 read_and_parse_header :: proc(reader: ^Reader) -> (Header, bool) {
@@ -288,7 +292,7 @@ consume_requests :: proc(config: ^common.Config, writer: ^Writer) -> bool {
 		delete_index := -1
 		for request, i in requests {
 			if request.id == d.id {
-				delete_index := i
+				delete_index = i
 				break
 			}
 		}
@@ -310,6 +314,7 @@ consume_requests :: proc(config: ^common.Config, writer: ^Writer) -> bool {
 	for ; request_index < len(temp_requests); request_index += 1 {
 		request := temp_requests[request_index]
 		call(request.value, request.id, writer, config)
+		json.destroy_value(request.value)
 		clear_index_cache()
 		free_all(context.temp_allocator)
 	}

@@ -45,6 +45,7 @@ Document :: struct {
 	imports:          []Package,
 	package_name:     string,
 	allocator:        ^virtual.Arena, //because parser does not support freeing I use arena allocators for each document
+	symbols_arena:    ^virtual.Arena, // backs `symbols`; reset whenever the cache is invalidated
 	operating_on:     int, //atomic
 	version:          Maybe(int),
 	symbols:          Maybe(SymbolAndNodeMap), // Cache resolved symbols for open documents, cleared on change
@@ -63,6 +64,10 @@ document_storage_shutdown :: proc() {
 		if v.allocator != nil {
 			virtual.arena_destroy(v.allocator)
 			free(v.allocator)
+		}
+		if v.symbols_arena != nil {
+			virtual.arena_destroy(v.symbols_arena)
+			free(v.symbols_arena)
 		}
 		delete(k)
 	}
@@ -94,6 +99,20 @@ document_free_allocator :: proc(allocator: ^virtual.Arena) {
 	append(&document_storage.free_allocators, allocator)
 }
 
+document_invalidate_symbols :: proc(document: ^Document) {
+	if document.symbols_arena != nil {
+		virtual.arena_free_all(document.symbols_arena)
+	}
+	document.symbols = nil
+}
+
+// Resolved symbols point into the index, so they must go when the index frees symbols.
+invalidate_document_symbols :: proc() {
+	for _, &document in document_storage.documents {
+		document_invalidate_symbols(&document)
+	}
+}
+
 document_get :: proc(uri_string: string) -> ^Document {
 
 	uri, parsed_ok := common.parse_uri(uri_string, context.temp_allocator)
@@ -103,7 +122,7 @@ document_get :: proc(uri_string: string) -> ^Document {
 
 	document := &document_storage.documents[uri.path]
 
-	if document == nil {
+	if document == nil || !document.client_owned {
 		log.errorf("Failed to get document %v", uri.path)
 		return nil
 	}
@@ -224,12 +243,12 @@ document_apply_changes :: proc(
 
 	document := &document_storage.documents[uri.path]
 
-	document.version = version
-
-	if !document.client_owned {
-		log.errorf("Client called change on an document not opened: %v ", document.uri.path)
+	if document == nil || !document.client_owned {
+		log.errorf("Client called change on a document not opened: %v ", uri.path)
 		return .InvalidRequest
 	}
+
+	document.version = version
 
 	for change in changes {
 		//for some reason sublime doesn't seem to care even if i tell it to do incremental sync
@@ -304,6 +323,10 @@ document_close :: proc(uri_string: string) -> common.Error {
 	}
 
 	document_free_allocator(document.allocator)
+	if document.symbols_arena != nil {
+		document_free_allocator(document.symbols_arena)
+		document.symbols_arena = nil
+	}
 
 	document.allocator = nil
 	document.symbols = nil
@@ -414,7 +437,7 @@ parse_document :: proc(document: ^Document, config: ^common.Config) -> ([]Parser
 		src      = string(document.text[:document.used_text]),
 		pkg      = pkg,
 	}
-	document.symbols = nil // Invalidate symbols cache
+	document_invalidate_symbols(document)
 
 	parse_file(&p, &document.ast)
 

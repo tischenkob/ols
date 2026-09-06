@@ -47,7 +47,7 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 	if !is_resolved {
 		return
 	}
-	symbol := resolved.symbol
+	symbol := resolved.symbol^
 	callee, is_proc := symbol.value.(SymbolProcedureValue)
 	if !is_proc || .Local in symbol.flags || symbol.pkg != ctx.ast_context.document_package {
 		return

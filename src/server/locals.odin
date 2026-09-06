@@ -91,7 +91,7 @@ store_local :: proc(
 }
 
 add_local_group :: proc(ast_context: ^AstContext) {
-	append(&ast_context.locals, make(LocalGroup, 100, ast_context.allocator))
+	append(&ast_context.locals, make(LocalGroup, ast_context.allocator))
 }
 
 pop_local_group :: proc(ast_context: ^AstContext) {

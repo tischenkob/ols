@@ -112,6 +112,11 @@ get_merged_diagnostics :: proc() -> map[string][dynamic]Diagnostic {
 	sync.lock(&diagnostic_mutex)
 	defer sync.unlock(&diagnostic_mutex)
 
+	return get_merged_diagnostics_locked()
+}
+
+@(private = "file")
+get_merged_diagnostics_locked :: proc() -> map[string][dynamic]Diagnostic {
 	merged_diagnostics := make(map[string][dynamic]Diagnostic, context.temp_allocator)
 
 	for diagnostic_type in diagnostics {
@@ -129,8 +134,13 @@ get_merged_diagnostics :: proc() -> map[string][dynamic]Diagnostic {
 	return merged_diagnostics
 }
 
+// Marshals under the lock: the merged map shares message strings with the global maps,
+// which the checker thread frees in clear_diagnostics.
 push_diagnostics :: proc(writer: ^Writer) {
-	merged_diagnostics := get_merged_diagnostics()
+	sync.lock(&diagnostic_mutex)
+	defer sync.unlock(&diagnostic_mutex)
+
+	merged_diagnostics := get_merged_diagnostics_locked()
 
 	for k, v in merged_diagnostics {
 		params := NotificationPublishDiagnosticsParams {

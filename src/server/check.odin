@@ -59,9 +59,9 @@ queue_check_request :: proc(mode: Check_Mode, path: string, config: ^common.Conf
 		return
 	}
 	path := strings.clone(path, checker.allocator)
-	ok := chan.send(checker.send, Check_Request{check_mode = mode, path = path, config = config})
-	if !ok {
-		log.errorf("Failed to queue check request for path %q", path)
+	if !chan.try_send(checker.send, Check_Request{check_mode = mode, path = path, config = config}) {
+		log.errorf("check queue full, dropping %q", path)
+		delete(path, checker.allocator)
 	}
 }
 
@@ -207,11 +207,11 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config) {
 		if k == "" || k == "core" || k == "vendor" || k == "base" {
 			continue
 		}
-		append(&collections, fmt.aprintf("-collection:%v=%v", k, v))
+		append(&collections, fmt.tprintf("-collection:%v=%v", k, v))
 	}
 
 	max_concurrent_checks := max(1, os.get_processor_core_count())
-	processes := make([dynamic]CheckProcess, 0, len(paths))
+	processes := make([dynamic]CheckProcess, 0, len(paths), context.temp_allocator)
 
 	errors := make([dynamic]Json_Errors, 0, len(paths), context.temp_allocator)
 
@@ -235,7 +235,9 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config) {
 			for &p in processes {
 				if !p.finished {
 					if err := os.process_kill(p.process); err != nil {
-						log.error("Failed to kill `odin check` process: %v", err)
+						log.errorf("Failed to kill `odin check` process: %v", err)
+					} else {
+						_, _ = os.process_wait(p.process)
 					}
 				}
 			}
@@ -247,9 +249,16 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config) {
 				continue
 			}
 
-			buf: [1024]u8
-			n, _ := os.read(p.reader, buf[:])
-			if n > 0 {
+			buf: [4096]u8
+			for {
+				has_data, _ := os.pipe_has_data(p.reader)
+				if !has_data {
+					break
+				}
+				n, _ := os.read(p.reader, buf[:])
+				if n <= 0 {
+					break
+				}
 				_, _ = append(&p.buffer, ..buf[:n])
 			}
 
