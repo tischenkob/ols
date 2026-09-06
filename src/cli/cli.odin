@@ -28,6 +28,9 @@ USAGE :: `usage: ols query <command> [--root DIR] [--json]
   move    FILE:LINE:COL --to TARGET.odin [--apply]
   check   [DIR]                            odin check errors, no build or run
   lint    FILE|DIR                         in-server lints only, works on code that does not compile
+  api     PKG [NAME]                       exported symbols of a package (a directory or core:strings), one per line;
+                                           with NAME the full signature and doc comment
+  find    QUERY                            fuzzy symbol search over the workspace
 Output is one line per result, FILE:LINE:COL: TEXT; --json prints the LSP objects instead.
 Lines and columns are 1-based, columns in bytes, as odin check prints them.
 --root defaults to the nearest directory with an ols.json above the file, else the cwd.
@@ -104,8 +107,22 @@ run :: proc(args: []string) -> int {
 			return usage()
 		}
 		target := absolute(rest_args[0])
-		setup(root if root != "" else find_root(target if os.is_directory(target) else path.dir(target, context.temp_allocator)))
+		setup(
+			root if root != "" else find_root(target if os.is_directory(target) else path.dir(target, context.temp_allocator)),
+		)
 		return lint(target)
+	}
+
+	if command == "api" || command == "find" {
+		if len(rest_args) < 1 {
+			return usage()
+		}
+		cwd := os.get_working_directory(context.temp_allocator) or_else "."
+		setup(root if root != "" else find_root(cwd))
+		if command == "find" {
+			return find(rest_args[0])
+		}
+		return api(resolve_package(rest_args[0]), rest_args[1] if len(rest_args) > 1 else "")
 	}
 
 	if len(rest_args) < 1 || (command == "rename" && len(rest_args) < 2) {
@@ -114,7 +131,11 @@ run :: proc(args: []string) -> int {
 
 	target, target_ok := parse_target(rest_args[0])
 	if command == "symbols" {
-		target, target_ok = Target{file = absolute(rest_args[0]), start = {1, 1}, end = {1, 1}}, true
+		target, target_ok = Target {
+				file  = absolute(rest_args[0]),
+				start = {1, 1},
+				end   = {1, 1},
+			}, true
 	}
 	if !target_ok {
 		fmt.eprintfln("cannot parse position %q", rest_args[0])
@@ -305,7 +326,7 @@ parse_order :: proc(text: string) -> ([]int, bool) {
 }
 
 find_root :: proc(dir: string) -> string {
-	for d := dir; ; d = path.dir(d, context.temp_allocator) {
+	for d := dir;; d = path.dir(d, context.temp_allocator) {
 		if os.exists(path.join({d, "ols.json"}, context.temp_allocator)) {
 			return d
 		}
@@ -352,7 +373,14 @@ read_ols_json :: proc(file: string, uri: common.Uri) {
 	server.read_ols_initialize_options(&common.config, ols_config, uri)
 }
 
-open :: proc(target: Target) -> (document: ^server.Document, position: common.Position, range: common.Range, ok: bool) {
+open :: proc(
+	target: Target,
+) -> (
+	document: ^server.Document,
+	position: common.Position,
+	range: common.Range,
+	ok: bool,
+) {
 	text, err := os.read_entire_file(target.file, context.allocator)
 	if err != nil {
 		fmt.eprintfln("cannot read %s: %v", target.file, err)
@@ -398,6 +426,44 @@ check :: proc(dir: string) -> int {
 Entry :: struct {
 	uri:        string,
 	diagnostic: server.Diagnostic,
+}
+
+// A collection path like core:strings, else a directory. The index keys packages by clean forward-slash paths.
+resolve_package :: proc(arg: string) -> string {
+	if i := strings.index_byte(arg, ':'); i > 0 {
+		if base, ok := common.config.collections[arg[:i]]; ok {
+			return path.join({base, arg[i + 1:]}, context.temp_allocator)
+		}
+	}
+	dir, _ := filepath.replace_separators(absolute(arg), '/', context.temp_allocator)
+	return path.clean(dir, context.temp_allocator)
+}
+
+api :: proc(dir: string, name: string) -> int {
+	text, ok := server.get_package_api(dir, name)
+	if !ok {
+		if name == "" {
+			fmt.eprintfln("no package at %s", dir)
+		} else {
+			fmt.eprintfln("no exported symbol %s in %s", name, dir)
+		}
+		return 1
+	}
+	fmt.print(text)
+	return 0
+}
+
+find :: proc(query: string) -> int {
+	symbols, _ := server.get_workspace_symbols(query)
+	if json_output {
+		return print_nonempty(symbols)
+	}
+	for symbol in symbols {
+		file := common.uri_to_path(symbol.location.uri, context.temp_allocator)
+		line, col := line_col(file, symbol.location.range.start)
+		fmt.printfln("%s:%d:%d: %v %s", file, line, col, symbol.kind, symbol.name)
+	}
+	return 0 if len(symbols) > 0 else 1
 }
 
 Call :: struct {
