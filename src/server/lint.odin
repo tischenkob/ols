@@ -66,6 +66,23 @@ lint_document :: proc(document: ^Document, config: ^common.Config) -> []Diagnost
 	for decl in document.ast.decls {
 		ast.walk(&visitor, decl)
 	}
+	if config.enable_lint_simplify {
+		for s in simplifications(document) {
+			append(
+				&w.diags,
+				Diagnostic {
+					range = {
+						start = common.get_relative_token_position(s.start, document.text, 0),
+						end = common.get_relative_token_position(s.end, document.text, 0),
+					},
+					severity = .Hint,
+					code = s.code,
+					message = simplification_message(s),
+					tags = {.Unnecessary},
+				},
+			)
+		}
+	}
 	return w.diags[:]
 }
 

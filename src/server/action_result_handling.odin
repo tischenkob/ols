@@ -5,6 +5,7 @@ package server
 import "core:odin/ast"
 import "core:strings"
 
+@(private = "package")
 Result_Kind :: enum {
 	Other,
 	Bool,
@@ -93,11 +94,52 @@ add_result_handling_action :: proc(ctx: ^ActionContext) {
 	}
 
 	decl := parent.derived.(^ast.Value_Decl) or_else nil
-	if decl == nil || !decl.is_mutable || len(decl.names) != 1 || len(decl.values) != 1 {
-		return
+	if edits, ok := handle_result_edits(ctx, decl, kind, proc_results, propagates); ok {
+		append(ctx.actions, make_code_action(ctx, "Handle result with if", "refactor.rewrite", edits))
 	}
-	name := fresh_name(ctx, kind == .Bool ? "ok" : "err", decl.pos)
+}
 
+// Adds `, ok`/`, err` to a one-name declaration and an `if` after it that returns zero values,
+// propagating the error when `propagates`.
+@(private = "package")
+handle_result_edits :: proc(
+	ctx: ^ActionContext,
+	decl: ^ast.Value_Decl,
+	kind: Result_Kind,
+	proc_results: []^ast.Expr,
+	propagates: bool,
+) -> (
+	[]TextEdit,
+	bool,
+) {
+	if decl == nil || !decl.is_mutable || len(decl.names) != 1 || len(decl.values) != 1 {
+		return nil, false
+	}
+	src := ctx.document.ast.src
+	name := fresh_name(ctx, kind == .Bool ? "ok" : "err", decl.pos)
+	ind := get_line_indentation(src, decl.pos.offset)
+	edits := make([]TextEdit, 2, context.temp_allocator)
+	edits[0] = {
+		range   = range_of(ctx, decl.names[0].end.offset, decl.names[0].end.offset),
+		newText = strings.concatenate({", ", name}, context.temp_allocator),
+	}
+	edits[1] = {
+		range   = range_of(ctx, decl.end.offset, decl.end.offset),
+		newText = handle_result_if_text(ctx, name, kind, proc_results, propagates, ind),
+	}
+	return edits, true
+}
+
+// "\n" + `if !ok {`/`if err != nil {` returning zero values, to go after a statement indented by ind.
+@(private = "package")
+handle_result_if_text :: proc(
+	ctx: ^ActionContext,
+	name: string,
+	kind: Result_Kind,
+	proc_results: []^ast.Expr,
+	propagates: bool,
+	ind: string,
+) -> string {
 	ret := strings.builder_make(context.temp_allocator)
 	strings.write_string(&ret, "return")
 	for type, i in proc_results {
@@ -110,24 +152,13 @@ add_result_handling_action :: proc(ctx: ^ActionContext) {
 		strings.write_string(&ret, zero_value_text(symbol, ok))
 	}
 
-	ind := get_line_indentation(src, decl.pos.offset)
-	unit := indent_unit(src, ind, nil)
+	unit := indent_unit(ctx.document.ast.src, ind, nil)
 	cond := kind == .Bool ? "!" : ""
 	tail := kind == .Bool ? "" : " != nil"
-	body := strings.concatenate(
+	return strings.concatenate(
 		{"\n", ind, "if ", cond, name, tail, " {\n", ind, unit, strings.to_string(ret), "\n", ind, "}"},
 		context.temp_allocator,
 	)
-	edits := make([]TextEdit, 2, context.temp_allocator)
-	edits[0] = {
-		range   = range_of(ctx, decl.names[0].end.offset, decl.names[0].end.offset),
-		newText = strings.concatenate({", ", name}, context.temp_allocator),
-	}
-	edits[1] = {
-		range   = range_of(ctx, decl.end.offset, decl.end.offset),
-		newText = body,
-	}
-	append(ctx.actions, make_code_action(ctx, "Handle result with if", "refactor.rewrite", edits))
 }
 
 // One type per value: `a, b: int` yields int twice.
