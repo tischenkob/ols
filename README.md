@@ -20,6 +20,7 @@ Note: This project is made to be up to date with the master branch of Odin.
 	-   [Emacs](#emacs)
 	-   [Helix](#helix)
 	-   [Micro](#micro)
+	-   [Claude Code](#claude-code)
 
 ## Installation
 
@@ -545,6 +546,10 @@ Configure the plugin in micro's settings.json:
 	"lsp.server": "c=clangd,go=gopls,odin=ols"
 }
 ```
+### Claude Code
+
+`misc/claude-plugin` is a Claude Code plugin: it registers `ols` as the LSP server for `.odin` files and ships the `ols` skill, which tells the agent to find code through the LSP tool, learn packages with `ols query api`, run `ols query check` after edits and apply refactorings and tests with `ols query`. Add the directory holding it as a local marketplace, or copy it to `~/.claude/local-plugins/odin-lsp` as `install.sh` does.
+
 ### Kate
 
 First, make sure you have the LSP plugin enabled. Then, you can find LSP settings for Kate in Settings -> Configure Kate -> LSP Client -> User Server Settings.
