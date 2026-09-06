@@ -156,6 +156,8 @@ Options:
 
 - `enable_code_action_move_decl`: Enables the code action moving a top-level declaration to another file of the package, or to a new file when the client can create files. Defaults to true.
 
+- `enable_code_action_generate_test`: Enables the code action generating a `@(test)` stub for the procedure at the cursor in `<file>_test.odin` of the same package, created when the client can create files. Defaults to true.
+
 - `enable_code_action_expand`: Expand an array scalar, `or_else`, `or_return` or a range loop back to the long form. Defaults to true.
 
 - `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&` and to merge nested ifs. Defaults to true.

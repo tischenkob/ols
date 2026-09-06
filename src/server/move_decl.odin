@@ -95,7 +95,12 @@ prepare_move :: proc(document: ^Document, offset: int) -> (move: Move, ok: bool)
 		end = len(src)
 	}
 
-	move = Move{document = document, decl = decl, del_start = start, del_end = end}
+	move = Move {
+		document  = document,
+		decl      = decl,
+		del_start = start,
+		del_end   = end,
+	}
 	move.text = src[start:end]
 	if !strings.has_suffix(move.text, "\n") {
 		move.text = strings.concatenate({move.text, "\n"}, context.temp_allocator)
@@ -111,9 +116,7 @@ prepare_move :: proc(document: ^Document, offset: int) -> (move: Move, ok: bool)
 	return move, true
 }
 
-// Builds the edit moving move into target_uri, a file of the same directory. An existing target
-// gets the text appended and the missing imports inserted after its package line; a missing one
-// is created.
+// Builds the edit moving move into target_uri, a file of the same directory.
 move_edit :: proc(move: Move, target_uri: string, files: []Package_File) -> (WorkspaceEdit, bool) {
 	document := move.document
 	target_path := common.uri_to_path(target_uri, context.temp_allocator)
@@ -126,66 +129,99 @@ move_edit :: proc(move: Move, target_uri: string, files: []Package_File) -> (Wor
 
 	changes := make(Changes, context.temp_allocator)
 	append_edit(&changes, document, move.del_start, move.del_end, "")
+	imports := make([]string, len(move.imports), context.temp_allocator)
+	for imp, i in move.imports {
+		imports[i] = node_text(document.ast.src, imp.import_decl)
+	}
+	return append_to_package_file(&changes, document.ast.pkg_name, target_uri, imports, move.text, files)
+}
 
+// Appends text to target_uri, a file of package pkg_name, inserting after its package line the
+// import lines it lacks. A missing target is created with the header and the imports. changes
+// carries the edits of other files that belong to the same workspace edit.
+append_to_package_file :: proc(
+	changes: ^Changes,
+	pkg_name, target_uri: string,
+	imports: []string,
+	text: string,
+	files: []Package_File,
+) -> (
+	WorkspaceEdit,
+	bool,
+) {
+	target_path := common.uri_to_path(target_uri, context.temp_allocator)
 	if !package_file_exists(target_path, files) {
 		content := strings.builder_make(context.temp_allocator)
 		strings.write_string(&content, "package ")
-		strings.write_string(&content, document.ast.pkg_name)
+		strings.write_string(&content, pkg_name)
 		strings.write_string(&content, "\n")
-		if len(move.imports) > 0 {
+		if len(imports) > 0 {
 			strings.write_string(&content, "\n")
-			for imp in move.imports {
-				strings.write_string(&content, node_text(document.ast.src, imp.import_decl))
+			for line in imports {
+				strings.write_string(&content, line)
 				strings.write_string(&content, "\n")
 			}
 		}
 		strings.write_string(&content, "\n")
-		strings.write_string(&content, move.text)
+		strings.write_string(&content, text)
 
-		document_changes := make([]DocumentChange, 3, context.temp_allocator)
-		document_changes[0] = CreateFile{kind = "create", uri = target_uri, options = {ignoreIfExists = true}}
-		document_changes[1] = TextDocumentEdit{textDocument = {uri = document.uri.uri}, edits = changes[document.uri.uri][:]}
+		document_changes := make([dynamic]DocumentChange, context.temp_allocator)
+		append(&document_changes, CreateFile{kind = "create", uri = target_uri, options = {ignoreIfExists = true}})
+		for uri, edits in changes {
+			append(&document_changes, TextDocumentEdit{textDocument = {uri = uri}, edits = edits[:]})
+		}
 		insert := make([]TextEdit, 1, context.temp_allocator)
-		insert[0] = {newText = strings.to_string(content)}
-		document_changes[2] = TextDocumentEdit{textDocument = {uri = target_uri}, edits = insert}
-		return WorkspaceEdit{documentChanges = document_changes}, true
+		insert[0] = {
+			newText = strings.to_string(content),
+		}
+		append(&document_changes, TextDocumentEdit{textDocument = {uri = target_uri}, edits = insert})
+		return WorkspaceEdit{documentChanges = document_changes[:]}, true
 	}
 
 	h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
 	target := hierarchy_document(&h, target_uri)
-	if target == nil || target.ast.pkg_name != document.ast.pkg_name {
+	if target == nil || target.ast.pkg_name != pkg_name {
 		return {}, false
 	}
-	text := string(target.text[:target.used_text])
+	target_text := string(target.text[:target.used_text])
 
 	missing := make([dynamic]string, context.temp_allocator)
-	for imp in move.imports {
+	for line in imports {
 		already := false
-		for existing in target.imports {
-			already |= existing.name == imp.name
+		for existing in target.ast.imports {
+			already |= strings.contains(line, existing.fullpath)
 		}
 		if !already {
-			append(&missing, node_text(document.ast.src, imp.import_decl))
+			append(&missing, line)
 		}
 	}
 	if len(missing) > 0 {
 		at := target.ast.pkg_decl.end.offset
-		if nl := strings.index_byte(text[at:], '\n'); nl >= 0 {
+		if nl := strings.index_byte(target_text[at:], '\n'); nl >= 0 {
 			at += nl
 		} else {
-			at = len(text)
+			at = len(target_text)
 		}
 		append_edit(
-			&changes,
+			changes,
 			target,
 			at,
 			at,
-			strings.concatenate({"\n\n", strings.join(missing[:], "\n", context.temp_allocator)}, context.temp_allocator),
+			strings.concatenate(
+				{"\n\n", strings.join(missing[:], "\n", context.temp_allocator)},
+				context.temp_allocator,
+			),
 		)
 	}
-	separator := "\n" if strings.has_suffix(text, "\n") else "\n\n"
-	append_edit(&changes, target, len(text), len(text), strings.concatenate({separator, move.text}, context.temp_allocator))
-	return workspace_edit(changes), true
+	separator := "\n" if strings.has_suffix(target_text, "\n") else "\n\n"
+	append_edit(
+		changes,
+		target,
+		len(target_text),
+		len(target_text),
+		strings.concatenate({separator, text}, context.temp_allocator),
+	)
+	return workspace_edit(changes^), true
 }
 
 is_file_private :: proc(attributes: []^ast.Attribute) -> bool {
@@ -249,7 +285,10 @@ package_siblings :: proc(document: ^Document, files: []Package_File) -> []string
 				append(&paths, file.fullpath)
 			}
 		}
-	} else if matches, err := filepath.glob(path.join({dir, "*.odin"}, context.temp_allocator), context.temp_allocator); err == nil {
+	} else if matches, err := filepath.glob(
+		path.join({dir, "*.odin"}, context.temp_allocator),
+		context.temp_allocator,
+	); err == nil {
 		append(&paths, ..matches)
 	}
 	siblings := make([dynamic]string, context.temp_allocator)

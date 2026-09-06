@@ -220,6 +220,11 @@
 			"description": "Enables the code action moving a top-level declaration to another file of the package.",
 			"default": true
 		},
+		"enable_code_action_generate_test": {
+			"type": "boolean",
+			"description": "Enables the code action generating a @(test) stub for a procedure in the package's <file>_test.odin.",
+			"default": true
+		},
 		"enable_code_action_expand": {
 			"type": "boolean",
 			"description": "Expand an array scalar, or_else, or_return or a range loop back to the long form.",

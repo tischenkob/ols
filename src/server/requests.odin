@@ -449,6 +449,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_remove_param.(bool) or_else config.enable_code_action_remove_param
 	config.enable_code_action_move_decl =
 		ols_config.enable_code_action_move_decl.(bool) or_else config.enable_code_action_move_decl
+	config.enable_code_action_generate_test =
+		ols_config.enable_code_action_generate_test.(bool) or_else config.enable_code_action_generate_test
 	config.enable_code_action_expand =
 		ols_config.enable_code_action_expand.(bool) or_else config.enable_code_action_expand
 	config.enable_organize_imports_on_save =
@@ -981,6 +983,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_introduce_param = true
 	config.enable_code_action_remove_param = true
 	config.enable_code_action_move_decl = true
+	config.enable_code_action_generate_test = true
 	config.enable_code_action_expand = true
 	config.enable_inlay_hints_variable_types = true
 	config.enable_organize_imports_on_save = true

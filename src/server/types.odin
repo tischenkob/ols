@@ -486,6 +486,7 @@ OlsConfig :: struct {
 	enable_code_action_introduce_param:      Maybe(bool),
 	enable_code_action_remove_param:         Maybe(bool),
 	enable_code_action_move_decl:            Maybe(bool),
+	enable_code_action_generate_test:        Maybe(bool),
 	enable_code_action_expand:               Maybe(bool),
 	enable_organize_imports_on_save:         Maybe(bool),
 	enable_lint_self_assignment:             Maybe(bool),

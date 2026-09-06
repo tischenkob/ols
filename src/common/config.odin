@@ -74,6 +74,7 @@ Config :: struct {
 	enable_code_action_introduce_param:      bool,
 	enable_code_action_remove_param:         bool,
 	enable_code_action_move_decl:            bool,
+	enable_code_action_generate_test:        bool,
 	enable_code_action_expand:               bool,
 	enable_organize_imports_on_save:         bool,
 	enable_lint_self_assignment:             bool,

@@ -84,6 +84,10 @@ expect actions-apply "main.odin" "$OLS" query actions "$dir/main.odin:10:11-10:2
 grep -q "value \* 3" "$dir/main.odin" && grep -q "total := .* + 1" "$dir/main.odin"
 odin check "$dir" -no-entry-point
 echo "ok actions-apply check"
+expect generate-test "util_test.odin" "$OLS" query actions "$dir/util.odin:3:1" --apply "Generate test for add"
+grep -q "^test_add :: proc(t: ^testing.T)" "$dir/util_test.odin" && grep -q 'import "core:testing"' "$dir/util_test.odin"
+odin check "$dir" -no-entry-point
+echo "ok generate-test check"
 expect rename-apply "util.odin" "$OLS" query rename "$dir/util.odin:3:1" plus --apply
 grep -q "plus(1, 2)" "$dir/main.odin" && grep -q "^plus ::" "$dir/util.odin"
 odin check "$dir" -no-entry-point
