@@ -48,6 +48,23 @@ main :: proc() {
 	expect_do_block(t, TO_DO_ACTION, `package test
 
 main :: proc() {
+	for {
+		if {*}x > 0 {
+			continue
+		}
+	}
+}
+`, `package test
+
+main :: proc() {
+	for {
+		if x > 0 do continue
+	}
+}
+`)
+	expect_do_block(t, TO_DO_ACTION, `package test
+
+main :: proc() {
 	when {*}ODIN_OS == .Darwin {
 		foo()
 	}

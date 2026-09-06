@@ -156,6 +156,8 @@ Options:
 
 - `enable_code_action_move_decl`: Enables the code action moving a top-level declaration to another file of the package, or to a new file when the client can create files. Defaults to true.
 
+- `enable_code_action_expand`: Expand an array scalar, `or_else`, `or_return` or a range loop back to the long form. Defaults to true.
+
 - `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&` and to merge nested ifs. Defaults to true.
 
 - `enable_code_action_rewrite_expression`: Enables the code actions to flip a comparison, apply De Morgan's law and convert between compound and plain assignment. Defaults to true.
@@ -184,6 +186,8 @@ Options:
 - `enable_lint_identical_branches`: Warn when the if and else branches, or both ternary branches, are identical. Defaults to true.
 
 - `enable_lint_unreachable_code`: Mark statements after `return`, `break`, `continue`, `fallthrough`, `panic` or `unreachable` as unnecessary. Defaults to true.
+
+- `enable_lint_simplify`: Mark code that has a shorter equivalent (array literal with identical elements, `x == true`, `if c { return true } else { return false }`, redundant parentheses, `s[0:len(s)]`, C-style counting loops, nested ifs, manual `or_else`/`or_return` patterns) as unnecessary and offer the rewrite as a quick fix. Defaults to true.
 
 - `enable_lint_float_equality`: Report `==` and `!=` comparisons on floats. Defaults to true.
 

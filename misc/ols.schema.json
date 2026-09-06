@@ -220,6 +220,11 @@
 			"description": "Enables the code action moving a top-level declaration to another file of the package.",
 			"default": true
 		},
+		"enable_code_action_expand": {
+			"type": "boolean",
+			"description": "Expand an array scalar, or_else, or_return or a range loop back to the long form.",
+			"default": true
+		},
 		"enable_inlay_hints_variable_types": {
 			"type": "boolean",
 			"description": "Turn on inlay hints for inferred variable types.",
@@ -291,6 +296,11 @@
 		"enable_lint_unreachable_code": {
 			"type": "boolean",
 			"description": "Mark statements after return, break, continue, fallthrough, panic or unreachable as unnecessary.",
+			"default": true
+		},
+		"enable_lint_simplify": {
+			"type": "boolean",
+			"description": "Mark code that has a shorter equivalent (array literal with identical elements, x == true, if c { return true } else { return false }, redundant parentheses, s[0:len(s)], C-style counting loops, nested ifs, manual or_else/or_return patterns) as unnecessary and offer the rewrite as a quick fix.",
 			"default": true
 		},
 		"enable_lint_float_equality": {

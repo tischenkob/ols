@@ -444,6 +444,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_remove_param.(bool) or_else config.enable_code_action_remove_param
 	config.enable_code_action_move_decl =
 		ols_config.enable_code_action_move_decl.(bool) or_else config.enable_code_action_move_decl
+	config.enable_code_action_expand =
+		ols_config.enable_code_action_expand.(bool) or_else config.enable_code_action_expand
 	config.enable_organize_imports_on_save =
 		ols_config.enable_organize_imports_on_save.(bool) or_else config.enable_organize_imports_on_save
 	config.enable_lint_self_assignment =
@@ -452,6 +454,7 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_lint_identical_branches.(bool) or_else config.enable_lint_identical_branches
 	config.enable_lint_unreachable_code =
 		ols_config.enable_lint_unreachable_code.(bool) or_else config.enable_lint_unreachable_code
+	config.enable_lint_simplify = ols_config.enable_lint_simplify.(bool) or_else config.enable_lint_simplify
 	config.enable_lint_float_equality =
 		ols_config.enable_lint_float_equality.(bool) or_else config.enable_lint_float_equality
 	config.enable_lint_ignored_result =
@@ -973,11 +976,13 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_introduce_param = true
 	config.enable_code_action_remove_param = true
 	config.enable_code_action_move_decl = true
+	config.enable_code_action_expand = true
 	config.enable_inlay_hints_variable_types = true
 	config.enable_organize_imports_on_save = true
 	config.enable_lint_self_assignment = true
 	config.enable_lint_identical_branches = true
 	config.enable_lint_unreachable_code = true
+	config.enable_lint_simplify = true
 	config.enable_lint_float_equality = true
 	config.enable_lint_ignored_result = true
 	config.enable_lint_unused_parameter = true

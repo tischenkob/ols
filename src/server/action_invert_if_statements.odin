@@ -112,7 +112,7 @@ add_early_exit_action :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt, body: 
 		body_text = block_lines(src, body, ind, unit)
 	} else {
 		last := body.stmts[len(body.stmts) - 1]
-		if len(body.stmts) < 2 || !is_bare_exit(last, exit) {
+		if !is_bare_exit(last, exit) {
 			return
 		}
 		// Lines after the if, blank lines at both ends dropped.
@@ -127,12 +127,13 @@ add_early_exit_action :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt, body: 
 		replace_end = end
 		strings.write_string(&sb, reindent(strings.trim_left(src[start:end], "\r\n"), ind, deeper))
 		strings.write_byte(&sb, '\n')
-		if !is_bare_exit(following[len(following) - 1], exit) {
+		body_text = strings.trim_left(strings.trim_right_space(src[body.open.offset + 1:last.pos.offset]), "\r\n")
+		// Nothing follows the new if when the old body was only the exit, so the exit is dead.
+		if len(body_text) > 0 && !is_bare_exit(following[len(following) - 1], exit) {
 			strings.write_string(&sb, deeper)
 			strings.write_string(&sb, exit_text[exit])
 			strings.write_byte(&sb, '\n')
 		}
-		body_text = strings.trim_left(strings.trim_right_space(src[body.open.offset + 1:last.pos.offset]), "\r\n")
 	}
 	strings.write_string(&sb, ind)
 	strings.write_string(&sb, "}\n")

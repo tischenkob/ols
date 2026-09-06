@@ -1179,6 +1179,20 @@ expect_lint_diagnostics :: proc(t: ^testing.T, src: ^Source, expected: []LintExp
 	}
 }
 
+// Every lint diagnostic of the source carries exactly these tags.
+expect_lint_tags :: proc(t: ^testing.T, src: ^Source, tags: []server.DiagnosticTag) {
+	spall.trace(#procedure)
+
+	setup(src)
+	defer teardown(src)
+
+	diagnostics := server.lint_document(src.document, &src.config)
+	testing.expect(t, len(diagnostics) > 0, "Expected lint diagnostics")
+	for d in diagnostics {
+		testing.expectf(t, slice.equal(d.tags, tags), "\nExpected tags %v but received %v", tags, d.tags)
+	}
+}
+
 Unused_Expect :: struct {
 	file: string,
 	line: int, // zero based

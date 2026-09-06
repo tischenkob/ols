@@ -109,7 +109,9 @@ GlobalExpr :: struct {
 parse_file :: proc (p: ^parser.Parser, file: ^ast.File, allocator := context.allocator) -> bool {
 	context.allocator = allocator 
 	spall.trace(#procedure, file.fullpath)
-	return parser.parse_file(p, file)
+	ok := parser.parse_file(p, file)
+	fix_branch_stmt_ends(file)
+	return ok
 }
 
 get_attribute_objc_type :: proc(attributes: []^ast.Attribute) -> ^ast.Expr {
