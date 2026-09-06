@@ -21,7 +21,9 @@ add_split_merge_if_action :: proc(ctx: ^ActionContext) {
 	}
 
 	add_split_if(ctx, if_stmt, body)
-	add_merge_if(ctx, if_stmt, body)
+	if text, ok := merge_if_text(ctx.document.ast.src, if_stmt); ok {
+		append_replace(ctx, if_stmt, "Merge nested if", text)
+	}
 }
 
 add_split_if :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt, body: ^ast.Block_Stmt) {
@@ -57,25 +59,29 @@ add_split_if :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt, body: ^ast.Bloc
 	append_replace(ctx, if_stmt, "Split if", strings.to_string(sb))
 }
 
-add_merge_if :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt, body: ^ast.Block_Stmt) {
-	if len(body.stmts) != 1 {
-		return
+// `if a { if b { … } }` as `if a && b { … }`.
+@(private = "package")
+merge_if_text :: proc(src: string, if_stmt: ^ast.If_Stmt) -> (string, bool) {
+	if if_stmt.else_stmt != nil || if_stmt.label != nil || if_stmt.body == nil {
+		return "", false
+	}
+	body, is_body_block := if_stmt.body.derived.(^ast.Block_Stmt)
+	if !is_body_block || len(body.stmts) != 1 {
+		return "", false
 	}
 	inner, is_if := body.stmts[0].derived.(^ast.If_Stmt)
 	if !is_if || inner.else_stmt != nil || inner.init != nil || inner.label != nil || inner.body == nil {
-		return
+		return "", false
 	}
 	inner_body, is_block := inner.body.derived.(^ast.Block_Stmt)
 	if !is_block {
-		return
+		return "", false
 	}
-
-	src := ctx.document.ast.src
 
 	// Anything besides whitespace around the inner if is a comment that would be lost.
 	if strings.trim_space(src[body.open.offset + 1:inner.pos.offset]) != "" ||
 	   strings.trim_space(src[inner.end.offset:body.close.offset]) != "" {
-		return
+		return "", false
 	}
 
 	ind := get_line_indentation(src, if_stmt.pos.offset)
@@ -90,8 +96,7 @@ add_merge_if :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt, body: ^ast.Bloc
 	}
 	strings.write_string(&sb, ind)
 	strings.write_string(&sb, "}")
-
-	append_replace(ctx, if_stmt, "Merge nested if", strings.to_string(sb))
+	return strings.to_string(sb), true
 }
 
 write_if_head :: proc(sb: ^strings.Builder, src: string, if_stmt: ^ast.If_Stmt, cond: string) {

@@ -126,22 +126,10 @@ add_compound_assignment :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 		rhs := assign.rhs[0]
 
 		if assign.op.kind == .Eq {
-			bin, is_binary := rhs.derived.(^ast.Binary_Expr)
-			if !is_binary {
+			text, has_text := compound_assignment_text(src, assign)
+			if !has_text {
 				return
 			}
-			#partial switch bin.op.kind {
-			case .Add, .Sub, .Mul, .Quo, .Mod, .Mod_Mod, .And, .Or, .Xor, .And_Not, .Shl, .Shr:
-			case:
-				return
-			}
-			if _, is_paren := bin.left.derived.(^ast.Paren_Expr); is_paren {
-				return
-			}
-			if strip_space(node_text(src, bin.left)) != strip_space(lhs) {
-				return
-			}
-			text := strings.concatenate({lhs, " ", bin.op.text, "= ", node_text(src, bin.right)}, context.temp_allocator)
 			append_replace_range(ctx, assign.pos.offset, assign.end.offset, "Use compound assignment", text)
 			return
 		}
@@ -169,6 +157,30 @@ add_compound_assignment :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 	}
 }
 
+@(private = "package")
+compound_assignment_text :: proc(src: string, assign: ^ast.Assign_Stmt) -> (string, bool) {
+	if assign.op.kind != .Eq || len(assign.lhs) != 1 || len(assign.rhs) != 1 || contains_call(assign.lhs[0]) {
+		return "", false
+	}
+	bin, is_binary := assign.rhs[0].derived.(^ast.Binary_Expr)
+	if !is_binary {
+		return "", false
+	}
+	#partial switch bin.op.kind {
+	case .Add, .Sub, .Mul, .Quo, .Mod, .Mod_Mod, .And, .Or, .Xor, .And_Not, .Shl, .Shr:
+	case:
+		return "", false
+	}
+	if _, is_paren := bin.left.derived.(^ast.Paren_Expr); is_paren {
+		return "", false
+	}
+	lhs := node_text(src, assign.lhs[0])
+	if strip_space(node_text(src, bin.left)) != strip_space(lhs) {
+		return "", false
+	}
+	return strings.concatenate({lhs, " ", bin.op.text, "= ", node_text(src, bin.right)}, context.temp_allocator), true
+}
+
 // Operands of a chain of `op`, parentheses removed, in source order.
 chain_leaves :: proc(expr: ^ast.Expr, op: tokenizer.Token_Kind, allocator := context.temp_allocator) -> []^ast.Expr {
 	collect :: proc(expr: ^ast.Expr, op: tokenizer.Token_Kind, out: ^[dynamic]^ast.Expr) {
@@ -185,6 +197,7 @@ chain_leaves :: proc(expr: ^ast.Expr, op: tokenizer.Token_Kind, allocator := con
 	return out[:]
 }
 
+@(private = "package")
 unparen :: proc(expr: ^ast.Expr) -> ^ast.Expr {
 	expr := expr
 	for {
@@ -217,6 +230,7 @@ binary_precedence :: proc(kind: tokenizer.Token_Kind) -> int {
 	return 0
 }
 
+@(private = "package")
 contains_call :: proc(node: ^ast.Node) -> bool {
 	found: bool
 	visitor := ast.Visitor {

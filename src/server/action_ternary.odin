@@ -58,6 +58,7 @@ add_to_ternary :: proc(ctx: ^ActionContext) {
 }
 
 // The one statement of a block that holds nothing else, comments included.
+@(private = "package")
 single_stmt :: proc(src: string, stmt: ^ast.Stmt) -> (^ast.Stmt, bool) {
 	block, ok := stmt.derived.(^ast.Block_Stmt)
 	if !ok || len(block.stmts) != 1 {
@@ -70,6 +71,7 @@ single_stmt :: proc(src: string, stmt: ^ast.Stmt) -> (^ast.Stmt, bool) {
 	return inner, true
 }
 
+@(private = "package")
 is_single_assign :: proc(assign: ^ast.Assign_Stmt) -> bool {
 	return assign.op.kind == .Eq && len(assign.lhs) == 1 && len(assign.rhs) == 1
 }
