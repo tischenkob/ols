@@ -1,0 +1,6 @@
+{
+  "ols": {
+    "command": "ols",
+    "extensionToLanguage": { ".odin": "odin" }
+  }
+}
