@@ -74,6 +74,11 @@ expect callers-group '^combine ' "$OLS" query callers "$dir/util.odin:3:1"
 expect callees '^add .*util.odin:3:1' "$OLS" query callees "$dir/util.odin:7:1"
 expect callees-group '^add_f ' "$OLS" query callees "$dir/util.odin:15:1"
 expect symbols 'Function main' "$OLS" query symbols "$dir/main.odin"
+expect api "^add :: proc(a, b: int) -> int" "$OLS" query api "$dir"
+expect api-group "^combine :: proc {add, add_f}" "$OLS" query api "$dir"
+expect api-name "^add :: proc(a, b: int) -> int" "$OLS" query api "$dir" add
+expect api-core "^clone :: proc(s: string" "$OLS" query --root "$dir" api core:strings clone
+expect find "util.odin:3:1: Function add" "$OLS" query --root "$dir" find add
 expect actions "Invert if" "$OLS" query actions "$dir/main.odin:7:2"
 expect actions-apply "main.odin" "$OLS" query actions "$dir/main.odin:10:11-10:20" --apply "Extract variable"
 grep -q "value \* 3" "$dir/main.odin" && grep -q "total := .* + 1" "$dir/main.odin"

@@ -286,6 +286,8 @@ Support Language server features:
 - `rename FILE:LINE:COL NEW [--apply]`
 - `reorder-params FILE:LINE:COL --order 2,0,1 [--apply]`: position on a procedure name; `--order` lists the new parameter order by old index. Callers are updated. Refused when the procedure is used as a value or a caller names or omits arguments
 - `move FILE:LINE:COL --to TARGET.odin [--apply]`: position on a top-level declaration name; `--to` names a file of the same directory, created when missing. Refused for file-private declarations and those using file-private symbols
+- `api PKG [NAME]`: the exported symbols of a package, one per line with the first line of the doc comment, sorted by name. `PKG` is a directory or a collection path like `core:strings`. With `NAME`, the full signature and doc comment of one symbol
+- `find QUERY`: fuzzy symbol search over the workspace, as `file:line:col: kind name`
 - `check [DIR]`
 - `lint FILE|DIR`: per-file lints, unused imports and unused private declarations, without running the compiler
 
