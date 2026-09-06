@@ -997,6 +997,31 @@ main :: proc() {
 	}
 }
 `)
+
+	only_exit := test.Source {
+		main = `package test
+
+main :: proc() {
+	for h, i in hs {
+		if {*}count(h) != 0 {
+			continue
+		}
+		unordered_remove(&hs, i)
+	}
+}
+`,
+		config = {enable_code_action_invert_if = true},
+	}
+	test.expect_action_applied(t, &only_exit, "Invert if (early continue)", `package test
+
+main :: proc() {
+	for h, i in hs {
+		if count(h) == 0 {
+			unordered_remove(&hs, i)
+		}
+	}
+}
+`)
 }
 
 @(test)

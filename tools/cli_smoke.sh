@@ -110,6 +110,8 @@ never_called :: proc() {}
 BadName :: proc() -> bool {
 	x := 1
 	x = x
+	arr: [2]int = {1, 1}
+	_ = arr
 	return x > 0
 }
 
@@ -122,7 +124,7 @@ package lint
 
 helper :: proc() {}
 ODIN
-for code in unused-declaration self-assignment ignored-result naming Unused; do
+for code in unused-declaration self-assignment ignored-result naming Unused array-broadcast; do
 	expect "lint-$code" "\"$code\"" "$OLS" query lint "$dir/lint"
 done
 expect lint-file self-assignment "$OLS" query lint "$dir/lint/a.odin"
