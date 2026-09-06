@@ -127,6 +127,7 @@ document_free_allocator :: proc(allocator: ^virtual.Arena) {
 	append(&document_storage.free_allocators, allocator)
 }
 
+
 document_get :: proc(uri_string: string) -> ^Document {
 
 	uri, parsed_ok := common.parse_uri(uri_string, context.temp_allocator)
@@ -136,7 +137,7 @@ document_get :: proc(uri_string: string) -> ^Document {
 
 	document := &document_storage.documents[uri.path]
 
-	if document == nil {
+	if document == nil || !document.client_owned {
 		log.errorf("Failed to get document %v", uri.path)
 		return nil
 	}
@@ -259,12 +260,12 @@ document_apply_changes :: proc(
 
 	document := &document_storage.documents[uri.path]
 
-	document.version = version
-
-	if !document.client_owned {
-		log.errorf("Client called change on an document not opened: %v ", document.uri.path)
+	if document == nil || !document.client_owned {
+		log.errorf("Client called change on a document not opened: %v ", uri.path)
 		return .InvalidRequest
 	}
+
+	document.version = version
 
 	for change in changes {
 		//for some reason sublime doesn't seem to care even if i tell it to do incremental sync
