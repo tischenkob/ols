@@ -13,20 +13,22 @@ import "core:strings"
 import "src:common"
 import "src:server"
 
-USAGE :: `usage: ols query <command> [--root DIR]
-  def     FILE:LINE:COL
-  refs    FILE:LINE:COL
-  impl    FILE:LINE:COL
-  callers FILE:LINE:COL
-  callees FILE:LINE:COL
-  hover   FILE:LINE:COL
-  symbols FILE
+USAGE :: `usage: ols query <command> [--root DIR] [--json]
+  def     FILE:LINE:COL                    where the symbol is declared
+  refs    FILE:LINE:COL                    every use across the workspace
+  impl    FILE:LINE:COL                    members of a proc group, or the groups a proc belongs to
+  callers FILE:LINE:COL                    procedures calling the one at the position
+  callees FILE:LINE:COL                    procedures it calls
+  hover   FILE:LINE:COL                    signature and doc comment
+  symbols FILE                             outline of one file
   actions FILE:LINE:COL[-LINE:COL] [--apply TITLE]
+                                           refactorings at a position or selection; --apply writes one by title
   rename  FILE:LINE:COL NEW [--apply]
   reorder-params FILE:LINE:COL --order 2,0,1 [--apply]
   move    FILE:LINE:COL --to TARGET.odin [--apply]
-  check   [DIR]
-  lint    FILE|DIR
+  check   [DIR]                            odin check errors, no build or run
+  lint    FILE|DIR                         in-server lints only, works on code that does not compile
+Output is one line per result, FILE:LINE:COL: TEXT; --json prints the LSP objects instead.
 Lines and columns are 1-based, columns in bytes, as odin check prints them.
 --root defaults to the nearest directory with an ols.json above the file, else the cwd.
 `
@@ -36,6 +38,9 @@ Target :: struct {
 	file:       string,
 	start, end: [2]int,
 }
+
+@(private = "file")
+json_output: bool
 
 run :: proc(args: []string) -> int {
 	context.logger = log.create_console_logger(.Error)
@@ -64,6 +69,8 @@ run :: proc(args: []string) -> int {
 				return usage()
 			}
 			move_to = args[i]
+		case "--json":
+			json_output = true
 		case "--apply":
 			apply = true
 			if len(rest) > 0 && rest[0] == "actions" && i + 1 < len(args) {
@@ -125,12 +132,12 @@ run :: proc(args: []string) -> int {
 	switch command {
 	case "def":
 		locations, _ := server.get_definition_location(document, position, config)
-		return print_nonempty(locations)
+		return print_locations(locations)
 	case "refs":
 		locations, _ := server.get_references(document, position)
-		return print_nonempty(locations)
+		return print_locations(locations)
 	case "impl":
-		return print_nonempty(server.get_implementation_locations(document, position))
+		return print_locations(server.get_implementation_locations(document, position))
 	case "callers", "callees":
 		items := server.prepare_call_hierarchy(document, position)
 		if len(items) == 0 {
@@ -147,20 +154,41 @@ run :: proc(args: []string) -> int {
 				append(&calls, Call{call.to.name, call.to.uri, call.to.selectionRange, call.fromRanges})
 			}
 		}
-		return print_nonempty(calls[:])
+		if json_output {
+			return print_nonempty(calls[:])
+		}
+		for call in calls {
+			print_location({call.uri, call.range}, call.name)
+		}
+		return 0 if len(calls) > 0 else 1
 	case "hover":
 		hover, valid, _ := server.get_hover_information(document, position)
 		if !valid {
 			return 1
 		}
-		print(hover)
+		if json_output {
+			print(hover)
+		} else {
+			fmt.println(hover.contents.value)
+		}
 		return 0
 	case "symbols":
-		return print_nonempty(server.get_document_symbols(document))
+		symbols := server.get_document_symbols(document)
+		if json_output {
+			return print_nonempty(symbols)
+		}
+		print_symbols(target.file, symbols, "")
+		return 0 if len(symbols) > 0 else 1
 	case "actions":
 		actions, _ := server.get_code_actions(document, {}, range, config)
 		if apply_title == "" {
-			return print_nonempty(actions)
+			if json_output {
+				return print_nonempty(actions)
+			}
+			for action in actions {
+				fmt.println(action.title)
+			}
+			return 0 if len(actions) > 0 else 1
 		}
 		for action in actions {
 			if action.title == apply_title {
@@ -177,7 +205,7 @@ run :: proc(args: []string) -> int {
 		if apply {
 			return apply_edit(edit)
 		}
-		print(edit)
+		print_edit(edit)
 		return 0
 	case "reorder-params":
 		order, order_ok := parse_order(order_text)
@@ -195,7 +223,7 @@ run :: proc(args: []string) -> int {
 		if apply {
 			return apply_edit(edit)
 		}
-		print(edit)
+		print_edit(edit)
 		return 0
 	case "move":
 		if move_to == "" {
@@ -215,7 +243,7 @@ run :: proc(args: []string) -> int {
 		if apply {
 			return apply_edit(edit)
 		}
-		print(edit)
+		print_edit(edit)
 		return 0
 	}
 
@@ -363,7 +391,7 @@ check :: proc(dir: string) -> int {
 			append(&entries, Entry{uri, diagnostic})
 		}
 	}
-	print(entries[:])
+	print_entries(entries[:])
 	return 0
 }
 
@@ -414,12 +442,26 @@ lint :: proc(target: string) -> int {
 			}
 		}
 	}
-	slice.sort_by(entries[:], proc(a, b: Entry) -> bool {
+	print_entries(entries[:])
+	return 0
+}
+
+print_entries :: proc(entries: []Entry) {
+	slice.sort_by(entries, proc(a, b: Entry) -> bool {
 		if a.uri != b.uri do return a.uri < b.uri
 		return a.diagnostic.range.start.line < b.diagnostic.range.start.line
 	})
-	print(entries[:])
-	return 0
+	if json_output {
+		print(entries)
+		return
+	}
+	for entry in entries {
+		file := common.uri_to_path(entry.uri, context.temp_allocator)
+		line, col := line_col(file, entry.diagnostic.range.start)
+		severity := strings.to_lower(fmt.tprint(entry.diagnostic.severity), context.temp_allocator)
+		message, _ := strings.replace_all(entry.diagnostic.message, "\n", "\n\t", context.temp_allocator)
+		fmt.printfln("%s:%d:%d: %s: %s [%s]", file, line, col, severity, message, entry.diagnostic.code)
+	}
 }
 
 apply_edit :: proc(edit: server.WorkspaceEdit) -> int {
@@ -447,7 +489,13 @@ apply_edit :: proc(edit: server.WorkspaceEdit) -> int {
 			return 1
 		}
 	}
-	print(written[:])
+	if json_output {
+		print(written[:])
+	} else {
+		for file in written {
+			fmt.println(file)
+		}
+	}
 	return 0
 }
 
@@ -467,12 +515,89 @@ apply_file_edits :: proc(uri: string, edits: []server.TextEdit, written: ^[dynam
 	return true
 }
 
+print_edit :: proc(edit: server.WorkspaceEdit) {
+	if json_output {
+		print(edit)
+		return
+	}
+	if changes, has := edit.documentChanges.?; has {
+		for change in changes {
+			switch c in change {
+			case server.CreateFile:
+				fmt.printfln("%s: create", common.uri_to_path(c.uri, context.temp_allocator))
+			case server.TextDocumentEdit:
+				print_text_edits(c.textDocument.uri, c.edits)
+			}
+		}
+	}
+	for uri, edits in edit.changes {
+		print_text_edits(uri, edits)
+	}
+}
+
+print_text_edits :: proc(uri: string, edits: []server.TextEdit) {
+	file := common.uri_to_path(uri, context.temp_allocator)
+	for edit in edits {
+		line, col := line_col(file, edit.range.start)
+		end_line, end_col := line_col(file, edit.range.end)
+		fmt.printfln("%s:%d:%d-%d:%d: %q", file, line, col, end_line, end_col, edit.newText)
+	}
+}
+
 titles :: proc(actions: []server.CodeAction) -> []string {
 	result := make([]string, len(actions), context.temp_allocator)
 	for action, i in actions {
 		result[i] = action.title
 	}
 	return result
+}
+
+print_locations :: proc(locations: []common.Location) -> int {
+	if json_output {
+		return print_nonempty(locations)
+	}
+	for location in locations {
+		print_location(location)
+	}
+	return 0 if len(locations) > 0 else 1
+}
+
+// FILE:LINE:COL: the source line, prefixed by name when given.
+print_location :: proc(location: common.Location, name := "") {
+	file := common.uri_to_path(location.uri, context.temp_allocator)
+	line, col := line_col(file, location.range.start)
+	text := strings.trim_space(line_text(file, location.range.start.line))
+	if name != "" {
+		fmt.printf("%s ", name)
+	}
+	fmt.printfln("%s:%d:%d: %s", file, line, col, text)
+}
+
+print_symbols :: proc(file: string, symbols: []server.DocumentSymbol, indent: string) {
+	for symbol in symbols {
+		line, col := line_col(file, symbol.selectionRange.start)
+		fmt.printfln("%s%d:%d %v %s", indent, line, col, symbol.kind, symbol.name)
+		print_symbols(file, symbol.children, strings.concatenate({indent, "\t"}, context.temp_allocator))
+	}
+}
+
+// 1-based line and byte column of an LSP position.
+line_col :: proc(file: string, position: common.Position) -> (int, int) {
+	text := line_text(file, position.line)
+	return position.line + 1, common.get_character_offset_u16_to_u8(position.character, transmute([]u8)text) + 1
+}
+
+@(private = "file")
+file_lines: map[string][]string
+
+line_text :: proc(file: string, line: int) -> string {
+	lines, cached := file_lines[file]
+	if !cached {
+		data, _ := os.read_entire_file(file, context.allocator)
+		lines = strings.split_lines(string(data))
+		file_lines[file] = lines
+	}
+	return lines[line] if line < len(lines) else ""
 }
 
 print_nonempty :: proc(items: []$T) -> int {
