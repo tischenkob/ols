@@ -65,14 +65,15 @@ expect() {
 }
 
 expect def "util.odin" "$OLS" query def "$dir/main.odin:6:11"
-expect refs "main.odin" "$OLS" query refs "$dir/util.odin:3:1"
+expect refs "main.odin:6:11: value := add(1, 2)" "$OLS" query refs "$dir/util.odin:3:1"
+expect refs-json '"uri"' "$OLS" query refs "$dir/util.odin:3:1" --json
 expect hover "add" "$OLS" query hover "$dir/main.odin:6:11"
-expect impl '"line": 10' "$OLS" query impl "$dir/util.odin:15:1"
+expect impl 'util.odin:11:1: add_f' "$OLS" query impl "$dir/util.odin:15:1"
 expect callers "main.odin" "$OLS" query callers "$dir/util.odin:3:1"
-expect callers-group '"combine"' "$OLS" query callers "$dir/util.odin:3:1"
-expect callees '"add"' "$OLS" query callees "$dir/util.odin:7:1"
-expect callees-group '"add_f"' "$OLS" query callees "$dir/util.odin:15:1"
-expect symbols '"main"' "$OLS" query symbols "$dir/main.odin"
+expect callers-group '^combine ' "$OLS" query callers "$dir/util.odin:3:1"
+expect callees '^add .*util.odin:3:1' "$OLS" query callees "$dir/util.odin:7:1"
+expect callees-group '^add_f ' "$OLS" query callees "$dir/util.odin:15:1"
+expect symbols 'Function main' "$OLS" query symbols "$dir/main.odin"
 expect actions "Invert if" "$OLS" query actions "$dir/main.odin:7:2"
 expect actions-apply "main.odin" "$OLS" query actions "$dir/main.odin:10:11-10:20" --apply "Extract variable"
 grep -q "value \* 3" "$dir/main.odin" && grep -q "total := .* + 1" "$dir/main.odin"
@@ -97,7 +98,8 @@ grep -q "^twice :: proc" "$dir/main.odin" && ! grep -q "^twice :: proc" "$dir/ut
 odin check "$dir" -no-entry-point
 echo "ok move-existing check"
 expect check "not an int\|Cannot assign\|cannot" "$OLS" query check "$dir/bad"
-expect check-diagnostic '"diagnostic"' "$OLS" query check "$dir/bad"
+expect check-text 'bad.odin:3:10: error:' "$OLS" query check "$dir/bad"
+expect check-json '"diagnostic"' "$OLS" query check "$dir/bad" --json
 mkdir "$dir/lint"
 cat > "$dir/lint/a.odin" <<'ODIN'
 package lint
@@ -125,7 +127,7 @@ package lint
 helper :: proc() {}
 ODIN
 for code in unused-declaration self-assignment ignored-result naming Unused array-broadcast; do
-	expect "lint-$code" "\"$code\"" "$OLS" query lint "$dir/lint"
+	expect "lint-$code" "\[$code\]" "$OLS" query lint "$dir/lint"
 done
 expect lint-file self-assignment "$OLS" query lint "$dir/lint/a.odin"
 if "$OLS" query nonsense >/dev/null 2>&1; then echo "FAIL usage exit"; exit 1; fi
