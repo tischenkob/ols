@@ -2,7 +2,6 @@ package main
 
 import "core:fmt"
 import "core:log"
-import "core:mem"
 import "core:os"
 import "core:thread"
 
@@ -68,13 +67,7 @@ run :: proc(reader: ^server.Reader, writer: ^server.Writer) {
 
 
 	for common.config.running {
-		if common.config.verbose {
-			//Currently letting verbose use error, since some ast prints causes crashes - most likely a bug in core:fmt.
-			logger^ = server.create_lsp_logger(writer, log.Level.Info)
-		} else {
-			logger^ = server.create_lsp_logger(writer, log.Level.Error)
-		}
-
+		logger.lowest_level = .Info if common.config.verbose else .Error
 		context.logger = logger^
 
 		server.consume_requests(&common.config, writer)
@@ -124,8 +117,6 @@ main :: proc() {
 	
 	context.logger = log.create_file_logger(fh, log.Level.Info)
 	*/
-
-	init_global_temporary_allocator(mem.Megabyte * 100)
 
 	run(&reader, &writer)
 }

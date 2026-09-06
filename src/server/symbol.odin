@@ -9,7 +9,7 @@ import "src:common"
 import "src:spall"
 
 SymbolAndNode :: struct {
-	symbol:                            Symbol,
+	symbol:                            ^Symbol,
 	node:                              ^ast.Node,
 	is_unresolved:                     bool,
 	is_selector_expression_unresolved: bool,

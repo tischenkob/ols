@@ -87,22 +87,29 @@ unused_declarations :: proc(
 	ok: bool,
 ) {
 	if !config.enable_lint_unused_declaration do return diagnostics, true
-	indexed := (&indexer.index.collection.packages[pkg]) or_return
 	diagnostics = make(map[string][dynamic]Diagnostic, context.temp_allocator)
 
 	candidates := make(map[Decl_Key]Candidate, context.temp_allocator)
 
-	arena: runtime.Arena
-	_ = runtime.arena_init(&arena, mem.Megabyte * 40, context.temp_allocator)
-	defer runtime.arena_destroy(&arena)
+	// Heap-backed so destroy returns memory; ASTs live for the whole pass, resolution only per file.
+	ast_arena, scratch: runtime.Arena
+	_ = runtime.arena_init(&ast_arena, mem.Megabyte * 8, runtime.default_allocator())
+	defer runtime.arena_destroy(&ast_arena)
+	_ = runtime.arena_init(&scratch, mem.Megabyte * 8, runtime.default_allocator())
+	defer runtime.arena_destroy(&scratch)
 
 	documents := make([dynamic]Document, len(files), context.temp_allocator)
 	for file, i in files {
-		context.allocator = runtime.arena_allocator(&arena)
+		context.allocator = runtime.arena_allocator(&ast_arena)
 		documents[i] = parse_package_file(file, config) or_return
-		uri := documents[i].uri.uri
+	}
 
-		for decl, attributes in top_level_decls(documents[i].ast) {
+	// After parsing: parse_imports may index new packages, which rehashes the packages map.
+	indexed := (&indexer.index.collection.packages[pkg]) or_return
+	for &document in documents {
+		uri := document.uri.uri
+
+		for decl, attributes in top_level_decls(document.ast) {
 			names := attribute_names(attributes)
 			for name in decl.names {
 				ident := name.derived.(^ast.Ident) or_continue
@@ -119,7 +126,8 @@ unused_declarations :: proc(
 	}
 
 	for &document in documents {
-		context.allocator = runtime.arena_allocator(&arena)
+		context.allocator = runtime.arena_allocator(&scratch)
+		defer runtime.arena_free_all(&scratch)
 		uri := document.uri.uri
 		for _, hit in resolve_entire_file_for_references(&document, context.allocator, .Identifier, "") {
 			candidate := (&candidates[{hit.symbol.uri, hit.symbol.range}]) or_continue
@@ -133,7 +141,10 @@ unused_declarations :: proc(
 		if candidate.used do continue
 		diags := &diagnostics[key.uri]
 		if diags == nil {
-			diagnostics[key.uri] = make([dynamic]Diagnostic, context.temp_allocator)
+			diagnostics[strings.clone(key.uri, context.temp_allocator)] = make(
+				[dynamic]Diagnostic,
+				context.temp_allocator,
+			)
 			diags = &diagnostics[key.uri]
 		}
 		append(

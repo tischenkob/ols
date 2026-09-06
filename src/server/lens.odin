@@ -97,7 +97,7 @@ get_code_lenses :: proc(document: ^Document, config: ^common.Config, files: []Pa
 	}
 
 	arena: runtime.Arena
-	_ = runtime.arena_init(&arena, mem.Megabyte * 40, context.temp_allocator)
+	_ = runtime.arena_init(&arena, mem.Megabyte * 8, runtime.default_allocator())
 	defer runtime.arena_destroy(&arena)
 
 	tally :: proc(source: ^Document, index: map[Lens_Key]int, candidates: []Lens_Candidate) {
