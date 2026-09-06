@@ -288,8 +288,10 @@ Support Language server features:
 - `move FILE:LINE:COL --to TARGET.odin [--apply]`: position on a top-level declaration name; `--to` names a file of the same directory, created when missing. Refused for file-private declarations and those using file-private symbols
 - `api PKG [NAME]`: the exported symbols of a package, one per line with the first line of the doc comment, sorted by name. `PKG` is a directory or a collection path like `core:strings`. With `NAME`, the full signature and doc comment of one symbol
 - `find QUERY`: fuzzy symbol search over the workspace, as `file:line:col: kind name`
-- `check [DIR]`
+- `check [DIR]`: `odin check` errors and the lints below, without building or running
 - `lint FILE|DIR`: per-file lints, unused imports and unused private declarations, without running the compiler
+- `tests [DIR|FILE]`: the `@(test)` procedures, as `file:line:col: name`
+- `test DIR [NAME,…]`: runs `odin test DIR` with the collections, defines and `checker_args` of `ols.json` and plain output; names select tests as `-define:ODIN_TEST_NAMES` does, `pkg.name` or `name`
 
 ## Clients
 

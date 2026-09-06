@@ -26,8 +26,11 @@ USAGE :: `usage: ols query <command> [--root DIR] [--json]
   rename  FILE:LINE:COL NEW [--apply]
   reorder-params FILE:LINE:COL --order 2,0,1 [--apply]
   move    FILE:LINE:COL --to TARGET.odin [--apply]
-  check   [DIR]                            odin check errors, no build or run
-  lint    FILE|DIR                         in-server lints only, works on code that does not compile
+  check   [DIR]                            odin check errors plus lints, no build or run; run after every edit
+  lint    FILE|DIR                         lints only, works on code that does not compile
+  tests   [DIR|FILE]                       list @(test) procedures
+  test    DIR [NAME,...]                   odin test with the collections and defines of ols.json; NAME is
+                                           pkg.name or name, several separated by commas
   api     PKG [NAME]                       exported symbols of a package (a directory or core:strings), one per line;
                                            with NAME the full signature and doc comment
   find    QUERY                            fuzzy symbol search over the workspace
@@ -102,15 +105,25 @@ run :: proc(args: []string) -> int {
 		return check(dir)
 	}
 
-	if command == "lint" {
-		if len(rest_args) < 1 {
+	if command == "lint" || command == "tests" || command == "test" {
+		target := os.get_working_directory(context.temp_allocator) or_else "."
+		if len(rest_args) > 0 {
+			target = rest_args[0]
+		} else if command != "tests" {
 			return usage()
 		}
-		target := absolute(rest_args[0])
+		target = absolute(target)
 		setup(
 			root if root != "" else find_root(target if os.is_directory(target) else path.dir(target, context.temp_allocator)),
 		)
-		return lint(target)
+		switch command {
+		case "lint":
+			return lint(target)
+		case "tests":
+			return tests(target)
+		case:
+			return test(target, strings.join(rest_args[1:], ",", context.temp_allocator))
+		}
 	}
 
 	if command == "api" || command == "find" {
@@ -419,8 +432,38 @@ check :: proc(dir: string) -> int {
 			append(&entries, Entry{uri, diagnostic})
 		}
 	}
+	if os.is_directory(dir) {
+		lints, ok := collect_lints(dir)
+		if !ok {
+			return 1
+		}
+		append(&entries, ..lints)
+	}
 	print_entries(entries[:])
 	return 0
+}
+
+tests :: proc(target: string) -> int {
+	found := server.find_tests(target, &common.config)
+	if json_output {
+		return print_nonempty(found)
+	}
+	for test in found {
+		fmt.printfln("%s:%d:%d: %s", test.file, test.line, test.col, test.name)
+	}
+	return 0 if len(found) > 0 else 1
+}
+
+test :: proc(dir: string, names: string) -> int {
+	cmd := server.test_command(dir, names, &common.config)
+	fmt.eprintln(strings.join(cmd, " ", context.temp_allocator))
+	process, err := os.process_start({command = cmd, stdout = os.stdout, stderr = os.stderr})
+	if err != nil {
+		fmt.eprintfln("cannot run %s: %v", cmd[0], err)
+		return 1
+	}
+	state, _ := os.process_wait(process)
+	return state.exit_code
 }
 
 Entry :: struct {
@@ -474,13 +517,23 @@ Call :: struct {
 }
 
 lint :: proc(target: string) -> int {
+	entries, ok := collect_lints(target)
+	if !ok {
+		return 1
+	}
+	print_entries(entries)
+	return 0
+}
+
+// Per-file lints, unused imports and unused private declarations of one file or a package directory.
+collect_lints :: proc(target: string) -> ([]Entry, bool) {
 	files := []string{target}
 	if os.is_directory(target) {
 		err: os.Error
 		files, err = filepath.glob(path.join({target, "*.odin"}, context.temp_allocator), context.temp_allocator)
 		if err != nil {
 			fmt.eprintfln("cannot list %s: %v", target, err)
-			return 1
+			return {}, false
 		}
 	}
 
@@ -491,7 +544,7 @@ lint :: proc(target: string) -> int {
 		ok: bool
 		document, _, _, ok = open(Target{file = file, start = {1, 1}, end = {1, 1}})
 		if !ok {
-			return 1
+			return {}, false
 		}
 		uris[document.uri.uri] = {}
 	}
@@ -508,8 +561,7 @@ lint :: proc(target: string) -> int {
 			}
 		}
 	}
-	print_entries(entries[:])
-	return 0
+	return entries[:], true
 }
 
 print_entries :: proc(entries: []Entry) {
