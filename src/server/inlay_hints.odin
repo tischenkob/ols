@@ -421,7 +421,7 @@ get_inlay_hints :: proc(
 			if call, is_call := decl.values[0].derived.(^ast.Call_Expr); is_call {
 				resolved: SymbolAndNode
 				resolved, callee_ok = data.symbols[uintptr(call.expr)]
-				callee = resolved.symbol
+				callee = resolved.symbol^
 			}
 			if value_states_type(decl.values[0], callee, callee_ok) do return
 		}
@@ -430,7 +430,7 @@ get_inlay_hints :: proc(
 			ident := name.derived.(^ast.Ident) or_continue
 			if ident.name == "_" do continue
 			resolved := data.symbols[uintptr(ident)] or_continue
-			text := symbol_type_text(&data.ast_context, resolved.symbol, ident.name) or_continue
+			text := symbol_type_text(&data.ast_context, resolved.symbol^, ident.name) or_continue
 			range := common.get_token_range(ident, string(data.document.text))
 			append(&data.hints, InlayHint{range.end, .Type, fmt.tprintf(": %s", text)})
 		}

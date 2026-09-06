@@ -82,7 +82,7 @@ resolve_entire_file_internal :: proc(
 
 	ast_context.current_package = ast_context.document_package
 
-	symbols = make(SymbolAndNodeMap, 10000, allocator)
+	symbols = make(SymbolAndNodeMap, allocator)
 
 	for decl in document.ast.decls {
 		resolve_decl(
@@ -132,7 +132,7 @@ resolve_entire_file_for_references :: proc(
 
 	ast_context.current_package = ast_context.document_package
 
-	symbols = make(SymbolAndNodeMap, 10000, allocator)
+	symbols = make(SymbolAndNodeMap, allocator)
 
 	for decl in document.ast.decls {
 		resolve_decl(
@@ -294,7 +294,7 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 				if symbol, ok := resolve_location_identifier(data.ast_context, n^); ok {
 					data.symbols[cast(uintptr)node] = SymbolAndNode {
 						node   = n,
-						symbol = symbol,
+						symbol = new_clone(symbol, data.ast_context.allocator),
 					}
 				}
 			}
@@ -302,7 +302,7 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 			if symbol, ok := resolve_type_identifier(data.ast_context, n^); ok {
 				data.symbols[cast(uintptr)node] = SymbolAndNode {
 					node   = n,
-					symbol = symbol,
+					symbol = new_clone(symbol, data.ast_context.allocator),
 				}
 			}
 		}
@@ -325,7 +325,7 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 			if symbol, ok := resolve_location_implicit_selector(data.ast_context, data.position_context, n); ok {
 				data.symbols[cast(uintptr)node] = SymbolAndNode {
 					node   = n,
-					symbol = symbol,
+					symbol = new_clone(symbol, data.ast_context.allocator),
 				}
 			}
 		}
@@ -340,12 +340,12 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 					if data.flag != .Base {
 						data.symbols[cast(uintptr)node] = SymbolAndNode {
 							node   = n.field,
-							symbol = symbol,
+							symbol = new_clone(symbol, data.ast_context.allocator),
 						}
 					} else {
 						data.symbols[cast(uintptr)node] = SymbolAndNode {
 							node   = n,
-							symbol = symbol,
+							symbol = new_clone(symbol, data.ast_context.allocator),
 						}
 					}
 				}
@@ -363,7 +363,7 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 			if symbol, ok := resolve_type_expression(data.ast_context, &n.node); ok {
 				data.symbols[cast(uintptr)node] = SymbolAndNode {
 					node   = n,
-					symbol = symbol,
+					symbol = new_clone(symbol, data.ast_context.allocator),
 				}
 			} else if data.save_unresolved {
 				//If we failed to resolve the identifier of an selector expression, we check if the base was resolved correctly.
@@ -372,6 +372,7 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 
 				data.symbols[cast(uintptr)node] = SymbolAndNode {
 					node                              = n,
+					symbol                            = new(Symbol, data.ast_context.allocator),
 					is_unresolved                     = true,
 					is_selector_expression_unresolved = !ok,
 				}
@@ -393,7 +394,7 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 			if symbol, ok := resolve_location_comp_lit_field(data.ast_context, data.position_context); ok {
 				data.symbols[cast(uintptr)node] = SymbolAndNode {
 					node   = n.field,
-					symbol = symbol,
+					symbol = new_clone(symbol, data.ast_context.allocator),
 				}
 			}
 
@@ -402,7 +403,7 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 			if symbol, ok := resolve_location_proc_param_name(data.ast_context, data.position_context); ok {
 				data.symbols[cast(uintptr)node] = SymbolAndNode {
 					node   = n.field,
-					symbol = symbol,
+					symbol = new_clone(symbol, data.ast_context.allocator),
 				}
 			}
 			resolve_node(n.value, data)
@@ -665,14 +666,17 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 			for field in n.fields.list {
 				for name in field.names {
 					data.symbols[cast(uintptr)name] = SymbolAndNode {
-						node = name,
-						symbol = Symbol {
-							range = common.get_token_range(name, string(data.document.text)),
-							uri = strings.clone(
-								common.create_uri(field.pos.file, data.ast_context.allocator).uri,
-								data.ast_context.allocator,
-							),
-						},
+						node   = name,
+						symbol = new_clone(
+							Symbol {
+								range = common.get_token_range(name, string(data.document.text)),
+								uri = strings.clone(
+									common.create_uri(field.pos.file, data.ast_context.allocator).uri,
+									data.ast_context.allocator,
+								),
+							},
+							data.ast_context.allocator,
+						),
 					}
 				}
 			}
@@ -692,40 +696,49 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 		if data.flag != .None {
 			for field in n.fields {
 				data.symbols[cast(uintptr)field] = SymbolAndNode {
-					node = field,
-					symbol = Symbol {
-						range = common.get_token_range(field, string(data.document.text)),
-						uri = strings.clone(
-							common.create_uri(field.pos.file, data.ast_context.allocator).uri,
-							data.ast_context.allocator,
-						),
-					},
+					node   = field,
+					symbol = new_clone(
+						Symbol {
+							range = common.get_token_range(field, string(data.document.text)),
+							uri = strings.clone(
+								common.create_uri(field.pos.file, data.ast_context.allocator).uri,
+								data.ast_context.allocator,
+							),
+						},
+						data.ast_context.allocator,
+					),
 				}
 				// In the case of a Field_Value, we explicitly add them so we can find the LHS correctly for things like renaming
 				if field, ok := field.derived.(^ast.Field_Value); ok {
 					if ident, ok := field.field.derived.(^ast.Ident); ok {
 						data.symbols[cast(uintptr)ident] = SymbolAndNode {
-							node = ident,
-							symbol = Symbol {
-								name = ident.name,
-								range = common.get_token_range(ident, string(data.document.text)),
-								uri = strings.clone(
-									common.create_uri(field.pos.file, data.ast_context.allocator).uri,
-									data.ast_context.allocator,
-								),
-							},
+							node   = ident,
+							symbol = new_clone(
+								Symbol {
+									name = ident.name,
+									range = common.get_token_range(ident, string(data.document.text)),
+									uri = strings.clone(
+										common.create_uri(field.pos.file, data.ast_context.allocator).uri,
+										data.ast_context.allocator,
+									),
+								},
+								data.ast_context.allocator,
+							),
 						}
 					} else if binary, ok := field.field.derived.(^ast.Binary_Expr); ok {
 						data.symbols[cast(uintptr)binary] = SymbolAndNode {
-							node = binary,
-							symbol = Symbol {
-								name = "binary",
-								range = common.get_token_range(binary, string(data.document.text)),
-								uri = strings.clone(
-									common.create_uri(field.pos.file, data.ast_context.allocator).uri,
-									data.ast_context.allocator,
-								),
-							},
+							node   = binary,
+							symbol = new_clone(
+								Symbol {
+									name = "binary",
+									range = common.get_token_range(binary, string(data.document.text)),
+									uri = strings.clone(
+										common.create_uri(field.pos.file, data.ast_context.allocator).uri,
+										data.ast_context.allocator,
+									),
+								},
+								data.ast_context.allocator,
+							),
 						}
 					}
 				}
@@ -756,14 +769,17 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 		resolve_node(n.bit_size, data)
 		if data.flag != .None {
 			data.symbols[cast(uintptr)n.name] = SymbolAndNode {
-				node = n.name,
-				symbol = Symbol {
-					range = common.get_token_range(n.name, string(data.document.text)),
-					uri = strings.clone(
-						common.create_uri(n.pos.file, data.ast_context.allocator).uri,
-						data.ast_context.allocator,
-					),
-				},
+				node   = n.name,
+				symbol = new_clone(
+					Symbol {
+						range = common.get_token_range(n.name, string(data.document.text)),
+						uri = strings.clone(
+							common.create_uri(n.pos.file, data.ast_context.allocator).uri,
+							data.ast_context.allocator,
+						),
+					},
+					data.ast_context.allocator,
+				),
 			}
 		}
 	case:
