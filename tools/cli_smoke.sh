@@ -135,6 +135,27 @@ for code in unused-declaration self-assignment ignored-result naming Unused arra
 	expect "lint-$code" "\[$code\]" "$OLS" query lint "$dir/lint"
 done
 expect lint-file self-assignment "$OLS" query lint "$dir/lint/a.odin"
+expect check-lints "\[self-assignment\]" "$OLS" query check "$dir/lint"
+mkdir "$dir/t"
+cat > "$dir/t/t_test.odin" <<'ODIN'
+package t
+
+import "core:testing"
+
+@(test)
+passes :: proc(t: ^testing.T) {
+	testing.expect_value(t, 1, 1)
+}
+
+@(test)
+fails :: proc(t: ^testing.T) {
+	testing.expect_value(t, 1, 2)
+}
+ODIN
+expect tests "t_test.odin:6:1: passes" "$OLS" query tests "$dir/t"
+expect test-one "1 test.* success" sh -c "\"$OLS\" query test \"$dir/t\" passes 2>&1"
+if "$OLS" query test "$dir/t" >/dev/null 2>&1; then echo "FAIL test exit code"; exit 1; fi
+echo "ok test failure exit"
 if "$OLS" query nonsense >/dev/null 2>&1; then echo "FAIL usage exit"; exit 1; fi
 echo "ok usage"
 echo "all ok"
