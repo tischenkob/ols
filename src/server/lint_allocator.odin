@@ -98,8 +98,15 @@ make_len_append :: proc(ctx: ^LintContext, uses: []IdentUse, diags: ^[dynamic]Di
 		if callee == nil || callee.name != "make" do continue
 		if _, is_dynamic := call.args[0].derived.(^ast.Dynamic_Array_Type); !is_dynamic do continue
 
+		// The second argument is a length only when it is a number or len(); otherwise it is the allocator.
 		length := call.args[1]
-		if lit, is_lit := length.derived.(^ast.Basic_Lit); is_lit && lit.tok.text == "0" do continue
+		if lit, is_lit := length.derived.(^ast.Basic_Lit); is_lit {
+			if lit.tok.text == "0" do continue
+		} else if len_call, is_call := length.derived.(^ast.Call_Expr); !is_call ||
+		   (len_call.expr.derived.(^ast.Ident) or_else nil) == nil ||
+		   len_call.expr.derived.(^ast.Ident).name != "len" {
+			continue
+		}
 		if !grown_by_append(uses[i + 1:], use.ident.name) do continue
 
 		text := strip_space(node_text(ctx.src, length))

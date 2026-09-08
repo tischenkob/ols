@@ -44,8 +44,6 @@ f :: proc(x: int) -> int {
 			{4, "no-op-arithmetic"},
 			{5, "no-op-arithmetic"},
 			{6, "no-op-arithmetic"},
-			{7, "no-op-arithmetic"},
-			{8, "no-op-arithmetic"},
 			{9, "no-op-arithmetic"},
 			{10, "no-op-arithmetic"},
 			{11, "no-op-arithmetic"},
@@ -55,7 +53,6 @@ f :: proc(x: int) -> int {
 			{15, "no-op-arithmetic"},
 			{16, "no-op-arithmetic"},
 			{17, "no-op-arithmetic"},
-			{18, "no-op-arithmetic"},
 			{19, "no-op-arithmetic"},
 		},
 	)

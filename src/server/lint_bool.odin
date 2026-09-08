@@ -184,7 +184,7 @@ bool_duplicate_condition :: proc(ctx: ^LintContext, root: ^ast.If_Stmt, diags: ^
 	conds := make([dynamic]^ast.Expr, context.temp_allocator)
 	stmt := root
 	for {
-		if stmt.cond != nil do append(&conds, unparen(stmt.cond))
+		if stmt.cond != nil && stmt.init == nil do append(&conds, unparen(stmt.cond))
 		if stmt.else_stmt == nil do break
 		next, is_if := stmt.else_stmt.derived.(^ast.If_Stmt)
 		if !is_if do break
