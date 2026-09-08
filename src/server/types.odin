@@ -34,6 +34,7 @@ ResponseParams :: union {
 	[]CodeAction,
 	[]DocumentHighlight,
 	[]FoldingRange,
+	LinkedEditingRanges,
 	[]CallHierarchyItem,
 	[]CallHierarchyIncomingCall,
 	[]CallHierarchyOutgoingCall,
@@ -162,6 +163,7 @@ ServerCapabilities :: struct {
 	callHierarchyProvider:      bool,
 	codeLensProvider:           Maybe(CodeLensOptions),
 	selectionRangeProvider:     bool,
+	linkedEditingRangeProvider: bool,
 }
 
 DidChangeWatchedFilesRegistrationOptions :: struct {
@@ -531,6 +533,7 @@ OlsConfig :: struct {
 	enable_lint_pure_call:                   Maybe(bool),
 	enable_code_lens_references:             Maybe(bool),
 	enable_selection_range:                  Maybe(bool),
+	enable_linked_editing:                   Maybe(bool),
 	enable_checker_vet_shadowing:            Maybe(bool),
 	enable_checker_vet_unused_variables:     Maybe(bool),
 	enable_checker_vet_cast:                 Maybe(bool),
@@ -631,6 +634,16 @@ FoldingRangeParams :: struct {
 SelectionRangeParams :: struct {
 	textDocument: TextDocumentIdentifier,
 	positions:    []common.Position,
+}
+
+LinkedEditingRangeParams :: struct {
+	textDocument: TextDocumentIdentifier,
+	position:     common.Position,
+}
+
+LinkedEditingRanges :: struct {
+	ranges:      []common.Range,
+	wordPattern: string,
 }
 
 FoldingRange :: struct {
