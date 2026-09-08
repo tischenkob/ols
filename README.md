@@ -228,6 +228,8 @@ Options:
 
 - `enable_lint_deprecated`: Report uses of a declaration marked with the `@(deprecated)` attribute. Defaults to true.
 
+- `enable_lint_test_attribute`: Report a procedure taking `^testing.T` without an `@(test)` attribute, and an `@(test)` procedure whose signature is not `proc(t: ^testing.T)`. Defaults to true.
+
 - `enable_lint_unused_declaration`: On save, mark private declarations that nothing in their package references as unnecessary. Defaults to true.
 
 - `enable_code_lens_references`: Show a reference count above every top-level declaration. Defaults to true.
