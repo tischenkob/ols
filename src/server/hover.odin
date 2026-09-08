@@ -9,9 +9,12 @@ import "core:strings"
 import "src:common"
 import "src:spall"
 
-write_hover_content :: proc(ast_context: ^AstContext, symbol: Symbol) -> MarkupContent {
+write_hover_content :: proc(ast_context: ^AstContext, symbol: Symbol, layout := "") -> MarkupContent {
 	cat := construct_symbol_information(ast_context, symbol)
 	doc := construct_symbol_docs(symbol)
+	if extra := layout != "" ? layout : struct_layout_hover(ast_context, symbol); extra != "" {
+		doc = construct_docs(doc, extra)
+	}
 	return build_markup_content(cat, doc)
 }
 
@@ -21,6 +24,9 @@ get_hover_information :: proc(document: ^Document, position: common.Position) ->
 	hover := Hover {
 		contents = {kind = "plaintext"},
 	}
+
+	hover_layout_scope = true
+	defer hover_layout_scope = false
 
 	ast_context := make_ast_context(
 		document.ast,
@@ -328,7 +334,11 @@ get_hover_information :: proc(document: ^Document, position: common.Position) ->
 					if symbol, ok := resolve_type_expression(&ast_context, v.types[i]); ok {
 						construct_struct_field_symbol(&symbol, selector.name, v, i)
 						build_documentation(&ast_context, &symbol, true)
-						hover.contents = write_hover_content(&ast_context, symbol)
+						hover.contents = write_hover_content(
+							&ast_context,
+							symbol,
+							struct_field_layout_hover(&ast_context, v, i),
+						)
 						return hover, true, true
 					}
 				}

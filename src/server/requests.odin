@@ -518,6 +518,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	config.enable_linked_editing = ols_config.enable_linked_editing.(bool) or_else config.enable_linked_editing
 	config.enable_checker_vet_shadowing =
 		ols_config.enable_checker_vet_shadowing.(bool) or_else config.enable_checker_vet_shadowing
+	config.enable_hover_struct_size =
+		ols_config.enable_hover_struct_size.(bool) or_else config.enable_hover_struct_size
 	config.enable_checker_vet_unused_variables =
 		ols_config.enable_checker_vet_unused_variables.(bool) or_else config.enable_checker_vet_unused_variables
 	config.enable_checker_vet_cast = ols_config.enable_checker_vet_cast.(bool) or_else config.enable_checker_vet_cast
@@ -1094,6 +1096,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_selection_range = true
 	config.enable_linked_editing = true
 	config.enable_checker_vet_shadowing = true
+	config.enable_hover_struct_size = true
 	config.enable_checker_vet_unused_variables = true
 	config.enable_checker_vet_cast = true
 	config.enable_checker_vet_style = true

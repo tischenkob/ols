@@ -333,6 +333,11 @@
 			"type": "string",
 			"description": "Pass custom arguments to `odin check`."
 		},
+		"enable_hover_struct_size": {
+			"type": "boolean",
+			"description": "Show the byte size and alignment of a struct, and the offset and size of a struct field, on hover.",
+			"default": true
+		},
 		"enable_checker_vet_shadowing": {
 			"type": "boolean",
 			"description": "Pass `-vet-shadowing` to `odin check` and report shadowed declarations as warnings.",
