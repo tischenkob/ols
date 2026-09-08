@@ -123,6 +123,23 @@ lint_document :: proc(document: ^Document, config: ^common.Config) -> []Diagnost
 			)
 		}
 	}
+	if config.enable_lint_use_stdlib {
+		for m in stdlib_matches(document) {
+			append(
+				&w.diags,
+				Diagnostic {
+					range = {
+						start = common.get_relative_token_position(m.start, document.text, 0),
+						end = common.get_relative_token_position(m.end, document.text, 0),
+					},
+					severity = .Hint,
+					code = "use_stdlib",
+					message = fmt.tprintf("Use %s", m.rule.target),
+					tags = {.Unnecessary},
+				},
+			)
+		}
+	}
 	return w.diags[:]
 }
 
