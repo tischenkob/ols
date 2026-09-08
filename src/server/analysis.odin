@@ -4541,7 +4541,7 @@ make_symbol_procedure_from_ast :: proc(
 
 	if expr, ok := ast_context.globals[name]; ok {
 		if expr.deprecated {
-			symbol.flags |= {.Distinct}
+			symbol.flags |= {.Deprecated}
 		}
 	}
 
