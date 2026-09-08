@@ -106,6 +106,7 @@ add_inline_variable_action :: proc(ctx: ^ActionContext) {
 	append(ctx.actions, make_code_action(ctx, "Inline variable", "refactor.inline", edits[:]))
 }
 
+@(private = "package")
 alone_on_line :: proc(src: string, decl: ^ast.Value_Decl) -> bool {
 	for i := decl.pos.offset - 1; i >= 0 && src[i] != '\n'; i -= 1 {
 		if src[i] != ' ' && src[i] != '\t' {
