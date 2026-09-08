@@ -443,6 +443,11 @@
 			"description": "Report a '#partial' switch that already lists every case, and a 'break' at the end of a case.",
 			"default": true
 		},
+		"enable_lint_call_arity": {
+			"type": "boolean",
+			"description": "Report a call that passes too few or too many arguments to a resolved procedure.",
+			"default": true
+		},
 		"enable_code_lens_references": {
 			"type": "boolean",
 			"description": "Show a reference count above every top-level declaration.",

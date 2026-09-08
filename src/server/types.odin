@@ -514,6 +514,7 @@ OlsConfig :: struct {
 	enable_lint_invisible_characters:        Maybe(bool),
 	enable_lint_result_order:                Maybe(bool),
 	enable_lint_switch:                      Maybe(bool),
+	enable_lint_call_arity:                  Maybe(bool),
 	enable_code_lens_references:             Maybe(bool),
 	enable_checker_vet_shadowing:            Maybe(bool),
 	enable_checker_vet_unused_variables:     Maybe(bool),

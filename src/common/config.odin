@@ -102,6 +102,7 @@ Config :: struct {
 	enable_lint_invisible_characters:        bool,
 	enable_lint_result_order:                bool,
 	enable_lint_switch:                      bool,
+	enable_lint_call_arity:                  bool,
 	enable_code_lens_references:             bool,
 	enable_checker_vet_shadowing:            bool,
 	enable_checker_vet_unused_variables:     bool,
