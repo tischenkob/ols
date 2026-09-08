@@ -165,6 +165,8 @@ Options:
 
 - `enable_code_action_checker_fix`: Enables quick fixes for `odin check` errors: dropping an unused variable and removing a cast to the same type. Defaults to true.
 
+- `enable_code_action_comment`: Enables the code actions adding a doc comment above the top-level declaration at the cursor, and converting the selected comments between `//` lines and a `/* */` block. Defaults to true.
+
 - `enable_code_action_literal`: Enables the code actions on the literal at the cursor: converting a string to and from a raw string, converting an integer between hexadecimal, decimal and binary, and adding or removing digit separators. Defaults to true.
 
 - `enable_code_action_loop_label`: Enables the code action adding a label to the loop at the cursor, so nested `break` and `continue` can target it. Defaults to true.
