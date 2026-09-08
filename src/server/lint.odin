@@ -44,6 +44,7 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_unused_parameter,
 	lint_naming,
 	lint_bool_logic,
+	lint_no_op,
 }
 
 @(private = "file")
@@ -244,7 +245,7 @@ lint_unreachable_code :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynam
 
 // The lines fully covering [start, end): grown to the line start when only whitespace precedes,
 // and past the newline when only whitespace follows.
-@(private = "file")
+@(private = "package")
 whole_lines :: proc(src: string, start, end: int) -> (int, int) {
 	start, end := start, end
 	line_start := start
