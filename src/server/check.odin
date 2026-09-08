@@ -405,6 +405,24 @@ start_check_process :: proc(
 	if config.enable_checker_vet_shadowing {
 		append(&cmd, "-vet-shadowing")
 	}
+	if config.enable_checker_vet_unused_variables {
+		append(&cmd, "-vet-unused-variables")
+	}
+	if config.enable_checker_vet_cast {
+		append(&cmd, "-vet-cast")
+	}
+	if config.enable_checker_vet_style {
+		append(&cmd, "-vet-style")
+	}
+	if config.enable_checker_vet_semicolon {
+		append(&cmd, "-vet-semicolon")
+	}
+	if config.enable_checker_vet_tabs {
+		append(&cmd, "-vet-tabs")
+	}
+	if config.enable_checker_strict_style {
+		append(&cmd, "-strict-style")
+	}
 	args, _ := strings.split(config.checker_args, " ", context.temp_allocator)
 	for arg in args {
 		if arg != "" {
@@ -442,9 +460,12 @@ map_diagnostic_severity :: proc(type: string, message: string) -> DiagnosticSeve
 		return .Warning
 	}
 
-	// -vet-shadowing is our flag, not the user's build, so its errors show as warnings.
-	if strings.contains(message, "shadows declaration") {
-		return .Warning
+	// The vet flags are ours, not the user's build, so their errors show as warnings.
+	vet_messages := [?]string{"shadows declaration", "declared but not used", "Unneeded cast", "Unneeded transmute"}
+	for m in vet_messages {
+		if strings.contains(message, m) {
+			return .Warning
+		}
 	}
 
 	return .Error
