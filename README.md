@@ -224,6 +224,8 @@ Options:
 
 - `enable_lint_allocator`: Report a value allocated with an explicit allocator and then freed with the context allocator, and `make([dynamic]T, n)` whose elements `append` adds after. Defaults to true.
 
+- `enable_lint_sync`: Report synchronisation mistakes: a lock released on the next line, a deferred lock, an atomic result assigned back to its own target, a lock passed or copied by value, and cleanup deferred before the error is checked. Defaults to true.
+
 - `enable_lint_unused_declaration`: On save, mark private declarations that nothing in their package references as unnecessary. Defaults to true.
 
 - `enable_code_lens_references`: Show a reference count above every top-level declaration. Defaults to true.

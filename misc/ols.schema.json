@@ -388,6 +388,11 @@
 			"description": "Report a value allocated with an explicit allocator and freed with the context allocator, and a dynamic array made with a length that append then grows past.",
 			"default": true
 		},
+		"enable_lint_sync": {
+			"type": "boolean",
+			"description": "Report synchronisation mistakes: a lock released on the next line, a deferred lock, an atomic result assigned back to its own target, a lock passed or copied by value, and cleanup deferred before the error is checked.",
+			"default": true
+		},
 		"enable_lint_unused_declaration": {
 			"type": "boolean",
 			"description": "On save, mark private declarations that nothing in their package references as unnecessary.",

@@ -48,6 +48,7 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_loops,
 	lint_dead_store,
 	lint_allocator,
+	lint_sync,
 }
 
 @(private = "file")

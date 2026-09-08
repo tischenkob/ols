@@ -91,6 +91,7 @@ Config :: struct {
 	enable_lint_loops:                       bool,
 	enable_lint_dead_store:                  bool,
 	enable_lint_allocator:                   bool,
+	enable_lint_sync:                        bool,
 	enable_lint_unused_declaration:          bool,
 	enable_code_lens_references:             bool,
 	enable_checker_vet_shadowing:            bool,
