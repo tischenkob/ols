@@ -358,6 +358,11 @@
 			"description": "Mark procedure parameters that are never used in the body as unnecessary.",
 			"default": true
 		},
+		"enable_lint_unused_variable": {
+			"type": "boolean",
+			"description": "Mark local variables and constants that are declared but never used as unnecessary.",
+			"default": true
+		},
 		"enable_lint_naming": {
 			"type": "boolean",
 			"description": "Report names that do not follow Odin conventions: snake_case procedures and variables, Ada_Case types and enum members, SCREAMING_SNAKE_CASE constants.",

@@ -212,6 +212,8 @@ Options:
 
 - `enable_lint_unused_parameter`: Mark procedure parameters that are never used in the body as unnecessary. Defaults to true.
 
+- `enable_lint_unused_variable`: Mark local variables and constants that are declared but never used as unnecessary. Defaults to true.
+
 - `enable_lint_naming`: Report names that do not follow Odin conventions: snake_case procedures and variables, Ada_Case types and enum members, SCREAMING_SNAKE_CASE constants. Defaults to true.
 
 - `enable_lint_bool_logic`: Report boolean and comparison mistakes: identical operands, conditions that are always true or false, and `if` or `switch` branches that repeat an earlier one. Defaults to true.

@@ -469,6 +469,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_lint_ignored_result.(bool) or_else config.enable_lint_ignored_result
 	config.enable_lint_unused_parameter =
 		ols_config.enable_lint_unused_parameter.(bool) or_else config.enable_lint_unused_parameter
+	config.enable_lint_unused_variable =
+		ols_config.enable_lint_unused_variable.(bool) or_else config.enable_lint_unused_variable
 	config.enable_lint_naming = ols_config.enable_lint_naming.(bool) or_else config.enable_lint_naming
 	config.enable_lint_bool_logic = ols_config.enable_lint_bool_logic.(bool) or_else config.enable_lint_bool_logic
 	config.enable_lint_no_op = ols_config.enable_lint_no_op.(bool) or_else config.enable_lint_no_op
@@ -1027,6 +1029,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_lint_printf = true
 	config.enable_lint_ignored_result = true
 	config.enable_lint_unused_parameter = true
+	config.enable_lint_unused_variable = true
 	config.enable_lint_naming = true
 	config.enable_lint_bool_logic = true
 	config.enable_lint_no_op = true

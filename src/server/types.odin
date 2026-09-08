@@ -497,6 +497,7 @@ OlsConfig :: struct {
 	enable_lint_printf:                      Maybe(bool),
 	enable_lint_ignored_result:              Maybe(bool),
 	enable_lint_unused_parameter:            Maybe(bool),
+	enable_lint_unused_variable:             Maybe(bool),
 	enable_lint_naming:                      Maybe(bool),
 	enable_lint_bool_logic:                  Maybe(bool),
 	enable_lint_no_op:                       Maybe(bool),

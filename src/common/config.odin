@@ -85,6 +85,7 @@ Config :: struct {
 	enable_lint_printf:                      bool,
 	enable_lint_ignored_result:              bool,
 	enable_lint_unused_parameter:            bool,
+	enable_lint_unused_variable:             bool,
 	enable_lint_naming:                      bool,
 	enable_lint_bool_logic:                  bool,
 	enable_lint_no_op:                       bool,
