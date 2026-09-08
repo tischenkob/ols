@@ -1502,6 +1502,32 @@ expect_range_format :: proc(t: ^testing.T, src: ^Source, expected: string) {
 	testing.expectf(t, text == expected, "\nExpected:\n%s\n\nGot:\n%s", expected, text)
 }
 
+Highlight_Expect :: struct {
+	line: int, // 0-based
+	text: string,
+	kind: server.DocumentHighlightKind,
+}
+
+// Document highlights around the cursor, ordered by position.
+expect_document_highlights :: proc(t: ^testing.T, src: ^Source, expected: []Highlight_Expect) {
+	spall.trace(#procedure)
+
+	cursor := source_remove_cursor(src)
+
+	setup(src)
+	defer teardown(src)
+
+	text := src.document.text[:src.document.used_text]
+	got := make([dynamic]Highlight_Expect, context.temp_allocator)
+	for highlight in server.get_document_highlights(src.document, cursor, &src.config) {
+		start, _ := common.get_absolute_position(highlight.range.start, text)
+		end, _ := common.get_absolute_position(highlight.range.end, text)
+		append(&got, Highlight_Expect{highlight.range.start.line, string(text[start:end]), highlight.kind})
+	}
+
+	testing.expectf(t, slice.equal(expected, got[:]), "\nExpected %v but received %v", expected, got[:])
+}
+
 expect_folding_ranges :: proc(t: ^testing.T, src: ^Source, expected: []server.FoldingRange) {
 	spall.trace(#procedure)
 

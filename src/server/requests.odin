@@ -1862,49 +1862,6 @@ request_references :: proc(
 	return .None
 }
 
-request_highlights :: proc(
-	params: json.Value,
-	id: RequestId,
-	config: ^common.Config,
-	writer: ^Writer,
-) -> common.Error {
-	params_object, ok := params.(json.Object)
-
-	if !ok {
-		return .ParseError
-	}
-
-	highlight_param: HighlightParams
-
-	if unmarshal(params, highlight_param, context.temp_allocator) != nil {
-		return .ParseError
-	}
-
-	document := document_get(highlight_param.textDocument.uri)
-
-	if document == nil {
-		return .InternalError
-	}
-
-	locations: []common.Location
-	locations, ok = get_references(document, highlight_param.position, true)
-
-	if !ok {
-		return .InternalError
-	}
-
-	highlights := make([dynamic]DocumentHighlight, 0, context.temp_allocator)
-	for location in locations {
-		append(&highlights, DocumentHighlight{kind = .Text, range = location.range})
-	}
-
-	response := make_response_message(params = highlights[:], id = id)
-
-	send_response(response, writer)
-
-	return .None
-}
-
 request_code_action :: proc(
 	params: json.Value,
 	id: RequestId,
