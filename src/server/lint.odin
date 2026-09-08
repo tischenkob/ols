@@ -15,6 +15,13 @@ LintContext :: struct {
 	// Nodes a lint excluded while visiting their parent: deferred statements and proc literals
 	// whose signature an attribute on the declaring Value_Decl fixes.
 	skip:     map[^ast.Node]struct{},
+	fixes:    [dynamic]Lint_Fix,
+}
+
+// A single-edit fix for one diagnostic, offered as a quick fix at the cursor.
+Lint_Fix :: struct {
+	start, end:  int,
+	title, text: string,
 }
 
 lint_symbols :: proc(ctx: ^LintContext) -> SymbolAndNodeMap {
@@ -37,18 +44,22 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_naming,
 }
 
+@(private = "file")
+Walker :: struct {
+	ctx:   LintContext,
+	diags: [dynamic]Diagnostic,
+}
+
 // One AST walk; every lint sees every node and checks its own config key.
-lint_document :: proc(document: ^Document, config: ^common.Config) -> []Diagnostic {
-	Walker :: struct {
-		ctx:   LintContext,
-		diags: [dynamic]Diagnostic,
-	}
+@(private = "file")
+walk_lints :: proc(document: ^Document, config: ^common.Config) -> Walker {
 	w := Walker {
 		ctx = {
 			document = document,
 			config = config,
 			src = string(document.text[:document.used_text]),
 			skip = make(map[^ast.Node]struct{}, context.temp_allocator),
+			fixes = make([dynamic]Lint_Fix, context.temp_allocator),
 		},
 		diags = make([dynamic]Diagnostic, context.temp_allocator),
 	}
@@ -66,6 +77,15 @@ lint_document :: proc(document: ^Document, config: ^common.Config) -> []Diagnost
 	for decl in document.ast.decls {
 		ast.walk(&visitor, decl)
 	}
+	return w
+}
+
+lint_fixes :: proc(document: ^Document, config: ^common.Config) -> []Lint_Fix {
+	return walk_lints(document, config).ctx.fixes[:]
+}
+
+lint_document :: proc(document: ^Document, config: ^common.Config) -> []Diagnostic {
+	w := walk_lints(document, config)
 	if config.enable_lint_simplify {
 		for s in simplifications(document) {
 			append(
@@ -108,6 +128,12 @@ lint_self_assignment :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynami
 	if !ctx.config.enable_lint_self_assignment do return
 	assign, is_assign := node.derived.(^ast.Assign_Stmt)
 	if !is_assign || assign.op.kind != .Eq do return
+
+	before := len(diags)
+	defer if len(diags) - before == len(assign.lhs) {
+		start, end := whole_lines(ctx.src, node.pos.offset, node.end.offset)
+		append(&ctx.fixes, Lint_Fix{start, end, "Remove self-assignment", ""})
+	}
 
 	for i in 0 ..< min(len(assign.lhs), len(assign.rhs)) {
 		if contains_call(assign.rhs[i]) do continue
@@ -208,8 +234,25 @@ lint_unreachable_code :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynam
 				tags = {.Unnecessary},
 			},
 		)
+		start, end := whole_lines(ctx.src, stmts[i + 1].pos.offset, stmts[len(stmts) - 1].end.offset)
+		append(&ctx.fixes, Lint_Fix{start, end, "Remove unreachable code", ""})
 		return
 	}
+}
+
+// The lines fully covering [start, end): grown to the line start when only whitespace precedes,
+// and past the newline when only whitespace follows.
+@(private = "file")
+whole_lines :: proc(src: string, start, end: int) -> (int, int) {
+	start, end := start, end
+	line_start := start
+	for line_start > 0 && src[line_start - 1] != '\n' do line_start -= 1
+	if strings.trim_space(src[line_start:start]) == "" do start = line_start
+
+	line_end := end
+	for line_end < len(src) && src[line_end] != '\n' do line_end += 1
+	if strings.trim_space(src[end:line_end]) == "" do end = min(line_end + 1, len(src))
+	return start, end
 }
 
 @(private = "file")
@@ -384,7 +427,21 @@ lint_unused_parameter :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynam
 				tags = {.Unnecessary},
 			},
 		)
+		if declares_one_name(lit, ident) {
+			append(&ctx.fixes, Lint_Fix{ident.pos.offset, ident.end.offset, "Rename parameter to `_`", "_"})
+		}
 	}
+}
+
+// `a, b: int` would need every name renamed to stay valid, so only a lone name gets a fix.
+@(private = "file")
+declares_one_name :: proc(lit: ^ast.Proc_Lit, ident: ^ast.Ident) -> bool {
+	for param in lit.type.params.list {
+		for name in param.names {
+			if n, is_ident := name.derived.(^ast.Ident); is_ident && n == ident do return len(param.names) == 1
+		}
+	}
+	return false
 }
 
 // Parameters the body never reads. Skips foreign and non-Odin procedures, empty and panic-only
