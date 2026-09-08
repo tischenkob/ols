@@ -46,7 +46,8 @@ import_edit :: proc(ctx: ^ActionContext, pkg: string) -> TextEdit {
 		}
 	}
 
-	line := ctx.ast_context.file.pkg_decl.end.line + 1
+	// pkg_decl lines are 1-based, so this is the 0-based line right after the package clause.
+	line := ctx.ast_context.file.pkg_decl.end.line
 	return {
 		range = {start = {line = line, character = 0}, end = {line = line, character = 0}},
 		newText = fmt.tprintf("import \"core:%s\"\n", pkg),
