@@ -76,6 +76,7 @@ Config :: struct {
 	enable_code_action_move_decl:            bool,
 	enable_code_action_generate_test:        bool,
 	enable_code_action_expand:               bool,
+	enable_code_action_checker_fix:          bool,
 	enable_organize_imports_on_save:         bool,
 	enable_lint_self_assignment:             bool,
 	enable_lint_identical_branches:          bool,

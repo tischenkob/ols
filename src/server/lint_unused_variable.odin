@@ -30,7 +30,7 @@ lint_unused_variable :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynami
 					tags = {.Unnecessary},
 				},
 			)
-			add_unused_variable_fixes(ctx, decl, ident)
+			unused_variable_fixes(ctx.src, decl, ident, "Remove declaration", "Replace with `_`", &ctx.fixes)
 		}
 	}
 }
@@ -65,25 +65,32 @@ used_after :: proc(uses: []IdentUse, name: string, offset: int) -> bool {
 	return false
 }
 
-@(private = "file")
-add_unused_variable_fixes :: proc(ctx: ^LintContext, decl: ^ast.Value_Decl, ident: ^ast.Ident) {
-	if len(decl.names) != 1 || !alone_on_line(ctx.src, decl) {
-		append(&ctx.fixes, Lint_Fix{ident.pos.offset, ident.end.offset, "Replace with `_`", "_"})
+// Fixes for `ident`, an unused name of `decl`. The discard is always last and always applies.
+@(private = "package")
+unused_variable_fixes :: proc(
+	src: string,
+	decl: ^ast.Value_Decl,
+	ident: ^ast.Ident,
+	remove_title, discard_title: string,
+	fixes: ^[dynamic]Lint_Fix,
+) {
+	if len(decl.names) != 1 || !alone_on_line(src, decl) {
+		append(fixes, Lint_Fix{ident.pos.offset, ident.end.offset, discard_title, "_"})
 		return
 	}
 
 	if !any_side_effect(decl.values) {
-		start, end := whole_lines(ctx.src, decl.pos.offset, decl.end.offset)
-		append(&ctx.fixes, Lint_Fix{start, end, "Remove declaration", ""})
+		start, end := whole_lines(src, decl.pos.offset, decl.end.offset)
+		append(fixes, Lint_Fix{start, end, remove_title, ""})
 	}
 
 	// `_ := v` is not valid, so the value keeps its name and a discard follows it.
 	if len(decl.values) > 0 {
-		indent := get_line_indentation(ctx.src, decl.pos.offset)
-		text := fmt.tprintf("%s\n%s_ = %s", node_text(ctx.src, decl), indent, ident.name)
-		append(&ctx.fixes, Lint_Fix{decl.pos.offset, decl.end.offset, "Replace with `_`", text})
+		indent := get_line_indentation(src, decl.pos.offset)
+		text := fmt.tprintf("%s\n%s_ = %s", node_text(src, decl), indent, ident.name)
+		append(fixes, Lint_Fix{decl.pos.offset, decl.end.offset, discard_title, text})
 	} else {
-		append(&ctx.fixes, Lint_Fix{ident.pos.offset, ident.end.offset, "Replace with `_`", "_"})
+		append(fixes, Lint_Fix{ident.pos.offset, ident.end.offset, discard_title, "_"})
 	}
 }
 

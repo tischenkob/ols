@@ -161,6 +161,8 @@ Options:
 
 - `enable_code_action_expand`: Expand an array scalar, `or_else`, `or_return` or a range loop back to the long form. Defaults to true.
 
+- `enable_code_action_checker_fix`: Enables quick fixes for `odin check` errors: dropping an unused variable and removing a cast to the same type. Defaults to true.
+
 - `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&` and to merge nested ifs. Defaults to true.
 
 - `enable_code_action_rewrite_expression`: Enables the code actions to flip a comparison, apply De Morgan's law and convert between compound and plain assignment. Defaults to true.

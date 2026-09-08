@@ -867,6 +867,38 @@ expect_action_with_edit :: proc(t: ^testing.T, src: ^Source, action_name: string
 }
 
 /*
+	Puts one checker diagnostic on the main file, which no test ever runs the checker for. Call it
+	before the assertion, which runs the setup. The positions are those of the source without its
+	cursor mark. The diagnostic outlives the test, so it is allocated off the per-test allocators;
+	the one a previous test seeded is dropped rather than freed.
+*/
+seed_check_diagnostic :: proc(src: ^Source, line, col, end_col: int, message: string) {
+	name := len(src.main) > 0 ? "main.odin" : src.files[0].name
+
+	context.allocator = runtime.default_allocator()
+	uri := common.create_uri(strings.join({"test", name}, "/", context.temp_allocator), context.temp_allocator)
+
+	if seeded := &server.diagnostics[.Check][uri.uri]; seeded != nil {
+		clear(seeded)
+	}
+
+	enabled := common.config.enable_diagnostics
+	common.config.enable_diagnostics = true
+	defer common.config.enable_diagnostics = enabled
+
+	server.add_diagnostics(
+		.Check,
+		uri.uri,
+		server.Diagnostic {
+			code = "checker",
+			severity = .Error,
+			range = {start = {line = line, character = col}, end = {line = line, character = end_col}},
+			message = message,
+		},
+	)
+}
+
+/*
 	Applies all the edits of a code action to the document and compares the result with `expected`.
 
 	The edits are applied back to front, which is one of the orders a client is allowed to use, and

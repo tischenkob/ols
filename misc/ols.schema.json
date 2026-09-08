@@ -230,6 +230,11 @@
 			"description": "Expand an array scalar, or_else, or_return or a range loop back to the long form.",
 			"default": true
 		},
+		"enable_code_action_checker_fix": {
+			"type": "boolean",
+			"description": "Enables quick fixes for odin check errors: dropping an unused variable and removing a cast to the same type.",
+			"default": true
+		},
 		"enable_inlay_hints_variable_types": {
 			"type": "boolean",
 			"description": "Turn on inlay hints for inferred variable types.",
