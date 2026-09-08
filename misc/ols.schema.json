@@ -225,6 +225,11 @@
 			"description": "Enables the code action generating a @(test) stub for a procedure in the package's <file>_test.odin.",
 			"default": true
 		},
+		"enable_code_action_literal": {
+			"type": "boolean",
+			"description": "Enables the code actions converting a string literal to and from a raw string, and an integer literal between bases and digit groupings.",
+			"default": true
+		},
 		"enable_code_action_loop_label": {
 			"type": "boolean",
 			"description": "Enables the code action adding a label to the loop at the cursor.",
