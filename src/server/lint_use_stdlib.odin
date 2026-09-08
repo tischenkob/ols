@@ -537,7 +537,7 @@ try_expr :: proc(w: ^Stdlib_Walker, rule: ^Stdlib_Rule, node: ^ast.Node) -> (Std
 }
 
 // `alias` replaces the rule package when the file imports it under another name.
-stdlib_rewrite :: proc(document: ^Document, m: Stdlib_Match, alias: string) -> string {
+stdlib_rewrite :: proc(m: Stdlib_Match, alias: string) -> string {
 	name := m.rule.target
 	if m.rule.pkg != "" {
 		qualifier := alias if alias != "" else m.rule.pkg
