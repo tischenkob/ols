@@ -216,6 +216,8 @@ Options:
 
 - `enable_lint_bool_logic`: Report boolean and comparison mistakes: identical operands, conditions that are always true or false, and `if` or `switch` branches that repeat an earlier one. Defaults to true.
 
+- `enable_lint_no_op`: Report code that does nothing: arithmetic with an identity operand (`x + 0`, `x * 1`), integer division of literals that is always 0, comparing an address to `nil`, empty `if` or loop bodies, and `append` with no values. Defaults to true.
+
 - `enable_lint_unused_declaration`: On save, mark private declarations that nothing in their package references as unnecessary. Defaults to true.
 
 - `enable_code_lens_references`: Show a reference count above every top-level declaration. Defaults to true.
