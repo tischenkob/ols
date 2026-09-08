@@ -486,6 +486,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	config.enable_lint_unused_declaration =
 		ols_config.enable_lint_unused_declaration.(bool) or_else config.enable_lint_unused_declaration
 	config.enable_lint_imports = ols_config.enable_lint_imports.(bool) or_else config.enable_lint_imports
+	config.enable_lint_invisible_characters =
+		ols_config.enable_lint_invisible_characters.(bool) or_else config.enable_lint_invisible_characters
 	config.enable_code_lens_references =
 		ols_config.enable_code_lens_references.(bool) or_else config.enable_code_lens_references
 	config.enable_checker_vet_shadowing =
@@ -1033,6 +1035,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_lint_test_attribute = true
 	config.enable_lint_unused_declaration = true
 	config.enable_lint_imports = true
+	config.enable_lint_invisible_characters = true
 	config.enable_code_lens_references = true
 	config.enable_checker_vet_shadowing = true
 	config.enable_checker_vet_unused_variables = true

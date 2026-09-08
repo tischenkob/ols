@@ -55,6 +55,7 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_integer_range,
 	lint_recursion,
 	lint_imports,
+	lint_invisible,
 }
 
 @(private = "file")

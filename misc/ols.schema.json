@@ -428,6 +428,11 @@
 			"description": "Report an import repeated in the same file, and an import whose package directory does not exist.",
 			"default": true
 		},
+		"enable_lint_invisible_characters": {
+			"type": "boolean",
+			"description": "Report a string literal containing a literal zero-width, bidirectional or control character.",
+			"default": true
+		},
 		"enable_code_lens_references": {
 			"type": "boolean",
 			"description": "Show a reference count above every top-level declaration.",
