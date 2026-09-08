@@ -52,6 +52,7 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_deprecated,
 	lint_test_attribute,
 	lint_core_misuse,
+	lint_integer_range,
 }
 
 @(private = "file")
