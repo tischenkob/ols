@@ -438,6 +438,11 @@
 			"description": "Report a procedure whose error-like result is followed by another result, so 'or_return' cannot be used.",
 			"default": true
 		},
+		"enable_lint_switch": {
+			"type": "boolean",
+			"description": "Report a '#partial' switch that already lists every case, and a 'break' at the end of a case.",
+			"default": true
+		},
 		"enable_code_lens_references": {
 			"type": "boolean",
 			"description": "Show a reference count above every top-level declaration.",
