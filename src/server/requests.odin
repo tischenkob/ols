@@ -512,6 +512,7 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	config.enable_lint_struct_literal =
 		ols_config.enable_lint_struct_literal.(bool) or_else config.enable_lint_struct_literal
 	config.enable_lint_pure_call = ols_config.enable_lint_pure_call.(bool) or_else config.enable_lint_pure_call
+	config.enable_lint_use_stdlib = ols_config.enable_lint_use_stdlib.(bool) or_else config.enable_lint_use_stdlib
 	config.enable_code_lens_references =
 		ols_config.enable_code_lens_references.(bool) or_else config.enable_code_lens_references
 	config.enable_selection_range = ols_config.enable_selection_range.(bool) or_else config.enable_selection_range
@@ -1092,6 +1093,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_lint_call_arity = true
 	config.enable_lint_struct_literal = true
 	config.enable_lint_pure_call = true
+	config.enable_lint_use_stdlib = true
 	config.enable_code_lens_references = true
 	config.enable_selection_range = true
 	config.enable_linked_editing = true

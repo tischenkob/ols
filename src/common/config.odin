@@ -116,6 +116,7 @@ Config :: struct {
 	enable_lint_call_arity:                  bool,
 	enable_lint_struct_literal:              bool,
 	enable_lint_pure_call:                   bool,
+	enable_lint_use_stdlib:                  bool,
 	enable_code_lens_references:             bool,
 	enable_selection_range:                  bool,
 	enable_linked_editing:                   bool,

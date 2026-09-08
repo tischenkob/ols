@@ -533,6 +533,7 @@ OlsConfig :: struct {
 	enable_lint_call_arity:                  Maybe(bool),
 	enable_lint_struct_literal:              Maybe(bool),
 	enable_lint_pure_call:                   Maybe(bool),
+	enable_lint_use_stdlib:                  Maybe(bool),
 	enable_code_lens_references:             Maybe(bool),
 	enable_selection_range:                  Maybe(bool),
 	enable_linked_editing:                   Maybe(bool),

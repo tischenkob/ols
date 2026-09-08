@@ -518,6 +518,11 @@
 			"description": "Report a call to a core package procedure whose result is discarded.",
 			"default": true
 		},
+		"enable_lint_use_stdlib": {
+			"type": "boolean",
+			"description": "Mark hand-written loops and comparisons that a core library procedure or builtin already does as unnecessary.",
+			"default": true
+		},
 		"enable_code_lens_references": {
 			"type": "boolean",
 			"description": "Show a reference count above every top-level declaration.",

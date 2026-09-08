@@ -276,6 +276,8 @@ Options:
 
 - `enable_lint_pure_call`: Report a call to a core package procedure, such as `strings.to_upper`, whose result is discarded. Defaults to true.
 
+- `enable_lint_use_stdlib`: Mark hand-written loops and comparisons that a core library procedure or builtin already does (`slice.contains`, `slice.linear_search`, `strings.contains`, `strings.has_prefix`/`has_suffix`, `min`/`max`/`abs`/`clamp`, `copy`, `slice.fill`, `math.sum`) as unnecessary and offer the rewrite as a quick fix. Defaults to true.
+
 - `enable_code_lens_references`: Show a reference count above every top-level declaration. Defaults to true.
 
 - `enable_selection_range`: Expand the selection outwards through the syntax tree. Defaults to true.
