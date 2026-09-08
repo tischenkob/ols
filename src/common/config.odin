@@ -123,6 +123,7 @@ Config :: struct {
 	enable_selection_range:                  bool,
 	enable_linked_editing:                   bool,
 	enable_checker_vet_shadowing:            bool,
+	enable_hover_struct_size:                bool,
 	enable_checker_vet_unused_variables:     bool,
 	enable_checker_vet_cast:                 bool,
 	enable_checker_vet_style:                bool,
