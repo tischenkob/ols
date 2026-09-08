@@ -211,3 +211,179 @@ lint_use_stdlib_rules_match_themselves :: proc(t: ^testing.T) {
 		test.expect_lint_diagnostics(t, &src, {{3, "use_stdlib"}})
 	}
 }
+
+@(test)
+use_stdlib_action_contains :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+main :: proc(s: []int, x: int) -> bool {
+	for e in s {
+		if e{*} == x {
+			return true
+		}
+	}
+	return false
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&src,
+		"Replace with slice.contains",
+		`package test
+
+import "core:slice"
+main :: proc(s: []int, x: int) -> bool {
+	return slice.contains(s, x)
+}
+`,
+	)
+}
+
+@(test)
+use_stdlib_action_existing_alias :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+import sl "core:slice"
+
+main :: proc(s: []int, x: int) -> bool {
+	for e in s {
+		if e{*} == x {
+			return true
+		}
+	}
+	return false
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&src,
+		"Replace with slice.contains",
+		`package test
+
+import sl "core:slice"
+
+main :: proc(s: []int, x: int) -> bool {
+	return sl.contains(s, x)
+}
+`,
+	)
+}
+
+@(test)
+use_stdlib_action_min :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+main :: proc(a, b: int) {
+	r := 0
+	if a{*} < b {
+		r = a
+	} else {
+		r = b
+	}
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&src,
+		"Replace with min",
+		`package test
+
+main :: proc(a, b: int) {
+	r := 0
+	r = min(a, b)
+}
+`,
+	)
+}
+
+@(test)
+use_stdlib_action_sum :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+main :: proc(xs: []int) {
+	total := 0
+	for x in xs {
+		total +{*}= x
+	}
+	print(total)
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&src,
+		"Replace with math.sum",
+		`package test
+
+import "core:math"
+main :: proc(xs: []int) {
+	total := math.sum(xs)
+	print(total)
+}
+`,
+	)
+}
+
+@(test)
+use_stdlib_action_has_prefix :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+main :: proc(s: string, p: string) {
+	if len(s) >= len{*}(p) && s[:len(p)] == p {
+	}
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&src,
+		"Replace with strings.has_prefix",
+		`package test
+
+import "core:strings"
+main :: proc(s: string, p: string) {
+	if strings.has_prefix(s, p) {
+	}
+}
+`,
+	)
+}
+
+@(test)
+use_stdlib_action_outside_match :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+main :: proc(s: []int, x: int) -> bool {
+	y{*} := 1
+	for e in s {
+		if e == x {
+			return true
+		}
+	}
+	return false
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_action_missing(t, &src, "Replace with slice.contains")
+}
