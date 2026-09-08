@@ -226,6 +226,8 @@ Options:
 
 - `enable_lint_sync`: Report synchronisation mistakes: a lock released on the next line, a deferred lock, an atomic result assigned back to its own target, a lock passed or copied by value, and cleanup deferred before the error is checked. Defaults to true.
 
+- `enable_lint_deprecated`: Report uses of a declaration marked with the `@(deprecated)` attribute. Defaults to true.
+
 - `enable_lint_unused_declaration`: On save, mark private declarations that nothing in their package references as unnecessary. Defaults to true.
 
 - `enable_code_lens_references`: Show a reference count above every top-level declaration. Defaults to true.
