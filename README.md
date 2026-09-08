@@ -220,6 +220,8 @@ Options:
 
 - `enable_lint_loops`: Report loop mistakes: a body that always exits on the first iteration, a condition nothing in the body changes, an empty infinite loop (`for {}`), and a range that runs one past the end (`0 ..= len(x)`). Defaults to true.
 
+- `enable_lint_dead_store`: Report a value stored in a variable that is overwritten before anything reads it, and writes to fields of a struct copy taken from an index, selector or range value. Defaults to true.
+
 - `enable_lint_unused_declaration`: On save, mark private declarations that nothing in their package references as unnecessary. Defaults to true.
 
 - `enable_code_lens_references`: Show a reference count above every top-level declaration. Defaults to true.

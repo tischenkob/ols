@@ -378,6 +378,11 @@
 			"description": "Report loop mistakes: a body that always exits on the first iteration, a condition nothing in the body changes, an empty infinite loop, and a range that runs one past the end.",
 			"default": true
 		},
+		"enable_lint_dead_store": {
+			"type": "boolean",
+			"description": "Report a value stored in a variable that is overwritten before anything reads it, and writes to a struct copy taken from an index, selector or range value.",
+			"default": true
+		},
 		"enable_lint_unused_declaration": {
 			"type": "boolean",
 			"description": "On save, mark private declarations that nothing in their package references as unnecessary.",
