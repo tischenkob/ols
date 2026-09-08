@@ -40,7 +40,7 @@ core_callee :: proc(ctx: ^LintContext, call: ^ast.Call_Expr) -> (pkg, name: stri
 }
 
 // The value of an integer literal, optionally negated.
-@(private = "file")
+@(private = "package")
 int_literal :: proc(expr: ^ast.Expr) -> (value: int, ok: bool) {
 	expr, negative := expr, false
 	if unary, is_unary := expr.derived.(^ast.Unary_Expr); is_unary {
@@ -116,21 +116,24 @@ replace_count :: proc(ctx: ^LintContext, call: ^ast.Call_Expr, diags: ^[dynamic]
 @(private = "file")
 FLOATS :: []string{"f16", "f32", "f64"}
 
-// The operand of a float conversion, written as a call or a `cast`.
-@(private = "file")
-float_conversion :: proc(expr: ^ast.Expr) -> (inner: ^ast.Expr, ok: bool) {
-	is_float_type :: proc(type: ^ast.Expr) -> bool {
+// The operand and target type of a float conversion, written as a call or a `cast`.
+@(private = "package")
+float_conversion :: proc(expr: ^ast.Expr) -> (inner: ^ast.Expr, type: string, ok: bool) {
+	float_type :: proc(type: ^ast.Expr) -> (string, bool) {
 		ident, is_ident := type.derived.(^ast.Ident)
-		return is_ident && slice.contains(FLOATS, ident.name)
+		if !is_ident || !slice.contains(FLOATS, ident.name) do return "", false
+		return ident.name, true
 	}
 
 	#partial switch e in expr.derived {
 	case ^ast.Call_Expr:
-		if len(e.args) != 1 || !is_float_type(e.expr) do return
-		return e.args[0], true
+		if len(e.args) != 1 do return
+		type = float_type(e.expr) or_return
+		return e.args[0], type, true
 	case ^ast.Type_Cast:
-		if e.tok.kind != .Cast || !is_float_type(e.type) do return
-		return e.expr, true
+		if e.tok.kind != .Cast do return
+		type = float_type(e.type) or_return
+		return e.expr, type, true
 	}
 	return
 }
@@ -156,7 +159,7 @@ is_integer_operand :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> bool {
 @(private = "file")
 ceil_integer :: proc(ctx: ^LintContext, call: ^ast.Call_Expr, diags: ^[dynamic]Diagnostic) {
 	if len(call.args) != 1 do return
-	inner, is_conversion := float_conversion(call.args[0])
+	inner, _, is_conversion := float_conversion(call.args[0])
 	if !is_conversion || !is_integer_operand(ctx, inner) do return
 
 	append(
