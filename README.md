@@ -206,6 +206,8 @@ Options:
 
 - `enable_lint_float_equality`: Report `==` and `!=` comparisons on floats. Defaults to true.
 
+- `enable_lint_printf`: Check `fmt` and `log` format strings: unknown verbs, argument count, argument type, and format directives passed to the non-formatting `print` procedures. Defaults to true.
+
 - `enable_lint_ignored_result`: Warn when a call statement discards a `bool`, union or error result that is not marked `#optional_ok` or `#optional_allocator_error`. Defaults to true.
 
 - `enable_lint_unused_parameter`: Mark procedure parameters that are never used in the body as unnecessary. Defaults to true.

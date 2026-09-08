@@ -39,6 +39,7 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_identical_branches,
 	lint_unreachable_code,
 	lint_float_equality,
+	lint_printf,
 	lint_ignored_result,
 	lint_unused_parameter,
 	lint_naming,

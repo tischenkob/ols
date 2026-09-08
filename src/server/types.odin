@@ -494,6 +494,7 @@ OlsConfig :: struct {
 	enable_lint_unreachable_code:            Maybe(bool),
 	enable_lint_simplify:                    Maybe(bool),
 	enable_lint_float_equality:              Maybe(bool),
+	enable_lint_printf:                      Maybe(bool),
 	enable_lint_ignored_result:              Maybe(bool),
 	enable_lint_unused_parameter:            Maybe(bool),
 	enable_lint_naming:                      Maybe(bool),

@@ -464,6 +464,7 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	config.enable_lint_simplify = ols_config.enable_lint_simplify.(bool) or_else config.enable_lint_simplify
 	config.enable_lint_float_equality =
 		ols_config.enable_lint_float_equality.(bool) or_else config.enable_lint_float_equality
+	config.enable_lint_printf = ols_config.enable_lint_printf.(bool) or_else config.enable_lint_printf
 	config.enable_lint_ignored_result =
 		ols_config.enable_lint_ignored_result.(bool) or_else config.enable_lint_ignored_result
 	config.enable_lint_unused_parameter =
@@ -1001,6 +1002,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_lint_unreachable_code = true
 	config.enable_lint_simplify = true
 	config.enable_lint_float_equality = true
+	config.enable_lint_printf = true
 	config.enable_lint_ignored_result = true
 	config.enable_lint_unused_parameter = true
 	config.enable_lint_naming = true

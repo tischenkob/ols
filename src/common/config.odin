@@ -82,6 +82,7 @@ Config :: struct {
 	enable_lint_unreachable_code:            bool,
 	enable_lint_simplify:                    bool,
 	enable_lint_float_equality:              bool,
+	enable_lint_printf:                      bool,
 	enable_lint_ignored_result:              bool,
 	enable_lint_unused_parameter:            bool,
 	enable_lint_naming:                      bool,
