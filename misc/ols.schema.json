@@ -503,6 +503,11 @@
 			"description": "Expand the selection outwards through the syntax tree.",
 			"default": true
 		},
+		"enable_linked_editing": {
+			"type": "boolean",
+			"description": "Edit every occurrence of a local variable or parameter at once.",
+			"default": true
+		},
 		"checker_skip_packages": {
 			"type": "array",
 			"items": {

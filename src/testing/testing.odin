@@ -1470,6 +1470,23 @@ expect_selection_ranges :: proc(t: ^testing.T, src: ^Source, expected: []string)
 	testing.expectf(t, slice.equal(expected, got[:]), "\nExpected %v but received %v", expected, got[:])
 }
 
+// Ranges the client edits together. Empty when the cursor is not on a local or parameter.
+expect_linked_editing_ranges :: proc(t: ^testing.T, src: ^Source, expected: []common.Range) {
+	spall.trace(#procedure)
+
+	cursor := source_remove_cursor(src)
+
+	setup(src)
+	defer teardown(src)
+
+	ranges, _ := server.get_linked_editing_ranges(src.document, cursor, &src.config)
+
+	_, _, all_good := compare_expected_slice_set(ranges, expected, equals = proc(a, e: common.Range) -> bool {
+		return a == e
+	})
+	testing.expectf(t, all_good, "\nExpected %v but received %v", expected, ranges)
+}
+
 expect_folding_ranges :: proc(t: ^testing.T, src: ^Source, expected: []server.FoldingRange) {
 	spall.trace(#procedure)
 

@@ -114,6 +114,7 @@ Config :: struct {
 	enable_lint_pure_call:                   bool,
 	enable_code_lens_references:             bool,
 	enable_selection_range:                  bool,
+	enable_linked_editing:                   bool,
 	enable_checker_vet_shadowing:            bool,
 	enable_checker_vet_unused_variables:     bool,
 	enable_checker_vet_cast:                 bool,
