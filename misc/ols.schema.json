@@ -225,6 +225,11 @@
 			"description": "Enables the code action generating a @(test) stub for a procedure in the package's <file>_test.odin.",
 			"default": true
 		},
+		"enable_code_action_loop_label": {
+			"type": "boolean",
+			"description": "Enables the code action adding a label to the loop at the cursor.",
+			"default": true
+		},
 		"enable_code_action_merge_cases": {
 			"type": "boolean",
 			"description": "Enables the code actions to merge a switch case with the next one and to split a multi-value case.",

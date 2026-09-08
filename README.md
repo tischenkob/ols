@@ -163,6 +163,8 @@ Options:
 
 - `enable_code_action_checker_fix`: Enables quick fixes for `odin check` errors: dropping an unused variable and removing a cast to the same type. Defaults to true.
 
+- `enable_code_action_loop_label`: Enables the code action adding a label to the loop at the cursor, so nested `break` and `continue` can target it. Defaults to true.
+
 - `enable_code_action_merge_cases`: Enables the code actions to merge a switch case with the next one when their bodies match, and to split a multi-value case into one case per value. Defaults to true.
 
 - `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&` and to merge nested ifs. Defaults to true.

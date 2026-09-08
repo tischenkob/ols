@@ -457,6 +457,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_checker_fix.(bool) or_else config.enable_code_action_checker_fix
 	config.enable_code_action_merge_cases =
 		ols_config.enable_code_action_merge_cases.(bool) or_else config.enable_code_action_merge_cases
+	config.enable_code_action_loop_label =
+		ols_config.enable_code_action_loop_label.(bool) or_else config.enable_code_action_loop_label
 	config.enable_organize_imports_on_save =
 		ols_config.enable_organize_imports_on_save.(bool) or_else config.enable_organize_imports_on_save
 	config.enable_lint_self_assignment =
@@ -1025,6 +1027,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_expand = true
 	config.enable_code_action_checker_fix = true
 	config.enable_code_action_merge_cases = true
+	config.enable_code_action_loop_label = true
 	config.enable_inlay_hints_variable_types = true
 	config.enable_organize_imports_on_save = true
 	config.enable_lint_self_assignment = true

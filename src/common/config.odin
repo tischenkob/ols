@@ -78,6 +78,7 @@ Config :: struct {
 	enable_code_action_expand:               bool,
 	enable_code_action_checker_fix:          bool,
 	enable_code_action_merge_cases:          bool,
+	enable_code_action_loop_label:           bool,
 	enable_organize_imports_on_save:         bool,
 	enable_lint_self_assignment:             bool,
 	enable_lint_identical_branches:          bool,
