@@ -189,7 +189,7 @@ has_external_name :: proc(attributes: []^ast.Attribute) -> bool {
 	return false
 }
 
-@(private = "file")
+@(private = "package")
 skip_subtree :: proc(ctx: ^LintContext, root: ^ast.Node) {
 	if root == nil do return
 	visitor := ast.Visitor {
