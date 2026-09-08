@@ -433,6 +433,11 @@
 			"description": "Report a string literal containing a literal zero-width, bidirectional or control character.",
 			"default": true
 		},
+		"enable_lint_result_order": {
+			"type": "boolean",
+			"description": "Report a procedure whose error-like result is followed by another result, so 'or_return' cannot be used.",
+			"default": true
+		},
 		"enable_code_lens_references": {
 			"type": "boolean",
 			"description": "Show a reference count above every top-level declaration.",

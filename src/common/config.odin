@@ -100,6 +100,7 @@ Config :: struct {
 	enable_lint_unused_declaration:          bool,
 	enable_lint_imports:                     bool,
 	enable_lint_invisible_characters:        bool,
+	enable_lint_result_order:                bool,
 	enable_code_lens_references:             bool,
 	enable_checker_vet_shadowing:            bool,
 	enable_checker_vet_unused_variables:     bool,

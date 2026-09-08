@@ -242,6 +242,8 @@ Options:
 
 - `enable_lint_invisible_characters`: Report a string literal containing a literal zero-width, bidirectional or control character. Defaults to true.
 
+- `enable_lint_result_order`: Report a procedure whose error-like result is followed by another result, so `or_return` cannot be used. Defaults to true.
+
 - `enable_code_lens_references`: Show a reference count above every top-level declaration. Defaults to true.
 
 - `checker_skip_packages`: Paths to packages that should not be checked by `odin check` when using `enable_checker_workspace_diagnostics`.
