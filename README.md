@@ -268,6 +268,8 @@ Options:
 
 - `enable_code_lens_references`: Show a reference count above every top-level declaration. Defaults to true.
 
+- `enable_selection_range`: Expand the selection outwards through the syntax tree. Defaults to true.
+
 - `checker_skip_packages`: Paths to packages that should not be checked by `odin check` when using `enable_checker_workspace_diagnostics`.
 
 - `completion_exclude_attributes`: Filter procedures that include the provided attributes from completions. For example `@(test)`.

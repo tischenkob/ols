@@ -1448,6 +1448,28 @@ expect_implementation_locations :: proc(t: ^testing.T, src: ^Source, expected: [
 	testing.expectf(t, all_good, "\nExpected %v but received %v", expected, locations)
 }
 
+// Text of every selection range around the cursor, innermost first.
+expect_selection_ranges :: proc(t: ^testing.T, src: ^Source, expected: []string) {
+	spall.trace(#procedure)
+
+	cursor := source_remove_cursor(src)
+
+	setup(src)
+	defer teardown(src)
+
+	text := src.document.text[:src.document.used_text]
+	chains := server.get_selection_ranges(src.document, {cursor}, &src.config)
+
+	got := make([dynamic]string, context.temp_allocator)
+	for range in chains[0] {
+		start, _ := common.get_absolute_position(range.start, text)
+		end, _ := common.get_absolute_position(range.end, text)
+		append(&got, string(text[start:end]))
+	}
+
+	testing.expectf(t, slice.equal(expected, got[:]), "\nExpected %v but received %v", expected, got[:])
+}
+
 expect_folding_ranges :: proc(t: ^testing.T, src: ^Source, expected: []server.FoldingRange) {
 	spall.trace(#procedure)
 

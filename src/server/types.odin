@@ -38,6 +38,7 @@ ResponseParams :: union {
 	[]CallHierarchyIncomingCall,
 	[]CallHierarchyOutgoingCall,
 	[]CodeLens,
+	json.Value,
 }
 
 RequestParams :: union {
@@ -160,6 +161,7 @@ ServerCapabilities :: struct {
 	implementationProvider:     bool,
 	callHierarchyProvider:      bool,
 	codeLensProvider:           Maybe(CodeLensOptions),
+	selectionRangeProvider:     bool,
 }
 
 DidChangeWatchedFilesRegistrationOptions :: struct {
@@ -525,6 +527,7 @@ OlsConfig :: struct {
 	enable_lint_struct_literal:              Maybe(bool),
 	enable_lint_pure_call:                   Maybe(bool),
 	enable_code_lens_references:             Maybe(bool),
+	enable_selection_range:                  Maybe(bool),
 	enable_checker_vet_shadowing:            Maybe(bool),
 	enable_checker_vet_unused_variables:     Maybe(bool),
 	enable_checker_vet_cast:                 Maybe(bool),
@@ -620,6 +623,11 @@ CallHierarchyCallsParams :: struct {
 
 FoldingRangeParams :: struct {
 	textDocument: TextDocumentIdentifier,
+}
+
+SelectionRangeParams :: struct {
+	textDocument: TextDocumentIdentifier,
+	positions:    []common.Position,
 }
 
 FoldingRange :: struct {
