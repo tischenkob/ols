@@ -470,6 +470,7 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	config.enable_lint_unused_parameter =
 		ols_config.enable_lint_unused_parameter.(bool) or_else config.enable_lint_unused_parameter
 	config.enable_lint_naming = ols_config.enable_lint_naming.(bool) or_else config.enable_lint_naming
+	config.enable_lint_bool_logic = ols_config.enable_lint_bool_logic.(bool) or_else config.enable_lint_bool_logic
 	config.enable_lint_unused_declaration =
 		ols_config.enable_lint_unused_declaration.(bool) or_else config.enable_lint_unused_declaration
 	config.enable_code_lens_references =
@@ -1006,6 +1007,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_lint_ignored_result = true
 	config.enable_lint_unused_parameter = true
 	config.enable_lint_naming = true
+	config.enable_lint_bool_logic = true
 	config.enable_lint_unused_declaration = true
 	config.enable_code_lens_references = true
 	config.enable_checker_vet_shadowing = true

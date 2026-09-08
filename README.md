@@ -214,6 +214,8 @@ Options:
 
 - `enable_lint_naming`: Report names that do not follow Odin conventions: snake_case procedures and variables, Ada_Case types and enum members, SCREAMING_SNAKE_CASE constants. Defaults to true.
 
+- `enable_lint_bool_logic`: Report boolean and comparison mistakes: identical operands, conditions that are always true or false, and `if` or `switch` branches that repeat an earlier one. Defaults to true.
+
 - `enable_lint_unused_declaration`: On save, mark private declarations that nothing in their package references as unnecessary. Defaults to true.
 
 - `enable_code_lens_references`: Show a reference count above every top-level declaration. Defaults to true.
