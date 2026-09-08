@@ -398,6 +398,11 @@
 			"description": "Report uses of a declaration marked with the @(deprecated) attribute.",
 			"default": true
 		},
+		"enable_lint_core_misuse": {
+			"type": "boolean",
+			"description": "Report misuses of core procedures: time.sleep with a bare integer, strings.replace with n = 0 or -1, a math rounding procedure on a converted integer, and an invalid regex pattern literal.",
+			"default": true
+		},
 		"enable_lint_test_attribute": {
 			"type": "boolean",
 			"description": "Report a procedure taking ^testing.T without an @(test) attribute, and an @(test) procedure whose signature is not proc(t: ^testing.T).",

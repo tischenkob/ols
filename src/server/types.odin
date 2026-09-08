@@ -505,6 +505,7 @@ OlsConfig :: struct {
 	enable_lint_allocator:                   Maybe(bool),
 	enable_lint_sync:                        Maybe(bool),
 	enable_lint_deprecated:                  Maybe(bool),
+	enable_lint_core_misuse:                 Maybe(bool),
 	enable_lint_test_attribute:              Maybe(bool),
 	enable_lint_unused_declaration:          Maybe(bool),
 	enable_code_lens_references:             Maybe(bool),

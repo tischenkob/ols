@@ -228,6 +228,8 @@ Options:
 
 - `enable_lint_deprecated`: Report uses of a declaration marked with the `@(deprecated)` attribute. Defaults to true.
 
+- `enable_lint_core_misuse`: Report misuses of core procedures: `time.sleep` with a bare integer, `strings.replace` with `n = 0` or `n = -1`, a `math` rounding procedure on a converted integer, and an invalid `regex` pattern literal. Defaults to true.
+
 - `enable_lint_test_attribute`: Report a procedure taking `^testing.T` without an `@(test)` attribute, and an `@(test)` procedure whose signature is not `proc(t: ^testing.T)`. Defaults to true.
 
 - `enable_lint_unused_declaration`: On save, mark private declarations that nothing in their package references as unnecessary. Defaults to true.

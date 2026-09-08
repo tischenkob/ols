@@ -93,6 +93,7 @@ Config :: struct {
 	enable_lint_allocator:                   bool,
 	enable_lint_sync:                        bool,
 	enable_lint_deprecated:                  bool,
+	enable_lint_core_misuse:                 bool,
 	enable_lint_test_attribute:              bool,
 	enable_lint_unused_declaration:          bool,
 	enable_code_lens_references:             bool,
