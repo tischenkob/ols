@@ -491,6 +491,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	config.enable_lint_result_order = ols_config.enable_lint_result_order.(bool) or_else config.enable_lint_result_order
 	config.enable_lint_switch = ols_config.enable_lint_switch.(bool) or_else config.enable_lint_switch
 	config.enable_lint_call_arity = ols_config.enable_lint_call_arity.(bool) or_else config.enable_lint_call_arity
+	config.enable_lint_struct_literal =
+		ols_config.enable_lint_struct_literal.(bool) or_else config.enable_lint_struct_literal
 	config.enable_code_lens_references =
 		ols_config.enable_code_lens_references.(bool) or_else config.enable_code_lens_references
 	config.enable_checker_vet_shadowing =
@@ -1042,6 +1044,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_lint_result_order = true
 	config.enable_lint_switch = true
 	config.enable_lint_call_arity = true
+	config.enable_lint_struct_literal = true
 	config.enable_code_lens_references = true
 	config.enable_checker_vet_shadowing = true
 	config.enable_checker_vet_unused_variables = true
