@@ -85,8 +85,10 @@ lint_printf :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnos
 
 @(private = "file")
 lint_print_directive :: proc(ctx: ^LintContext, call: ^ast.Call_Expr, name: string, diags: ^[dynamic]Diagnostic) {
-	if !slice.contains(print_procs, name) || len(call.args) == 0 do return
-	text, is_string := string_literal(call.args[0])
+	if !slice.contains(print_procs, name) do return
+	first := strings.has_prefix(name, "sb") ? 1 : 0
+	if len(call.args) <= first do return
+	text, is_string := string_literal(call.args[first])
 	if !is_string do return
 
 	for i in 0 ..< len(text) - 1 {
@@ -100,7 +102,7 @@ lint_print_directive :: proc(ctx: ^LintContext, call: ^ast.Call_Expr, name: stri
 			diags,
 			printf_diagnostic(
 				ctx,
-				call.args[0],
+				call.args[first],
 				"print-directive",
 				fmt.tprintf("'%%%r' looks like a format directive; use %s", verb, formatting),
 			),
@@ -374,8 +376,11 @@ kind_names := [Arg_Kind]string {
 @(private = "file")
 verb_rejects :: proc(verb: rune, kind: Arg_Kind) -> bool {
 	switch verb {
-	case 'b', 'o', 'd', 'i', 'z', 'x', 'X', 'U', 'm', 'M':
+	case 'b', 'o', 'd', 'i', 'z', 'U', 'm', 'M':
 		return kind == .Bool || kind == .String || kind == .Float
+	case 'x', 'X':
+		// hex also dumps the bytes of a string
+		return kind == .Bool || kind == .Float
 	case 'f', 'F', 'e', 'E', 'g', 'G', 'h', 'H':
 		return kind == .Bool || kind == .String || kind == .Integer
 	case 't':
