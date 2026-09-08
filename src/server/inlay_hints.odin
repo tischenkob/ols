@@ -43,7 +43,7 @@ get_inlay_hints :: proc(
 		hints    = make([dynamic]InlayHint, context.temp_allocator),
 	}
 
-	if config.enable_inlay_hints_variable_types {
+	if config.enable_inlay_hints_variable_types || config.enable_inlay_hints_range_types {
 		data.ast_context = make_ast_context(
 			document.ast,
 			document.imports,
@@ -85,6 +85,7 @@ get_inlay_hints :: proc(
 			add_return_hints(node, data)
 			add_result_hints(node, data)
 			add_variable_type_hints(node, data)
+			add_extra_inlay_hints(node, data.document, data.symbols, data.config, &data.ast_context, &data.hints)
 
 			return visitor
 		},
