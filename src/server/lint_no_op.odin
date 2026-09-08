@@ -38,7 +38,8 @@ identity_operand :: proc(op: tokenizer.Token_Kind) -> (value: i64, ok: bool) {
 	#partial switch op {
 	case .Add, .Sub, .Or, .Xor, .Shl, .Shr:
 		return 0, true
-	case .Mul, .Quo:
+	case .Quo:
+		// `1 * time.Millisecond` is a unit, so `* 1` is left alone.
 		return 1, true
 	}
 	return

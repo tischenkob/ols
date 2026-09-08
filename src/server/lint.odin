@@ -242,6 +242,7 @@ lint_unreachable_code :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynam
 	for stmt, i in stmts {
 		if i + 1 >= len(stmts) do break
 		if !terminates(stmt) do continue
+		if only_constants(stmts[i + 1:]) do break
 		range := common.get_token_range(stmts[i + 1], ctx.src)
 		range.end = common.get_token_range(stmts[len(stmts) - 1], ctx.src).end
 		append(
@@ -273,6 +274,16 @@ whole_lines :: proc(src: string, start, end: int) -> (int, int) {
 	for line_end < len(src) && src[line_end] != '\n' do line_end += 1
 	if strings.trim_space(src[end:line_end]) == "" do end = min(line_end + 1, len(src))
 	return start, end
+}
+
+// `x :: proc ...` after a return is hoisted, not dead.
+@(private = "file")
+only_constants :: proc(stmts: []^ast.Stmt) -> bool {
+	for stmt in stmts {
+		decl, is_decl := stmt.derived.(^ast.Value_Decl)
+		if !is_decl || decl.is_mutable do return false
+	}
+	return true
 }
 
 @(private = "file")

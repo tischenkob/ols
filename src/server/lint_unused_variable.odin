@@ -19,7 +19,7 @@ lint_unused_variable :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynami
 		for name in decl.names {
 			ident := name.derived.(^ast.Ident) or_continue
 			if ident.name == "_" do continue
-			if used_after(uses, ident.name, decl.end.offset) do continue
+			if used_after(uses, ident, decl.is_mutable ? decl.end.offset : 0) do continue
 			append(
 				diags,
 				Diagnostic {
@@ -58,9 +58,9 @@ body_decls :: proc(body: ^ast.Stmt) -> []^ast.Value_Decl {
 }
 
 @(private = "file")
-used_after :: proc(uses: []IdentUse, name: string, offset: int) -> bool {
+used_after :: proc(uses: []IdentUse, ident: ^ast.Ident, offset: int) -> bool {
 	for use in uses {
-		if use.ident.name == name && use.ident.pos.offset >= offset do return true
+		if use.ident != ident && use.ident.name == ident.name && use.ident.pos.offset >= offset do return true
 	}
 	return false
 }
