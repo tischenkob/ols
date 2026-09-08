@@ -1078,7 +1078,7 @@ expect_inlay_hints :: proc(t: ^testing.T, src: ^Source) {
 						server.InlayHint {
 							position = {line, col},
 							label = hint_str,
-							kind = .Type if strings.has_prefix(hint_str, ": ") else .Parameter,
+							kind = .Type if strings.has_prefix(hint_str, ": ") || strings.has_prefix(hint_str, " = ") else .Parameter,
 						},
 					)
 				}

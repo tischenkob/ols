@@ -270,6 +270,21 @@
 			"description": "Turn on inlay hints for inferred variable types.",
 			"default": true
 		},
+		"enable_inlay_hints_comp_lit_fields": {
+			"type": "boolean",
+			"description": "Turn on inlay hints for struct field names in positional composite literals.",
+			"default": true
+		},
+		"enable_inlay_hints_range_types": {
+			"type": "boolean",
+			"description": "Turn on inlay hints for the types of range loop variables.",
+			"default": true
+		},
+		"enable_inlay_hints_constant_values": {
+			"type": "boolean",
+			"description": "Turn on inlay hints for the folded value of constant expressions.",
+			"default": false
+		},
 		"enable_code_action_split_merge_if": {
 			"type": "boolean",
 			"description": "Enables the code actions to split an if on && and to merge nested ifs.",

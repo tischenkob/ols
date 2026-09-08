@@ -637,6 +637,12 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_inlay_hints_optional_result.(bool) or_else config.enable_inlay_hints_optional_result
 	config.enable_inlay_hints_variable_types =
 		ols_config.enable_inlay_hints_variable_types.(bool) or_else config.enable_inlay_hints_variable_types
+	config.enable_inlay_hints_comp_lit_fields =
+		ols_config.enable_inlay_hints_comp_lit_fields.(bool) or_else config.enable_inlay_hints_comp_lit_fields
+	config.enable_inlay_hints_range_types =
+		ols_config.enable_inlay_hints_range_types.(bool) or_else config.enable_inlay_hints_range_types
+	config.enable_inlay_hints_constant_values =
+		ols_config.enable_inlay_hints_constant_values.(bool) or_else config.enable_inlay_hints_constant_values
 
 	config.enable_fake_method = ols_config.enable_fake_methods.(bool) or_else config.enable_fake_method
 	config.enable_overload_resolution =
@@ -938,7 +944,10 @@ request_initialize :: proc(
 					config.enable_inlay_hints_default_params ||
 					config.enable_inlay_hints_implicit_return ||
 					config.enable_inlay_hints_optional_result ||
-					config.enable_inlay_hints_variable_types),
+					config.enable_inlay_hints_variable_types ||
+					config.enable_inlay_hints_comp_lit_fields ||
+					config.enable_inlay_hints_range_types ||
+					config.enable_inlay_hints_constant_values),
 				documentSymbolProvider = config.enable_document_symbols,
 				hoverProvider = config.enable_hover,
 				documentFormattingProvider = config.enable_format,
@@ -1048,6 +1057,9 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_literal = true
 	config.enable_code_action_comment = true
 	config.enable_inlay_hints_variable_types = true
+	config.enable_inlay_hints_comp_lit_fields = true
+	config.enable_inlay_hints_range_types = true
+	config.enable_inlay_hints_constant_values = false
 	config.enable_organize_imports_on_save = true
 	config.enable_lint_self_assignment = true
 	config.enable_lint_identical_branches = true

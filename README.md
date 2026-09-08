@@ -103,6 +103,12 @@ Options:
 
 - `enable_inlay_hints_variable_types`: Turn on inlay hints for inferred variable types. Defaults to true.
 
+- `enable_inlay_hints_comp_lit_fields`: Turn on inlay hints for struct field names in positional composite literals. Defaults to true.
+
+- `enable_inlay_hints_range_types`: Turn on inlay hints for the types of range loop variables. Defaults to true.
+
+- `enable_inlay_hints_constant_values`: Turn on inlay hints for the folded value of constant expressions. Defaults to false.
+
 - `enable_inlay_hints_optional_result`: Adds inlay hints for unhandled optional result value. (#optional_ok and #optional_allocator_error)
 
 - `enable_semantic_tokens`: Turns on syntax highlighting.
