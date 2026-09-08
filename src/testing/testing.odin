@@ -1487,6 +1487,21 @@ expect_linked_editing_ranges :: proc(t: ^testing.T, src: ^Source, expected: []co
 	testing.expectf(t, all_good, "\nExpected %v but received %v", expected, ranges)
 }
 
+// The whole document after the range-formatting edits over the `{[ … ]}` selection are applied.
+expect_range_format :: proc(t: ^testing.T, src: ^Source, expected: string) {
+	spall.trace(#procedure)
+
+	range := source_remove_selection(src)
+
+	setup(src)
+	defer teardown(src)
+
+	edits := server.get_range_format(src.document, range, &src.config)
+	text := common.apply_text_edits(edits, string(src.document.text[:src.document.used_text]))
+
+	testing.expectf(t, text == expected, "\nExpected:\n%s\n\nGot:\n%s", expected, text)
+}
+
 expect_folding_ranges :: proc(t: ^testing.T, src: ^Source, expected: []server.FoldingRange) {
 	spall.trace(#procedure)
 

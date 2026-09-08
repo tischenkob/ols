@@ -36,6 +36,11 @@
 			"description": "Turns on formatting with odinfmt.",
 			"default": true
 		},
+		"enable_range_format": {
+			"type": "boolean",
+			"description": "Format only the declarations that the selection touches.",
+			"default": true
+		},
 		"enable_hover": {
 			"type": "boolean",
 			"description": "Enables hover feature"

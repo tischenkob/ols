@@ -75,6 +75,8 @@ Options:
 
 - `enable_format`: Turns on formatting with `odinfmt`. _(Enabled by default)_
 
+- `enable_range_format`: Format only the declarations that the selection touches. Defaults to true.
+
 - `enable_hover`: Enables hover feature. _(Enabled by default)_
 
 - `enable_document_symbols`: Turns on outline of all your global declarations in your document. _(Enabled by default)_
