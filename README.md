@@ -250,6 +250,8 @@ Options:
 
 - `enable_lint_struct_literal`: Report a struct literal that sets the same field twice or names a field the struct does not have. Defaults to true.
 
+- `enable_lint_pure_call`: Report a call to a core package procedure, such as `strings.to_upper`, whose result is discarded. Defaults to true.
+
 - `enable_code_lens_references`: Show a reference count above every top-level declaration. Defaults to true.
 
 - `checker_skip_packages`: Paths to packages that should not be checked by `odin check` when using `enable_checker_workspace_diagnostics`.

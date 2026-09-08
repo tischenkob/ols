@@ -453,6 +453,11 @@
 			"description": "Report a struct literal that sets the same field twice or names a field the struct does not have.",
 			"default": true
 		},
+		"enable_lint_pure_call": {
+			"type": "boolean",
+			"description": "Report a call to a core package procedure whose result is discarded.",
+			"default": true
+		},
 		"enable_code_lens_references": {
 			"type": "boolean",
 			"description": "Show a reference count above every top-level declaration.",
