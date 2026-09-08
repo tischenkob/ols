@@ -60,6 +60,7 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_switch,
 	lint_calls,
 	lint_struct_literal,
+	lint_pure_call,
 }
 
 @(private = "file")
