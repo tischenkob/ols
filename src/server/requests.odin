@@ -475,6 +475,15 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_lens_references.(bool) or_else config.enable_code_lens_references
 	config.enable_checker_vet_shadowing =
 		ols_config.enable_checker_vet_shadowing.(bool) or_else config.enable_checker_vet_shadowing
+	config.enable_checker_vet_unused_variables =
+		ols_config.enable_checker_vet_unused_variables.(bool) or_else config.enable_checker_vet_unused_variables
+	config.enable_checker_vet_cast = ols_config.enable_checker_vet_cast.(bool) or_else config.enable_checker_vet_cast
+	config.enable_checker_vet_style = ols_config.enable_checker_vet_style.(bool) or_else config.enable_checker_vet_style
+	config.enable_checker_vet_semicolon =
+		ols_config.enable_checker_vet_semicolon.(bool) or_else config.enable_checker_vet_semicolon
+	config.enable_checker_vet_tabs = ols_config.enable_checker_vet_tabs.(bool) or_else config.enable_checker_vet_tabs
+	config.enable_checker_strict_style =
+		ols_config.enable_checker_strict_style.(bool) or_else config.enable_checker_strict_style
 	config.verbose = ols_config.verbose.(bool) or_else config.verbose
 	config.file_log = ols_config.file_log.(bool) or_else config.file_log
 
@@ -998,6 +1007,12 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_lint_unused_declaration = true
 	config.enable_code_lens_references = true
 	config.enable_checker_vet_shadowing = true
+	config.enable_checker_vet_unused_variables = true
+	config.enable_checker_vet_cast = true
+	config.enable_checker_vet_style = true
+	config.enable_checker_vet_semicolon = true
+	config.enable_checker_vet_tabs = true
+	config.enable_checker_strict_style = false
 }
 
 get_builtin_path :: proc(allocator := context.allocator) -> string {

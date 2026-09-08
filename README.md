@@ -184,6 +184,18 @@ Options:
 
 - `enable_checker_vet_shadowing`: Pass `-vet-shadowing` to `odin check` and report shadowed declarations as warnings. Defaults to true.
 
+- `enable_checker_vet_unused_variables`: Pass `-vet-unused-variables` to `odin check`. Report variables that are declared but never used. Defaults to true.
+
+- `enable_checker_vet_cast`: Pass `-vet-cast` to `odin check`. Report casts and transmutes to a type the value already has. Defaults to true.
+
+- `enable_checker_vet_style`: Pass `-vet-style` to `odin check`. Report style violations, such as a missing trailing comma before a closing brace on its own line. Defaults to true.
+
+- `enable_checker_vet_semicolon`: Pass `-vet-semicolon` to `odin check`. Report unneeded semicolons. Defaults to true.
+
+- `enable_checker_vet_tabs`: Pass `-vet-tabs` to `odin check`. Report source lines that are not indented with tabs. Defaults to true.
+
+- `enable_checker_strict_style`: Pass `-strict-style` to `odin check`. Report style violations as hard errors; subsumes `-vet-style` and `-vet-semicolon`. Defaults to false.
+
 - `enable_lint_self_assignment`: Warn when a variable is assigned to itself. Defaults to true.
 
 - `enable_lint_identical_branches`: Warn when the if and else branches, or both ternary branches, are identical. Defaults to true.
