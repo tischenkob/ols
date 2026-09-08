@@ -232,6 +232,8 @@ Options:
 
 - `enable_lint_integer_range`: Report integer range mistakes: a shift by at least the operand's bit width, an unsigned value compared against a negative literal or zero, and an integer division converted to a float afterwards. Defaults to true.
 
+- `enable_lint_recursion`: Report a procedure whose body calls itself before any branch, loop or early return. Defaults to true.
+
 - `enable_lint_test_attribute`: Report a procedure taking `^testing.T` without an `@(test)` attribute, and an `@(test)` procedure whose signature is not `proc(t: ^testing.T)`. Defaults to true.
 
 - `enable_lint_unused_declaration`: On save, mark private declarations that nothing in their package references as unnecessary. Defaults to true.

@@ -480,6 +480,7 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	config.enable_lint_core_misuse = ols_config.enable_lint_core_misuse.(bool) or_else config.enable_lint_core_misuse
 	config.enable_lint_integer_range =
 		ols_config.enable_lint_integer_range.(bool) or_else config.enable_lint_integer_range
+	config.enable_lint_recursion = ols_config.enable_lint_recursion.(bool) or_else config.enable_lint_recursion
 	config.enable_lint_test_attribute =
 		ols_config.enable_lint_test_attribute.(bool) or_else config.enable_lint_test_attribute
 	config.enable_lint_unused_declaration =
@@ -1027,6 +1028,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_lint_deprecated = true
 	config.enable_lint_core_misuse = true
 	config.enable_lint_integer_range = true
+	config.enable_lint_recursion = true
 	config.enable_lint_test_attribute = true
 	config.enable_lint_unused_declaration = true
 	config.enable_code_lens_references = true
