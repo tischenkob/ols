@@ -115,7 +115,11 @@ n :: proc(x: int) -> bool {
 		config = {enable_lint_simplify = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{3, "bool-return"}, {11, "bool-return"}, {41, "bool-return"}})
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{3, "bool-return"}, {5, "redundant-else"}, {11, "bool-return"}, {41, "bool-return"}},
+	)
 }
 
 @(test)
@@ -1024,7 +1028,22 @@ h :: proc() -> (int, bool) {
 		config = {enable_lint_simplify = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{4, "or-else"}, {9, "or-else"}, {14, "or-else"}, {29, "bool-compare"}})
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{
+			{4, "or-else"},
+			{6, "redundant-else"},
+			{9, "or-else"},
+			{14, "or-else"},
+			{16, "redundant-else"},
+			{26, "redundant-else"},
+			{31, "redundant-else"},
+			{29, "bool-compare"},
+			{36, "redundant-else"},
+			{41, "redundant-else"},
+		},
+	)
 }
 
 @(test)
@@ -1317,4 +1336,119 @@ f :: proc() -> Error {
 }
 `,
 	)
+}
+
+@(test)
+simplify_redundant_else :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a: bool, x: int) -> int {
+	if a {
+		return 1
+	} else {
+		return 2
+	}
+	for {
+		if a {
+			break
+		} else {
+			y := 1
+		}
+	}
+	if a {
+		y := 1
+	} else {
+		return 3
+	}
+	if a {
+		return 1
+	} else if x > 0 {
+		return 2
+	}
+	return 0
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{5, "redundant-else"}, {11, "redundant-else"}})
+
+	action := test.Source {
+		main = `package test
+
+f :: proc(a: bool) -> int {
+	if a {
+		return 1
+	} els{*}e {
+		return 2
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&action,
+		"Remove redundant else",
+		`package test
+
+f :: proc(a: bool) -> int {
+	if a {
+		return 1
+	}
+	return 2
+}
+`,
+	)
+}
+
+@(test)
+simplify_trailing_return :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc() {
+	g()
+	return
+}
+
+g :: proc() {
+	g()
+}
+
+h :: proc() -> int {
+	return 0
+}
+
+k :: proc() {
+	if true {
+		return
+	}
+	g()
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{4, "trailing-return"}})
+
+	action := test.Source {
+		main = `package test
+
+f :: proc() {
+	g()
+	ret{*}urn
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(t, &action, "Remove trailing return", `package test
+
+f :: proc() {
+	g()
+}
+`)
 }

@@ -31,6 +31,8 @@ rules := [?]Rule {
 	simplify_range_loop,
 	simplify_or_else,
 	simplify_or_return,
+	simplify_redundant_else,
+	simplify_trailing_return,
 }
 
 // Every rule is syntactic; none resolves a symbol. Results are in walk order.
@@ -803,4 +805,72 @@ simplify_or_return :: proc(src: string, node: ^ast.Node, parents: []^ast.Node, o
 			Simplification{decl.pos.offset, if_stmt.end.offset, "or-return", "Use or_return", strings.to_string(sb)},
 		)
 	}
+}
+
+@(private = "file")
+simplify_redundant_else :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out: ^[dynamic]Simplification) {
+	if_stmt, ok := node.derived.(^ast.If_Stmt)
+	if !ok || if_stmt.else_stmt == nil || if_stmt.body == nil {
+		return
+	}
+	body, is_block := if_stmt.body.derived.(^ast.Block_Stmt)
+	if !is_block || body.uses_do || len(body.stmts) == 0 {
+		return
+	}
+	#partial switch _ in body.stmts[len(body.stmts) - 1].derived {
+	case ^ast.Return_Stmt, ^ast.Branch_Stmt:
+	case:
+		return
+	}
+	else_block, else_is_block := if_stmt.else_stmt.derived.(^ast.Block_Stmt)
+	if !else_is_block || else_block.uses_do || len(else_block.stmts) == 0 {
+		return
+	}
+	from := get_line_indentation(src, else_block.stmts[0].pos.offset)
+	to := get_line_indentation(src, if_stmt.pos.offset)
+	text := fmt.tprintf("\n%s", reindent(block_inner_text(src, else_block), from, to))
+	append(
+		out,
+		Simplification {
+			if_stmt.body.end.offset,
+			else_block.end.offset,
+			"redundant-else",
+			"Remove redundant else",
+			text,
+		},
+	)
+}
+
+@(private = "file")
+simplify_trailing_return :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out: ^[dynamic]Simplification) {
+	lit, ok := node.derived.(^ast.Proc_Lit)
+	if !ok || lit.type == nil || lit.type.results != nil || lit.body == nil {
+		return
+	}
+	body, is_block := lit.body.derived.(^ast.Block_Stmt)
+	if !is_block || len(body.stmts) == 0 {
+		return
+	}
+	ret, is_return := body.stmts[len(body.stmts) - 1].derived.(^ast.Return_Stmt)
+	if !is_return || len(ret.results) != 0 {
+		return
+	}
+	start := ret.pos.offset
+	for start > 0 && src[start - 1] != '\n' {
+		start -= 1
+	}
+	if strings.trim_space(src[start:ret.pos.offset]) != "" {
+		start = ret.pos.offset
+	}
+	// Take the trailing newline, so the whole line goes; leave it when a comment follows.
+	end := ret.end.offset
+	for end < len(src) && (src[end] == ' ' || src[end] == '\t' || src[end] == '\r') {
+		end += 1
+	}
+	if end < len(src) && src[end] == '\n' {
+		end += 1
+	} else {
+		end = ret.end.offset
+	}
+	append(out, Simplification{start, end, "trailing-return", "Remove trailing return", ""})
 }
