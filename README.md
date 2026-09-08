@@ -145,6 +145,8 @@ Options:
 
 - `enable_code_action_named_results`: Enables the code action naming the results of a procedure. Defaults to true.
 
+- `enable_code_action_add_ok_result`: Enables the code action adding a `bool` result to a procedure. Defaults to true.
+
 - `enable_code_action_defer_delete`: Enables the code action adding a `defer` that frees an allocation. Defaults to true.
 
 - `enable_code_action_extract_constant`: Enables the code action extracting a constant expression into a file-scope constant. Defaults to true.

@@ -68,6 +68,7 @@ Config :: struct {
 	enable_code_action_result_handling:      bool,
 	enable_code_action_generate_proc:        bool,
 	enable_code_action_named_results:        bool,
+	enable_code_action_add_ok_result:        bool,
 	enable_code_action_defer_delete:         bool,
 	enable_code_action_extract_constant:     bool,
 	enable_code_action_inline_proc:          bool,

@@ -480,6 +480,7 @@ OlsConfig :: struct {
 	enable_code_action_result_handling:      Maybe(bool),
 	enable_code_action_generate_proc:        Maybe(bool),
 	enable_code_action_named_results:        Maybe(bool),
+	enable_code_action_add_ok_result:        Maybe(bool),
 	enable_code_action_defer_delete:         Maybe(bool),
 	enable_code_action_extract_constant:     Maybe(bool),
 	enable_code_action_inline_proc:          Maybe(bool),

@@ -190,6 +190,11 @@
 			"description": "Enables the code action naming the results of a procedure.",
 			"default": true
 		},
+		"enable_code_action_add_ok_result": {
+			"type": "boolean",
+			"description": "Enables the code action adding a bool result to a procedure.",
+			"default": true
+		},
 		"enable_code_action_defer_delete": {
 			"type": "boolean",
 			"description": "Enables the code action adding a defer that frees an allocation.",
