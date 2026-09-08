@@ -461,7 +461,7 @@ map_diagnostic_severity :: proc(type: string, message: string) -> DiagnosticSeve
 	}
 
 	// The vet flags are ours, not the user's build, so their errors show as warnings.
-	vet_messages := [?]string{"shadows declaration", "declared but not used", "Unneeded cast", "Unneeded transmute"}
+	vet_messages := [?]string{"shadows declaration", "Unneeded cast", "Unneeded transmute"}
 	for m in vet_messages {
 		if strings.contains(message, m) {
 			return .Warning
