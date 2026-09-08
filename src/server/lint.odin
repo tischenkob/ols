@@ -43,6 +43,7 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_ignored_result,
 	lint_unused_parameter,
 	lint_naming,
+	lint_bool_logic,
 }
 
 @(private = "file")
@@ -300,7 +301,7 @@ lint_float_equality :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 
 // The resolved-symbol map only holds identifiers and selectors, so an indexed or called float
 // is only caught when the other operand is a float.
-@(private = "file")
+@(private = "package")
 is_float_operand :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> bool {
 	expr := expr
 	for {
