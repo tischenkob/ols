@@ -238,6 +238,8 @@ Options:
 
 - `enable_lint_unused_declaration`: On save, mark private declarations that nothing in their package references as unnecessary. Defaults to true.
 
+- `enable_lint_imports`: Report an import repeated in the same file, and an import whose package directory does not exist. Defaults to true.
+
 - `enable_code_lens_references`: Show a reference count above every top-level declaration. Defaults to true.
 
 - `checker_skip_packages`: Paths to packages that should not be checked by `odin check` when using `enable_checker_workspace_diagnostics`.

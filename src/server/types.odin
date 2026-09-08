@@ -510,6 +510,7 @@ OlsConfig :: struct {
 	enable_lint_recursion:                   Maybe(bool),
 	enable_lint_test_attribute:              Maybe(bool),
 	enable_lint_unused_declaration:          Maybe(bool),
+	enable_lint_imports:                     Maybe(bool),
 	enable_code_lens_references:             Maybe(bool),
 	enable_checker_vet_shadowing:            Maybe(bool),
 	enable_checker_vet_unused_variables:     Maybe(bool),
