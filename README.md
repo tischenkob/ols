@@ -222,6 +222,8 @@ Options:
 
 - `enable_lint_dead_store`: Report a value stored in a variable that is overwritten before anything reads it, and writes to fields of a struct copy taken from an index, selector or range value. Defaults to true.
 
+- `enable_lint_allocator`: Report a value allocated with an explicit allocator and then freed with the context allocator, and `make([dynamic]T, n)` whose elements `append` adds after. Defaults to true.
+
 - `enable_lint_unused_declaration`: On save, mark private declarations that nothing in their package references as unnecessary. Defaults to true.
 
 - `enable_code_lens_references`: Show a reference count above every top-level declaration. Defaults to true.

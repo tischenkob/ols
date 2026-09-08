@@ -383,6 +383,11 @@
 			"description": "Report a value stored in a variable that is overwritten before anything reads it, and writes to a struct copy taken from an index, selector or range value.",
 			"default": true
 		},
+		"enable_lint_allocator": {
+			"type": "boolean",
+			"description": "Report a value allocated with an explicit allocator and freed with the context allocator, and a dynamic array made with a length that append then grows past.",
+			"default": true
+		},
 		"enable_lint_unused_declaration": {
 			"type": "boolean",
 			"description": "On save, mark private declarations that nothing in their package references as unnecessary.",
