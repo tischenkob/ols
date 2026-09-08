@@ -500,6 +500,7 @@ OlsConfig :: struct {
 	enable_lint_naming:                      Maybe(bool),
 	enable_lint_bool_logic:                  Maybe(bool),
 	enable_lint_no_op:                       Maybe(bool),
+	enable_lint_loops:                       Maybe(bool),
 	enable_lint_unused_declaration:          Maybe(bool),
 	enable_code_lens_references:             Maybe(bool),
 	enable_checker_vet_shadowing:            Maybe(bool),

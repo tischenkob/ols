@@ -373,6 +373,11 @@
 			"description": "Report code that does nothing: arithmetic with an identity operand, integer division of literals that is always 0, comparing an address to nil, empty if or loop bodies, and append with no values.",
 			"default": true
 		},
+		"enable_lint_loops": {
+			"type": "boolean",
+			"description": "Report loop mistakes: a body that always exits on the first iteration, a condition nothing in the body changes, an empty infinite loop, and a range that runs one past the end.",
+			"default": true
+		},
 		"enable_lint_unused_declaration": {
 			"type": "boolean",
 			"description": "On save, mark private declarations that nothing in their package references as unnecessary.",

@@ -218,6 +218,8 @@ Options:
 
 - `enable_lint_no_op`: Report code that does nothing: arithmetic with an identity operand (`x + 0`, `x * 1`), integer division of literals that is always 0, comparing an address to `nil`, empty `if` or loop bodies, and `append` with no values. Defaults to true.
 
+- `enable_lint_loops`: Report loop mistakes: a body that always exits on the first iteration, a condition nothing in the body changes, an empty infinite loop (`for {}`), and a range that runs one past the end (`0 ..= len(x)`). Defaults to true.
+
 - `enable_lint_unused_declaration`: On save, mark private declarations that nothing in their package references as unnecessary. Defaults to true.
 
 - `enable_code_lens_references`: Show a reference count above every top-level declaration. Defaults to true.
