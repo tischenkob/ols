@@ -50,6 +50,8 @@ loop_jumps :: proc(body: ^ast.Stmt) -> (jumps: Loop_Jumps) {
 				return nil
 			case ^ast.Return_Stmt:
 				jumps.has_exit = true
+			case ^ast.Or_Branch_Expr:
+				if n.token.kind == .Or_Continue do jumps.has_continue = true
 			case ^ast.Branch_Stmt:
 				#partial switch n.tok.kind {
 				case .Continue:

@@ -64,7 +64,7 @@ lint_test_attribute :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 @(private = "file")
 takes_testing_t :: proc(ctx: ^LintContext, lit: ^ast.Proc_Lit) -> bool {
 	params := lit.type.params
-	if params == nil || len(params.list) != 1 || len(params.list[0].names) != 1 do return false
+	if params == nil || len(params.list) != 1 || len(params.list[0].names) != 1 || params.list[0].type == nil do return false
 	return node_text(ctx.src, params.list[0].type) == "^testing.T"
 }
 

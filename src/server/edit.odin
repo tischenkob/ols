@@ -341,10 +341,27 @@ nodes_at :: proc(roots: []^ast.Stmt, pos: int) -> []Node_At {
 	return data.found[:]
 }
 
+// Whitespace inside string and rune literals is part of the value and stays.
 strip_space :: proc(s: string) -> string {
 	sb := strings.builder_make(context.temp_allocator)
+	quote: rune
+	escaped := false
 	for c in s {
-		if !strings.is_space(c) {
+		if quote != 0 {
+			strings.write_rune(&sb, c)
+			if escaped {
+				escaped = false
+			} else if c == '\\' && quote != '`' {
+				escaped = true
+			} else if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		if c == '"' || c == '\'' || c == '`' {
+			quote = c
+		}
+		if quote != 0 || !strings.is_space(c) {
 			strings.write_rune(&sb, c)
 		}
 	}
