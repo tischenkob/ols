@@ -36,6 +36,10 @@ lint_printf :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnos
 	if !is_string do return
 	lit := call.args[index]
 	args := call.args[index + 1:]
+	for len(args) > 0 {
+		if _, is_named := args[len(args) - 1].derived.(^ast.Field_Value); !is_named do break
+		args = args[:len(args) - 1]
+	}
 
 	format := parse_format(text)
 
@@ -401,6 +405,7 @@ arg_kind :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> Arg_Kind {
 	case:
 		return .Unknown
 	}
+	if ident, is_ident := expr.derived.(^ast.Ident); is_ident && bound_by_type_switch(ctx, ident) do return .Unknown
 	resolved, is_resolved := lint_symbols(ctx)[uintptr(expr)]
 	if !is_resolved || resolved.is_unresolved || resolved.symbol.pointers > 0 do return .Unknown
 
@@ -433,4 +438,18 @@ arg_kind :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> Arg_Kind {
 		}
 	}
 	return .Unknown
+}
+
+// A type switch binds its variable to a different type per case; the whole-file resolve picks
+// one of them, so those identifiers are not judged.
+@(private = "file")
+bound_by_type_switch :: proc(ctx: ^LintContext, ident: ^ast.Ident) -> bool {
+	for at in nodes_at(ctx.document.ast.decls[:], ident.pos.offset) {
+		ts := at.node.derived.(^ast.Type_Switch_Stmt) or_continue
+		if ts.tag == nil do continue
+		assign := ts.tag.derived.(^ast.Assign_Stmt) or_continue
+		if len(assign.lhs) == 0 do continue
+		if name, ok := assign.lhs[0].derived.(^ast.Ident); ok && name.name == ident.name do return true
+	}
+	return false
 }
