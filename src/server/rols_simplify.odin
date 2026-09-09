@@ -620,7 +620,14 @@ simplify_range_loop :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out: ^
 		}
 	}
 	op := cond.op.kind == .Lt ? "..<" : "..="
-	text := fmt.tprintf("for %s in %s%s%s ", name.name, node_text(src, decl.values[0]), op, node_text(src, cond.right))
+	text := fmt.tprintf(
+		"for %s in %s%s%s %s",
+		name.name,
+		node_text(src, decl.values[0]),
+		op,
+		node_text(src, cond.right),
+		do_keyword(loop.body),
+	)
 	append(out, Simplification{loop.for_pos.offset, loop.body.pos.offset, "range-loop", "Use range loop", text})
 }
 
