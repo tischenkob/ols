@@ -110,3 +110,36 @@ f :: proc(a, b: int, col: Color) -> int {
 
 	test.expect_lint_diagnostics(t, &source, {{12, "duplicate-condition"}, {27, "duplicate-condition"}})
 }
+
+@(test)
+lint_bool_logic_forms :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	b: bool,
+}
+
+h :: proc() -> bool {
+	return true
+}
+
+f :: proc(a: bool, x: int, s: S) -> bool {
+	r := x < 5 && x > 10
+	r = a && (a)
+	r = h() && h()
+	r = s.b && s.b
+	r = !a || a
+	return r
+}
+`,
+		config = {enable_lint_bool_logic = true},
+	}
+
+	// `x < 5 && x > 10` needs range reasoning the lint does not do, and two calls may differ.
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{12, "identical-operands"}, {14, "identical-operands"}, {15, "bool-tautology"}},
+	)
+}
