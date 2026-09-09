@@ -1004,7 +1004,7 @@ apply_action :: proc(
 	setup(src)
 	defer teardown(src)
 
-	actions, ok := server.get_code_actions(src.document, ctx, input_range, &src.config)
+	actions, ok := server.get_code_actions(src.document, ctx, input_range, &src.config, package_files(src))
 	defer delete(actions)
 	if !ok {
 		log.error("Failed to find actions")
