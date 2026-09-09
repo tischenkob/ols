@@ -440,7 +440,6 @@ main :: proc() -> bool {
 `)
 }
 
-// `x := f() or_return` needs a result left over once the error is taken off.
 @(test)
 result_or_return_single_result_value :: proc(t: ^testing.T) {
 	expect_no_result_action(t, OR_RETURN_ACTION, `package test

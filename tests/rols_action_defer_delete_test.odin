@@ -278,6 +278,58 @@ main :: proc(allocator := context.allocator) {
 }
 
 @(test)
+defer_delete_dynamic_array_drops_the_allocator :: proc(t: ^testing.T) {
+	expect_defer_delete(t, "Add defer delete(d)", `package test
+` + BUILTINS + `
+main :: proc(allocator := context.allocator) {
+	d{*} := make([dynamic]int, 0, 16, allocator)
+}
+`, `package test
+` + BUILTINS + `
+main :: proc(allocator := context.allocator) {
+	d := make([dynamic]int, 0, 16, allocator)
+	defer delete(d)
+}
+`)
+}
+
+@(test)
+defer_delete_map_drops_the_allocator :: proc(t: ^testing.T) {
+	expect_defer_delete(t, "Add defer delete(m)", `package test
+` + BUILTINS + `
+main :: proc(allocator := context.allocator) {
+	m{*} := make(map[string]int, 16, allocator)
+}
+`, `package test
+` + BUILTINS + `
+main :: proc(allocator := context.allocator) {
+	m := make(map[string]int, 16, allocator)
+	defer delete(m)
+}
+`)
+}
+
+@(test)
+defer_delete_string_naming_an_allocator :: proc(t: ^testing.T) {
+	expect_defer_delete(t, "Add defer delete(c)", `package test
+
+import "core:strings"
+
+main :: proc() {
+	c := strings.clo{*}ne("bad allocator")
+}
+`, `package test
+
+import "core:strings"
+
+main :: proc() {
+	c := strings.clone("bad allocator")
+	defer delete(c)
+}
+`)
+}
+
+@(test)
 defer_delete_error_name :: proc(t: ^testing.T) {
 	expect_defer_delete(t, "Add defer delete(a)", `package test
 ` + BUILTINS + `
@@ -333,7 +385,6 @@ main :: proc(c: bool) {
 `)
 }
 
-// A `do` body holds one statement, so a defer after it would name something out of scope.
 @(test)
 defer_delete_do_body :: proc(t: ^testing.T) {
 	expect_no_defer_delete(t, "Add defer delete(s)", `package test
