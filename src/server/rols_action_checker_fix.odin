@@ -92,7 +92,8 @@ unused_decl_at :: proc(ctx: ^ActionContext, offset: int, name: string) -> (^ast.
 }
 
 add_conversion_fix :: proc(ctx: ^ActionContext, offset: int, title: string) {
-	for at in nodes_at(ctx.document.ast.decls[:], offset) {
+	// Innermost first: an outer conversion starts before the one the checker reported.
+	#reverse for at in nodes_at(ctx.document.ast.decls[:], offset) {
 		operand: ^ast.Expr
 		#partial switch n in at.node.derived {
 		case ^ast.Type_Cast:

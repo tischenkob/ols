@@ -373,3 +373,225 @@ f :: proc(xs: []int) {
 }
 `)
 }
+
+// Applies expand, puts the cursor before marker in the result and expects simplify not to offer the
+// inverse.
+expect_no_inverse :: proc(t: ^testing.T, expand, simplify, marker, main: string) {
+	source := test.Source{main = main, config = {enable_code_action_expand = true, enable_lint_simplify = true}}
+	expanded, ok := test.apply_action(t, &source, expand)
+	if !ok {
+		return
+	}
+	cursor := strings.concatenate({"{*}", marker}, context.temp_allocator)
+	back := test.Source {
+		main   = strings.replace(expanded, marker, cursor, 1, context.temp_allocator) or_else expanded,
+		config = {enable_lint_simplify = true},
+	}
+	test.expect_action_missing(t, &back, simplify)
+}
+
+@(test)
+expand_or_else_call_fallback :: proc(t: ^testing.T) {
+	expect_expand(t, EXPAND_OR_ELSE, `package test
+
+g :: proc() -> int { return 0 }
+
+f :: proc(m: map[int]int, k: int) -> int {
+	x := m[k] or_{*}else g()
+	return x
+}
+`, `package test
+
+g :: proc() -> int { return 0 }
+
+f :: proc(m: map[int]int, k: int) -> int {
+	x, ok := m[k]
+	if !ok {
+		x = g()
+	}
+	return x
+}
+`)
+}
+
+// The declaration form expands to a plain `if`, which the or_else rule does not read back.
+@(test)
+expand_or_else_decl_is_one_way :: proc(t: ^testing.T) {
+	expect_no_inverse(t, EXPAND_OR_ELSE, "Use or_else", "ok {", `package test
+
+f :: proc(m: map[int]int, k: int) -> int {
+	x := m[k] or_{*}else 0
+	return x
+}
+`)
+}
+
+@(test)
+expand_or_else_value_name_taken_round_trip :: proc(t: ^testing.T) {
+	expect_round_trip(t, EXPAND_OR_ELSE, "Use or_else", "ok {", `package test
+
+f :: proc(a: any) -> int {
+	v := 0
+	x := 0
+	x = a.(int) or_{*}else 1
+	return x + v
+}
+`)
+}
+
+@(test)
+expand_or_return_error_name_taken :: proc(t: ^testing.T) {
+	expect_expand(t, EXPAND_OR_RETURN, `package test
+
+My_Error :: enum { None, Bad }
+
+f :: proc() -> (int, My_Error) { return 1, .None }
+
+main :: proc() -> (int, My_Error) {
+	err := My_Error.None
+	x := f() or_{*}return
+	return x, err
+}
+`, `package test
+
+My_Error :: enum { None, Bad }
+
+f :: proc() -> (int, My_Error) { return 1, .None }
+
+main :: proc() -> (int, My_Error) {
+	err := My_Error.None
+	x, err2 := f()
+	if err2 != nil {
+		return 0, err2
+	}
+	return x, err
+}
+`)
+}
+
+@(test)
+expand_or_return_statement_discards_other_results :: proc(t: ^testing.T) {
+	expect_expand(t, EXPAND_OR_RETURN, `package test
+
+My_Error :: enum { None, Bad }
+
+f :: proc() -> (int, int, My_Error) { return 1, 2, .None }
+
+main :: proc() -> My_Error {
+	f() or_{*}return
+	return nil
+}
+`, `package test
+
+My_Error :: enum { None, Bad }
+
+f :: proc() -> (int, int, My_Error) { return 1, 2, .None }
+
+main :: proc() -> My_Error {
+	_, _, err := f()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+`)
+}
+
+@(test)
+expand_or_return_two_names :: proc(t: ^testing.T) {
+	expect_no_expand(t, EXPAND_OR_RETURN, `package test
+
+My_Error :: enum { None, Bad }
+
+f :: proc() -> (int, int, My_Error) { return 1, 2, .None }
+
+main :: proc() -> My_Error {
+	a, b := f() or_{*}return
+	return nil
+}
+`)
+}
+
+@(test)
+expand_range_round_trip_bounds :: proc(t: ^testing.T) {
+	for bounds in ([?]string{"0..<n", "0..=n", "a..<b"}) {
+		main := strings.concatenate({`package test
+
+f :: proc(n, a, b: int) {
+	for i {*}in `, bounds, ` {
+	}
+}
+`}, context.temp_allocator)
+		expect_round_trip(t, C_STYLE_FOR, "Use range loop", "i <", main)
+	}
+}
+
+@(test)
+expand_range_do_body_round_trip :: proc(t: ^testing.T) {
+	expect_round_trip(t, C_STYLE_FOR, "Use range loop", "i <", `package test
+
+f :: proc(n: int) {
+	for i {*}in 0..<n do g(i)
+}
+`)
+}
+
+@(test)
+expand_range_over_slice :: proc(t: ^testing.T) {
+	expect_no_expand(t, C_STYLE_FOR, `package test
+
+f :: proc(xs: []int) {
+	for x {*}in xs {
+	}
+}
+`)
+}
+
+// The range rule refuses a loop whose variable the body writes, so this expansion has no inverse.
+@(test)
+expand_range_mutated_var_is_one_way :: proc(t: ^testing.T) {
+	expect_no_inverse(t, C_STYLE_FOR, "Use range loop", "i <", `package test
+
+f :: proc(n: int) {
+	for i {*}in 0..<n {
+		i += 1
+	}
+}
+`)
+}
+
+@(test)
+expand_array_scalar_round_trip :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+a: [3]int = {1, {*}1, 1}
+`,
+		config = {enable_code_action_expand = true, enable_lint_simplify = true},
+	}
+	test.expect_action_round_trip(t, &source, {"Use scalar for array literal", EXPAND_ARRAY}, {"1\n"})
+}
+
+@(test)
+expand_array_float_scalar_round_trip :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+h: [2]f32 = {0.5, 0.{*}5}
+`,
+		config = {enable_code_action_expand = true, enable_lint_simplify = true},
+	}
+	test.expect_action_round_trip(t, &source, {"Use scalar for array literal", EXPAND_ARRAY}, {"0.5\n"})
+}
+
+@(test)
+expand_array_single_element :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+a: [1]int = {{*}1}
+`,
+		config = {enable_lint_simplify = true},
+	}
+	test.expect_action_missing(t, &source, "Use scalar for array literal")
+}

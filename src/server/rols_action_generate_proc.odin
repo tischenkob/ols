@@ -58,6 +58,8 @@ add_generate_proc_action :: proc(ctx: ^ActionContext) {
 		}
 		append(&names, name)
 
+		// Resolving an argument whose type is a global turns local lookup back off.
+		ctx.ast_context.use_locals = true
 		symbol, ok := resolve_type_expression(ctx.ast_context, arg)
 		if !ok {
 			return
