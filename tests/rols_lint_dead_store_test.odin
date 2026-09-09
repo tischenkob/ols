@@ -89,3 +89,66 @@ read_after :: proc(ps: []Point) {
 		{{11, "unused-copy-write"}, {16, "unused-copy-write"}, {21, "unused-copy-write"}},
 	)
 }
+
+@(test)
+lint_dead_store_forms :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Point :: struct {
+	x: int,
+	y: int,
+}
+
+use :: proc(v: int) {}
+
+make_int :: proc() -> int {
+	return 1
+}
+
+branches :: proc(c: bool) {
+	x: int
+	if c {
+		x = 1
+	} else {
+		x = 2
+	}
+	use(x)
+}
+
+guarded :: proc(c: bool) {
+	x := 1
+	if c {
+		x = 2
+	}
+	use(x)
+}
+
+from_call :: proc() {
+	x := make_int()
+	x = 2
+	use(x)
+}
+
+compound :: proc() {
+	x := 1
+	x += 1
+	use(x)
+}
+
+through_index :: proc(ps: []Point) {
+	ps[0].x = 1
+}
+
+through_pointer :: proc(ps: []^Point) {
+	p := ps[0]
+	p.x = 1
+}
+`,
+		config = {enable_lint_dead_store = true},
+	}
+
+	// Stores in sibling branches, a conditional overwrite and `x += 1` all read the old value.
+	// An index in the assigned chain and an element that is itself a pointer both write through.
+	test.expect_lint_diagnostics(t, &source, {{32, "dead-store"}})
+}
