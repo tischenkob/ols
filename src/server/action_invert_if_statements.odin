@@ -33,7 +33,7 @@ add_invert_if_action :: proc(ctx: ^ActionContext) {
 	edits := make([]TextEdit, 1, context.temp_allocator)
 	edits[0] = TextEdit {
 		range   = range_of(ctx, if_stmt.pos.offset, if_stmt.end.offset),
-		newText = new_text,
+		newText = match_line_endings(ctx.document.ast.src, new_text),
 	}
 	append(ctx.actions, make_code_action(ctx, "Invert if", "refactor.more", edits))
 
@@ -144,7 +144,7 @@ add_early_exit_action :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt, body: 
 	edits := make([]TextEdit, 1, context.temp_allocator)
 	edits[0] = TextEdit {
 		range   = range_of(ctx, if_stmt.pos.offset, replace_end),
-		newText = strings.trim_right_space(strings.to_string(sb)),
+		newText = match_line_endings(src, strings.trim_right_space(strings.to_string(sb))),
 	}
 	title := fmt.tprintf("Invert if (early %s)", exit_text[exit])
 	append(ctx.actions, make_code_action(ctx, title, "refactor.rewrite", edits))
@@ -434,6 +434,16 @@ has_comments_around :: proc(src: string, block: ^ast.Block_Stmt, stmt: ^ast.Stmt
 	before := strings.trim_space(src[block.open.offset + 1:stmt.pos.offset])
 	after := strings.trim_space(src[stmt.end.offset:block.close.offset])
 	return before != "" || after != ""
+}
+
+// rols: the generated text is written with "\n", a CRLF file needs its own endings back
+match_line_endings :: proc(src, text: string) -> string {
+	if !strings.contains(src, "\r\n") {
+		return text
+	}
+	lf, _ := strings.replace_all(text, "\r\n", "\n", context.temp_allocator)
+	crlf, _ := strings.replace_all(lf, "\n", "\r\n", context.temp_allocator)
+	return crlf
 }
 
 // rols: handles parens and nested logical operators
