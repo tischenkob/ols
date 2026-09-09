@@ -178,7 +178,9 @@ compound_assignment_text :: proc(src: string, assign: ^ast.Assign_Stmt) -> (stri
 	if strip_space(node_text(src, bin.left)) != strip_space(lhs) {
 		return "", false
 	}
-	return strings.concatenate({lhs, " ", bin.op.text, "= ", node_text(src, bin.right)}, context.temp_allocator), true
+	// A compound assignment applies the operator to the whole right side, so its parentheses go.
+	right := node_text(src, unparen(bin.right))
+	return strings.concatenate({lhs, " ", bin.op.text, "= ", right}, context.temp_allocator), true
 }
 
 // Operands of a chain of `op`, parentheses removed, in source order.
