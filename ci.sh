@@ -43,3 +43,10 @@ odin build src/ -show-timings -collection:src=src -out:ols -no-bounds-check -o:s
 
 echo "Building odinfmt"
 odin build tools/odinfmt/main.odin -file -show-timings -collection:src=src -out:odinfmt -no-bounds-check -o:speed $@
+
+# rols: fail the build on lint codes that must never appear in the server
+if ! lint_output=$(OLS_BUILTIN_FOLDER="$PWD/builtin" ./ols query lint src/server --fail-on range-map-lookup); then
+	echo "Self-lint gate failed"
+	echo "$lint_output" | grep range-map-lookup
+	exit 1
+fi
