@@ -87,7 +87,7 @@ f :: proc(n: int) {
 	defer f(n - 1)
 }
 `,
-			{},
+			{{3, "infinite-recursion"}},
 		},
 		{
 			"mutual recursion",

@@ -18,6 +18,10 @@ lint_recursion :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diag
 	if !is_block do return
 
 	for stmt in body.stmts {
+		stmt := stmt
+		// A defer runs when the body ends, so its statement is as unconditional as the defer.
+		if defer_stmt, is_defer := stmt.derived.(^ast.Defer_Stmt); is_defer do stmt = defer_stmt.stmt
+
 		if contains_or_expr(stmt) do return
 
 		#partial switch _ in stmt.derived {

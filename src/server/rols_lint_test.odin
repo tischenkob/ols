@@ -65,7 +65,15 @@ lint_test_attribute :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 takes_testing_t :: proc(ctx: ^LintContext, lit: ^ast.Proc_Lit) -> bool {
 	params := lit.type.params
 	if params == nil || len(params.list) != 1 || len(params.list[0].names) != 1 || params.list[0].type == nil do return false
-	return node_text(ctx.src, params.list[0].type) == "^testing.T"
+	return node_text(ctx.src, params.list[0].type) == fmt.tprintf("^%s.T", testing_package_name(ctx))
+}
+
+@(private = "file")
+testing_package_name :: proc(ctx: ^LintContext) -> string {
+	for imp in ctx.document.ast.imports {
+		if imp.fullpath == `"core:testing"` && imp.name.text != "" do return imp.name.text
+	}
+	return "testing"
 }
 
 @(private = "file")
