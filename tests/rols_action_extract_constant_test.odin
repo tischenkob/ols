@@ -195,6 +195,155 @@ main :: proc() {
 }
 
 @(test)
+action_extract_constant_shift :: proc(t: ^testing.T) {
+	expect_extract_constant(t, `package test
+
+main :: proc() {
+	size := {[1 << 10]}
+}
+`, `package test
+
+SIZE :: 1 << 10
+
+main :: proc() {
+	size := SIZE
+}
+`)
+}
+
+@(test)
+action_extract_constant_string :: proc(t: ^testing.T) {
+	expect_extract_constant(t, `package test
+
+main :: proc() {
+	msg := "te{*}xt"
+}
+`, `package test
+
+MSG :: "text"
+
+main :: proc() {
+	msg := MSG
+}
+`)
+}
+
+@(test)
+action_extract_constant_global_factor :: proc(t: ^testing.T) {
+	expect_extract_constant(t, `package test
+
+PI :: 3.14
+
+main :: proc() {
+	area := {[2 * PI]}
+}
+`, `package test
+
+PI :: 3.14
+
+AREA :: 2 * PI
+
+main :: proc() {
+	area := AREA
+}
+`)
+}
+
+@(test)
+action_extract_constant_refused_call :: proc(t: ^testing.T) {
+	expect_no_extract_constant(t, `package test
+
+f :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	x := {[f()]}
+}
+`)
+}
+
+@(test)
+action_extract_constant_inside_proc_literal :: proc(t: ^testing.T) {
+	expect_extract_constant(t, `package test
+
+main :: proc() {
+	f := proc() {
+		speed := {*}5
+	}
+}
+`, `package test
+
+SPEED :: 5
+
+main :: proc() {
+	f := proc() {
+		speed := SPEED
+	}
+}
+`)
+}
+
+@(test)
+action_extract_constant_doc_comment_and_attribute :: proc(t: ^testing.T) {
+	expect_extract_constant(t, `package test
+
+// Entry point.
+@(private)
+main :: proc() {
+	speed := {*}5
+}
+`, `package test
+
+SPEED :: 5
+
+// Entry point.
+@(private)
+main :: proc() {
+	speed := SPEED
+}
+`)
+}
+
+@(test)
+action_extract_constant_twice :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+foo :: proc(value: int) {
+}
+
+main :: proc() {
+	foo({*}1)
+	foo(2)
+}
+`,
+		config = {enable_code_action_extract_constant = true},
+	}
+
+	test.expect_action_chain(
+		t,
+		&source,
+		{EXTRACT_CONSTANT_ACTION, EXTRACT_CONSTANT_ACTION},
+		`package test
+
+foo :: proc(value: int) {
+}
+
+VALUE :: 1
+
+VALUE2 :: 2
+
+main :: proc() {
+	foo(VALUE)
+	foo(VALUE2)
+}
+`,
+		{"2)"},
+	)
+}
+
+@(test)
 action_extract_constant_disabled :: proc(t: ^testing.T) {
 	expect_no_extract_constant(t, `package test
 

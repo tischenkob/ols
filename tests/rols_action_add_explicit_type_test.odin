@@ -1,5 +1,6 @@
 package tests
 
+import "core:strings"
 import "core:testing"
 
 import test "src:testing"
@@ -195,6 +196,194 @@ main :: proc() {
 		}
 		test.expect_action_missing(t, &source, ADD_EXPLICIT_TYPE_ACTION)
 	}
+}
+
+expect_add_explicit_type :: proc(t: ^testing.T, main, expected: string) {
+	source := test.Source {
+		main   = main,
+		config = {enable_code_action_add_explicit_type = true},
+	}
+	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, expected)
+}
+
+@(test)
+action_add_explicit_type_float :: proc(t: ^testing.T) {
+	expect_add_explicit_type(t, `package test
+
+main :: proc() {
+	x{*} := 1.5
+}
+`, `package test
+
+main :: proc() {
+	x: f64 = 1.5
+}
+`)
+}
+
+@(test)
+action_add_explicit_type_rune :: proc(t: ^testing.T) {
+	expect_add_explicit_type(t, `package test
+
+main :: proc() {
+	r{*} := 'a'
+}
+`, `package test
+
+main :: proc() {
+	r: rune = 'a'
+}
+`)
+}
+
+@(test)
+action_add_explicit_type_enum_member :: proc(t: ^testing.T) {
+	expect_add_explicit_type(t, `package test
+
+Color :: enum {
+	Red,
+	Green,
+}
+
+main :: proc() {
+	c{*} := Color.Red
+}
+`, `package test
+
+Color :: enum {
+	Red,
+	Green,
+}
+
+main :: proc() {
+	c: Color = Color.Red
+}
+`)
+}
+
+@(test)
+action_add_explicit_type_ternary :: proc(t: ^testing.T) {
+	expect_add_explicit_type(t, `package test
+
+main :: proc() {
+	c := true
+	v{*} := c ? 1 : 2
+}
+`, `package test
+
+main :: proc() {
+	c := true
+	v: int = c ? 1 : 2
+}
+`)
+}
+
+@(test)
+action_add_explicit_type_or_else :: proc(t: ^testing.T) {
+	expect_add_explicit_type(t, `package test
+
+main :: proc() {
+	m: map[string]int
+	v{*} := m["a"] or_else 0
+}
+`, `package test
+
+main :: proc() {
+	m: map[string]int
+	v: int = m["a"] or_else 0
+}
+`)
+}
+
+@(test)
+action_add_explicit_type_distinct :: proc(t: ^testing.T) {
+	expect_add_explicit_type(t, `package test
+
+Meters :: distinct int
+
+main :: proc() {
+	d: Meters = 1
+	e{*} := d
+}
+`, `package test
+
+Meters :: distinct int
+
+main :: proc() {
+	d: Meters = 1
+	e: Meters = d
+}
+`)
+}
+
+@(test)
+action_add_explicit_type_for_header :: proc(t: ^testing.T) {
+	expect_add_explicit_type(t, `package test
+
+main :: proc() {
+	for i{*} := 0; i < 3; i += 1 {
+	}
+}
+`, `package test
+
+main :: proc() {
+	for i: int = 0; i < 3; i += 1 {
+	}
+}
+`)
+}
+
+@(test)
+action_add_explicit_type_unicode_name :: proc(t: ^testing.T) {
+	expect_add_explicit_type(t, `package test
+
+main :: proc() {
+	héllo{*} := 5
+}
+`, `package test
+
+main :: proc() {
+	héllo: int = 5
+}
+`)
+}
+
+@(test)
+action_add_explicit_type_refused_proc_literal :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	f{*} := proc() {
+	}
+}
+`,
+		config = {enable_code_action_add_explicit_type = true},
+	}
+
+	test.expect_action_missing(t, &source, ADD_EXPLICIT_TYPE_ACTION)
+}
+
+// The second run has a type to read, so the action no longer applies.
+@(test)
+action_add_explicit_type_twice :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	x{*} := 5
+}
+`,
+		config = {enable_code_action_add_explicit_type = true},
+	}
+
+	_, typed := test.apply_action_chain(t, &source, {ADD_EXPLICIT_TYPE_ACTION})
+
+	again := test.Source {
+		main   = strings.replace(typed, "x:", "x{*}:", 1, context.temp_allocator) or_else "",
+		config = {enable_code_action_add_explicit_type = true},
+	}
+	test.expect_action_missing(t, &again, ADD_EXPLICIT_TYPE_ACTION)
 }
 
 @(test)
