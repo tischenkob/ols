@@ -3,6 +3,7 @@ package server
 import "core:encoding/json"
 import "core:fmt"
 
+// rols: frames through write_message
 send_notification :: proc(notification: Notification, writer: ^Writer) -> bool {
 	data, error := marshal(notification, {}, context.temp_allocator)
 
@@ -19,6 +20,7 @@ send_notification :: proc(notification: Notification, writer: ^Writer) -> bool {
 	return true
 }
 
+// rols: ids for server-initiated requests
 //String ids cannot collide with the integer ids clients use for their own requests.
 @(private = "file")
 request_counter: int
@@ -33,6 +35,7 @@ make_request_message :: proc(method: string, params: RequestParams) -> RequestMe
 	}
 }
 
+// rols: frames through write_message
 send_request :: proc(request: RequestMessage, writer: ^Writer) -> bool {
 	data, error := marshal(request, {}, context.temp_allocator)
 
@@ -49,6 +52,7 @@ send_request :: proc(request: RequestMessage, writer: ^Writer) -> bool {
 	return true
 }
 
+// rols: frames through write_message
 send_response :: proc(response: ResponseMessage, writer: ^Writer) -> bool {
 	data, error := marshal(response, {}, context.temp_allocator)
 
@@ -65,6 +69,7 @@ send_response :: proc(response: ResponseMessage, writer: ^Writer) -> bool {
 	return true
 }
 
+// rols: frames through write_message
 send_error :: proc(response: ResponseMessageError, writer: ^Writer) -> bool {
 	data, error := marshal(response, {}, context.temp_allocator)
 

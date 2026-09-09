@@ -109,6 +109,7 @@ GlobalExpr :: struct {
 parse_file :: proc (p: ^parser.Parser, file: ^ast.File, allocator := context.allocator) -> bool {
 	context.allocator = allocator 
 	spall.trace(#procedure, file.fullpath)
+	// rols: give break and continue statements an end position
 	ok := parser.parse_file(p, file)
 	fix_branch_stmt_ends(file)
 	return ok

@@ -13,6 +13,7 @@ DiagnosticType :: enum {
 	Unused,
 	Check,
 	Inactive,
+	// rols: fork diagnostic producers
 	Lint,
 	Unused_Decl,
 }
@@ -114,6 +115,7 @@ get_merged_diagnostics :: proc() -> map[string][dynamic]Diagnostic {
 	sync.lock(&diagnostic_mutex)
 	defer sync.unlock(&diagnostic_mutex)
 
+	// rols: split so push_diagnostics can merge while still holding the lock
 	return get_merged_diagnostics_locked()
 }
 
@@ -145,6 +147,7 @@ get_merged_diagnostics_locked :: proc() -> map[string][dynamic]Diagnostic {
 	return merged_diagnostics
 }
 
+// rols: sends the merged set under the lock
 // Marshals under the lock: the merged map shares message strings with the global maps,
 // which the checker thread frees in clear_diagnostics.
 push_diagnostics :: proc(writer: ^Writer) {

@@ -132,6 +132,7 @@ resolve_entire_file_for_references :: proc(
 
 	ast_context.current_package = ast_context.document_package
 
+	// rols: no preallocation: most files resolve to far fewer nodes
 	symbols = make(SymbolAndNodeMap, allocator)
 
 	for decl in document.ast.decls {
@@ -270,6 +271,7 @@ resolve_binary_expr :: proc(binary: ^ast.Binary_Expr, data: ^FileResolveData) {
 	}
 }
 
+// rols: symbols are heap-allocated so the map can hold pointers
 @(private = "file")
 resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 	if node == nil {

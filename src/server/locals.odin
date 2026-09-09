@@ -104,6 +104,7 @@ store_label :: proc(ast_context: ^AstContext, label: ^ast.Expr) {
 }
 
 add_local_group :: proc(ast_context: ^AstContext) {
+	// rols: no preallocation: most groups hold a handful of names
 	append(&ast_context.locals, make(LocalGroup, ast_context.allocator))
 }
 
