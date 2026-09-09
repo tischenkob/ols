@@ -74,3 +74,18 @@ f :: proc(a: int) -> int {
 }
 `)
 }
+
+@(test)
+checker_fix_no_check_diagnostics :: proc(t: ^testing.T) {
+	source := test.Source {
+		files = {{"clean.odin", `package test
+
+f :: proc() {
+	x{*} := 1
+}
+`}},
+		config = {enable_code_action_checker_fix = true},
+	}
+
+	test.expect_action_missing(t, &source, "Remove 'x'")
+}

@@ -27,7 +27,8 @@ USAGE :: `usage: ols query <command> [--root DIR] [--json]
   reorder-params FILE:LINE:COL --order 2,0,1 [--apply]
   move    FILE:LINE:COL --to TARGET.odin [--apply]
   check   [DIR]                            odin check errors plus lints, no build or run; run after every edit
-  lint    FILE|DIR                         lints only, works on code that does not compile
+  lint    FILE|DIR [--fail-on CODE,...]    lints only, works on code that does not compile;
+                                           --fail-on exits 1 when a listed code is reported
   tests   [DIR|FILE]                       list @(test) procedures
   test    DIR [NAME,...]                   odin test with the collections and defines of ols.json; NAME is
                                            pkg.name or name, several separated by commas
@@ -52,6 +53,7 @@ run :: proc(args: []string) -> int {
 	context.logger = log.create_console_logger(.Error)
 
 	root, apply_title, order_text, move_to := "", "", "", ""
+	fail_on := ""
 	apply := false
 	rest := make([dynamic]string, context.temp_allocator)
 
@@ -69,6 +71,12 @@ run :: proc(args: []string) -> int {
 				return usage()
 			}
 			order_text = args[i]
+		case "--fail-on":
+			i += 1
+			if i == len(args) {
+				return usage()
+			}
+			fail_on = args[i]
 		case "--to":
 			i += 1
 			if i == len(args) {
@@ -118,7 +126,7 @@ run :: proc(args: []string) -> int {
 		)
 		switch command {
 		case "lint":
-			return lint(target)
+			return lint(target, fail_on)
 		case "tests":
 			return tests(target)
 		case:
@@ -516,12 +524,22 @@ Call :: struct {
 	fromRanges: []common.Range,
 }
 
-lint :: proc(target: string) -> int {
+// fail_on lists diagnostic codes, comma separated; any of them in the output makes the exit code 1.
+lint :: proc(target: string, fail_on: string) -> int {
 	entries, ok := collect_lints(target)
 	if !ok {
 		return 1
 	}
 	print_entries(entries)
+	if fail_on == "" {
+		return 0
+	}
+	codes := strings.split(fail_on, ",", context.temp_allocator)
+	for entry in entries {
+		if slice.contains(codes, entry.diagnostic.code) {
+			return 1
+		}
+	}
 	return 0
 }
 
@@ -553,10 +571,9 @@ collect_lints :: proc(target: string) -> ([]Entry, bool) {
 	}
 
 	entries := make([dynamic]Entry, context.temp_allocator)
-	for type in ([]server.DiagnosticType{.Lint, .Unused, .Unused_Decl}) {
-		for uri, diagnostics in server.diagnostics[type] {
-			if uri not_in uris do continue
-			for diagnostic in diagnostics {
+	for uri in uris {
+		for type in ([]server.DiagnosticType{.Lint, .Unused, .Unused_Decl}) {
+			for diagnostic in server.diagnostics_of(type, uri, context.temp_allocator) {
 				append(&entries, Entry{uri, diagnostic})
 			}
 		}

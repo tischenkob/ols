@@ -17,7 +17,10 @@ DiagnosticType :: enum {
 	Unused_Decl,
 }
 
+// rols: file-private; other files read through diagnostics_of
+@(private = "file")
 diagnostics: [DiagnosticType]map[string][dynamic]Diagnostic
+@(private = "file")
 diagnostic_mutex: sync.Mutex
 
 @(private = "file")
@@ -87,6 +90,24 @@ remove_diagnostics :: proc(type: DiagnosticType, uri: string) {
 	defer sync.unlock(&diagnostic_mutex)
 
 	remove_diagnostics_locked(type, uri)
+}
+
+// rols: the copy outlives the lock
+// Copies because the checker thread frees message and code in clear_diagnostics. Empty for a
+// missing key.
+diagnostics_of :: proc(type: DiagnosticType, uri: string, allocator := context.allocator) -> []Diagnostic {
+	sync.lock(&diagnostic_mutex)
+	defer sync.unlock(&diagnostic_mutex)
+
+	source := diagnostics[type][uri]
+	copies := make([]Diagnostic, len(source), allocator)
+	for diagnostic, i in source {
+		copies[i] = diagnostic
+		copies[i].message = strings.clone(diagnostic.message, allocator)
+		copies[i].code = strings.clone(diagnostic.code, allocator)
+		copies[i].tags = slice.clone(diagnostic.tags, allocator)
+	}
+	return copies
 }
 
 clear_diagnostics :: proc(type: DiagnosticType) {
