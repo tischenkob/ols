@@ -503,11 +503,15 @@ f :: proc(xs: []int, i, j: int, p: ^int, u, v: S) {
 		config = {enable_lint_self_assignment = true},
 	}
 
-	// `x = (x)`: the parentheses make the two sides differ textually, so it is not reported.
 	test.expect_lint_diagnostics(
 		t,
 		&source,
-		{{11, "self-assignment"}, {12, "self-assignment"}, {16, "self-assignment"}},
+		{
+			{11, "self-assignment"},
+			{12, "self-assignment"},
+			{13, "self-assignment"},
+			{16, "self-assignment"},
+		},
 	)
 }
 
@@ -616,8 +620,7 @@ after_fallthrough :: proc(x: int) {
 		config = {enable_lint_unreachable_code = true},
 	}
 
-	// A statement after `for {}` is not reported: only return, break, continue, fallthrough,
-	// panic and unreachable terminate.
+	// A statement after `for {}` is not reported.
 	test.expect_lint_diagnostics(
 		t,
 		&source,
@@ -650,8 +653,7 @@ f :: proc(a: f32, b: f64, x, y: int, eps: f32) -> bool {
 		config = {enable_lint_float_equality = true},
 	}
 
-	// A call result and a conversion are not in the resolved-symbol map, and a switch case is not
-	// a comparison, so those three go unreported.
+	// A call result, a conversion and a switch case go unreported.
 	test.expect_lint_diagnostics(
 		t,
 		&source,

@@ -174,8 +174,8 @@ lint_self_assignment :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynami
 
 	for i in 0 ..< min(len(assign.lhs), len(assign.rhs)) {
 		if contains_call(assign.rhs[i]) do continue
-		lhs := strip_space(node_text(ctx.src, assign.lhs[i]))
-		if lhs != strip_space(node_text(ctx.src, assign.rhs[i])) do continue
+		lhs := strip_space(node_text(ctx.src, unparen(assign.lhs[i])))
+		if lhs != strip_space(node_text(ctx.src, unparen(assign.rhs[i]))) do continue
 		append(
 			diags,
 			Diagnostic {
