@@ -873,8 +873,8 @@ expect_action_with_edit :: proc(t: ^testing.T, src: ^Source, action_name: string
 /*
 	Puts one checker diagnostic on the main file, which no test ever runs the checker for. Call it
 	before the assertion, which runs the setup. The positions are those of the source without its
-	cursor mark. The diagnostic outlives the test, so it is allocated off the per-test allocators;
-	the one a previous test seeded is dropped rather than freed.
+	cursor mark. The diagnostic outlives the test, so it is allocated off the per-test allocators,
+	which is also what frees the one a previous test seeded.
 */
 seed_check_diagnostic :: proc(src: ^Source, line, col, end_col: int, message: string) {
 	name := len(src.main) > 0 ? "main.odin" : src.files[0].name
@@ -882,9 +882,7 @@ seed_check_diagnostic :: proc(src: ^Source, line, col, end_col: int, message: st
 	context.allocator = runtime.default_allocator()
 	uri := common.create_uri(strings.join({"test", name}, "/", context.temp_allocator), context.temp_allocator)
 
-	if seeded := &server.diagnostics[.Check][uri.uri]; seeded != nil {
-		clear(seeded)
-	}
+	server.remove_diagnostics(.Check, uri.uri)
 
 	enabled := common.config.enable_diagnostics
 	common.config.enable_diagnostics = true
