@@ -110,3 +110,176 @@ f :: proc() {
 `,
 	)
 }
+
+@(test)
+lint_allocator_cases :: proc(t: ^testing.T) {
+	cases := []Lint_Case {
+		{
+			"named allocator freed with the context allocator",
+			`package test
+
+Allocator :: struct {}
+
+f :: proc(my_allocator: Allocator) {
+	s := make([]int, 3, my_allocator)
+	delete(s)
+}
+`,
+			{{6, "allocator-mismatch"}},
+		},
+		{
+			"named allocator matched on both sides",
+			`package test
+
+Allocator :: struct {}
+
+f :: proc(my_allocator: Allocator) {
+	s := make([]int, 3, my_allocator)
+	delete(s, my_allocator)
+}
+`,
+			{},
+		},
+		{
+			"deferred free",
+			`package test
+
+f :: proc() {
+	s := make([]int, 3, context.temp_allocator)
+	defer delete(s)
+}
+`,
+			{{4, "allocator-mismatch"}},
+		},
+		{
+			"new freed with free",
+			`package test
+
+f :: proc() {
+	p := new(int, context.temp_allocator)
+	free(p)
+}
+`,
+			{{4, "allocator-mismatch"}},
+		},
+		{
+			"free_all is not a free",
+			`package test
+
+f :: proc() {
+	p := new(int, context.temp_allocator)
+	free_all(context.temp_allocator)
+	_ = p
+}
+`,
+			{},
+		},
+		{
+			"the last allocation before the free wins",
+			`package test
+
+f :: proc() {
+	s := make([]int, 3, context.temp_allocator)
+	s = make([]int, 4, context.allocator)
+	delete(s)
+}
+`,
+			{},
+		},
+		{
+			"make with capacity",
+			`package test
+
+f :: proc() {
+	xs := make([dynamic]int, 0, 10)
+	append(&xs, 1)
+}
+`,
+			{},
+		},
+		{
+			"make with a length and no append",
+			`package test
+
+f :: proc() {
+	xs := make([dynamic]int, 4)
+	xs[0] = 1
+}
+`,
+			{},
+		},
+	}
+
+	expect_lint_cases(t, cases, {enable_lint_allocator = true})
+}
+
+@(test)
+lint_fix_allocator_free :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc() {
+	p := new(int, context.temp_allocator)
+	free(p{*})
+}
+`,
+		config = {enable_lint_allocator = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Free with context.temp_allocator",
+		`package test
+
+f :: proc() {
+	p := new(int, context.temp_allocator)
+	free(p, context.temp_allocator)
+}
+`,
+	)
+}
+
+@(test)
+lint_fix_allocator_twice :: proc(t: ^testing.T) {
+	cases := []Fix_Twice {
+		{
+			"allocator-mismatch delete",
+			"Free with context.temp_allocator",
+			`package test
+
+f :: proc() {
+	x := make([]int, 4, context.temp_allocator)
+	delete(x{*})
+}
+`,
+			"delete(x, context.temp_allocator)",
+		},
+		{
+			"allocator-mismatch free",
+			"Free with context.temp_allocator",
+			`package test
+
+f :: proc() {
+	p := new(int, context.temp_allocator)
+	free(p{*})
+}
+`,
+			"free(p, context.temp_allocator)",
+		},
+		{
+			"make-len-append",
+			"Make with capacity instead of length",
+			`package test
+
+f :: proc() {
+	xs := make([dynamic]int, 4{*})
+	append(&xs, 1)
+}
+`,
+			"make([dynamic]int, 0, 4)",
+		},
+	}
+
+	expect_fix_twice(t, cases, {enable_lint_allocator = true})
+}

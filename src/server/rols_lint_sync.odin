@@ -205,7 +205,7 @@ lock_copy :: proc(ctx: ^LintContext, decl: ^ast.Value_Decl, diags: ^[dynamic]Dia
 	if !decl.is_mutable || len(decl.names) != 1 || len(decl.values) != 1 || decl.type != nil do return
 
 	#partial switch _ in decl.values[0].derived {
-	case ^ast.Selector_Expr, ^ast.Index_Expr:
+	case ^ast.Ident, ^ast.Selector_Expr, ^ast.Index_Expr:
 	case:
 		return
 	}

@@ -194,3 +194,67 @@ main :: proc() {}
 	}
 	test.expect_unused_declarations(t, &source, {})
 }
+
+@(test)
+lint_unused_declaration_used_from_test_file :: proc(t: ^testing.T) {
+	source := test.Source {
+		config = {enable_lint_unused_declaration = true},
+		main = `package test
+
+@(private)
+helper :: proc() {}
+
+main :: proc() {}
+`,
+		files = {{"main_test.odin", `package test
+
+import "core:testing"
+
+@(test)
+uses_helper :: proc(t: ^testing.T) {
+	helper()
+}
+`}},
+	}
+	test.expect_unused_declarations(t, &source, {})
+}
+
+@(test)
+lint_unused_declaration_assert_and_discard :: proc(t: ^testing.T) {
+	source := test.Source {
+		config = {enable_lint_unused_declaration = true},
+		main = `package test
+
+@(private)
+Point :: struct {
+	x: int,
+}
+
+@(private)
+LIMIT :: 10
+
+#assert(size_of(Point) == 8)
+
+main :: proc() {
+	_ = LIMIT
+}
+`,
+	}
+	test.expect_unused_declarations(t, &source, {})
+}
+
+@(test)
+lint_unused_declaration_init_attribute :: proc(t: ^testing.T) {
+	source := test.Source {
+		config = {enable_lint_unused_declaration = true},
+		main = `package test
+
+@(private)
+@(init)
+setup :: proc() {}
+
+main :: proc() {}
+`,
+	}
+	test.expect_unused_declarations(t, &source, {})
+}

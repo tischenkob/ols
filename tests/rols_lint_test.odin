@@ -2,7 +2,37 @@ package tests
 
 import "core:testing"
 
+import "src:common"
 import test "src:testing"
+
+Lint_Case :: struct {
+	name:   string,
+	source: string,
+	expect: []test.LintExpect,
+}
+
+// Each case is linted on its own; a failure is followed by the name of the case that produced it.
+expect_lint_cases :: proc(
+	t: ^testing.T,
+	cases: []Lint_Case,
+	config: common.Config,
+	packages: []test.Package = nil,
+	collections: map[string]string = nil,
+) {
+	for c in cases {
+		source := test.Source {
+			main        = c.source,
+			packages    = packages,
+			collections = collections,
+			config      = config,
+		}
+		before := t.error_count
+		test.expect_lint_diagnostics(t, &source, c.expect)
+		if t.error_count > before {
+			testing.expectf(t, false, "in case %q", c.name)
+		}
+	}
+}
 
 @(test)
 lint_self_assignment :: proc(t: ^testing.T) {

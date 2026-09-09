@@ -11,6 +11,7 @@ packages := []test.Package {
 		source = `package time
 Duration :: distinct i64
 Millisecond :: Duration(1000000)
+Second :: Duration(1000000000)
 sleep :: proc(d: Duration) {}
 `,
 	},
@@ -26,6 +27,7 @@ replace_all :: proc(s, old, new: string) -> (output: string, was_allocation: boo
 		source = `package math
 ceil :: proc(x: f64) -> f64 { return 0 }
 floor :: proc(x: f64) -> f64 { return 0 }
+round :: proc(x: f64) -> f64 { return 0 }
 `,
 	},
 	{
@@ -140,4 +142,160 @@ main :: proc() {
 	)
 
 	test.expect_lint_diagnostics(t, &src, {{5, "regex-syntax"}})
+}
+
+@(test)
+lint_core_misuse_cases :: proc(t: ^testing.T) {
+	cases := []Lint_Case {
+		{
+			"sleep with a unit constant",
+			`package test
+
+import "time"
+
+main :: proc() {
+	time.sleep(time.Second)
+}
+`,
+			{},
+		},
+		{
+			"sleep with a variable",
+			`package test
+
+import "time"
+
+main :: proc(d: time.Duration) {
+	time.sleep(d)
+}
+`,
+			{},
+		},
+		{
+			"replace with a named count",
+			`package test
+
+import "strings"
+
+main :: proc() {
+	strings.replace("a", "b", "c", n = 1)
+}
+`,
+			{},
+		},
+		{
+			"floor on a float",
+			`package test
+
+import "math"
+
+main :: proc(x: f32) {
+	math.floor(f32(x))
+}
+`,
+			{},
+		},
+		{
+			"rounding a division is not a converted integer",
+			`package test
+
+import "math"
+
+main :: proc(i: int) {
+	math.round(f64(i) / 2)
+}
+`,
+			{},
+		},
+		{
+			"invalid pattern with an escape",
+			`package test
+
+import "text/regex"
+
+main :: proc() {
+	regex.create("\\d+(")
+}
+`,
+			{{5, "regex-syntax"}},
+		},
+		{
+			"valid pattern in a raw string",
+			"package test\n\nimport \"text/regex\"\n\nmain :: proc() {\n\tregex.create(`\\d+`)\n}\n",
+			{},
+		},
+		{
+			"pattern in a variable",
+			`package test
+
+import "text/regex"
+
+main :: proc(p: string) {
+	regex.create(p)
+}
+`,
+			{},
+		},
+		{
+			"reversed repetition bounds",
+			`package test
+
+import "text/regex"
+
+main :: proc() {
+	regex.create("a{2,1}")
+}
+`,
+			{{5, "regex-syntax"}},
+		},
+	}
+
+	expect_lint_cases(t, cases, {enable_lint_core_misuse = true}, packages)
+}
+
+@(test)
+lint_fix_replace_count_extra_args :: proc(t: ^testing.T) {
+	src := source(`package test
+
+import "strings"
+
+main :: proc() {
+	s, _ := strings.rep{*}lace("a", "b", "c", -1, context.temp_allocator)
+}
+`)
+
+	test.expect_action_applied(
+		t,
+		&src,
+		"Use strings.replace_all",
+		`package test
+
+import "strings"
+
+main :: proc() {
+	s, _ := strings.replace_all("a", "b", "c", context.temp_allocator)
+}
+`,
+	)
+}
+
+@(test)
+lint_fix_replace_count_twice :: proc(t: ^testing.T) {
+	cases := []Fix_Twice {
+		{
+			"replace-count",
+			"Use strings.replace_all",
+			`package test
+
+import "strings"
+
+main :: proc() {
+	s, _ := strings.rep{*}lace("a", "b", "c", -1)
+}
+`,
+			"replace_all(",
+		},
+	}
+
+	expect_fix_twice(t, cases, {enable_lint_core_misuse = true}, packages)
 }

@@ -20,6 +20,7 @@ lock :: proc(m: ^Mutex) {}
 unlock :: proc(m: ^Mutex) {}
 atomic_add :: proc(dst: ^int, val: int) -> int { return 0 }
 atomic_or :: proc(dst: ^int, val: int) -> int { return 0 }
+guard :: proc(m: ^Mutex) -> bool { return true }
 `,
 	},
 	{
@@ -151,4 +152,146 @@ delete :: proc(b: []byte) {}
 	)
 
 	test.expect_lint_diagnostics(t, &src, {{6, "defer-before-check"}})
+}
+
+@(test)
+lint_sync_cases :: proc(t: ^testing.T) {
+	cases := []Lint_Case {
+		{
+			"lock and unlock adjacent",
+			`package test
+
+import "sync"
+
+main :: proc() {
+	m: sync.Mutex
+	sync.lock(&m)
+	sync.unlock(&m)
+}
+`,
+			{{6, "empty-critical-section"}},
+		},
+		{
+			"deferred lock",
+			`package test
+
+import "sync"
+
+main :: proc() {
+	m: sync.Mutex
+	defer sync.lock(&m)
+}
+`,
+			{{6, "defer-lock"}},
+		},
+		{
+			"deferred unlock",
+			`package test
+
+import "sync"
+
+main :: proc() {
+	m: sync.Mutex
+	sync.lock(&m)
+	defer sync.unlock(&m)
+}
+`,
+			{},
+		},
+		{
+			"atomic result kept in a new variable",
+			`package test
+
+import "sync"
+
+main :: proc() {
+	x: int
+	old := sync.atomic_add(&x, 1)
+	_ = old
+}
+`,
+			{},
+		},
+		{
+			"a struct holding a lock passed by value",
+			`package test
+
+import "sync"
+
+Holder :: struct {
+	mu: sync.Mutex,
+}
+
+by_value :: proc(h: Holder) {}
+`,
+			{},
+		},
+		{
+			"a copied lock variable",
+			`package test
+
+import "sync"
+
+main :: proc() {
+	m: sync.Mutex
+	m2 := m
+	_ = m2
+}
+`,
+			{{6, "lock-by-value"}},
+		},
+		{
+			"a pointer field is not copied",
+			`package test
+
+import "sync"
+
+Holder :: struct {
+	mu: ^sync.Mutex,
+}
+
+main :: proc() {
+	h: Holder
+	p := h.mu
+	_ = p
+}
+`,
+			{},
+		},
+		{
+			"a non-error second result",
+			`package test
+
+two :: proc(name: string) -> (data: []byte, n: int) {
+	return nil, 0
+}
+
+drop :: proc(b: []byte) {}
+
+main :: proc() {
+	data, n := two("a")
+	defer drop(data)
+	if n != 0 {
+		return
+	}
+}
+`,
+			{},
+		},
+		{
+			"sync.guard is not a lock call",
+			`package test
+
+import "sync"
+
+main :: proc() {
+	m: sync.Mutex
+	defer sync.guard(&m)
+}
+`,
+			{},
+		},
+	}
+
+	expect_lint_cases(t, cases, {enable_lint_sync = true}, packages)
 }
