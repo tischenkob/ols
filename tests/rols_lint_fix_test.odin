@@ -3,7 +3,34 @@ package tests
 import "core:strings"
 import "core:testing"
 
+import "src:common"
 import test "src:testing"
+
+@(test)
+lint_fix_self_assignment_parens :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a: int) -> int {
+	a{*} = (a)
+	return a
+}
+`,
+		config = {enable_lint_self_assignment = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Remove self-assignment",
+		`package test
+
+f :: proc(a: int) -> int {
+	return a
+}
+`,
+	)
+}
 
 @(test)
 lint_fix_unreachable :: proc(t: ^testing.T) {
@@ -123,7 +150,6 @@ f :: proc(_: int = 1, q: int) -> int {
 	)
 }
 
-@(private = "file")
 Fix_Twice :: struct {
 	name:   string,
 	title:  string,
@@ -219,18 +245,11 @@ r :: proc(s: string) {
 	},
 }
 
-@(test)
-lint_fix_twice :: proc(t: ^testing.T) {
-	for c in FIX_TWICE {
+expect_fix_twice :: proc(t: ^testing.T, cases: []Fix_Twice, config: common.Config) {
+	for c in cases {
 		source := test.Source {
-			main = c.source,
-			config = {
-				enable_lint_self_assignment = true,
-				enable_lint_unreachable_code = true,
-				enable_lint_unused_parameter = true,
-				enable_lint_no_op = true,
-				enable_lint_loops = true,
-			},
+			main   = c.source,
+			config = config,
 		}
 
 		_, fixed := test.apply_action_chain(t, &source, {c.title})
@@ -241,15 +260,24 @@ lint_fix_twice :: proc(t: ^testing.T) {
 		at += len(c.after)
 
 		again := test.Source {
-			main = strings.concatenate({fixed[:at], "{*}", fixed[at:]}, context.temp_allocator),
-			config = {
-				enable_lint_self_assignment = true,
-				enable_lint_unreachable_code = true,
-				enable_lint_unused_parameter = true,
-				enable_lint_no_op = true,
-				enable_lint_loops = true,
-			},
+			main   = strings.concatenate({fixed[:at], "{*}", fixed[at:]}, context.temp_allocator),
+			config = config,
 		}
 		test.expect_action_missing(t, &again, c.title)
 	}
+}
+
+@(test)
+lint_fix_twice :: proc(t: ^testing.T) {
+	expect_fix_twice(
+		t,
+		FIX_TWICE,
+		{
+			enable_lint_self_assignment = true,
+			enable_lint_unreachable_code = true,
+			enable_lint_unused_parameter = true,
+			enable_lint_no_op = true,
+			enable_lint_loops = true,
+		},
+	)
 }

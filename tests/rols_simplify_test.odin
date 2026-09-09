@@ -1,6 +1,5 @@
 package tests
 
-import "core:strings"
 import "core:testing"
 
 import test "src:testing"
@@ -1630,13 +1629,23 @@ or_return_forms :: proc() -> (x: int, err: Error) {
 	}
 	return v + w + u, nil
 }
+
+init_else :: proc(m: map[int]int, k: int) -> int {
+	if v, ok := m[k]; ok {
+		log(nil)
+		return v
+	} else {
+		return 0
+	}
+}
 `,
 		config = {enable_lint_simplify = true},
 	}
 
-	// or_else cannot lift text that names the variables the if declares. or_return needs the
-	// error last in the return, a body of nothing but the return, and a `!= nil` test.
-	test.expect_lint_diagnostics(t, &source, {{15, "redundant-else"}})
+	// Neither or_else nor redundant-else can lift text that names the variables the if declares.
+	// or_return needs the error last in the return, a body of nothing but the return, and a
+	// `!= nil` test.
+	test.expect_lint_diagnostics(t, &source, {{49, "redundant-else"}})
 }
 
 @(test)
@@ -1725,14 +1734,6 @@ f :: proc(c: bool) -> bool {
 }
 `,
 	)
-}
-
-@(private = "file")
-Fix_Twice :: struct {
-	name:   string,
-	title:  string,
-	source: string, // carries the {*} cursor
-	after:  string, // text of the fixed source; the second cursor goes right after it
 }
 
 @(private = "file")
@@ -1962,23 +1963,5 @@ f :: proc() {
 
 @(test)
 simplify_fix_twice :: proc(t: ^testing.T) {
-	for c in FIX_TWICE {
-		source := test.Source {
-			main = c.source,
-			config = {enable_lint_simplify = true},
-		}
-
-		_, fixed := test.apply_action_chain(t, &source, {c.title})
-		at := strings.index(fixed, c.after)
-		if !testing.expectf(t, at >= 0, "\n%s: no %q in\n%s", c.name, c.after, fixed) {
-			continue
-		}
-		at += len(c.after)
-
-		again := test.Source {
-			main = strings.concatenate({fixed[:at], "{*}", fixed[at:]}, context.temp_allocator),
-			config = {enable_lint_simplify = true},
-		}
-		test.expect_action_missing(t, &again, c.title)
-	}
+	expect_fix_twice(t, FIX_TWICE, {enable_lint_simplify = true})
 }
