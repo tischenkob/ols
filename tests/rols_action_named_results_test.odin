@@ -125,3 +125,49 @@ f :: proc() -> in{*}t {
 }
 `, false)
 }
+
+@(test)
+named_results_optional_ok :: proc(t: ^testing.T) {
+	expect_named_results(t, `package test
+
+f :: pr{*}oc() -> (int, bool) #optional_ok {
+	return 1, true
+}
+`, `package test
+
+f :: proc() -> (result: int, ok: bool) #optional_ok {
+	return 1, true
+}
+`)
+}
+
+@(test)
+named_results_proc_literal_in_a_local :: proc(t: ^testing.T) {
+	expect_named_results(t, `package test
+
+main :: proc() {
+	f := proc() -> in{*}t {
+		return 1
+	}
+	_ = f
+}
+`, `package test
+
+main :: proc() {
+	f := proc() -> (result: int) {
+		return 1
+	}
+	_ = f
+}
+`)
+}
+
+@(test)
+named_results_missing_on_struct_field_type :: proc(t: ^testing.T) {
+	expect_no_named_results(t, `package test
+
+S :: struct {
+	f: proc() -> in{*}t,
+}
+`)
+}

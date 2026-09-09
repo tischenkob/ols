@@ -243,3 +243,197 @@ main :: proc() {
 }
 `, enabled = false)
 }
+
+@(test)
+action_inline_proc_refused_named_arguments :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+sub :: proc(a: int, b: int) -> int {
+	return a - b
+}
+
+main :: proc() {
+	y := su{*}b(b = 1, a = 2)
+}
+`)
+}
+
+@(test)
+action_inline_proc_refused_omitted_default :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+add :: proc(a: int, b: int = 2) -> int {
+	return a + b
+}
+
+main :: proc() {
+	y := ad{*}d(1)
+}
+`)
+}
+
+@(test)
+action_inline_proc_refused_two_results :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+pair :: proc(x: int) -> (int, int) {
+	return x, x
+}
+
+main :: proc() {
+	a, b := pa{*}ir(1)
+}
+`)
+}
+
+@(test)
+action_inline_proc_body_local_shadows_caller_local :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+use :: proc(x: int) {
+}
+
+scale :: proc(x: int) {
+	tmp := x * 2
+	use(tmp)
+}
+
+main :: proc() {
+	tmp := 1
+	sca{*}le(tmp)
+}
+`, `package test
+
+use :: proc(x: int) {
+}
+
+scale :: proc(x: int) {
+	tmp := x * 2
+	use(tmp)
+}
+
+main :: proc() {
+	tmp := 1
+	{
+		x: int = tmp
+		tmp := x * 2
+		use(tmp)
+	}
+}
+`)
+}
+
+@(test)
+action_inline_proc_force_inline_callee :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+double :: #force_inline proc(x: int) -> int {
+	return x * 2
+}
+
+main :: proc() {
+	y := dou{*}ble(1)
+}
+`, `package test
+
+double :: #force_inline proc(x: int) -> int {
+	return x * 2
+}
+
+main :: proc() {
+	y := 1 * 2
+}
+`)
+}
+
+@(test)
+action_inline_proc_recursive_one_level :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+countdown :: proc(n: int) -> int {
+	return n <= 0 ? 0 : countdown(n - 1)
+}
+
+main :: proc() {
+	y := coun{*}tdown(3)
+}
+`, `package test
+
+countdown :: proc(n: int) -> int {
+	return n <= 0 ? 0 : countdown(n - 1)
+}
+
+main :: proc() {
+	y := 3 <= 0 ? 0 : countdown(3 - 1)
+}
+`)
+}
+
+@(test)
+action_inline_proc_parenthesised_right_of_binary :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+inc :: proc(x: int) -> int {
+	return x + 1
+}
+
+main :: proc() {
+	a := 1
+	y := 1 + in{*}c(a)
+}
+`, `package test
+
+inc :: proc(x: int) -> int {
+	return x + 1
+}
+
+main :: proc() {
+	a := 1
+	y := 1 + (a + 1)
+}
+`)
+}
+
+@(test)
+action_inline_proc_twice_on_nested_call :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+double :: proc(x: int) -> int {
+	return x * 2
+}
+
+inc :: proc(x: int) -> int {
+	return x + 1
+}
+
+main :: proc() {
+	a := 1
+	y := dou{*}ble(inc(a))
+}
+`,
+		config = {enable_code_action_inline_proc = true},
+	}
+
+	test.expect_action_chain(
+		t,
+		&source,
+		{INLINE_PROC_ACTION, INLINE_PROC_ACTION},
+		`package test
+
+double :: proc(x: int) -> int {
+	return x * 2
+}
+
+inc :: proc(x: int) -> int {
+	return x + 1
+}
+
+main :: proc() {
+	a := 1
+	y := (a + 1) * 2
+}
+`,
+		{"inc("},
+	)
+}
