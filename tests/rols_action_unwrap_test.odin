@@ -366,9 +366,8 @@ pick :: proc(c, d: bool) -> int {
 	test.expect_action_missing(t, &source, REMOVE_ELSE_ACTION)
 }
 
-// The unwrapped declaration keeps its name, so an outer `x` is now redeclared: the edit is textual.
 @(test)
-action_unwrap_shadowing_declaration :: proc(t: ^testing.T) {
+action_unwrap_refused_shadowing_declaration :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
 
@@ -384,12 +383,52 @@ main :: proc() {
 		config = {enable_code_action_unwrap = true},
 	}
 
+	test.expect_action_missing(t, &source, UNWRAP_ACTION)
+}
+
+@(test)
+action_unwrap_refused_declaration_below :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	{*}{
+		a, x := 1, 2
+		_ = a + x
+	}
+	x := 3
+	_ = x
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_missing(t, &source, UNWRAP_ACTION)
+}
+
+@(test)
+action_unwrap_fresh_declaration :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	x := 1
+	{*}{
+		y := 2
+		_ = y
+	}
+	_ = x
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
 	test.expect_action_applied(t, &source, UNWRAP_ACTION, `package test
 
 main :: proc() {
 	x := 1
-	x := 2
-	_ = x
+	y := 2
+	_ = y
 	_ = x
 }
 `)
