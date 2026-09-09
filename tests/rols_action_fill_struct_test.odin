@@ -1,3 +1,5 @@
+#+feature dynamic-literals
+
 package tests
 
 import "core:testing"
@@ -216,4 +218,180 @@ main :: proc() {
 	_ = p
 }
 `, config = {})
+}
+
+@(test)
+fill_struct_zero_values :: proc(t: ^testing.T) {
+	expect_fill(t, FILL_ALL_ACTION, `package test
+
+Value :: union {
+	int,
+	bool,
+}
+
+Meters :: distinct int
+
+Handler :: proc(a: int) -> int
+
+Big :: struct {
+	u:  Value,
+	m:  Maybe(int),
+	h:  Handler,
+	d:  Meters,
+	dy: [dynamic]int,
+	mp: [^]int,
+	cs: cstring,
+	rp: rawptr,
+	ti: typeid,
+}
+
+main :: proc() {
+	b := Big{{*}}
+	_ = b
+}
+`, `package test
+
+Value :: union {
+	int,
+	bool,
+}
+
+Meters :: distinct int
+
+Handler :: proc(a: int) -> int
+
+Big :: struct {
+	u:  Value,
+	m:  Maybe(int),
+	h:  Handler,
+	d:  Meters,
+	dy: [dynamic]int,
+	mp: [^]int,
+	cs: cstring,
+	rp: rawptr,
+	ti: typeid,
+}
+
+main :: proc() {
+	b := Big{
+		u = {},
+		m = {},
+		h = nil,
+		d = 0,
+		dy = nil,
+		mp = nil,
+		cs = "",
+		rp = nil,
+		ti = nil,
+	}
+	_ = b
+}
+`)
+}
+
+@(test)
+fill_struct_using_field :: proc(t: ^testing.T) {
+	// The members a `using` field brings in are filled through the field itself.
+	expect_fill(t, FILL_ALL_ACTION, `package test
+
+Base :: struct {
+	id: int,
+}
+
+Derived :: struct {
+	using base: Base,
+	name:       string,
+}
+
+main :: proc() {
+	d := Derived{{*}}
+	_ = d
+}
+`, `package test
+
+Base :: struct {
+	id: int,
+}
+
+Derived :: struct {
+	using base: Base,
+	name:       string,
+}
+
+main :: proc() {
+	d := Derived{
+		base = {},
+		name = "",
+	}
+	_ = d
+}
+`)
+}
+
+@(test)
+fill_struct_imported_type :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "core:geom"
+
+main :: proc() {
+	p := geom.Point{{*}}
+	_ = p
+}
+`,
+		packages = {{pkg = "geom", source = `package geom
+
+Point :: struct {
+	x, y: f32,
+	name: string,
+}
+`}},
+		collections = {"core" = "test"},
+		config = {enable_code_action_fill_struct = true},
+	}
+
+	test.expect_action_applied(t, &source, FILL_ALL_ACTION, `package test
+
+import "core:geom"
+
+main :: proc() {
+	p := geom.Point{
+		x = 0,
+		y = 0,
+		name = "",
+	}
+	_ = p
+}
+`)
+}
+
+@(test)
+fill_struct_parametric_type :: proc(t: ^testing.T) {
+	expect_fill(t, FILL_ALL_ACTION, `package test
+
+Pair :: struct($T: typeid) {
+	a: T,
+	b: int,
+}
+
+main :: proc() {
+	p := Pair(int){{*}}
+	_ = p
+}
+`, `package test
+
+Pair :: struct($T: typeid) {
+	a: T,
+	b: int,
+}
+
+main :: proc() {
+	p := Pair(int){
+		a = 0,
+		b = 0,
+	}
+	_ = p
+}
+`)
 }
