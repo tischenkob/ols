@@ -245,11 +245,12 @@ r :: proc(s: string) {
 	},
 }
 
-expect_fix_twice :: proc(t: ^testing.T, cases: []Fix_Twice, config: common.Config) {
+expect_fix_twice :: proc(t: ^testing.T, cases: []Fix_Twice, config: common.Config, packages: []test.Package = nil) {
 	for c in cases {
 		source := test.Source {
-			main   = c.source,
-			config = config,
+			main     = c.source,
+			packages = packages,
+			config   = config,
 		}
 
 		_, fixed := test.apply_action_chain(t, &source, {c.title})
@@ -260,8 +261,9 @@ expect_fix_twice :: proc(t: ^testing.T, cases: []Fix_Twice, config: common.Confi
 		at += len(c.after)
 
 		again := test.Source {
-			main   = strings.concatenate({fixed[:at], "{*}", fixed[at:]}, context.temp_allocator),
-			config = config,
+			main     = strings.concatenate({fixed[:at], "{*}", fixed[at:]}, context.temp_allocator),
+			packages = packages,
+			config   = config,
 		}
 		test.expect_action_missing(t, &again, c.title)
 	}
