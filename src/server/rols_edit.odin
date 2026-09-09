@@ -404,6 +404,12 @@ block_lines :: proc(src: string, block: ^ast.Block_Stmt, ind, unit: string) -> s
 	return block_inner_text(src, block)
 }
 
+// `do ` when body is a one-statement block written with `do`, so a rewritten loop header keeps it.
+do_keyword :: proc(body: ^ast.Node) -> string {
+	block, ok := body.derived.(^ast.Block_Stmt)
+	return "do " if ok && block.uses_do else ""
+}
+
 // One indentation level: what inner adds to ind when it sits on its own deeper line, else the
 // indentation of the first indented line of the file, else a tab.
 indent_unit :: proc(src, ind: string, inner: ^ast.Node) -> string {

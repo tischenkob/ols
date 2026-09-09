@@ -189,3 +189,136 @@ Sha{*}pe :: struct {}
 	source.config.client_create_file_support = false
 	test.expect_action_missing(t, &source, "Move to new file shape.odin")
 }
+
+@(test)
+move_decl_target_keeps_its_import :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+import "core:fmt"
+
+sh{*}ow :: proc() {
+	fmt.println("x")
+}
+
+main :: proc() {
+	show()
+}
+`, {{"b.odin", `package test
+
+import "core:fmt"
+
+other :: proc() {
+	fmt.println("y")
+}
+`}})
+	test.expect_move_declaration(
+		t,
+		&source,
+		"b.odin",
+		{
+			{"main.odin", `package test
+
+import "core:fmt"
+
+main :: proc() {
+	show()
+}
+`},
+			{"b.odin", `package test
+
+import "core:fmt"
+
+other :: proc() {
+	fmt.println("y")
+}
+
+show :: proc() {
+	fmt.println("x")
+}
+`},
+		},
+	)
+}
+
+@(test)
+move_decl_last_of_the_file :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+first :: proc() {}
+
+la{*}st :: proc() {}
+`, {{"b.odin", "package test\n"}})
+	test.expect_move_declaration(
+		t,
+		&source,
+		"b.odin",
+		{
+			{"main.odin", `package test
+
+first :: proc() {}
+`},
+			{"b.odin", `package test
+
+last :: proc() {}
+`},
+		},
+	)
+}
+
+@(test)
+move_decl_round_trip :: proc(t: ^testing.T) {
+	MAIN :: `package test
+
+first :: proc() {}
+
+greet :: proc() -> string {
+	return "hi"
+}
+`
+	B :: `package test
+
+other :: proc() {}
+`
+	MOVED :: `package test
+
+other :: proc() {}
+
+greet :: proc() -> string {
+	return "hi"
+}
+`
+	there := move_source(`package test
+
+first :: proc() {}
+
+gr{*}eet :: proc() -> string {
+	return "hi"
+}
+`, {{"b.odin", B}})
+	test.expect_move_declaration(
+		t,
+		&there,
+		"b.odin",
+		{{"main.odin", `package test
+
+first :: proc() {}
+`}, {"b.odin", MOVED}},
+	)
+
+	back := move_source("")
+	back.files = {
+		{"b.odin", `package test
+
+other :: proc() {}
+
+gr{*}eet :: proc() -> string {
+	return "hi"
+}
+`},
+		{"main.odin", `package test
+
+first :: proc() {}
+`},
+	}
+	test.expect_move_declaration(t, &back, "main.odin", {{"b.odin", B}, {"main.odin", MAIN}})
+}

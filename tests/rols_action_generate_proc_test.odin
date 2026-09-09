@@ -1,5 +1,6 @@
 package tests
 
+import "core:strings"
 import "core:testing"
 
 import test "src:testing"
@@ -172,3 +173,178 @@ main :: proc() {
 }
 `, false)
 }
+
+@(test)
+generate_proc_no_arguments :: proc(t: ^testing.T) {
+	expect_generate_proc(t, `package test
+
+main :: proc() {
+	na{*}me()
+}
+`, `package test
+
+main :: proc() {
+	name()
+}
+
+name :: proc() {
+}
+`)
+}
+
+@(test)
+generate_proc_struct_pointer_and_slice :: proc(t: ^testing.T) {
+	expect_generate_proc(t, `package test
+
+Point :: struct { x, y: int }
+
+main :: proc() {
+	p := Point{}
+	na{*}me(p, &p, []int{1, 2})
+}
+`, `package test
+
+Point :: struct { x, y: int }
+
+main :: proc() {
+	p := Point{}
+	name(p, &p, []int{1, 2})
+}
+
+name :: proc(p: Point, arg2: ^Point, arg3: []int) {
+}
+`)
+}
+
+@(test)
+generate_proc_procedure_value :: proc(t: ^testing.T) {
+	expect_generate_proc(t, `package test
+
+other :: proc(a: int) -> bool { return true }
+
+main :: proc() {
+	na{*}me(other)
+}
+`, `package test
+
+other :: proc(a: int) -> bool { return true }
+
+main :: proc() {
+	name(other)
+}
+
+name :: proc(other: proc(a: int) -> bool) {
+}
+`)
+}
+
+@(test)
+generate_proc_named_argument :: proc(t: ^testing.T) {
+	expect_generate_proc(t, `package test
+
+main :: proc() {
+	na{*}me(a = 1)
+}
+`, `package test
+
+main :: proc() {
+	name(a = 1)
+}
+
+name :: proc(a: int) {
+}
+`)
+}
+
+@(test)
+generate_proc_qualified_call :: proc(t: ^testing.T) {
+	expect_no_generate_proc(t, `package test
+
+main :: proc() {
+	pkg.na{*}me()
+}
+`)
+}
+
+@(test)
+generate_proc_name_of_a_type :: proc(t: ^testing.T) {
+	expect_no_generate_proc(t, `package test
+
+name :: struct { x: int }
+
+main :: proc() {
+	na{*}me()
+}
+`)
+}
+
+@(test)
+generate_proc_in_a_proc_literal :: proc(t: ^testing.T) {
+	expect_generate_proc(t, `package test
+
+main :: proc() {
+	g := proc() {
+		na{*}me()
+	}
+	g()
+}
+`, `package test
+
+main :: proc() {
+	g := proc() {
+		name()
+	}
+	g()
+}
+
+name :: proc() {
+}
+`)
+}
+
+@(test)
+generate_proc_before_the_next_doc_comment :: proc(t: ^testing.T) {
+	expect_generate_proc(t, `package test
+
+main :: proc() {
+	na{*}me()
+}
+
+// Does something else.
+other :: proc() {}
+`, `package test
+
+main :: proc() {
+	name()
+}
+
+name :: proc() {
+}
+
+// Does something else.
+other :: proc() {}
+`)
+}
+
+@(test)
+generate_proc_twice :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	na{*}me()
+}
+`,
+		config = {enable_code_action_generate_proc = true},
+	}
+	once, ok := test.apply_action(t, &source, "Generate procedure name")
+	if !ok {
+		return
+	}
+	again := test.Source {
+		main   = strings.replace(once, "\tname()", "\tna{*}me()", 1, context.temp_allocator) or_else once,
+		config = {enable_code_action_generate_proc = true},
+	}
+	test.expect_action_missing(t, &again, "Generate procedure name")
+}
+
