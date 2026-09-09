@@ -123,6 +123,10 @@ BadName :: proc() -> bool {
 	x = x
 	arr: [2]int = {1, 1}
 	_ = arr
+	m: map[string][dynamic]int
+	for v in m["k"] {
+		_ = v
+	}
 	return x > 0
 }
 
@@ -135,7 +139,7 @@ package lint
 
 helper :: proc() {}
 ODIN
-for code in unused-declaration self-assignment ignored-result naming Unused array-broadcast; do
+for code in unused-declaration self-assignment ignored-result naming Unused array-broadcast range-map-lookup; do
 	expect "lint-$code" "\[$code\]" "$OLS" query lint "$dir/lint"
 done
 expect lint-file self-assignment "$OLS" query lint "$dir/lint/a.odin"

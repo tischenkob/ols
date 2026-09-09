@@ -128,3 +128,51 @@ r :: proc(xs: []int) {
 `,
 	)
 }
+
+@(test)
+lint_range_map_lookup :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Kind :: enum {
+	A,
+	B,
+}
+
+table: [Kind]map[string][dynamic]int
+
+f :: proc(m: map[string][dynamic]int, sl: map[string][]int, fa: map[string][2]int, xs: [][]int, key: string) {
+	for x in m[key] {
+		_ = x
+	}
+	for x in table[.A][key] {
+		_ = x
+	}
+	for x in fa[key] {
+		_ = x
+	}
+	for x in sl[key] {
+		_ = x
+	}
+	bound := m[key]
+	for x in bound {
+		_ = x
+	}
+	for x in xs[0] {
+		_ = x
+	}
+	for k, v in m {
+		_ = k
+		_ = v
+	}
+}
+`,
+		config = {enable_lint_loops = true},
+	}
+
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{10, "range-map-lookup"}, {13, "range-map-lookup"}, {16, "range-map-lookup"}},
+	)
+}
