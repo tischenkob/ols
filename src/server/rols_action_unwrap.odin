@@ -88,7 +88,7 @@ add_remove_else :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt) {
 // the statement's lines.
 unwrap_body :: proc(ctx: ^ActionContext, stmt: ^ast.Node, body: ^ast.Stmt) {
 	block, is_block := body.derived.(^ast.Block_Stmt)
-	if !is_block || block.uses_do {
+	if !is_block || block.uses_do || unwrap_redeclares(ctx, stmt, block) {
 		return
 	}
 	src := ctx.document.ast.src
@@ -107,6 +107,58 @@ unwrap_body :: proc(ctx: ^ActionContext, stmt: ^ast.Node, body: ^ast.Stmt) {
 	text := reindent(inner, strings.concatenate({ind, indent_unit(src, ind, first)}, context.temp_allocator), ind)
 	// The replacement starts after the statement's own indentation.
 	append_replace_range(ctx, stmt.pos.offset, stmt.end.offset, UNWRAP_TITLE, strings.trim_prefix(text, ind))
+}
+
+// Unwrapping hoists the block's own declarations into the enclosing statement list, where a
+// declaration of the same name, before or after the block, would become a redeclaration.
+unwrap_redeclares :: proc(ctx: ^ActionContext, stmt: ^ast.Node, block: ^ast.Block_Stmt) -> bool {
+	outer := enclosing_stmts(ctx, stmt)
+	for inner in block.stmts {
+		decl, is_decl := inner.derived.(^ast.Value_Decl)
+		if !is_decl {
+			continue
+		}
+		for name in decl.names {
+			ident, is_ident := name.derived.(^ast.Ident)
+			if !is_ident || ident.name == "_" {
+				continue
+			}
+			for sibling in outer {
+				if sibling.pos.offset == stmt.pos.offset {
+					continue
+				}
+				other, is_other := sibling.derived.(^ast.Value_Decl)
+				if !is_other {
+					continue
+				}
+				for other_name in other.names {
+					if id, ok := other_name.derived.(^ast.Ident); ok && id.name == ident.name {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// The statement list stmt is a direct member of.
+enclosing_stmts :: proc(ctx: ^ActionContext, stmt: ^ast.Node) -> []^ast.Stmt {
+	for at in nodes_at(ctx.document.ast.decls[:], stmt.pos.offset) {
+		stmts: []^ast.Stmt
+		#partial switch n in at.node.derived {
+		case ^ast.Block_Stmt:
+			stmts = n.stmts
+		case ^ast.Case_Clause:
+			stmts = n.body
+		}
+		for s in stmts {
+			if s.pos.offset == stmt.pos.offset {
+				return stmts
+			}
+		}
+	}
+	return nil
 }
 
 // An unlabeled break or continue that targets the loop being unwrapped.

@@ -666,3 +666,55 @@ main :: proc() {
 
 	test.expect_action_missing(t, &source2, MERGE_IF_ACTION)
 }
+
+@(test)
+action_split_if_refused_do_body :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	a, b := true, false
+	{*}if a && b do foo()
+}
+`,
+		config = {enable_code_action_split_merge_if = true},
+	}
+
+	test.expect_action_missing(t, &source, SPLIT_IF_ACTION)
+}
+
+@(test)
+action_merge_if_refused_do_outer_body :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	a, b := true, false
+	{*}if a do if b {
+		foo()
+	}
+}
+`,
+		config = {enable_code_action_split_merge_if = true},
+	}
+
+	test.expect_action_missing(t, &source, MERGE_IF_ACTION)
+}
+
+@(test)
+action_merge_if_refused_do_inner_body :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	a, b := true, false
+	{*}if a {
+		if b do foo()
+	}
+}
+`,
+		config = {enable_code_action_split_merge_if = true},
+	}
+
+	test.expect_action_missing(t, &source, MERGE_IF_ACTION)
+}

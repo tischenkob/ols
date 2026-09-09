@@ -16,7 +16,7 @@ add_split_merge_if_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	body, is_block := if_stmt.body.derived.(^ast.Block_Stmt)
-	if !is_block {
+	if !is_block || body.uses_do {
 		return
 	}
 
@@ -71,7 +71,9 @@ merge_if_text :: proc(src: string, if_stmt: ^ast.If_Stmt) -> (string, bool) {
 		return "", false
 	}
 	body, is_body_block := if_stmt.body.derived.(^ast.Block_Stmt)
-	if !is_body_block || len(body.stmts) != 1 {
+	// A `do` body has no braces: its `open` is the statement's own position, so the slices below
+	// would cut into the statement.
+	if !is_body_block || body.uses_do || len(body.stmts) != 1 {
 		return "", false
 	}
 	inner, is_if := body.stmts[0].derived.(^ast.If_Stmt)
@@ -79,7 +81,7 @@ merge_if_text :: proc(src: string, if_stmt: ^ast.If_Stmt) -> (string, bool) {
 		return "", false
 	}
 	inner_body, is_block := inner.body.derived.(^ast.Block_Stmt)
-	if !is_block {
+	if !is_block || inner_body.uses_do {
 		return "", false
 	}
 
