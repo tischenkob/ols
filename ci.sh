@@ -33,3 +33,10 @@ echo "Building ols (./build.sh release)"
 
 echo "Building odinfmt (./odinfmt.sh)"
 ./odinfmt.sh "$@"
+
+# rols: fail the build on lint codes that must never appear in the server
+if ! lint_output=$(OLS_BUILTIN_FOLDER="$PWD/builtin" ./ols query lint src/server --fail-on range-map-lookup); then
+	echo "Self-lint gate failed"
+	echo "$lint_output" | grep range-map-lookup
+	exit 1
+fi

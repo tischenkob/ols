@@ -143,6 +143,9 @@ for code in unused-declaration self-assignment ignored-result naming Unused arra
 	expect "lint-$code" "\[$code\]" "$OLS" query lint "$dir/lint"
 done
 expect lint-file self-assignment "$OLS" query lint "$dir/lint/a.odin"
+if "$OLS" query lint "$dir/lint" --fail-on range-map-lookup > /dev/null; then echo "FAIL lint-fail-on: exit 0"; exit 1; fi
+"$OLS" query lint "$dir/lint" --fail-on no-such-code > /dev/null || { echo "FAIL lint-fail-on-clean"; exit 1; }
+echo "ok lint-fail-on"
 expect check-lints "\[self-assignment\]" "$OLS" query check "$dir/lint"
 mkdir "$dir/t"
 cat > "$dir/t/t_test.odin" <<'ODIN'
