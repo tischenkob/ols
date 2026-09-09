@@ -1,5 +1,6 @@
 package server
 
+// rols: imports for the reference sweep
 import "base:runtime"
 
 import "core:encoding/json"
@@ -20,6 +21,7 @@ CodeLensOptions :: struct {
 	resolveProvider: bool,
 }
 
+// rols: code lens request params
 CodeLensParams :: struct {
 	textDocument: TextDocumentIdentifier,
 }
@@ -29,6 +31,7 @@ CodeLens :: struct {
 	command: Command,
 }
 
+// rols: budget and bookkeeping for the reference sweep
 // The sweep costs about 0.3 ms per workspace file that does not mention a declaration and a full
 // resolve per file that does; past this many files it blocks the request thread for seconds.
 @(private = "file")
@@ -47,6 +50,7 @@ Lens_Candidate :: struct {
 	count:  int,
 }
 
+// rols: textDocument/codeLens handler
 request_code_lens :: proc(
 	params: json.Value,
 	id: RequestId,
@@ -67,6 +71,7 @@ request_code_lens :: proc(
 	return .None
 }
 
+// rols: reference counts as lenses
 // Reference counts on the document's top-level declarations. The title carries the count and the
 // command is left empty: OLS has no workspace/executeCommand, and Zed shows such a lens as plain text.
 // files replaces the workspace walk, which is compiled out under ODIN_TEST.
@@ -154,6 +159,7 @@ get_code_lenses :: proc(document: ^Document, config: ^common.Config, files: []Pa
 	return lenses
 }
 
+// rols: cheap prefilter before parsing a file
 // Whether text contains one of names as a whole identifier.
 @(private = "file")
 mentions_any :: proc(text: string, names: map[string]struct{}) -> bool {
