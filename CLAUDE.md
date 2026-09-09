@@ -4,10 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`rols`: a fork of the Odin language server [DanielGavin/ols](https://github.com/DanielGavin/ols). Branch `rols`, remote `upstream`. Sync with `git rebase upstream/master`. Keep it drop-in compatible with OLS: clients that must keep working are Zed, Helix and the Claude Code LSP plugin.
+`rols`: a fork of the Odin language server [DanielGavin/ols](https://github.com/DanielGavin/ols). Branch `rols`, remote `upstream`. Sync with the `rebase` skill in `.claude/skills/rebase`, never a bare `git rebase upstream/master`. Keep it drop-in compatible with OLS: clients that must keep working are Zed, Helix and the Claude Code LSP plugin.
 
 Fork rules:
-- New features go in new files named `rols_<name>.odin`. Touch upstream files only at hook points: the `action_procs` table in `action.odin`, `requests.odin`, `config.odin`, `types.odin`, `misc/ols.schema.json`, `main.odin`.
+- Fork-only `.odin` files carry the `rols_` prefix.
+- Touch upstream files only at hook points, and start every fork region with a `// rols: …` comment line, one per region, never trailing.
+- Every new config key, LSP request, script and README section goes into `FORK.md` in the same commit.
 - One `enable_*` config key per feature, default true, documented in README.md.
 - Tests use the OLS harness in `src/testing`, never a separate runner.
 
@@ -53,7 +55,7 @@ Formatter: `src/odin/printer` builds a Wadler-style document tree; `src/odin/for
 
 ## Adding a feature
 
-Config flag, all six files: bool in `src/common/config.odin`, `Maybe(bool)` in `src/server/types.odin`, default plus merge line in `src/server/requests.odin`, entry in `misc/ols.schema.json`, option in README.md, early return in the feature file. See the `enable_code_action_move_decl` commit for the shape.
+Config flag, all seven files: bool in `src/common/config.odin`, `Maybe(bool)` in `src/server/types.odin`, default plus merge line in `src/server/requests.odin`, entry in `misc/ols.schema.json`, option in README.md, key in the `FORK.md` list, early return in the feature file. See the `enable_code_action_move_decl` commit for the shape.
 
 Code action: a new `src/server/rols_action_<name>.odin` with `#+private file`, one `@(private = "package") add_<name>_action :: proc(ctx: ^ActionContext)` that returns early on its flag, then appended to `action_procs` in `action.odin`. `ActionContext` and the shared edit helpers (`range_of`, `node_text`, `reindent`, `fresh_name`, `append_replace_range`, …) live in `src/server/rols_edit.odin`. Cross-file refactorings that the CLI also calls keep their engine in a plain file (`rols_change_signature.odin`, `rols_move_decl.odin`) and a thin `rols_action_*.odin` wrapper.
 
