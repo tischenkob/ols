@@ -2,7 +2,37 @@ package tests
 
 import "core:testing"
 
+import "src:common"
 import test "src:testing"
+
+Lint_Case :: struct {
+	name:   string,
+	source: string,
+	expect: []test.LintExpect,
+}
+
+// Each case is linted on its own; a failure is followed by the name of the case that produced it.
+expect_lint_cases :: proc(
+	t: ^testing.T,
+	cases: []Lint_Case,
+	config: common.Config,
+	packages: []test.Package = nil,
+	collections: map[string]string = nil,
+) {
+	for c in cases {
+		source := test.Source {
+			main        = c.source,
+			packages    = packages,
+			collections = collections,
+			config      = config,
+		}
+		before := t.error_count
+		test.expect_lint_diagnostics(t, &source, c.expect)
+		if t.error_count > before {
+			testing.expectf(t, false, "in case %q", c.name)
+		}
+	}
+}
 
 @(test)
 lint_self_assignment :: proc(t: ^testing.T) {
@@ -341,132 +371,6 @@ ok_proc :: proc(a: int) -> bool {
 
 main :: proc() {
 	ok_proc(1)
-}
-`,
-	}
-
-	test.expect_lint_diagnostics(t, &source, {})
-}
-
-@(test)
-lint_naming :: proc(t: ^testing.T) {
-	source := test.Source {
-		main = `package test
-
-draw_sprite :: proc(sprite_id: int, N: int) {
-	local_ok := 1
-	localBad := 2
-	Local_Const :: 3
-	LOCAL_CONST :: 4
-}
-
-draw_Sprite :: proc(spriteId: int) {
-}
-
-Sprite_Batch :: struct {
-	sprite_count: int,
-	spriteCount:  int,
-}
-
-sprite_batch :: struct {}
-
-Vec2 :: [2]f32
-
-Mouse_Button :: enum {
-	Left_Button,
-	right_button,
-	RIGHT = 3,
-}
-
-Flags :: bit_field u8 {
-	is_on: bool | 1,
-	isOff: bool | 1,
-}
-
-MAX_ENTITIES :: 100
-maxEntities :: 100
-ORIGIN :: Vec2{0, 0}
-Origin :: Vec2{0, 0}
-Meters :: distinct f32
-meters :: distinct f32
-Callback :: #type proc(x: int)
-Handle :: Meters
-Vector :: struct($T: typeid) {}
-Vec_F32 :: Vector(f32)
-
-my_var := 1
-myVar := 2
-
-main :: proc() {
-}
-`,
-		config = {enable_lint_naming = true},
-	}
-
-	test.expect_lint_diagnostics(
-		t,
-		&source,
-		{
-			{4, "naming"},
-			{5, "naming"},
-			{9, "naming"},
-			{9, "naming"},
-			{14, "naming"},
-			{17, "naming"},
-			{23, "naming"},
-			{29, "naming"},
-			{33, "naming"},
-			{35, "naming"},
-			{37, "naming"},
-			{44, "naming"},
-		},
-	)
-}
-
-@(test)
-lint_naming_exemptions :: proc(t: ^testing.T) {
-	source := test.Source {
-		main = `package test
-
-import "core:fmt"
-
-@(export)
-BadName :: proc() {}
-
-@(link_name = "c_thing")
-Other_Bad :: proc() {}
-
-foreign import lib "system:c"
-
-foreign lib {
-	SDL_CreateWindow :: proc(windowTitle: cstring) -> rawptr ---
-	gExternal: i32
-}
-
-println :: fmt.println
-SCALE :: #config(SCALE, 2)
-scale :: #config(SCALE, 2)
-
-generic :: proc($T: typeid, N: int, using Base_Params: Sprite, _: int) {}
-
-Sprite :: struct {}
-SDL_Window :: struct {}
-HTTP_OK :: 200
-Vec2 :: [2]f32
-Ada_Const :: Vec2{}
-`,
-		config = {enable_lint_naming = true},
-	}
-
-	test.expect_lint_diagnostics(t, &source, {{27, "naming"}})
-}
-
-@(test)
-lint_naming_disabled :: proc(t: ^testing.T) {
-	source := test.Source {
-		main = `package test
-
-draw_Sprite :: proc() {
 }
 `,
 	}

@@ -387,3 +387,283 @@ main :: proc(s: []int, x: int) -> bool {
 
 	test.expect_action_missing(t, &src, "Replace with slice.contains")
 }
+
+@(test)
+lint_use_stdlib_cases :: proc(t: ^testing.T) {
+	cases := []Lint_Case {
+		{
+			"a comment in the body",
+			`package test
+
+main :: proc(s: []int, x: int) -> bool {
+	for e in s {
+		// look
+		if e == x {
+			return true
+		}
+	}
+	return false
+}
+`,
+			{{3, "use_stdlib"}},
+		},
+		{
+			"a do body",
+			`package test
+
+main :: proc(s: []int, x: int) -> bool {
+	for e in s {
+		if e == x do return true
+	}
+	return false
+}
+`,
+			{{3, "use_stdlib"}},
+		},
+		{
+			"a reversed loop",
+			`package test
+
+main :: proc(s: []int, x: int) -> bool {
+	#reverse for e in s {
+		if e == x {
+			return true
+		}
+	}
+	return false
+}
+`,
+			{},
+		},
+		{
+			"an extra range value",
+			`package test
+
+main :: proc(s: []int, x: int) -> bool {
+	for e, _ in s {
+		if e == x {
+			return true
+		}
+	}
+	return false
+}
+`,
+			{},
+		},
+		{
+			"a differently named accumulator",
+			`package test
+
+main :: proc(s: []int) -> int {
+	acc := 0
+	for x in s {
+		acc += x
+	}
+	return acc
+}
+`,
+			{{3, "use_stdlib"}},
+		},
+		{
+			"an extra statement in the body",
+			`package test
+
+main :: proc(s: []int, x: int) -> bool {
+	for e in s {
+		if e == x {
+			return true
+		}
+		_ = e
+	}
+	return false
+}
+`,
+			{},
+		},
+		{
+			"swapped comparison operands are not matched",
+			`package test
+
+main :: proc(s: []int, x: int) -> bool {
+	for e in s {
+		if x == e {
+			return true
+		}
+	}
+	return false
+}
+`,
+			{},
+		},
+		{
+			"min written with <= is not matched",
+			`package test
+
+main :: proc(a, b: int) -> int {
+	if a <= b {
+		return a
+	}
+	return b
+}
+`,
+			{},
+		},
+		{
+			"abs on a float",
+			`package test
+
+main :: proc(x: f64) -> f64 {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+`,
+			{{3, "use_stdlib"}},
+		},
+		{
+			"abs on an integer",
+			`package test
+
+main :: proc(x: int) -> int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+`,
+			{{3, "use_stdlib"}},
+		},
+		{
+			"clamp written with min and max calls",
+			`package test
+
+a :: proc(x, lo, hi: int) -> int {
+	return min(max(x, lo), hi)
+}
+
+b :: proc(x, lo, hi: int) -> int {
+	return max(min(x, hi), lo)
+}
+`,
+			{},
+		},
+		{
+			"a copy loop with an offset",
+			`package test
+
+main :: proc(dst, src: []int) {
+	for i in 0 ..< len(src) {
+		dst[i + 1] = src[i]
+	}
+}
+`,
+			{},
+		},
+		{
+			"fill by index",
+			`package test
+
+main :: proc(s: []int, v: int) {
+	for i in 0 ..< len(s) {
+		s[i] = v
+	}
+}
+`,
+			{{3, "use_stdlib"}},
+		},
+		{
+			"a sum written out in full",
+			`package test
+
+main :: proc(s: []int) -> int {
+	total := 0
+	for x in s {
+		total = total + x
+	}
+	return total
+}
+`,
+			{},
+		},
+		{
+			"has_suffix",
+			`package test
+
+main :: proc(s, p: string) -> bool {
+	return len(s) >= len(p) && s[len(s) - len(p):] == p
+}
+`,
+			{{3, "use_stdlib"}},
+		},
+		{
+			"has_prefix without the length guard",
+			`package test
+
+main :: proc(s, p: string) -> bool {
+	return s[:len(p)] == p
+}
+`,
+			{},
+		},
+	}
+
+	expect_lint_cases(t, cases, {enable_lint_use_stdlib = true})
+}
+
+@(test)
+use_stdlib_action_import_after_comment :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `// header
+package test
+
+main :: proc(s: []int, x: int) -> bool {
+	for e in s {
+		if e{*} == x {
+			return true
+		}
+	}
+	return false
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&src,
+		"Replace with slice.contains",
+		`// header
+package test
+import "core:slice"
+
+main :: proc(s: []int, x: int) -> bool {
+	return slice.contains(s, x)
+}
+`,
+	)
+}
+
+@(test)
+use_stdlib_action_twice :: proc(t: ^testing.T) {
+	cases := []Fix_Twice {
+		{
+			"use_stdlib contains",
+			"Replace with slice.contains",
+			`package test
+
+main :: proc(s: []int, x: int) -> bool {
+	for e in s {
+		if e{*} == x {
+			return true
+		}
+	}
+	return false
+}
+`,
+			"slice.contains(s, x)",
+		},
+	}
+
+	expect_fix_twice(t, cases, {enable_lint_use_stdlib = true})
+}
