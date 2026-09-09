@@ -54,3 +54,75 @@ two :: proc(a: int, b: int) {}
 		},
 	)
 }
+
+@(test)
+lint_call_arity_cases :: proc(t: ^testing.T) {
+	cases := []Lint_Case {
+		{
+			"a procedure value is not checked",
+			`package test
+
+f :: proc(a: int, b: int) {}
+
+main :: proc() {
+	p := f
+	p(1)
+}
+`,
+			{},
+		},
+		{
+			"a spread argument hides the count",
+			`package test
+
+f :: proc(a: int, b: int) {}
+
+main :: proc(s: []int) {
+	f(..s)
+}
+`,
+			{},
+		},
+		{
+			"a c_vararg foreign procedure",
+			`package test
+
+foreign import lib "system:c"
+
+foreign lib {
+	printf :: proc(format: cstring, #c_vararg args: ..any) -> i32 ---
+}
+
+main :: proc() {
+	printf("a", 1, 2)
+}
+`,
+			{},
+		},
+		{
+			"an overloaded group",
+			`package test
+
+add_int :: proc(a, b: int) -> int {
+	return a + b
+}
+
+add_f32 :: proc(a, b: f32) -> f32 {
+	return a + b
+}
+
+add :: proc {
+	add_int,
+	add_f32,
+}
+
+main :: proc() {
+	_ = add(1)
+}
+`,
+			{},
+		},
+	}
+
+	expect_lint_cases(t, cases, {enable_lint_call_arity = true})
+}
