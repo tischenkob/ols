@@ -408,7 +408,7 @@ main :: proc() {
 }
 
 @(test)
-action_ternary_round_trip_drops_cond_parens :: proc(t: ^testing.T) {
+action_ternary_chain_drops_cond_parens :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
 
@@ -440,7 +440,7 @@ main :: proc() {
 }
 
 @(test)
-action_ternary_round_trip_parenthesises_ternary_cond :: proc(t: ^testing.T) {
+action_ternary_chain_parenthesises_ternary_cond :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
 
