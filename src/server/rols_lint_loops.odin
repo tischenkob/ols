@@ -19,6 +19,7 @@ lint_loops :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnost
 	case ^ast.Range_Stmt:
 		loop_single_iteration(ctx, n.for_pos, n.body, diags)
 		range_off_by_one(ctx, n, diags)
+		range_map_lookup(ctx, n, diags)
 	}
 }
 
@@ -215,4 +216,74 @@ loop_side_effect_free :: proc(expr: ^ast.Expr) -> bool {
 		return loop_side_effect_free(e.expr) && loop_side_effect_free(e.index)
 	}
 	return false
+}
+
+// `for x in m[k]` reads the length through the slot pointer, which is nil for a missing key. Only
+// dynamic array, map and fixed array values actually read through it; slice and string values
+// iterate zero times, so they are left alone.
+@(private = "file")
+range_map_lookup :: proc(ctx: ^LintContext, stmt: ^ast.Range_Stmt, diags: ^[dynamic]Diagnostic) {
+	if stmt.expr == nil {
+		return
+	}
+	index, is_index := unparen(stmt.expr).derived.(^ast.Index_Expr)
+	if !is_index {
+		return
+	}
+	value, is_map, ok := index_element(ctx, index)
+	if !ok || !is_map {
+		return
+	}
+	#partial switch t in unparen(value).derived {
+	case ^ast.Dynamic_Array_Type, ^ast.Map_Type:
+	case ^ast.Array_Type:
+		if t.len == nil do return // a slice
+	case:
+		return
+	}
+	append(
+		diags,
+		Diagnostic {
+			range = common.get_token_range(stmt.expr, ctx.src),
+			severity = .Warning,
+			code = "range-map-lookup",
+			message = fmt.tprintf(
+				"'%s' is a map lookup; bind it to a name before ranging over it",
+				node_text(ctx.src, stmt.expr),
+			),
+		},
+	)
+}
+
+// The element type expression of one level of indexing, and whether the container indexed is a map.
+// Nested lookups like `table[.Kind][key]` resolve the innermost name and follow the element types
+// outward; anything else is not judged.
+@(private = "file")
+index_element :: proc(ctx: ^LintContext, index: ^ast.Index_Expr) -> (elem: ^ast.Expr, is_map: bool, ok: bool) {
+	base := unparen(index.expr)
+	#partial switch inner in base.derived {
+	case ^ast.Ident, ^ast.Selector_Expr:
+		resolved := lint_symbols(ctx)[uintptr(base)] or_return
+		#partial switch v in resolved.symbol.value {
+		case SymbolFixedArrayValue:
+			return v.expr, false, true
+		case SymbolSliceValue:
+			return v.expr, false, true
+		case SymbolDynamicArrayValue:
+			return v.expr, false, true
+		case SymbolMapValue:
+			return v.value, true, true
+		}
+	case ^ast.Index_Expr:
+		outer, _ := index_element(ctx, inner) or_return
+		#partial switch t in unparen(outer).derived {
+		case ^ast.Array_Type:
+			return t.elem, false, true
+		case ^ast.Dynamic_Array_Type:
+			return t.elem, false, true
+		case ^ast.Map_Type:
+			return t.value, true, true
+		}
+	}
+	return
 }

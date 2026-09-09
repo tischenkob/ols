@@ -435,7 +435,7 @@
 		},
 		"enable_lint_loops": {
 			"type": "boolean",
-			"description": "Report loop mistakes: a body that always exits on the first iteration, a condition nothing in the body changes, an empty infinite loop, and a range that runs one past the end.",
+			"description": "Report loop mistakes: a body that always exits on the first iteration, a condition nothing in the body changes, an empty infinite loop, a range that runs one past the end, and a range over a map lookup whose value is a dynamic array, map or fixed array, which reads through a nil slot for a missing key.",
 			"default": true
 		},
 		"enable_lint_dead_store": {
