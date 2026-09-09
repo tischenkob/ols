@@ -9,6 +9,7 @@ import "core:strings"
 
 import "src:common"
 
+// rols: takes an ActionContext and offers the early-exit variant
 @(private = "package")
 add_invert_if_action :: proc(ctx: ^ActionContext) {
 	if !ctx.config.enable_code_action_invert_if {
@@ -39,6 +40,7 @@ add_invert_if_action :: proc(ctx: ^ActionContext) {
 	add_early_exit_action(ctx, if_stmt, body)
 }
 
+// rols: rewrite an if into a guard with a bare exit
 Exit :: enum {
 	Return,
 	Continue,
@@ -224,6 +226,7 @@ is_bare_exit :: proc(stmt: ^ast.Stmt, exit: Exit) -> bool {
 // Find the innermost if statement that contains the given position
 // This will NOT return else-if statements, only top-level if statements
 // Also will not return an if statement if the position is in its else clause
+// rols: other fork actions look up the if at the cursor
 @(private = "package")
 find_if_stmt_at_position :: proc(stmts: []^ast.Stmt, position: common.AbsolutePosition) -> ^ast.If_Stmt {
 	for stmt in stmts {
@@ -344,6 +347,7 @@ find_if_stmt_in_node :: proc(node: ^ast.Node, position: common.AbsolutePosition,
 	return nil
 }
 
+// rols: rewritten to keep labels, do-bodies and indentation
 // The replacement starts at the `if`, so a label stays in place. Bodies keep their depth; a
 // `do` body becomes a block. An empty else is dropped, so inverting twice gives the input back.
 generate_inverted_if :: proc(src: string, if_stmt: ^ast.If_Stmt, body: ^ast.Block_Stmt) -> (string, bool) {
@@ -409,6 +413,7 @@ generate_inverted_if :: proc(src: string, if_stmt: ^ast.If_Stmt, body: ^ast.Bloc
 	return strings.to_string(sb), true
 }
 
+// rols: measures the file's indentation unit
 // A statement inside one of the if's blocks that sits on its own line, to measure the indentation
 // unit from.
 first_own_line_stmt :: proc(if_stmt: ^ast.If_Stmt) -> ^ast.Node {
@@ -423,6 +428,7 @@ first_own_line_stmt :: proc(if_stmt: ^ast.If_Stmt) -> ^ast.Node {
 	return nil
 }
 
+// rols: the early-exit rewrite refuses to move comments
 @(private = "package")
 has_comments_around :: proc(src: string, block: ^ast.Block_Stmt, stmt: ^ast.Stmt) -> bool {
 	before := strings.trim_space(src[block.open.offset + 1:stmt.pos.offset])
@@ -430,6 +436,7 @@ has_comments_around :: proc(src: string, block: ^ast.Block_Stmt, stmt: ^ast.Stmt
 	return before != "" || after != ""
 }
 
+// rols: handles parens and nested logical operators
 // Invert a condition expression
 @(private = "package")
 invert_condition :: proc(src: string, cond: ^ast.Expr) -> (string, bool) {
@@ -473,6 +480,7 @@ invert_condition :: proc(src: string, cond: ^ast.Expr) -> (string, bool) {
 	return fmt.tprintf("!(%s)", cond_text), true
 }
 
+// rols: && and || need parentheses when negated
 is_logical :: proc(expr: ^ast.Expr) -> bool {
 	bin, is_binary := expr.derived.(^ast.Binary_Expr)
 	return is_binary && (bin.op.kind == .Cmp_And || bin.op.kind == .Cmp_Or)
@@ -505,6 +513,7 @@ get_inverted_operator :: proc(op: tokenizer.Token_Kind) -> (string, bool) {
 		return "<=", true
 	case .Gt_Eq:
 		return "<", true
+	// rols: invert set membership too
 	case .In:
 		return "not_in", true
 	case .Not_In:

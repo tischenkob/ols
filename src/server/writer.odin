@@ -1,5 +1,6 @@
 package server
 
+// rols: import for the frame header
 import "core:fmt"
 import "core:sync"
 
@@ -19,6 +20,7 @@ make_writer :: proc(writer_fn: WriterFn, writer_context: rawptr) -> Writer {
 	return writer
 }
 
+// rols: framed write of one message
 // Header and body go out under one lock: the checker thread writes to the same stdout,
 // and a frame split across two writes lets its output land between them.
 write_message :: proc(writer: ^Writer, data: []byte) -> bool {

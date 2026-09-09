@@ -1,13 +1,16 @@
 package tests
 
+// rols: imports for the fork assertions
 import "core:log"
 import "core:strings"
 import "core:testing"
 
+// rols: import for the fork assertions
 import "src:common"
 import test "src:testing"
 
 INVERT_IF_ACTION :: "Invert if"
+// rols: the early-exit variant
 EARLY_RETURN_ACTION :: "Invert if (early return)"
 
 @(test)
@@ -336,6 +339,7 @@ main :: proc() {
 		config = {enable_code_action_invert_if = true},
 	}
 
+	// rols: the rewrite keeps the nested block at its own depth
 	expected := `if x <= 0 {
 		if x < 0 {
 			statement2()
@@ -421,6 +425,7 @@ main :: proc() {
 	test.expect_action(t, &source, {INVERT_IF_ACTION})
 }
 
+// rols: tests for the fork behaviour
 @(test)
 action_invert_if_selection :: proc(t: ^testing.T) {
 	source := test.Source {

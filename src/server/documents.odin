@@ -137,6 +137,7 @@ document_get :: proc(uri_string: string) -> ^Document {
 
 	document := &document_storage.documents[uri.path]
 
+	// rols: a document the client closed is not ours to serve
 	if document == nil || !document.client_owned {
 		log.errorf("Failed to get document %v", uri.path)
 		return nil
@@ -260,6 +261,7 @@ document_apply_changes :: proc(
 
 	document := &document_storage.documents[uri.path]
 
+	// rols: reject the change before touching the document
 	if document == nil || !document.client_owned {
 		log.errorf("Client called change on a document not opened: %v ", uri.path)
 		return .InvalidRequest
@@ -382,6 +384,7 @@ document_refresh :: proc(document: ^Document, config: ^common.Config, writer: ^W
 
 	remove_diagnostics(.Syntax, uri.uri)
 	remove_diagnostics(.Unused, uri.uri)
+	// rols: refresh the lint diagnostics
 	run_lints(document, config)
 
 	if writer != nil && config.enable_parser_errors {

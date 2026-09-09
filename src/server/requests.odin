@@ -66,6 +66,7 @@ request_sequence:                int
 latest_document_change_sequence: int
 active_request_sequence:         int
 
+// rols: reader thread exits cleanly and ignores replies to our own requests
 thread_request_main :: proc(data: rawptr) {
 	spall.thread("request")
 
@@ -263,6 +264,7 @@ call_map: map[string]proc(_: json.Value, _: RequestId, _: ^common.Config, _: ^Wr
 	"textDocument/semanticTokens/range" = request_semantic_token_range,
 	"textDocument/hover"                = request_hover,
 	"textDocument/formatting"           = request_format_document,
+	// rols: range formatting
 	"textDocument/rangeFormatting"      = request_range_format,
 	"textDocument/inlayHint"            = request_inlay_hint,
 	"textDocument/documentLink"         = request_document_links,
@@ -271,6 +273,7 @@ call_map: map[string]proc(_: json.Value, _: RequestId, _: ^common.Config, _: ^Wr
 	"textDocument/references"           = request_references,
 	"textDocument/documentHighlight"    = request_highlights,
 	"textDocument/codeAction"           = request_code_action,
+	// rols: fork request handlers
 	"textDocument/foldingRange"         = request_folding_range,
 	"textDocument/selectionRange"       = request_selection_range,
 	"textDocument/linkedEditingRange"   = request_linked_editing_range,
@@ -305,6 +308,7 @@ consume_requests :: proc(config: ^common.Config, writer: ^Writer) -> bool {
 		delete_index := -1
 		for request, i in requests {
 			if request.id == d.id {
+				// rols: assign the outer index instead of shadowing it
 				delete_index = i
 				break
 			}
@@ -328,6 +332,7 @@ consume_requests :: proc(config: ^common.Config, writer: ^Writer) -> bool {
 		request := temp_requests[request_index]
 		active_request_sequence = request.sequence
 		call(request.value, request.id, writer, config)
+		// rols: the parsed request is ours to free
 		json.destroy_value(request.value)
 		clear_index_cache()
 		free_all(context.temp_allocator)
@@ -412,6 +417,7 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	config.enable_document_symbols = ols_config.enable_document_symbols.(bool) or_else config.enable_document_symbols
 	config.enable_completions = ols_config.enable_completions.(bool) or_else config.enable_completions
 	config.enable_format = ols_config.enable_format.(bool) or_else config.enable_format
+	// rols: range formatting flag
 	config.enable_range_format = ols_config.enable_range_format.(bool) or_else config.enable_range_format
 	config.enable_hover = ols_config.enable_hover.(bool) or_else config.enable_hover
 	config.enable_hover_layout = ols_config.enable_hover_layout.(bool) or_else config.enable_hover_layout
@@ -435,6 +441,7 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_comp_lit_signature_help_use_docs.(bool) or_else config.enable_comp_lit_signature_help_use_docs
 	config.enable_code_action_invert_if =
 		ols_config.enable_code_action_invert_if.(bool) or_else config.enable_code_action_invert_if
+	// rols: fork code action, lint, lens and checker flags
 	config.enable_code_action_extract_variable =
 		ols_config.enable_code_action_extract_variable.(bool) or_else config.enable_code_action_extract_variable
 	config.enable_code_action_inline_variable =
@@ -659,6 +666,7 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_inlay_hints_implicit_return.(bool) or_else config.enable_inlay_hints_implicit_return
 	config.enable_inlay_hints_optional_result =
 		ols_config.enable_inlay_hints_optional_result.(bool) or_else config.enable_inlay_hints_optional_result
+	// rols: extra inlay hint kinds
 	config.enable_inlay_hints_variable_types =
 		ols_config.enable_inlay_hints_variable_types.(bool) or_else config.enable_inlay_hints_variable_types
 	config.enable_inlay_hints_comp_lit_fields =
@@ -855,6 +863,7 @@ request_initialize :: proc(
 		append(&config.workspace_folders, workspace)
 	}
 
+	// rols: defaults moved out so the CLI can reuse them
 	apply_default_config(config)
 
 	read_ols_config :: proc(file: string, config: ^common.Config, uri: common.Uri) -> (ok: bool) {
@@ -924,6 +933,7 @@ request_initialize :: proc(
 	config.signature_offset_support =
 		initialize_params.capabilities.textDocument.signatureHelp.signatureInformation.parameterInformation.labelOffsetSupport
 
+	// rols: organize-on-save and file creation need client support
 	config.enable_organize_imports_on_save &= initialize_params.capabilities.workspace.applyEdit
 
 	workspace_edit := initialize_params.capabilities.workspace.workspaceEdit
@@ -964,6 +974,7 @@ request_initialize :: proc(
 						tokenModifiers = semantic_token_modifier_names,
 					},
 				},
+				// rols: the fork hint kinds also turn the provider on
 				inlayHintProvider = (config.enable_inlay_hints_params ||
 					config.enable_inlay_hints_default_params ||
 					config.enable_inlay_hints_implicit_return ||
@@ -975,8 +986,10 @@ request_initialize :: proc(
 				documentSymbolProvider = config.enable_document_symbols,
 				hoverProvider = config.enable_hover,
 				documentFormattingProvider = config.enable_format,
+				// rols: range formatting
 				documentRangeFormattingProvider = config.enable_range_format,
 				documentLinkProvider = {resolveProvider = false},
+				// rols: the fork action kinds and providers
 				codeActionProvider = {resolveProvider = false, codeActionKinds = {"quickfix", "refactor.rewrite", "refactor.extract", "refactor.inline", "refactor.more", "refactor.move", "source.organizeImports"}},
 				foldingRangeProvider = true,
 				selectionRangeProvider = config.enable_selection_range,
@@ -1019,6 +1032,7 @@ request_initialize :: proc(
 	return .None
 }
 
+// rols: every config default in one place
 apply_default_config :: proc(config: ^common.Config) {
 	config.enable_hover = true
 	config.enable_hover_layout = false
@@ -1448,6 +1462,7 @@ notification_did_open :: proc(
 	document := document_get(open_params.textDocument.uri)
 
 	check_unused_imports(document, config)
+	// rols: lint the freshly opened document
 	run_lints(document, config)
 
 	push_diagnostics(writer)
@@ -1559,6 +1574,7 @@ notification_did_save :: proc(
 	document := document_get(save_params.textDocument.uri)
 	if document != nil {
 		check_unused_imports(document, config)
+		// rols: the expensive checks and the import cleanup run on save
 		run_lints(document, config)
 		lint_unused_declarations(document, config)
 

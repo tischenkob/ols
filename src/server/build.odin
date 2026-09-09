@@ -323,6 +323,7 @@ index_file :: proc(uri: common.Uri, text: string) -> common.Error {
 
 	dir := filepath.base(filepath.dir(fullpath))
 
+	// rols: the package only lives for this reindex
 	pkg := new(ast.Package, context.temp_allocator)
 	pkg.kind = .Normal
 	pkg.fullpath = fullpath

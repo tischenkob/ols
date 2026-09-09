@@ -5,6 +5,7 @@ import "core:log"
 import "core:os"
 import "core:thread"
 
+// rols: import for the query CLI
 import "src:cli"
 import "src:common"
 import "src:server"
@@ -67,6 +68,7 @@ run :: proc(reader: ^server.Reader, writer: ^server.Writer) {
 
 
 	for common.config.running {
+		// rols: retune the existing logger instead of rebuilding it each loop
 		logger.lowest_level = .Info if common.config.verbose else .Error
 		context.logger = logger^
 
@@ -102,6 +104,7 @@ main :: proc() {
 		fmt.println("ols version", VERSION)
 		os.exit(0)
 	}
+	// rols: ols query dispatch
 	if len(os.args) > 1 && os.args[1] == "query" {
 		os.exit(cli.run(os.args[2:]))
 	}
