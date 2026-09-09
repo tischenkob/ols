@@ -78,7 +78,8 @@ add_result_handling_action :: proc(ctx: ^ActionContext) {
 	}
 	propagates := proc_last != nil && same_error(ctx, src, last, proc_last, kind)
 
-	if propagates {
+	// `x := f() or_return` needs a result left over once the error is taken off.
+	if propagates && (is_stmt || len(results) > 1) {
 		append_insert(ctx, call.end.offset, "Add or_return", is_stmt ? "quickfix" : "refactor.rewrite", " or_return")
 	}
 

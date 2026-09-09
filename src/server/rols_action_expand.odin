@@ -222,8 +222,18 @@ add_expand_or_return :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 			stmt := at.parent
 			name := fresh_name(ctx, kind == .Bool ? "ok" : "err", stmt.pos)
 			ind := get_line_indentation(src, stmt.pos.offset)
+			lhs := strings.builder_make(context.temp_allocator)
+			for _ in 0 ..< len(results) - 1 {
+				strings.write_string(&lhs, "_, ")
+			}
+			strings.write_string(&lhs, name)
 			text := strings.concatenate(
-				{name, " := ", node_text(src, call), handle_result_if_text(ctx, name, kind, proc_results, true, ind)},
+				{
+					strings.to_string(lhs),
+					" := ",
+					node_text(src, call),
+					handle_result_if_text(ctx, name, kind, proc_results, true, ind),
+				},
 				context.temp_allocator,
 			)
 			append_replace_range(ctx, stmt.pos.offset, stmt.end.offset, "Expand or_return", text)
@@ -265,7 +275,22 @@ add_c_style_for :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 		}
 		lo, hi := node_text(src, bounds.left), node_text(src, bounds.right)
 		text := strings.concatenate(
-			{"for ", name.name, " := ", lo, "; ", name.name, " ", cmp, " ", hi, "; ", name.name, " += 1 "},
+			{
+				"for ",
+				name.name,
+				" := ",
+				lo,
+				"; ",
+				name.name,
+				" ",
+				cmp,
+				" ",
+				hi,
+				"; ",
+				name.name,
+				" += 1 ",
+				do_keyword(loop.body),
+			},
 			context.temp_allocator,
 		)
 		append_replace_range(ctx, loop.for_pos.offset, loop.body.pos.offset, "Convert to C-style for", text)

@@ -112,3 +112,88 @@ bo{*}th :: proc {a, b}
 `)
 	test.expect_action(t, &group, {})
 }
+
+@(test)
+generate_test_uses_the_file_name :: proc(t: ^testing.T) {
+	source := generate_source("")
+	source.files = {{"bar.odin", `package test
+
+fo{*}o :: proc(a: int) {
+}
+`}}
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Generate test for foo",
+		{
+			{
+				"bar_test.odin",
+				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo(0)\n}\n",
+			},
+		},
+	)
+}
+
+@(test)
+generate_test_adds_the_testing_import :: proc(t: ^testing.T) {
+	source := generate_source(`package test
+
+fo{*}o :: proc(a: int) {
+}
+`, {{"main_test.odin", "package test\n\nhelper :: proc() {}\n"}})
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Generate test for foo",
+		{
+			{
+				"main_test.odin",
+				"package test\n\nimport \"core:testing\"\n\nhelper :: proc() {}\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo(0)\n}\n",
+			},
+		},
+	)
+}
+
+@(test)
+generate_test_refused_for_file_private :: proc(t: ^testing.T) {
+	source := generate_source(`package test
+
+@(private = "file")
+fo{*}o :: proc() {
+}
+`)
+	test.expect_action(t, &source, {})
+}
+
+@(test)
+generate_test_for_package_private :: proc(t: ^testing.T) {
+	source := generate_source(`package test
+
+@(private)
+fo{*}o :: proc() {
+}
+`)
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Generate test for foo",
+		{
+			{
+				"main_test.odin",
+				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo()\n}\n",
+			},
+		},
+	)
+}
+
+@(test)
+generate_test_refused_under_when :: proc(t: ^testing.T) {
+	source := generate_source(`package test
+
+when ODIN_OS == .Linux {
+	fo{*}o :: proc() {
+	}
+}
+`)
+	test.expect_action(t, &source, {})
+}
