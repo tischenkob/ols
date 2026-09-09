@@ -1,5 +1,6 @@
 package tests
 
+import "core:strings"
 import "core:testing"
 
 import test "src:testing"
@@ -1451,4 +1452,533 @@ f :: proc() {
 	g()
 }
 `)
+}
+
+@(test)
+lint_simplify_paren_bool_forms :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+g :: proc(v: int) -> int {
+	return v
+}
+
+f :: proc(a, b: bool, x: int) -> int {
+	if ((x > 0)) {
+	}
+	y := (x) + 1
+	z := (x + 1) * 2
+	w := (x + 1) + 2
+	q := g((x))
+	n := -(x)
+	m := (a ? 1 : 2) + 1
+	k := (1)
+	return y + z + w + q + n + m + k
+}
+
+h :: proc(a, b: bool, x: int) -> bool {
+	r := x > 1 == true
+	r = !a == true
+	r = !!!a
+	r = !(!(a && b))
+	return r
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	// Only an if, for, switch, when or return strips its parentheses; parentheses inside an
+	// expression are left alone. `!!!a` is reported twice, once per pair.
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{
+			{7, "redundant-parens"},
+			{20, "bool-compare"},
+			{21, "bool-compare"},
+			{22, "double-negation"},
+			{22, "double-negation"},
+			{23, "double-negation"},
+		},
+	)
+}
+
+@(test)
+lint_simplify_structure_forms :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	items: []int,
+}
+
+g :: proc() {}
+
+slices :: proc(s, t: []int, v: S) {
+	a := v.items[0:len(v.items)]
+	b := s[0:len(t)]
+	_ = a
+	_ = b
+}
+
+makes :: proc() {
+	a := make([dynamic]int, 0, 10)
+	_ = a
+}
+
+nested_do :: proc(a, b: bool) {
+	if a do if b do g()
+}
+
+nested_label :: proc(a, b: bool) {
+	outer: if a {
+		if b {
+			g()
+		}
+	}
+}
+
+nested_outer_init :: proc(a, b: bool) {
+	if x := 1; a {
+		if b {
+			g()
+		}
+	}
+}
+
+nested_inner_init :: proc(a: bool) {
+	if a {
+		if x := 1; x > 0 {
+			g()
+		}
+	}
+}
+
+decrement :: proc(n: int) {
+	for i := 0; i < n; i -= 1 {
+		g()
+	}
+}
+
+trailing_defer :: proc() {
+	defer g()
+	g()
+	return
+}
+
+trailing_nested :: proc(a: bool) {
+	if a {
+		g()
+		return
+	}
+	g()
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	// The merge keeps an init on the outer if but refuses one on the inner if, and refuses a
+	// label or a `do` body. A capacity argument keeps `make`, and only a decrementing post
+	// statement blocks the range loop.
+	test.expect_lint_diagnostics(t, &source, {{9, "full-slice"}, {33, "nested-if"}, {57, "trailing-return"}})
+}
+
+@(test)
+lint_simplify_or_guards :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Error :: union {
+	int,
+}
+
+log :: proc(v: Error) {}
+
+call :: proc() -> (int, Error) {
+	return 0, nil
+}
+
+scoped_else :: proc(m: map[int]int, k: int) -> int {
+	if v, ok := m[k]; ok {
+		return v
+	} else {
+		return v
+	}
+}
+
+scoped_assign :: proc(m: map[int]int, k: int, xs: []int) {
+	if v, ok := m[k]; ok {
+		xs[v] = v
+	} else {
+		xs[v] = 1
+	}
+}
+
+or_return_forms :: proc() -> (x: int, err: Error) {
+	v, e := call()
+	if e != nil {
+		return e, 0
+	}
+	w, e2 := call()
+	if e2 != nil {
+		log(e2)
+		return 0, e2
+	}
+	u, e3 := call()
+	if e3 == nil {
+		return 0, e3
+	}
+	return v + w + u, nil
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	// or_else cannot lift text that names the variables the if declares. or_return needs the
+	// error last in the return, a body of nothing but the return, and a `!= nil` test.
+	test.expect_lint_diagnostics(t, &source, {{15, "redundant-else"}})
+}
+
+@(test)
+action_simplify_redundant_else_comment :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a: bool) -> int {
+	if a {
+		return 1
+	} els{*}e {
+		// keep me
+		return 2
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Remove redundant else",
+		`package test
+
+f :: proc(a: bool) -> int {
+	if a {
+		return 1
+	}
+	// keep me
+	return 2
+}
+`,
+	)
+}
+
+@(test)
+action_simplify_double_negation_triple :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a: bool) -> bool {
+	return {*}!!!a
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Remove double negation",
+		`package test
+
+f :: proc(a: bool) -> bool {
+	return !a
+}
+`,
+	)
+}
+
+@(test)
+action_simplify_bool_return_reversed :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(c: bool) -> bool {
+	if{*} c {
+		return false
+	} else {
+		return true
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Return the condition",
+		`package test
+
+f :: proc(c: bool) -> bool {
+	return !c
+}
+`,
+	)
+}
+
+@(private = "file")
+Fix_Twice :: struct {
+	name:   string,
+	title:  string,
+	source: string, // carries the {*} cursor
+	after:  string, // text of the fixed source; the second cursor goes right after it
+}
+
+@(private = "file")
+FIX_TWICE :: []Fix_Twice {
+	{"array-broadcast", "Use scalar for array literal", `package test
+
+a: [3]int = {1{*}, 1, 1}
+`, "= 1"},
+	{
+		"bool-return",
+		"Return the condition",
+		`package test
+
+f :: proc(c: bool) -> bool {
+	if{*} c {
+		return true
+	} else {
+		return false
+	}
+}
+`,
+		"return c",
+	},
+	{
+		"bool-compare",
+		"Remove comparison with true",
+		`package test
+
+f :: proc(a: bool) -> bool {
+	return a =={*} true
+}
+`,
+		"return a",
+	},
+	{
+		"double-negation",
+		"Remove double negation",
+		`package test
+
+f :: proc(a: bool) -> bool {
+	return {*}!!a
+}
+`,
+		"return a",
+	},
+	{
+		"bool-ternary",
+		"Replace ternary with condition",
+		`package test
+
+f :: proc(a: bool) -> bool {
+	return a {*}? true : false
+}
+`,
+		"return a",
+	},
+	{
+		"redundant-parens",
+		"Remove redundant parentheses",
+		`package test
+
+g :: proc() {}
+
+f :: proc(a: bool) {
+	if {*}(a) {
+		g()
+	}
+}
+`,
+		"if a",
+	},
+	{"full-slice", "Use full slice", `package test
+
+f :: proc(s: []int) -> []int {
+	return s[0{*}:len(s)]
+}
+`, "s[:]"},
+	{"for-true", "Remove redundant true", `package test
+
+f :: proc() {
+	for {*}true {
+		break
+	}
+}
+`, "for"},
+	{
+		"make-zero",
+		"Remove zero length",
+		`package test
+
+f :: proc() {
+	a := make([dynamic]int, {*}0)
+	_ = a
+}
+`,
+		"make([dynamic]int)",
+	},
+	{
+		"empty-else",
+		"Remove empty else",
+		`package test
+
+g :: proc() {}
+
+f :: proc(a: bool) {
+	if a {
+		g()
+	} els{*}e {
+	}
+}
+`,
+		"\tg()",
+	},
+	{
+		"compound-assign",
+		"Use compound assignment",
+		`package test
+
+f :: proc(x: int) -> int {
+	x := x
+	x = x {*}+ 1
+	return x
+}
+`,
+		"x += 1",
+	},
+	{
+		"nested-if",
+		"Merge nested if",
+		`package test
+
+g :: proc() {}
+
+f :: proc(a, b: bool) {
+	if{*} a {
+		if b {
+			g()
+		}
+	}
+}
+`,
+		"a && b",
+	},
+	{
+		"range-loop",
+		"Use range loop",
+		`package test
+
+g :: proc(v: int) {}
+
+f :: proc(xs: []int) {
+	for i := 0; i {*}< len(xs); i += 1 {
+		g(xs[i])
+	}
+}
+`,
+		"0..<len(xs)",
+	},
+	{
+		"or-else",
+		"Use or_else",
+		`package test
+
+f :: proc(m: map[int]int, k: int) -> int {
+	if v, ok := m[k]; o{*}k {
+		return v
+	} else {
+		return 0
+	}
+}
+`,
+		"or_else 0",
+	},
+	{
+		"or-return",
+		"Use or_return",
+		`package test
+
+Error :: union {
+	int,
+}
+
+call :: proc() -> (int, Error) {
+	return 0, nil
+}
+
+f :: proc() -> (res: int, err: Error) {
+	v, e := call()
+	if e {*}!= nil {
+		return 0, e
+	}
+	return v, nil
+}
+`,
+		"or_return",
+	},
+	{
+		"redundant-else",
+		"Remove redundant else",
+		`package test
+
+f :: proc(a: bool) -> int {
+	if a {
+		return 1
+	} els{*}e {
+		return 2
+	}
+}
+`,
+		"return 2",
+	},
+	{
+		"trailing-return",
+		"Remove trailing return",
+		`package test
+
+g :: proc() {}
+
+f :: proc() {
+	g()
+	ret{*}urn
+}
+`,
+		"\tg()",
+	},
+}
+
+@(test)
+simplify_fix_twice :: proc(t: ^testing.T) {
+	for c in FIX_TWICE {
+		source := test.Source {
+			main = c.source,
+			config = {enable_lint_simplify = true},
+		}
+
+		_, fixed := test.apply_action_chain(t, &source, {c.title})
+		at := strings.index(fixed, c.after)
+		if !testing.expectf(t, at >= 0, "\n%s: no %q in\n%s", c.name, c.after, fixed) {
+			continue
+		}
+		at += len(c.after)
+
+		again := test.Source {
+			main = strings.concatenate({fixed[:at], "{*}", fixed[at:]}, context.temp_allocator),
+			config = {enable_lint_simplify = true},
+		}
+		test.expect_action_missing(t, &again, c.title)
+	}
 }

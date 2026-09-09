@@ -473,3 +473,271 @@ draw_Sprite :: proc() {
 
 	test.expect_lint_diagnostics(t, &source, {})
 }
+
+@(test)
+lint_self_assignment_forms :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	a: int,
+	b: int,
+}
+
+f :: proc(xs: []int, i, j: int, p: ^int, u, v: S) {
+	xs := xs
+	u := u
+	x := 1
+	xs[i] = xs[i]
+	xs [i] = xs[i]
+	x = (x)
+	xs[i] = xs[j]
+	u.b = v.a
+	p^ = p^
+	{
+		x := x
+		_ = x
+	}
+}
+`,
+		config = {enable_lint_self_assignment = true},
+	}
+
+	// `x = (x)`: the parentheses make the two sides differ textually, so it is not reported.
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{11, "self-assignment"}, {12, "self-assignment"}, {16, "self-assignment"}},
+	)
+}
+
+@(test)
+lint_identical_branches_forms :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+g :: proc() {}
+
+f :: proc(c, d: bool) -> string {
+	if c {
+		g()
+	} else if d {
+		g()
+		g()
+	} else {
+		g()
+		g()
+	}
+	if c {
+		// first
+		g()
+	} else {
+		g()
+	}
+	if c {
+		return "a"
+	} else {
+		return "A"
+	}
+	if c do g() else do g()
+	return ""
+}
+`,
+		config = {enable_lint_identical_branches = true},
+	}
+
+	// A comment in one branch and a string differing only in case both keep the branches apart.
+	test.expect_lint_diagnostics(t, &source, {{7, "identical-branches"}, {25, "identical-branches"}})
+}
+
+@(test)
+lint_identical_branches_empty :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(c: bool) {
+	if c {
+	} else {
+	}
+}
+`,
+		config = {enable_lint_identical_branches = true, enable_lint_no_op = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{3, "identical-branches"}, {3, "empty-body"}, {4, "empty-body"}})
+}
+
+@(test)
+lint_unreachable_code_forms :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+g :: proc() {}
+
+after_unreachable :: proc() {
+	unreachable()
+	g()
+}
+
+after_for :: proc() {
+	for {
+		g()
+	}
+	g()
+}
+
+return_in_if :: proc(c: bool) {
+	if c {
+		return
+	}
+	g()
+}
+
+defer_after_return :: proc() {
+	return
+	defer g()
+}
+
+comment_only :: proc() {
+	return
+	// nothing here
+}
+
+after_fallthrough :: proc(x: int) {
+	switch x {
+	case 1:
+		fallthrough
+		g()
+	case 2:
+		g()
+	}
+}
+`,
+		config = {enable_lint_unreachable_code = true},
+	}
+
+	// A statement after `for {}` is not reported: only return, break, continue, fallthrough,
+	// panic and unreachable terminate.
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{6, "unreachable-code"}, {25, "unreachable-code"}, {37, "unreachable-code"}},
+	)
+}
+
+@(test)
+lint_float_equality_forms :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+PI :: 3.14
+
+f :: proc(a: f32, b: f64, x, y: int, eps: f32) -> bool {
+	r := a == 1.0
+	r = b != b
+	r = abs(a - eps) == 0
+	r = a == 0
+	r = x == 1
+	r = f32(x) == f32(y)
+	r = PI == 3.14
+	switch a {
+	case 1.0:
+		r = true
+	}
+	return r
+}
+`,
+		config = {enable_lint_float_equality = true},
+	}
+
+	// A call result and a conversion are not in the resolved-symbol map, and a switch case is not
+	// a comparison, so those three go unreported.
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{5, "float-equality"}, {6, "float-equality"}, {8, "float-equality"}, {11, "float-equality"}},
+	)
+}
+
+@(test)
+lint_ignored_result_forms :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Err :: enum {
+	None,
+}
+
+opt_ok :: proc(m: map[int]int, k: int) -> (int, bool) #optional_ok {
+	return m[k], false
+}
+
+maybe_proc :: proc() -> Maybe(int) {
+	return nil
+}
+
+err_proc :: proc() -> Err {
+	return .None
+}
+
+main :: proc() {
+	m: map[int]int
+	opt_ok(m, 1)
+	maybe_proc()
+	p := err_proc
+	p()
+}
+`,
+		config = {enable_lint_ignored_result = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{21, "ignored-result"}, {23, "ignored-result"}})
+}
+
+@(test)
+lint_unused_parameter_scopes :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+g :: proc(v: int) {}
+
+in_when :: proc(a: int) {
+	when ODIN_DEBUG {
+		x := a
+		_ = x
+	}
+}
+
+in_defer :: proc(a: int) {
+	defer g(a)
+	x := 1
+	_ = x
+}
+
+named_results :: proc(a: int) -> (out: int) {
+	out = a
+	return
+}
+
+group_a :: proc(a: int) {
+	x := 1
+	_ = x
+}
+
+group_b :: proc(a: string) {
+	x := 1
+	_ = x
+}
+
+grouped :: proc {
+	group_a,
+	group_b,
+}
+`,
+		config = {enable_lint_unused_parameter = true},
+	}
+
+	// A use inside `when` or `defer` counts, a named result is not a parameter, and every member
+	// of a proc group is checked on its own.
+	test.expect_lint_diagnostics(t, &source, {{22, "unused-parameter"}, {27, "unused-parameter"}})
+}

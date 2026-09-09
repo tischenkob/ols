@@ -1,5 +1,6 @@
 package tests
 
+import "core:strings"
 import "core:testing"
 
 import test "src:testing"
@@ -95,4 +96,160 @@ f :: proc(a: int, b: int) -> int {
 	}
 
 	test.expect_action_missing(t, &source, "Rename parameter to `_`")
+}
+
+@(test)
+lint_fix_unused_parameter_default :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(p{*}: int = 1, q: int) -> int {
+	return q
+}
+`,
+		config = {enable_lint_unused_parameter = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Rename parameter to `_`",
+		`package test
+
+f :: proc(_: int = 1, q: int) -> int {
+	return q
+}
+`,
+	)
+}
+
+@(private = "file")
+Fix_Twice :: struct {
+	name:   string,
+	title:  string,
+	source: string, // carries the {*} cursor
+	after:  string, // text of the fixed source; the second cursor goes right after it
+}
+
+@(private = "file")
+FIX_TWICE :: []Fix_Twice {
+	{
+		"self-assignment",
+		"Remove self-assignment",
+		`package test
+
+f :: proc(a: int) -> int {
+	a{*} = a
+	return a
+}
+`,
+		"return a",
+	},
+	{
+		"unreachable-code",
+		"Remove unreachable code",
+		`package test
+
+f :: proc() -> int {
+	return 1
+	x{*} := 2
+	_ = x
+}
+`,
+		"return 1",
+	},
+	{
+		"unused-parameter",
+		"Rename parameter to `_`",
+		`package test
+
+f :: proc(a{*}: int, b: int) -> int {
+	return b
+}
+`,
+		"proc(_",
+	},
+	{
+		"no-op-arithmetic",
+		"Remove no-op arithmetic",
+		`package test
+
+f :: proc(x: int) -> int {
+	y := x{*} + 0
+	return y
+}
+`,
+		"y := x",
+	},
+	{
+		"append-no-values",
+		"Remove append without values",
+		`package test
+
+f :: proc(xs: ^[dynamic]int) {
+	app{*}end(xs)
+	append(xs, 1)
+}
+`,
+		"append(xs",
+	},
+	{
+		"range-off-by-one inclusive",
+		"Use ..< instead of ..=",
+		`package test
+
+r :: proc(xs: []int) {
+	for i in 0 ..={*} len(xs) {
+	}
+}
+`,
+		"0 ..<",
+	},
+	{
+		"range-off-by-one plus one",
+		"Remove '+ 1' from the range end",
+		`package test
+
+r :: proc(s: string) {
+	for i in 0 ..< len(s){*} + 1 {
+	}
+}
+`,
+		"len(s)",
+	},
+}
+
+@(test)
+lint_fix_twice :: proc(t: ^testing.T) {
+	for c in FIX_TWICE {
+		source := test.Source {
+			main = c.source,
+			config = {
+				enable_lint_self_assignment = true,
+				enable_lint_unreachable_code = true,
+				enable_lint_unused_parameter = true,
+				enable_lint_no_op = true,
+				enable_lint_loops = true,
+			},
+		}
+
+		_, fixed := test.apply_action_chain(t, &source, {c.title})
+		at := strings.index(fixed, c.after)
+		if !testing.expectf(t, at >= 0, "\n%s: no %q in\n%s", c.name, c.after, fixed) {
+			continue
+		}
+		at += len(c.after)
+
+		again := test.Source {
+			main = strings.concatenate({fixed[:at], "{*}", fixed[at:]}, context.temp_allocator),
+			config = {
+				enable_lint_self_assignment = true,
+				enable_lint_unreachable_code = true,
+				enable_lint_unused_parameter = true,
+				enable_lint_no_op = true,
+				enable_lint_loops = true,
+			},
+		}
+		test.expect_action_missing(t, &again, c.title)
+	}
 }

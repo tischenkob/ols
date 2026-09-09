@@ -128,3 +128,81 @@ r :: proc(xs: []int) {
 `,
 	)
 }
+
+@(test)
+lint_loops_forms :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+use :: proc(v: int) {}
+
+bump :: proc(p: ^int) {
+	p^ += 1
+}
+
+break_in_if :: proc(xs: []int) {
+	for x in xs {
+		if x > 0 {
+			break
+		}
+	}
+}
+
+via_address :: proc(n: int) {
+	i := 0
+	for i < n {
+		bump(&i)
+	}
+}
+
+via_pointer :: proc(n: int, p: ^int) {
+	for p^ < n {
+		bump(p)
+	}
+}
+
+ranges :: proc(s: string, xs: []int) {
+	for i in 1 ..= len(xs) {
+		use(i)
+	}
+	for c in 0 ..< len(s) + 1 {
+		use(c)
+	}
+}
+`,
+		config = {enable_lint_loops = true},
+	}
+
+	// A conditional break does not end the first iteration, and a call handed the loop variable
+	// by pointer can change it.
+	test.expect_lint_diagnostics(t, &source, {{30, "range-off-by-one"}, {33, "range-off-by-one"}})
+}
+
+@(test)
+lint_fix_range_off_by_one_plus_one :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+r :: proc(s: string) {
+	for i in 0 ..< len(s){*} + 1 {
+		use(i)
+	}
+}
+`,
+		config = {enable_lint_loops = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Remove '+ 1' from the range end",
+		`package test
+
+r :: proc(s: string) {
+	for i in 0 ..< len(s) {
+		use(i)
+	}
+}
+`,
+	)
+}
