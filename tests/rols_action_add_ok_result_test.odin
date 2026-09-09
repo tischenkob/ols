@@ -97,6 +97,52 @@ f :: proc(x: int) -> bool {
 	if x == 0 {
 		return true
 	}
+	return true
+}
+`)
+}
+
+@(test)
+add_ok_result_none_nested_return :: proc(t: ^testing.T) {
+	expect_add_ok_result(t, `package test
+
+f{*} :: proc(x: int) {
+	for i in 0 ..< x {
+		if i == 0 {
+			return
+		}
+	}
+}
+`, `package test
+
+f :: proc(x: int) -> bool {
+	for i in 0 ..< x {
+		if i == 0 {
+			return true
+		}
+	}
+	return true
+}
+`)
+}
+
+@(test)
+add_ok_result_none_already_ends_in_return :: proc(t: ^testing.T) {
+	expect_add_ok_result(t, `package test
+
+f{*} :: proc(x: int) {
+	if x == 0 {
+		return
+	}
+	return
+}
+`, `package test
+
+f :: proc(x: int) -> bool {
+	if x == 0 {
+		return true
+	}
+	return true
 }
 `)
 }
