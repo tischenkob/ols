@@ -248,3 +248,171 @@ main :: proc() {
 
 	test.expect_action_missing(t, &source, INLINE_VARIABLE_ACTION)
 }
+
+expect_inline_variable :: proc(t: ^testing.T, main, expected: string) {
+	source := test.Source {
+		main   = main,
+		config = {enable_code_action_inline_variable = true},
+	}
+	test.expect_action_applied(t, &source, INLINE_VARIABLE_ACTION, expected)
+}
+
+expect_no_inline_variable :: proc(t: ^testing.T, main: string) {
+	source := test.Source {
+		main   = main,
+		config = {enable_code_action_inline_variable = true},
+	}
+	test.expect_action_missing(t, &source, INLINE_VARIABLE_ACTION)
+}
+
+@(test)
+action_inline_variable_parens_under_negation :: proc(t: ^testing.T) {
+	expect_inline_variable(t, `package test
+
+main :: proc() {
+	a, b := 1, 2
+	x{*} := a + b
+	foo(-x)
+}
+`, `package test
+
+main :: proc() {
+	a, b := 1, 2
+	foo(-(a + b))
+}
+`)
+}
+
+@(test)
+action_inline_variable_parens_before_selector :: proc(t: ^testing.T) {
+	expect_inline_variable(t, `package test
+
+Point :: struct {
+	y: int,
+}
+
+main :: proc() {
+	p, q: Point
+	c := true
+	x{*} := c ? p : q
+	foo(x.y)
+}
+`, `package test
+
+Point :: struct {
+	y: int,
+}
+
+main :: proc() {
+	p, q: Point
+	c := true
+	foo((c ? p : q).y)
+}
+`)
+}
+
+@(test)
+action_inline_variable_parens_before_index :: proc(t: ^testing.T) {
+	expect_inline_variable(t, `package test
+
+main :: proc() {
+	a, b := []int{1}, []int{2}
+	c := true
+	x{*} := c ? a : b
+	foo(x[0])
+}
+`, `package test
+
+main :: proc() {
+	a, b := []int{1}, []int{2}
+	c := true
+	foo((c ? a : b)[0])
+}
+`)
+}
+
+@(test)
+action_inline_variable_ignores_name_inside_string :: proc(t: ^testing.T) {
+	expect_inline_variable(t, `package test
+
+main :: proc() {
+	x{*} := 5
+	foo("x")
+	foo(x)
+}
+`, `package test
+
+main :: proc() {
+	foo("x")
+	foo(5)
+}
+`)
+}
+
+@(test)
+action_inline_variable_drops_trailing_comment :: proc(t: ^testing.T) {
+	expect_inline_variable(t, `package test
+
+main :: proc() {
+	x{*} := 5 // the answer
+	foo(x)
+}
+`, `package test
+
+main :: proc() {
+	foo(5)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_compound_assignment :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	x{*} := 5
+	x += 1
+	foo(x)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_typed_decl :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	x{*}: f32 = 1
+	y := x / 2
+}
+`)
+}
+
+@(test)
+action_inline_variable_then_extract_and_inline :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	a, b := 1, 2
+	x{*} := a + b
+	foo(x)
+}
+`,
+		config = {enable_code_action_extract_variable = true, enable_code_action_inline_variable = true},
+	}
+
+	test.expect_action_chain(
+		t,
+		&source,
+		{INLINE_VARIABLE_ACTION, EXTRACT_VARIABLE_ACTION, INLINE_VARIABLE_ACTION},
+		`package test
+
+main :: proc() {
+	a, b := 1, 2
+	foo(a + b)
+}
+`,
+		{"a + b)", "value :="},
+	)
+}

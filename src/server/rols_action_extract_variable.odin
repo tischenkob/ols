@@ -40,6 +40,11 @@ add_extract_variable_action :: proc(ctx: ^ActionContext) {
 	for line_start > 0 && src[line_start - 1] != '\n' {
 		line_start -= 1
 	}
+	// A statement sharing its line with something else (a `do` body, a semicolon) would get the
+	// declaration hoisted above that, out of the conditional it runs under.
+	if strings.trim_space(src[line_start:stmt.pos.offset]) != "" {
+		return
+	}
 
 	edits := make([]TextEdit, 2, context.temp_allocator)
 	edits[0] = TextEdit {
