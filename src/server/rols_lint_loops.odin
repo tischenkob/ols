@@ -163,6 +163,9 @@ len_call :: proc(expr: ^ast.Expr) -> (arg: ^ast.Expr, ok: bool) {
 range_off_by_one :: proc(ctx: ^LintContext, n: ^ast.Range_Stmt, diags: ^[dynamic]Diagnostic) {
 	bin, is_bin := unparen(n.expr).derived.(^ast.Binary_Expr)
 	if !is_bin do return
+	// Only a range starting at 0 has len(x) as its one-past-the-end bound.
+	low, is_low := unparen(bin.left).derived.(^ast.Basic_Lit)
+	if !is_low || low.tok.kind != .Integer || low.tok.text != "0" do return
 
 	fix: Lint_Fix
 	#partial switch bin.op.kind {
