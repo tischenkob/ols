@@ -23,6 +23,7 @@ get_inlay_hints :: proc(
 		range:       common.Range,
 		symbols:     SymbolAndNodeMap,
 		config:      ^common.Config,
+		// rols: resolving variable types needs its own context
 		ast_context: AstContext,
 		hints:       [dynamic]InlayHint,
 		depth:       int,
@@ -43,6 +44,7 @@ get_inlay_hints :: proc(
 		hints    = make([dynamic]InlayHint, context.temp_allocator),
 	}
 
+	// rols: only build the resolve context when a hint kind needs it
 	if config.enable_inlay_hints_variable_types || config.enable_inlay_hints_range_types {
 		data.ast_context = make_ast_context(
 			document.ast,
@@ -76,6 +78,7 @@ get_inlay_hints :: proc(
 
 			data.depth += 1
 
+			// rols: record the enclosing procedure before visiting its body
 			if proc_lit, ok := node.derived.(^ast.Proc_Lit); ok {
 				results := proc_lit.type.results.list if proc_lit.type != nil && proc_lit.type.results != nil else {}
 				append(&data.procs, Proc_Data{data.depth, results})
@@ -84,6 +87,7 @@ get_inlay_hints :: proc(
 			add_param_hints(node, data)
 			add_return_hints(node, data)
 			add_result_hints(node, data)
+			// rols: fork hint kinds
 			add_variable_type_hints(node, data)
 			add_extra_inlay_hints(node, data.document, data.symbols, data.config, &data.ast_context, &data.hints)
 
@@ -403,6 +407,7 @@ get_inlay_hints :: proc(
 		return true
 	}
 
+	// rols: type hints on := declarations
 	/*
 		Adds type hints for variables declared with := inside procedures.
 	*/

@@ -45,6 +45,7 @@ Document :: struct {
 	imports:          []Package,
 	package_name:     string,
 	allocator:        ^virtual.Arena, //because parser does not support freeing I use arena allocators for each document
+	// rols: arena for the resolve cache
 	symbols_arena:    ^virtual.Arena, // backs `symbols`; reset whenever the cache is invalidated
 	operating_on:     int, //atomic
 	version:          Maybe(int),
@@ -65,6 +66,7 @@ document_storage_shutdown :: proc() {
 			virtual.arena_destroy(v.allocator)
 			free(v.allocator)
 		}
+		// rols: release the resolve cache arena too
 		if v.symbols_arena != nil {
 			virtual.arena_destroy(v.symbols_arena)
 			free(v.symbols_arena)
@@ -99,6 +101,7 @@ document_free_allocator :: proc(allocator: ^virtual.Arena) {
 	append(&document_storage.free_allocators, allocator)
 }
 
+// rols: drop the resolve cache
 document_invalidate_symbols :: proc(document: ^Document) {
 	if document.symbols_arena != nil {
 		virtual.arena_free_all(document.symbols_arena)
@@ -122,6 +125,7 @@ document_get :: proc(uri_string: string) -> ^Document {
 
 	document := &document_storage.documents[uri.path]
 
+	// rols: a document the client closed is not ours to serve
 	if document == nil || !document.client_owned {
 		log.errorf("Failed to get document %v", uri.path)
 		return nil
@@ -243,6 +247,7 @@ document_apply_changes :: proc(
 
 	document := &document_storage.documents[uri.path]
 
+	// rols: reject the change before touching the document
 	if document == nil || !document.client_owned {
 		log.errorf("Client called change on a document not opened: %v ", uri.path)
 		return .InvalidRequest
@@ -323,6 +328,7 @@ document_close :: proc(uri_string: string) -> common.Error {
 	}
 
 	document_free_allocator(document.allocator)
+	// rols: recycle the resolve cache arena
 	if document.symbols_arena != nil {
 		document_free_allocator(document.symbols_arena)
 		document.symbols_arena = nil
@@ -366,6 +372,7 @@ document_refresh :: proc(document: ^Document, config: ^common.Config, writer: ^W
 
 	remove_diagnostics(.Syntax, uri.uri)
 	check_unused_imports(document, config)
+	// rols: refresh the lint diagnostics
 	run_lints(document, config)
 
 	if writer != nil && config.enable_parser_errors {
@@ -437,6 +444,7 @@ parse_document :: proc(document: ^Document, config: ^common.Config) -> ([]Parser
 		src      = string(document.text[:document.used_text]),
 		pkg      = pkg,
 	}
+	// rols: the reparsed nodes make the resolve cache meaningless
 	document_invalidate_symbols(document)
 
 	parse_file(&p, &document.ast)

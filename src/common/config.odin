@@ -21,11 +21,13 @@ Config :: struct {
 	completion_insert_replace_support:       bool,
 	hover_support_md:                        bool,
 	signature_offset_support:                bool,
+	// rols: client supports workspace file creation
 	client_create_file_support:              bool,
 	collections:                             map[string]string,
 	running:                                 bool,
 	verbose:                                 bool,
 	enable_format:                           bool,
+	// rols: range formatting flag
 	enable_range_format:                     bool,
 	enable_hover:                            bool,
 	enable_document_symbols:                 bool,
@@ -35,6 +37,7 @@ Config :: struct {
 	enable_inlay_hints_default_params:       bool,
 	enable_inlay_hints_implicit_return:      bool,
 	enable_inlay_hints_optional_result:      bool,
+	// rols: extra inlay hint kinds
 	enable_inlay_hints_variable_types:       bool,
 	enable_inlay_hints_comp_lit_fields:      bool,
 	enable_inlay_hints_range_types:          bool,
@@ -58,6 +61,7 @@ Config :: struct {
 	enable_comp_lit_signature_help:          bool,
 	enable_comp_lit_signature_help_use_docs: bool,
 	enable_code_action_invert_if:            bool,
+	// rols: fork code action, lint, lens and checker flags
 	enable_code_action_extract_variable:     bool,
 	enable_code_action_inline_variable:      bool,
 	enable_code_action_extract_procedure:    bool,

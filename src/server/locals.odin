@@ -91,6 +91,7 @@ store_local :: proc(
 }
 
 add_local_group :: proc(ast_context: ^AstContext) {
+	// rols: no preallocation: most groups hold a handful of names
 	append(&ast_context.locals, make(LocalGroup, ast_context.allocator))
 }
 

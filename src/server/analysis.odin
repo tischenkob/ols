@@ -3903,6 +3903,7 @@ make_symbol_procedure_from_ast :: proc(
 
 	if expr, ok := ast_context.globals[name]; ok {
 		if expr.deprecated {
+		// rols: the deprecated attribute sets the deprecated flag
 			symbol.flags |= {.Deprecated}
 		}
 	}

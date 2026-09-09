@@ -33,6 +33,7 @@ ResponseParams :: union {
 	common.Range,
 	[]CodeAction,
 	[]DocumentHighlight,
+	// rols: responses for the fork requests
 	[]FoldingRange,
 	LinkedEditingRanges,
 	[]CallHierarchyItem,
@@ -42,6 +43,7 @@ ResponseParams :: union {
 	json.Value,
 }
 
+// rols: server-initiated request payloads
 RequestParams :: union {
 	RegistrationParams,
 	ApplyWorkspaceEditParams,
@@ -51,6 +53,7 @@ RequestMessage :: struct {
 	jsonrpc: string,
 	method:  string,
 	id:      RequestId,
+	// rols: named union so workspace/applyEdit can be sent
 	params:  RequestParams,
 }
 
@@ -151,6 +154,7 @@ ServerCapabilities :: struct {
 	documentSymbolProvider:          bool,
 	hoverProvider:                   bool,
 	documentFormattingProvider:      bool,
+	// rols: range formatting
 	documentRangeFormattingProvider: bool,
 	inlayHintProvider:               bool,
 	renameProvider:                  RenameOptions,
@@ -159,6 +163,7 @@ ServerCapabilities :: struct {
 	workspaceSymbolProvider:         bool,
 	documentLinkProvider:            DocumentLinkOptions,
 	codeActionProvider:              CodeActionOptions,
+	// rols: capabilities for the fork requests
 	foldingRangeProvider:            bool,
 	implementationProvider:          bool,
 	callHierarchyProvider:           bool,
@@ -242,6 +247,7 @@ ClientCapabilities :: struct {
 }
 
 WorkspaceCapabilities :: struct {
+	// rols: the server asks the client to apply edits
 	applyEdit:             bool,
 	workspaceEdit:         WorkspaceEditClientCapabilities,
 	didChangeWatchedFiles: DidChangeWatchedFilesClientCapabilities,
@@ -251,6 +257,7 @@ DidChangeWatchedFilesClientCapabilities :: struct {
 	dynamicRegistration: bool,
 }
 
+// rols: tells us whether the client can create files
 WorkspaceEditClientCapabilities :: struct {
 	documentChanges:    bool,
 	resourceOperations: [dynamic]string,
@@ -446,6 +453,7 @@ OlsConfig :: struct {
 	collections:                             [dynamic]OlsConfigCollection,
 	thread_pool_count:                       Maybe(int),
 	enable_format:                           Maybe(bool),
+	// rols: range formatting flag
 	enable_range_format:                     Maybe(bool),
 	enable_hover:                            Maybe(bool),
 	enable_document_symbols:                 Maybe(bool),
@@ -461,6 +469,7 @@ OlsConfig :: struct {
 	enable_inlay_hints_default_params:       Maybe(bool),
 	enable_inlay_hints_implicit_return:      Maybe(bool),
 	enable_inlay_hints_optional_result:      Maybe(bool),
+	// rols: extra inlay hint kinds
 	enable_inlay_hints_variable_types:       Maybe(bool),
 	enable_inlay_hints_comp_lit_fields:      Maybe(bool),
 	enable_inlay_hints_range_types:          Maybe(bool),
@@ -475,6 +484,7 @@ OlsConfig :: struct {
 	enable_auto_import:                      Maybe(bool),
 	enable_add_import_to_bottom:             Maybe(bool),
 	enable_code_action_invert_if:            Maybe(bool),
+	// rols: fork code action, lint, lens and checker flags
 	enable_code_action_extract_variable:     Maybe(bool),
 	enable_code_action_inline_variable:      Maybe(bool),
 	enable_code_action_extract_procedure:    Maybe(bool),
@@ -603,6 +613,7 @@ DocumentSymbol :: struct {
 	children:       []DocumentSymbol,
 }
 
+// rols: payloads for the fork requests
 CallHierarchyItem :: struct {
 	name:           string,
 	kind:           SymbolKind,
@@ -753,6 +764,7 @@ TextDocumentEdit :: struct {
 	edits:        []TextEdit,
 }
 
+// rols: workspace edits that also create files
 CreateFile :: struct {
 	kind:    string,
 	uri:     string,

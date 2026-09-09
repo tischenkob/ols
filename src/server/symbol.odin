@@ -9,6 +9,7 @@ import "src:common"
 import "src:spall"
 
 SymbolAndNode :: struct {
+	// rols: symbols are stored by pointer in the resolve map
 	symbol:                            ^Symbol,
 	node:                              ^ast.Node,
 	is_unresolved:                     bool,

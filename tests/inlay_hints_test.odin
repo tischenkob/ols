@@ -321,6 +321,7 @@ ast_inlay_hints_optional_result :: proc(t: ^testing.T) {
 }
 
 
+// rols: tests for the fork hint kinds
 @(test)
 ast_inlay_hints_variable_types :: proc(t: ^testing.T) {
 	source := test.Source {

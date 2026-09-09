@@ -40,6 +40,7 @@ CodeAction :: struct {
 	edit:        WorkspaceEdit,
 }
 
+// rols: package files for the cross-file actions
 get_code_actions :: proc(
 	document: ^Document,
 	ctx: CodeActionContext,
@@ -59,6 +60,7 @@ get_code_actions :: proc(
 		context.temp_allocator,
 	)
 
+	// rols: actions live in temp memory, freed after the request
 	actions := make([dynamic]CodeAction, 0, context.temp_allocator)
 
 	for action in ctx.only {
@@ -111,6 +113,7 @@ get_code_actions :: proc(
 		)
 	}
 
+	// rols: run the fork code actions
 	absolute_range, range_ok := common.get_absolute_range(range, document.text[:document.used_text])
 	if !range_ok {
 		return actions[:], true
@@ -134,6 +137,7 @@ get_code_actions :: proc(
 	return actions[:], true
 }
 
+// rols: fork code action table
 @(private = "file")
 action_procs := [?]proc(^ActionContext){add_invert_if_action, add_extract_variable_action, add_inline_variable_action, add_extract_procedure_action, add_split_merge_if_action, add_rewrite_expression_action, add_explicit_type_action, add_ternary_action, add_unwrap_action, add_do_block_action, add_fill_struct_action, add_if_to_switch_action, add_result_handling_action, add_generate_proc_action, add_named_results_action, add_add_ok_result_action, add_defer_delete_action, add_extract_constant_action, add_inline_proc_action, add_introduce_param_action, add_remove_param_action, add_move_decl_action, add_simplify_action, add_lint_fix_action, add_expand_action, add_generate_test_action, add_checker_fix_action, add_merge_cases_action, add_loop_label_action, add_literal_action, add_comment_action, add_use_stdlib_action}
 
@@ -180,6 +184,7 @@ make_unused_import_edits :: proc(
 	return textEdits
 }
 
+// rols: delegates to the shared edit builder
 source_organize_imports :: proc(
 	document: ^Document,
 	ast_context: ^AstContext,
@@ -204,6 +209,7 @@ source_organize_imports :: proc(
 	)
 }
 
+// rols: import edits, also used by organize-on-save
 // Removes unused imports and adds imports for unresolved `pkg.member` uses. With
 // only_unambiguous, an identifier that matches packages of the same name in more than one
 // collection gets no import, since there is nobody to ask which one was meant.

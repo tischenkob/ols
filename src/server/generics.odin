@@ -698,6 +698,7 @@ resolve_generic_function_symbol :: proc(
 
 
 	symbol := proc_symbol
+	// rols: keep the procedure tags when solving the generic
 	orig := proc_symbol.value.(SymbolProcedureValue) or_else {}
 	symbol.value = SymbolProcedureValue {
 		return_types       = return_types[:],

@@ -9,6 +9,7 @@ import "core:strings"
 import "src:common"
 import "src:spall"
 
+// rols: appends the struct layout to the hover
 write_hover_content :: proc(ast_context: ^AstContext, symbol: Symbol, layout := "") -> MarkupContent {
 	cat := construct_symbol_information(ast_context, symbol)
 	doc := construct_symbol_docs(symbol)
@@ -25,6 +26,7 @@ get_hover_information :: proc(document: ^Document, position: common.Position) ->
 		contents = {kind = "plaintext"},
 	}
 
+	// rols: only hover asks for struct layout
 	hover_layout_scope = true
 	defer hover_layout_scope = false
 
@@ -334,6 +336,7 @@ get_hover_information :: proc(document: ^Document, position: common.Position) ->
 					if symbol, ok := resolve_type_expression(&ast_context, v.types[i]); ok {
 						construct_struct_field_symbol(&symbol, selector.name, v, i)
 						build_documentation(&ast_context, &symbol, true)
+						// rols: field hover shows the offset of this field
 						hover.contents = write_hover_content(
 							&ast_context,
 							symbol,

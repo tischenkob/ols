@@ -1,6 +1,7 @@
 package server
 
 import "base:runtime"
+// rols: import for the resolve cache arena
 import "core:mem/virtual"
 import "core:odin/ast"
 import "core:odin/tokenizer"
@@ -30,6 +31,7 @@ reset_position_context :: proc(position_context: ^DocumentPositionContext) {
 	position_context.index = nil
 }
 
+// rols: the resolve cache gets its own arena, reset on invalidation
 // Should only be called for open documents
 resolve_entire_file :: proc(document: ^Document) -> (symbols: SymbolAndNodeMap) {
 	spall.trace(#procedure, document.fullpath)
@@ -106,6 +108,7 @@ resolve_entire_file_for_references :: proc(
 
 	ast_context.current_package = ast_context.document_package
 
+	// rols: no preallocation: most files resolve to far fewer nodes
 	symbols = make(SymbolAndNodeMap, allocator)
 
 	for decl in document.ast.decls {
@@ -238,6 +241,7 @@ resolve_binary_expr :: proc(binary: ^ast.Binary_Expr, data: ^FileResolveData) {
 	}
 }
 
+// rols: symbols are heap-allocated so the map can hold pointers
 @(private = "file")
 resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 	if node == nil {

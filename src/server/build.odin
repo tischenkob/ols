@@ -266,6 +266,7 @@ remove_index_file :: proc(uri: common.Uri) -> common.Error {
 
 	corrected_uri := common.create_uri(fullpath, context.temp_allocator)
 
+	// rols: the removed file's symbols are stale
 	invalidate_document_symbols()
 
 	for k, &v in indexer.index.collection.packages {
@@ -314,6 +315,7 @@ index_file :: proc(uri: common.Uri, text: string) -> common.Error {
 
 	dir := filepath.base(filepath.dir(fullpath))
 
+	// rols: the package only lives for this reindex
 	pkg := new(ast.Package, context.temp_allocator)
 	pkg.kind = .Normal
 	pkg.fullpath = fullpath
@@ -345,6 +347,7 @@ index_file :: proc(uri: common.Uri, text: string) -> common.Error {
 
 	corrected_uri := common.create_uri(fullpath, context.temp_allocator)
 
+	// rols: the reindexed file's symbols are stale
 	invalidate_document_symbols()
 
 	for k, &v in indexer.index.collection.packages {

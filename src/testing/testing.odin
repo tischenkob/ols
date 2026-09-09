@@ -195,6 +195,7 @@ source_remove_cursor :: proc(src: ^Source) -> (cursor: common.Position) {
 	return common.get_relative_token_position(marker_pos, transmute([]u8)source^, 0)
 }
 
+// rols: selection sources and a shared document fixture
 // Selection between `{[` and `]}`. Without `{[`, the cursor marker is used and the range is empty.
 source_remove_selection :: proc(src: ^Source) -> common.Range {
 	source: ^string
@@ -794,6 +795,7 @@ expect_prepare_rename_range :: proc(t: ^testing.T, src: ^Source, expect_range: c
 }
 
 
+// rols: takes a selection and the package files
 expect_action :: proc(t: ^testing.T, src: ^Source, expect_action_names: []string, ctx: server.CodeActionContext = {}) {
 	spall.trace(#procedure)
 
@@ -828,6 +830,7 @@ expect_action :: proc(t: ^testing.T, src: ^Source, expect_action_names: []string
 	}
 }
 
+// rols: takes a selection
 expect_action_with_edit :: proc(t: ^testing.T, src: ^Source, action_name: string, expected_new_text: string) {
 	spall.trace(#procedure)
 
@@ -866,6 +869,7 @@ expect_action_with_edit :: proc(t: ^testing.T, src: ^Source, action_name: string
 	log.errorf("Action '%s' not found in actions: %v", action_name, actions)
 }
 
+// rols: lets a test stand in for the checker
 /*
 	Puts one checker diagnostic on the main file, which no test ever runs the checker for. Call it
 	before the assertion, which runs the setup. The positions are those of the source without its
@@ -898,6 +902,7 @@ seed_check_diagnostic :: proc(src: ^Source, line, col, end_col: int, message: st
 	)
 }
 
+// rols: splits out the apply so other assertions can reuse it
 /*
 	Applies all the edits of a code action to the document and compares the result with `expected`.
 
@@ -918,6 +923,7 @@ expect_action_applied :: proc(
 	}
 }
 
+// rols: action text without an assertion
 // The document text with the edits of the named action applied, in the temp allocator.
 apply_action :: proc(
 	t: ^testing.T,
@@ -961,6 +967,7 @@ apply_action :: proc(
 	return "", false
 }
 
+// rols: organize-imports-on-save assertion
 expect_save_imports_applied :: proc(t: ^testing.T, src: ^Source, expected: string) {
 	spall.trace(#procedure)
 
@@ -983,6 +990,7 @@ expect_save_imports_applied :: proc(t: ^testing.T, src: ^Source, expected: strin
 	testing.expectf(t, text == expected, "\nExpected:\n%s\n\nGot:\n%s", expected, text)
 }
 
+// rols: asserts an action is not offered
 expect_action_missing :: proc(t: ^testing.T, src: ^Source, action_name: string) {
 	spall.trace(#procedure)
 
@@ -1073,6 +1081,7 @@ expect_inlay_hints :: proc(t: ^testing.T, src: ^Source) {
 					hint_str := src.main[last:i]
 					last = i + len(HINT_CLOSE)
 					i = last - 1
+					// rols: type and value hints expect a different kind
 					append(
 						&expected_hints,
 						server.InlayHint {
@@ -1183,6 +1192,7 @@ expect_inlay_hints :: proc(t: ^testing.T, src: ^Source) {
 	}
 }
 
+// rols: assertions for the fork features
 LintExpect :: struct {
 	line: int, // zero based
 	code: string,

@@ -248,6 +248,7 @@ resolve_references :: proc(
 		return {}, true
 	}
 
+	// rols: delegates to the reusable search
 	return find_symbol_references(
 		document,
 		ast_context,
@@ -259,6 +260,7 @@ resolve_references :: proc(
 	)
 }
 
+// rols: reference search callable without a cursor position
 // References to symbol in document and then across the workspace. When files is given it replaces the
 // workspace walk and its texts are used instead of the disk. target_name, when known, skips files that
 // do not contain it.
@@ -433,6 +435,7 @@ find_symbol_references :: proc(
 	return locations[:], true
 }
 
+// rols: shared file list, also used by the code lens
 // Every .odin file in the workspace folders except exclude. files, when given, replaces the walk,
 // which is compiled out under ODIN_TEST; their texts stand in for the disk.
 workspace_odin_files :: proc(

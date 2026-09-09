@@ -59,6 +59,7 @@ queue_check_request :: proc(mode: Check_Mode, path: string, config: ^common.Conf
 		return
 	}
 	path := strings.clone(path, checker.allocator)
+	// rols: never block the request thread on a full queue
 	if !chan.try_send(checker.send, Check_Request{check_mode = mode, path = path, config = config}) {
 		log.errorf("check queue full, dropping %q", path)
 		delete(path, checker.allocator)
@@ -207,10 +208,12 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config) {
 		if k == "" || k == "core" || k == "vendor" || k == "base" {
 			continue
 		}
+		// rols: temp memory: the argument list dies with the check
 		append(&collections, fmt.tprintf("-collection:%v=%v", k, v))
 	}
 
 	max_concurrent_checks := max(1, os.get_processor_core_count())
+	// rols: temp memory, freed with the check
 	processes := make([dynamic]CheckProcess, 0, len(paths), context.temp_allocator)
 
 	errors := make([dynamic]Json_Errors, 0, len(paths), context.temp_allocator)
@@ -234,6 +237,7 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config) {
 			log.error("`odin check` timed out")
 			for &p in processes {
 				if !p.finished {
+					// rols: reap the process we killed
 					if err := os.process_kill(p.process); err != nil {
 						log.errorf("Failed to kill `odin check` process: %v", err)
 					} else {
@@ -249,6 +253,7 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config) {
 				continue
 			}
 
+			// rols: drain the pipe: one read leaves the rest for the next poll
 			buf: [4096]u8
 			for {
 				has_data, _ := os.pipe_has_data(p.reader)
@@ -361,6 +366,7 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config) {
 				uri.uri,
 				Diagnostic {
 					code = "checker",
+					// rols: the message decides whether a vet error is a warning
 					severity = map_diagnostic_severity(error.type, message),
 					range = {
 						// odin will sometimes report errors on column 0, so we ensure we don't provide a negative column/line to the client
@@ -402,6 +408,7 @@ start_check_process :: proc(
 		append(&cmd, fmt.tprintf("-define:%s=%s", k, v))
 	}
 	append(&cmd, entry_point_opt, "-json-errors")
+	// rols: vet and style flags from the config
 	if config.enable_checker_vet_shadowing {
 		append(&cmd, "-vet-shadowing")
 	}
@@ -454,6 +461,7 @@ start_check_process :: proc(
 	return CheckProcess{process = p, reader = r, buffer = buffer}, true
 }
 
+// rols: vet findings report as warnings
 @(private = "file")
 map_diagnostic_severity :: proc(type: string, message: string) -> DiagnosticSeverity {
 	if strings.equal_fold(type, "warning") {
