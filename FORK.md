@@ -47,6 +47,10 @@ CLI:
 
 - `src/main.odin`: `ols query` dispatch and the reused logger.
 
+CI:
+
+- `ci.sh`: self-lint gate, `ols query lint src/server --fail-on …`, after the build.
+
 Rewritten procs:
 
 - `src/server/response.odin`: all four senders frame through `write_message`; ids for server-initiated requests.
