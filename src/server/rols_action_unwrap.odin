@@ -77,8 +77,9 @@ add_remove_else :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt) {
 	strings.write_string(&sb, src[if_stmt.pos.offset:body.close.offset + 1])
 	if inner := block_inner_text(src, else_block); len(inner) > 0 {
 		ind := get_line_indentation(src, if_stmt.pos.offset)
+		unit := indent_unit(src, ind, body.stmts[0])
 		strings.write_byte(&sb, '\n')
-		strings.write_string(&sb, reindent(inner, strings.concatenate({ind, "\t"}, context.temp_allocator), ind))
+		strings.write_string(&sb, reindent(inner, strings.concatenate({ind, unit}, context.temp_allocator), ind))
 	}
 	append_replace_range(ctx, if_stmt.pos.offset, if_stmt.end.offset, "Remove redundant else", strings.to_string(sb))
 }
@@ -98,8 +99,12 @@ unwrap_body :: proc(ctx: ^ActionContext, stmt: ^ast.Node, body: ^ast.Stmt) {
 		append(ctx.actions, make_code_action(ctx, UNWRAP_TITLE, "refactor.rewrite", edits))
 		return
 	}
+	first: ^ast.Node
+	if len(block.stmts) > 0 {
+		first = block.stmts[0]
+	}
 	ind := get_line_indentation(src, stmt.pos.offset)
-	text := reindent(inner, strings.concatenate({ind, "\t"}, context.temp_allocator), ind)
+	text := reindent(inner, strings.concatenate({ind, indent_unit(src, ind, first)}, context.temp_allocator), ind)
 	// The replacement starts after the statement's own indentation.
 	append_replace_range(ctx, stmt.pos.offset, stmt.end.offset, UNWRAP_TITLE, strings.trim_prefix(text, ind))
 }
