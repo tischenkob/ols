@@ -38,8 +38,13 @@ add_split_if :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt, body: ^ast.Bloc
 		return
 	}
 
+	first: ^ast.Node
+	if len(body.stmts) > 0 {
+		first = body.stmts[0]
+	}
 	ind := get_line_indentation(src, if_stmt.pos.offset)
-	deeper := strings.concatenate({ind, "\t"}, context.temp_allocator)
+	unit := indent_unit(src, ind, first)
+	deeper := strings.concatenate({ind, unit}, context.temp_allocator)
 
 	sb := strings.builder_make(context.temp_allocator)
 	write_if_head(&sb, src, if_stmt, unparen_text(src, bin.left))
@@ -48,7 +53,7 @@ add_split_if :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt, body: ^ast.Bloc
 	strings.write_string(&sb, unparen_text(src, bin.right))
 	strings.write_string(&sb, " {\n")
 	if inner := block_inner_text(src, body); len(inner) > 0 {
-		strings.write_string(&sb, reindent(inner, deeper, strings.concatenate({deeper, "\t"}, context.temp_allocator)))
+		strings.write_string(&sb, reindent(inner, deeper, strings.concatenate({deeper, unit}, context.temp_allocator)))
 		strings.write_byte(&sb, '\n')
 	}
 	strings.write_string(&sb, deeper)
@@ -85,13 +90,14 @@ merge_if_text :: proc(src: string, if_stmt: ^ast.If_Stmt) -> (string, bool) {
 	}
 
 	ind := get_line_indentation(src, if_stmt.pos.offset)
-	deeper := strings.concatenate({ind, "\t"}, context.temp_allocator)
+	unit := indent_unit(src, ind, inner)
+	deeper := strings.concatenate({ind, unit}, context.temp_allocator)
 
 	sb := strings.builder_make(context.temp_allocator)
 	cond := strings.concatenate({operand_text(src, if_stmt.cond), " && ", operand_text(src, inner.cond)}, context.temp_allocator)
 	write_if_head(&sb, src, if_stmt, cond)
 	if text := block_inner_text(src, inner_body); len(text) > 0 {
-		strings.write_string(&sb, reindent(text, strings.concatenate({deeper, "\t"}, context.temp_allocator), deeper))
+		strings.write_string(&sb, reindent(text, strings.concatenate({deeper, unit}, context.temp_allocator), deeper))
 		strings.write_byte(&sb, '\n')
 	}
 	strings.write_string(&sb, ind)
