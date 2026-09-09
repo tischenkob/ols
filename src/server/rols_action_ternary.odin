@@ -151,6 +151,7 @@ add_to_if_else :: proc(ctx: ^ActionContext) {
 	}
 
 	ind := get_line_indentation(src, stmt.pos.offset)
+	unit := indent_unit(src, ind, nil)
 	sb := strings.builder_make(context.temp_allocator)
 	if decl_text != "" {
 		strings.write_string(&sb, decl_text)
@@ -161,14 +162,14 @@ add_to_if_else :: proc(ctx: ^ActionContext) {
 	strings.write_string(&sb, node_text(src, unparen_once(ternary.cond)))
 	strings.write_string(&sb, " {\n")
 	strings.write_string(&sb, ind)
-	strings.write_byte(&sb, '\t')
+	strings.write_string(&sb, unit)
 	strings.write_string(&sb, head)
 	strings.write_string(&sb, node_text(src, unparen_once(ternary.x)))
 	strings.write_byte(&sb, '\n')
 	strings.write_string(&sb, ind)
 	strings.write_string(&sb, "} else {\n")
 	strings.write_string(&sb, ind)
-	strings.write_byte(&sb, '\t')
+	strings.write_string(&sb, unit)
 	strings.write_string(&sb, head)
 	strings.write_string(&sb, node_text(src, unparen_once(ternary.y)))
 	strings.write_byte(&sb, '\n')
