@@ -178,3 +178,106 @@ f :: proc(xs: ^[dynamic]int) {
 
 	test.expect_lint_diagnostics(t, &source, {{3, "append-no-values"}, {5, "append-no-values"}})
 }
+
+@(test)
+lint_no_op_forms :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+g :: proc() {}
+
+f :: proc(c: bool, i: int, a: []int, xs: ^[dynamic]int, s: []int) {
+	r := &a[i] == nil
+	if c {
+	} else {
+		g()
+	}
+	append(xs, ..s)
+	_ = r
+}
+`,
+		config = {enable_lint_no_op = true},
+	}
+
+	// A spread append passes values, so it is not an empty append.
+	test.expect_lint_diagnostics(t, &source, {{5, "address-nil-compare"}, {6, "empty-body"}})
+}
+
+@(test)
+lint_fix_no_op_arithmetic_decl :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(x: int) -> int {
+	y := x{*} + 0
+	return y
+}
+`,
+		config = {enable_lint_no_op = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Remove no-op arithmetic",
+		`package test
+
+f :: proc(x: int) -> int {
+	y := x
+	return y
+}
+`,
+	)
+}
+
+@(test)
+lint_fix_no_op_arithmetic_nested :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(x: int) -> int {
+	return (x{*} + 0) * 2
+}
+`,
+		config = {enable_lint_no_op = true},
+	}
+
+	// Only the operation is replaced; the parentheses around it stay.
+	test.expect_action_applied(
+		t,
+		&source,
+		"Remove no-op arithmetic",
+		`package test
+
+f :: proc(x: int) -> int {
+	return (x) * 2
+}
+`,
+	)
+}
+
+@(test)
+lint_fix_append_no_values :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(xs: ^[dynamic]int) {
+	app{*}end(xs)
+	append(xs, 1)
+}
+`,
+		config = {enable_lint_no_op = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Remove append without values",
+		`package test
+
+f :: proc(xs: ^[dynamic]int) {
+	append(xs, 1)
+}
+`,
+	)
+}

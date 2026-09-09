@@ -624,6 +624,18 @@ simplify_range_loop :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out: ^
 	append(out, Simplification{loop.for_pos.offset, loop.body.pos.offset, "range-loop", "Use range loop", text})
 }
 
+// The two names an `if v, ok := …` declares live only inside the statement, so text that
+// mentions them cannot be lifted out of it.
+@(private = "file")
+mentions_either :: proc(node: ^ast.Node, a, b: string) -> bool {
+	for use in collect_ident_uses(node) {
+		if use.ident.name == a || use.ident.name == b {
+			return true
+		}
+	}
+	return false
+}
+
 @(private = "file")
 simplify_or_else :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out: ^[dynamic]Simplification) {
 	if_stmt, ok := node.derived.(^ast.If_Stmt)
@@ -660,6 +672,9 @@ simplify_or_else :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out: ^[dy
 		if !ident_named(t.results[0], v.name) || contains_call(o.results[0]) {
 			return
 		}
+		if mentions_either(o.results[0], v.name, flag.name) {
+			return
+		}
 		text = fmt.tprintf("return %s or_else %s", expr, node_text(src, o.results[0]))
 	case ^ast.Assign_Stmt:
 		o, is_assign := other.derived.(^ast.Assign_Stmt)
@@ -667,6 +682,9 @@ simplify_or_else :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out: ^[dy
 			return
 		}
 		if !ident_named(t.rhs[0], v.name) || contains_call(o.rhs[0]) {
+			return
+		}
+		if mentions_either(o.rhs[0], v.name, flag.name) || mentions_either(t.lhs[0], v.name, flag.name) {
 			return
 		}
 		lhs := node_text(src, t.lhs[0])

@@ -438,6 +438,9 @@ must_handle_type_name :: proc(type: ^ast.Expr) -> (string, bool) {
 		return t.field.name, true
 	case ^ast.Union_Type:
 		return "union", true
+	case ^ast.Call_Expr:
+		// Maybe(T) is a union spelled as a call.
+		if ident, is_ident := t.expr.derived.(^ast.Ident); is_ident && ident.name == "Maybe" do return "Maybe", true
 	}
 	return "", false
 }
