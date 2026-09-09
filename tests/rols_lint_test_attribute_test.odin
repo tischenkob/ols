@@ -150,7 +150,7 @@ fine :: proc(t: ^testing.T) {
 			{},
 		},
 		{
-			"an aliased testing import is not recognised",
+			"an aliased testing import",
 			`package test
 
 import t "core:testing"
@@ -158,7 +158,7 @@ import t "core:testing"
 forgot :: proc(x: ^t.T) {
 }
 `,
-			{},
+			{{4, "missing-test-attribute"}},
 		},
 	}
 
@@ -190,6 +190,34 @@ import "core:testing"
 @(private)
 @(test)
 forgot :: proc(t: ^testing.T) {
+}
+`,
+	)
+}
+
+@(test)
+lint_fix_missing_test_attribute_aliased_import :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import tt "core:testing"
+
+for{*}got :: proc(t: ^tt.T) {
+}
+`,
+		config = {enable_lint_test_attribute = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Add @(test)",
+		`package test
+
+import tt "core:testing"
+
+@(test)
+forgot :: proc(t: ^tt.T) {
 }
 `,
 	)
