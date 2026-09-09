@@ -3,6 +3,7 @@
 package server
 
 import "core:odin/ast"
+import "core:slice"
 import "core:strings"
 
 // A constant expression in a top-level procedure becomes a new last parameter, and every caller
@@ -61,15 +62,18 @@ add_introduce_param_action :: proc(ctx: ^ActionContext) {
 	}
 	name := fresh_name(ctx, base, expr.pos)
 
-	symbol, resolved := resolve_type_expression(ctx.ast_context, expr)
-	if !resolved {
-		return
-	}
-	// Untyped literals print as their default types only when marked mutable.
-	symbol.flags += {.Mutable}
-	type, type_ok := symbol_type_text(ctx.ast_context, symbol, name)
+	type, type_ok := argument_param_type(ctx, expr, parent)
 	if !type_ok {
-		return
+		symbol, resolved := resolve_type_expression(ctx.ast_context, expr)
+		if !resolved {
+			return
+		}
+		// Untyped literals print as their default types only when marked mutable.
+		symbol.flags += {.Mutable}
+		type, type_ok = symbol_type_text(ctx.ast_context, symbol, name)
+		if !type_ok {
+			return
+		}
 	}
 
 	params := function.type.params
@@ -92,4 +96,35 @@ add_introduce_param_action :: proc(ctx: ^ActionContext) {
 		ctx.actions,
 		CodeAction{title = "Introduce parameter", kind = "refactor.rewrite", edit = workspace_edit(changes)},
 	)
+}
+
+// The declared type of the parameter the expression is passed to. An untyped literal otherwise
+// takes its own default type, which the callee then refuses.
+argument_param_type :: proc(ctx: ^ActionContext, expr: ^ast.Expr, parent: ^ast.Node) -> (string, bool) {
+	call, is_call := parent.derived.(^ast.Call_Expr)
+	if !is_call {
+		return "", false
+	}
+	index, is_arg := slice.linear_search(call.args, expr)
+	if !is_arg {
+		return "", false
+	}
+	symbol, resolved := resolve_type_expression(ctx.ast_context, call.expr)
+	if !resolved {
+		return "", false
+	}
+	callee, is_proc := symbol.value.(SymbolProcedureValue)
+	if !is_proc {
+		return "", false
+	}
+	params := field_types(callee.arg_types)
+	if index >= len(params) || params[index] == nil {
+		return "", false
+	}
+	set_ast_package_set_scoped(ctx.ast_context, symbol.pkg)
+	param, param_ok := resolve_type_expression(ctx.ast_context, params[index])
+	if !param_ok {
+		return "", false
+	}
+	return symbol_type_text(ctx.ast_context, param, "")
 }
