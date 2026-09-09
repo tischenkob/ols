@@ -213,6 +213,74 @@ main :: proc() {
 }
 
 @(test)
+do_block_round_trip_range :: proc(t: ^testing.T) {
+	source := test.Source {
+		main   = `package test
+
+main :: proc() {
+	for {*}i in 0 ..< 3 do foo(i)
+}
+`,
+		config = {enable_code_action_do_block = true},
+	}
+	test.expect_action_round_trip(t, &source, {TO_BLOCK_ACTION, TO_DO_ACTION})
+}
+
+@(test)
+do_block_round_trip_space_indent :: proc(t: ^testing.T) {
+	source := test.Source {
+		main   = `package test
+
+main :: proc() {
+    if {*}x > 0 do foo()
+}
+`,
+		config = {enable_code_action_do_block = true},
+	}
+	test.expect_action_round_trip(t, &source, {TO_BLOCK_ACTION, TO_DO_ACTION})
+}
+
+@(test)
+do_block_round_trip_twice :: proc(t: ^testing.T) {
+	source := test.Source {
+		main   = `package test
+
+main :: proc() {
+	if {*}x > 0 do foo()
+}
+`,
+		config = {enable_code_action_do_block = true},
+	}
+	test.expect_action_round_trip(t, &source, {TO_BLOCK_ACTION, TO_DO_ACTION, TO_BLOCK_ACTION, TO_DO_ACTION})
+}
+
+@(test)
+do_block_to_do_refused_multi_line_head :: proc(t: ^testing.T) {
+	expect_no_do_block(t, `package test
+
+main :: proc() {
+	if {*}x > 0 &&
+	   y > 0 {
+		foo()
+	}
+}
+`)
+}
+
+@(test)
+do_block_to_do_refused_switch_case :: proc(t: ^testing.T) {
+	expect_no_do_block(t, `package test
+
+main :: proc() {
+	switch {*}x {
+	case 1:
+		foo()
+	}
+}
+`)
+}
+
+@(test)
 do_block_disabled :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
