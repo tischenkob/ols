@@ -105,13 +105,24 @@ add_defer_delete_action :: proc(ctx: ^ActionContext) {
 	// passed on to the cleanup.
 	src := ctx.document.ast.src
 	allocator: string
-	for arg in call.args {
-		text := node_text(src, arg)
-		if strings.contains(text, "temp_allocator") {
-			return
+	if len(call.args) > 0 {
+		last := call.args[len(call.args) - 1]
+		#partial switch _ in last.derived {
+		case ^ast.Ident, ^ast.Selector_Expr:
+			text := node_text(src, last)
+			if strings.has_suffix(text, "temp_allocator") {
+				return
+			}
+			if strings.has_suffix(text, "allocator") {
+				allocator = text
+			}
 		}
-		if strings.contains(text, "allocator") {
-			allocator = text
+	}
+	// `delete` on a dynamic array or a map takes no allocator.
+	if pkg == "" && callee == "make" && len(call.args) > 0 {
+		#partial switch _ in call.args[0].derived {
+		case ^ast.Dynamic_Array_Type, ^ast.Map_Type:
+			allocator = ""
 		}
 	}
 
