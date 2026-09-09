@@ -263,7 +263,7 @@ main :: proc() {
 	widest := literal_source(`package test
 
 main :: proc() {
-	x := 0xff{*}ff_ffff_ffff_ffff
+	x: u64 = 0xff{*}ff_ffff_ffff_ffff
 }
 `)
 

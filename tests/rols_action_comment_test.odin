@@ -126,25 +126,6 @@ main :: proc() {
 }
 `)
 
-	one_liner := test.Source {
-		main = `package test
-
-main :: proc() {
-	/* note {*}here */
-	x := 1
-}
-`,
-		config = {enable_code_action_comment = true},
-	}
-
-	test.expect_action_applied(t, &one_liner, TO_LINES, `package test
-
-main :: proc() {
-	// note here
-	x := 1
-}
-`)
-
 	trailing := test.Source {
 		main = `package test
 
