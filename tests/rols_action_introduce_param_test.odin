@@ -69,12 +69,43 @@ area :: proc(radius: f32) -> f32 {
 	return radius * radius
 }
 
-run :: proc(radius: f64) {
+run :: proc(radius: f32) {
 	a := area(radius)
 }
 
 main :: proc() {
 	run(3.5)
+}
+`)
+}
+
+@(test)
+action_introduce_param_takes_the_callee_parameter_type :: proc(t: ^testing.T) {
+	expect_introduce_param(t, `package test
+
+scale :: proc(factor: f64) -> f64 {
+	return factor
+}
+
+run :: proc() {
+	a := scale({[2]})
+}
+
+main :: proc() {
+	run()
+}
+`, `package test
+
+scale :: proc(factor: f64) -> f64 {
+	return factor
+}
+
+run :: proc(factor: f64) {
+	a := scale(factor)
+}
+
+main :: proc() {
+	run(2)
 }
 `)
 }
