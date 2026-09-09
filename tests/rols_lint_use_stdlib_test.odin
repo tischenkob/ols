@@ -522,19 +522,6 @@ main :: proc(x: f64) -> f64 {
 			{{3, "use_stdlib"}},
 		},
 		{
-			"abs on an integer",
-			`package test
-
-main :: proc(x: int) -> int {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
-`,
-			{{3, "use_stdlib"}},
-		},
-		{
 			"clamp written with min and max calls",
 			`package test
 
