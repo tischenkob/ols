@@ -38,6 +38,15 @@ add_merge_cases_action :: proc(ctx: ^ActionContext) {
 	}
 	clause := clauses[index]
 
+	// Either rewrite would move where the fallthrough lands.
+	if len(clause.body) > 0 {
+		if branch, is_branch := clause.body[len(clause.body) - 1].derived.(^ast.Branch_Stmt); is_branch {
+			if branch.tok.kind == .Fallthrough {
+				return
+			}
+		}
+	}
+
 	if len(clause.list) > 1 {
 		append_replace_range(ctx, clause.pos.offset, clause_end(src, clause), "Split case", split_text(src, clause))
 	}

@@ -148,3 +148,101 @@ main :: proc() {
 }
 `, config = {})
 }
+
+@(test)
+if_to_switch_string_cases :: proc(t: ^testing.T) {
+	expect_switch(t, `package test
+
+main :: proc() {
+	s := "a"
+	{*}if s == "a" {
+		foo()
+	} else if s == "b" {
+		bar()
+	}
+}
+`, `package test
+
+main :: proc() {
+	s := "a"
+	switch s {
+	case "a":
+		foo()
+	case "b":
+		bar()
+	}
+}
+`)
+}
+
+@(test)
+if_to_switch_space_indentation :: proc(t: ^testing.T) {
+	expect_switch(t, `package test
+
+main :: proc() {
+    x := 1
+    {*}if x == 1 {
+        foo()
+    } else {
+        bar()
+    }
+}
+`, `package test
+
+main :: proc() {
+    x := 1
+    switch x {
+    case 1:
+        foo()
+    case:
+        bar()
+    }
+}
+`)
+}
+
+@(test)
+if_to_switch_refusals :: proc(t: ^testing.T) {
+	expect_no_switch(t, `package test
+
+main :: proc() {
+	x := 1
+	{*}if x != 1 {
+		foo()
+	} else if x == 2 {
+		bar()
+	}
+}
+`)
+	// Nothing is offered on the result, so the action cannot be applied twice.
+	expect_no_switch(t, `package test
+
+main :: proc() {
+	x := 1
+	{*}switch x {
+	case 1:
+		foo()
+	case:
+		bar()
+	}
+}
+`)
+}
+
+@(test)
+if_to_switch_refuses_init_statement :: proc(t: ^testing.T) {
+	expect_no_switch(t, `package test
+
+f :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	{*}if v := f(); v == 1 {
+		foo()
+	} else if v := f(); v == 2 {
+		bar()
+	}
+}
+`)
+}
