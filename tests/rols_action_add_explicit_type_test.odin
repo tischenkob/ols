@@ -379,8 +379,14 @@ main :: proc() {
 
 	_, typed := test.apply_action_chain(t, &source, {ADD_EXPLICIT_TYPE_ACTION})
 
+	if !testing.expect(t, strings.contains(typed, "x:")) {
+		return
+	}
+
+	replaced, _ := strings.replace(typed, "x:", "x{*}:", 1, context.temp_allocator)
+
 	again := test.Source {
-		main   = strings.replace(typed, "x:", "x{*}:", 1, context.temp_allocator) or_else "",
+		main   = replaced,
 		config = {enable_code_action_add_explicit_type = true},
 	}
 	test.expect_action_missing(t, &again, ADD_EXPLICIT_TYPE_ACTION)
