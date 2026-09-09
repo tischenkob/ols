@@ -141,3 +141,106 @@ f :: proc() -> int {
 }
 `)
 }
+
+@(test)
+add_ok_result_nested_returns :: proc(t: ^testing.T) {
+	expect_add_ok_result(t, `package test
+
+f{*} :: proc(x: int) -> int {
+	if x == 0 {
+		return 1
+	}
+	for i in 0 ..< x {
+		return i
+	}
+	switch x {
+	case 1:
+		return 2
+	}
+	return 3
+}
+`, `package test
+
+f :: proc(x: int) -> (int, bool) {
+	if x == 0 {
+		return 1, true
+	}
+	for i in 0 ..< x {
+		return i, true
+	}
+	switch x {
+	case 1:
+		return 2, true
+	}
+	return 3, true
+}
+`)
+}
+
+@(test)
+add_ok_result_appends_to_an_existing_bool :: proc(t: ^testing.T) {
+	expect_add_ok_result(t, `package test
+
+f{*} :: proc() -> bool {
+	return true
+}
+`, `package test
+
+f :: proc() -> (bool, bool) {
+	return true, true
+}
+`)
+}
+
+@(test)
+add_ok_result_leaves_callers_alone :: proc(t: ^testing.T) {
+	expect_add_ok_result(t, `package test
+
+f{*} :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	x := f()
+}
+`, `package test
+
+f :: proc() -> (int, bool) {
+	return 1, true
+}
+
+main :: proc() {
+	x := f()
+}
+`)
+}
+
+@(test)
+add_ok_result_refused_optional_ok :: proc(t: ^testing.T) {
+	expect_no_add_ok_result(t, `package test
+
+f{*} :: proc() -> (int, bool) #optional_ok {
+	return 1, true
+}
+`)
+}
+
+@(test)
+add_ok_result_twice_appends_a_second_bool :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f{*} :: proc() -> int {
+	return 1
+}
+`,
+		config = {enable_code_action_add_ok_result = true},
+	}
+
+	test.expect_action_chain(t, &source, {ADD_OK_RESULT_ACTION, ADD_OK_RESULT_ACTION}, `package test
+
+f :: proc() -> (int, bool, bool) {
+	return 1, true, true
+}
+`)
+}

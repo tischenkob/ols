@@ -27,6 +27,10 @@ add_add_ok_result_action :: proc(ctx: ^ActionContext) {
 	if lit == nil || lit.type == nil || lit.body == nil {
 		return
 	}
+	// Both tags require exactly two results, so a third one would not compile.
+	if lit.type.tags & {.Optional_Ok, .Optional_Allocator_Error} != {} {
+		return
+	}
 
 	pos := ctx.range.start
 	results := lit.type.results
@@ -58,9 +62,14 @@ add_add_ok_result_action :: proc(ctx: ^ActionContext) {
 				}
 			}
 		}
+		// The parser synthesises a `_` name at the type's own position for an unnamed result, so
+		// counting names would read `(int, bool)` as named and write a list mixing the two forms.
 		for field in results.list {
-			named ||= len(field.names) > 0
 			for name in field.names {
+				if field.type != nil && name.pos.offset == field.type.pos.offset {
+					continue
+				}
+				named = true
 				append(&taken, final_name(name))
 			}
 		}
