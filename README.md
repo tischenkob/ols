@@ -242,7 +242,7 @@ Options:
 
 - `enable_lint_no_op`: Report code that does nothing: arithmetic with an identity operand (`x + 0`, `x * 1`), integer division of literals that is always 0, comparing an address to `nil`, empty `if` or loop bodies, and `append` with no values. Defaults to true.
 
-- `enable_lint_loops`: Report loop mistakes: a body that always exits on the first iteration, a condition nothing in the body changes, an empty infinite loop (`for {}`), and a range that runs one past the end (`0 ..= len(x)`). Defaults to true.
+- `enable_lint_loops`: Report loop mistakes: a body that always exits on the first iteration, a condition nothing in the body changes, an empty infinite loop (`for {}`), a range that runs one past the end (`0 ..= len(x)`), and a range over a map lookup whose value is a dynamic array, map or fixed array (`for x in m[k]`), which reads through a nil slot for a missing key. Defaults to true.
 
 - `enable_lint_dead_store`: Report a value stored in a variable that is overwritten before anything reads it, and writes to fields of a struct copy taken from an index, selector or range value. Defaults to true.
 
