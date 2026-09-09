@@ -166,10 +166,18 @@ main :: proc() {
 
 	ranges := cases_source(`package test
 
+Color :: enum {
+	Red,
+	Green,
+	Blue,
+	Alpha,
+	Beta,
+}
+
 main :: proc() {
-	x := 1
-	#partial switch x {
-	{*}case 1 ..= 3, 5:
+	c := Color.Red
+	#partial switch c {
+	{*}case .Red ..= .Blue, .Beta:
 		foo()
 	}
 }
