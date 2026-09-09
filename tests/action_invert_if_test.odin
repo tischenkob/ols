@@ -1,12 +1,9 @@
 package tests
 
-// rols: imports for the fork assertions
-import "core:log"
+// rols: import for the fork assertions
 import "core:strings"
 import "core:testing"
 
-// rols: import for the fork assertions
-import "src:common"
 import test "src:testing"
 
 INVERT_IF_ACTION :: "Invert if"
@@ -639,46 +636,14 @@ main :: proc() {
 `)
 }
 
-// Applies first_action at the cursor, then second_action at the same line and column of the
-// result. Returns the input without its marker and the final text.
-apply_twice :: proc(
-	t: ^testing.T,
-	main: string,
-	first_action, second_action: string,
-	config: common.Config,
-) -> (
-	original, result: string,
-) {
-	marker := strings.index(main, "{*}")
-	if marker < 0 {
-		log.error("No {*} marker")
-		return
-	}
-	line := strings.count(main[:marker], "\n")
-	column := marker - (strings.last_index_byte(main[:marker], '\n') + 1)
-	original, _ = strings.replace(main, "{*}", "", 1, context.temp_allocator)
-
-	first := test.Source{main = main, config = config}
-	once, ok := test.apply_action(t, &first, first_action)
-	if !ok {
-		return
-	}
-	start := 0
-	for _ in 0 ..< line {
-		start += strings.index_byte(once[start:], '\n') + 1
-	}
-	at := start + column
-	again := strings.concatenate({once[:at], "{*}", once[at:]}, context.temp_allocator)
-	second := test.Source{main = again, config = config}
-	result, _ = test.apply_action(t, &second, second_action)
-	return
-}
-
 // Inverting twice gives the input back, or expected when a normalisation applies.
 expect_invert_round_trip :: proc(t: ^testing.T, main: string, expected := "") {
-	original, result := apply_twice(t, main, INVERT_IF_ACTION, INVERT_IF_ACTION, {enable_code_action_invert_if = true})
-	want := expected if expected != "" else original
-	testing.expectf(t, result == want, "\nExpected:\n%s\n\nGot:\n%s", want, result)
+	source := test.Source{main = main, config = {enable_code_action_invert_if = true}}
+	if expected == "" {
+		test.expect_action_round_trip(t, &source, {INVERT_IF_ACTION, INVERT_IF_ACTION})
+	} else {
+		test.expect_action_chain(t, &source, {INVERT_IF_ACTION, INVERT_IF_ACTION}, expected)
+	}
 }
 
 expect_inverted :: proc(t: ^testing.T, main, expected: string) {

@@ -199,14 +199,17 @@ main :: proc() {
 
 @(test)
 do_block_round_trip :: proc(t: ^testing.T) {
-	original, result := apply_twice(t, `package test
+	source := test.Source {
+		main   = `package test
 
 main :: proc() {
 	if {*}x > 0 do foo()
 	else do bar()
 }
-`, TO_BLOCK_ACTION, TO_DO_ACTION, {enable_code_action_do_block = true})
-	testing.expectf(t, result == original, "\nExpected:\n%s\n\nGot:\n%s", original, result)
+`,
+		config = {enable_code_action_do_block = true},
+	}
+	test.expect_action_round_trip(t, &source, {TO_BLOCK_ACTION, TO_DO_ACTION})
 }
 
 @(test)
