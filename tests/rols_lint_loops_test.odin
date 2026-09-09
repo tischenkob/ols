@@ -165,6 +165,9 @@ ranges :: proc(s: string, xs: []int) {
 	for i in 1 ..= len(xs) {
 		use(i)
 	}
+	for i in 0 ..= len(xs) {
+		use(i)
+	}
 	for c in 0 ..< len(s) + 1 {
 		use(c)
 	}
@@ -173,9 +176,9 @@ ranges :: proc(s: string, xs: []int) {
 		config = {enable_lint_loops = true},
 	}
 
-	// A conditional break does not end the first iteration, and a call handed the loop variable
-	// by pointer can change it.
-	test.expect_lint_diagnostics(t, &source, {{30, "range-off-by-one"}, {33, "range-off-by-one"}})
+	// A conditional break does not end the first iteration, a call handed the loop variable by
+	// pointer can change it, and a range starting past 0 stays within len.
+	test.expect_lint_diagnostics(t, &source, {{33, "range-off-by-one"}, {36, "range-off-by-one"}})
 }
 
 @(test)
