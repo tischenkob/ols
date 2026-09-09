@@ -5,7 +5,6 @@ package server
 import "core:fmt"
 import "core:odin/ast"
 import "core:strings"
-import "core:sync"
 
 import "src:common"
 
@@ -17,11 +16,7 @@ add_checker_fix_action :: proc(ctx: ^ActionContext) {
 
 	selection := range_of(ctx, ctx.range.start, ctx.range.end)
 
-	// The checker thread writes this map while requests run.
-	sync.lock(&diagnostic_mutex)
-	defer sync.unlock(&diagnostic_mutex)
-
-	for diagnostic in diagnostics[.Check][ctx.uri] {
+	for diagnostic in diagnostics_of(.Check, ctx.uri, context.temp_allocator) {
 		line := diagnostic.range.start.line
 		if line < selection.start.line || selection.end.line < line {
 			continue

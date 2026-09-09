@@ -553,10 +553,9 @@ collect_lints :: proc(target: string) -> ([]Entry, bool) {
 	}
 
 	entries := make([dynamic]Entry, context.temp_allocator)
-	for type in ([]server.DiagnosticType{.Lint, .Unused, .Unused_Decl}) {
-		for uri, diagnostics in server.diagnostics[type] {
-			if uri not_in uris do continue
-			for diagnostic in diagnostics {
+	for uri in uris {
+		for type in ([]server.DiagnosticType{.Lint, .Unused, .Unused_Decl}) {
+			for diagnostic in server.diagnostics_of(type, uri, context.temp_allocator) {
 				append(&entries, Entry{uri, diagnostic})
 			}
 		}
