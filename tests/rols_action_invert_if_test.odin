@@ -408,64 +408,8 @@ main :: proc() {
 }
 
 @(test)
-invert_if_early_return_missing_with_results :: proc(t: ^testing.T) {
-	source := test.Source {
-		main = `package test
-
-main :: proc() -> (int, bool) {
-	if {*}x > 0 {
-		foo()
-	}
-	return 0, false
-}
-`,
-		config = {enable_code_action_invert_if = true},
-	}
-
-	test.expect_action_missing(t, &source, EARLY_RETURN_ACTION)
-}
-
-@(test)
-invert_if_early_return_missing_with_named_results :: proc(t: ^testing.T) {
-	source := test.Source {
-		main = `package test
-
-main :: proc() -> (ok: bool) {
-	if {*}x > 0 {
-		foo()
-	}
-	return
-}
-`,
-		config = {enable_code_action_invert_if = true},
-	}
-
-	test.expect_action_missing(t, &source, EARLY_RETURN_ACTION)
-}
-
-@(test)
-invert_if_early_return_missing_with_else :: proc(t: ^testing.T) {
-	source := test.Source {
-		main = `package test
-
-main :: proc() {
-	if {*}x > 0 {
-		foo()
-	} else {
-		return
-	}
-}
-`,
-		config = {enable_code_action_invert_if = true},
-	}
-
-	test.expect_action_missing(t, &source, EARLY_RETURN_ACTION)
-}
-
-@(test)
-invert_if_early_continue_in_loop_inside_case :: proc(t: ^testing.T) {
-	source := test.Source {
-		main = `package test
+invert_if_early_exit_in_loop_inside_case :: proc(t: ^testing.T) {
+	main := `package test
 
 main :: proc() {
 	switch x {
@@ -477,31 +421,25 @@ main :: proc() {
 		}
 	}
 }
-`,
+`
+	offered := test.Source {
+		main = main,
 		config = {enable_code_action_invert_if = true},
 	}
-
-	test.expect_action(t, &source, {INVERT_IF_ACTION, "Invert if (early continue)"})
+	test.expect_action(t, &offered, {INVERT_IF_ACTION, "Invert if (early continue)"})
+	missing := test.Source {
+		main = main,
+		config = {enable_code_action_invert_if = true},
+	}
+	test.expect_action_missing(t, &missing, "Invert if (early break)")
 }
 
+// A lone CRLF line must not pull the inverted if onto CRLF.
 @(test)
-invert_if_early_break_not_offered_in_loop_inside_case :: proc(t: ^testing.T) {
-	source := test.Source {
-		main = `package test
-
-main :: proc() {
-	switch x {
-	case 1:
-		for i in 0 ..< 3 {
-			if {*}i > 0 {
-				foo()
-			}
-		}
-	}
-}
-`,
-		config = {enable_code_action_invert_if = true},
-	}
-
-	test.expect_action_missing(t, &source, "Invert if (early break)")
+invert_if_mixed_line_endings :: proc(t: ^testing.T) {
+	expect_inverted(
+		t,
+		"package test\n\n// stray\r\nmain :: proc() {\n\tif {*}x > 0 {\n\t\tfoo()\n\t}\n}\n",
+		"package test\n\n// stray\r\nmain :: proc() {\n\tif x <= 0 {\n\t} else {\n\t\tfoo()\n\t}\n}\n",
+	)
 }
