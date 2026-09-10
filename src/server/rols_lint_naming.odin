@@ -52,7 +52,8 @@ lint_naming :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnos
 			case .Type:
 				check_name(ctx, diags, ident, "type", .Ada)
 			case .Constant:
-				check_name(ctx, diags, ident, "constant", .Screaming)
+				// A proc-local constant reads as a local, so SCREAMING_SNAKE_CASE is not expected.
+				if is_top_level(ctx, n) do check_name(ctx, diags, ident, "constant", .Screaming)
 			case .Alias:
 			}
 		}
@@ -112,6 +113,14 @@ decl_kind :: proc(ctx: ^LintContext, value: ^ast.Expr) -> Decl_Kind {
 	case ^ast.Call_Expr:
 		// `#config(...)`, `#load(...)`: the name follows the call. `Vector(f32)`: a type.
 		if _, is_directive := v.expr.derived.(^ast.Basic_Directive); is_directive do return .Alias
+		// `f32(48)`, `Meters(2)`: a cast of a literal is a constant.
+		if len(v.args) == 1 && !has_poly_params(ctx, v.expr) {
+			if resolved, ok := lint_symbols(ctx)[uintptr(v.expr)];
+			   ok && resolved.symbol != nil && resolved.symbol.type == .Keyword {
+				return .Constant
+			}
+			if _, is_lit := unparen(v.args[0]).derived.(^ast.Basic_Lit); is_lit do return .Constant
+		}
 		if decl_kind(ctx, v.expr) == .Type do return .Type
 		return .Constant
 	case ^ast.Ident, ^ast.Selector_Expr:
@@ -129,8 +138,28 @@ decl_kind :: proc(ctx: ^LintContext, value: ^ast.Expr) -> Decl_Kind {
 	return .Constant
 }
 
+// `Small_Array(16, Item)` instantiates a polymorphic type, so its literal argument is not a cast.
 @(private = "file")
-check_name :: proc(ctx: ^LintContext, diags: ^[dynamic]Diagnostic, ident: ^ast.Ident, what: string, rule: Naming_Rule) {
+has_poly_params :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> bool {
+	resolved, ok := lint_symbols(ctx)[uintptr(expr)]
+	if !ok || resolved.symbol == nil do return false
+	#partial switch value in resolved.symbol.value {
+	case SymbolStructValue:
+		return value.poly != nil
+	case SymbolUnionValue:
+		return value.poly != nil
+	}
+	return false
+}
+
+@(private = "file")
+check_name :: proc(
+	ctx: ^LintContext,
+	diags: ^[dynamic]Diagnostic,
+	ident: ^ast.Ident,
+	what: string,
+	rule: Naming_Rule,
+) {
 	if ident.name == "_" || conforms(ident.name, rule) do return
 	append(
 		diags,
@@ -160,6 +189,9 @@ conforms :: proc(name: string, rule: Naming_Rule) -> bool {
 		}
 		return has_letter
 	case .Ada:
+		name := name
+		// `_1`, `_2`: a name cannot start with a digit, so the underscore is part of the first segment.
+		if len(name) >= 2 && name[0] == '_' && is_digit(name[1]) do name = name[1:]
 		for segment in strings.split(name, "_", context.temp_allocator) {
 			if len(segment) == 0 || !(is_upper(segment[0]) || is_digit(segment[0])) do return false
 		}
