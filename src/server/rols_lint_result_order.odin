@@ -16,13 +16,13 @@ lint_result_order :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]D
 		skip_subtree(ctx, n.body)
 	case ^ast.Proc_Type:
 		if n.results == nil do return
-		types := field_types(n.results.list)
-		if len(types) < 2 do return
+		if len(n.results.list) < 2 do return
 
 		error: ^ast.Expr
-		for type in types {
+		for field in n.results.list {
+			type := field.type
 			if type == nil do continue
-			if is_error_like(ctx, type) {
+			if is_error_like(ctx, field) {
 				if error == nil do error = type
 				continue
 			}
@@ -43,11 +43,13 @@ lint_result_order :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]D
 }
 
 @(private = "file")
-is_error_like :: proc(ctx: ^LintContext, type: ^ast.Expr) -> bool {
+is_error_like :: proc(ctx: ^LintContext, field: ^ast.Field) -> bool {
+	type := field.type
 	if _, is_union := type.derived.(^ast.Union_Type); is_union do return true
 
 	name := final_name(type)
-	if name == "bool" do return true
+	// A named `bool` result is a plain value unless it is the `ok` of an `x, ok` pair.
+	if name == "bool" do return bool_is_error(field)
 	if strings.has_suffix(name, "Error") || strings.has_suffix(name, "Err") do return true
 
 	resolved, found := lint_symbols(ctx)[uintptr(type)]
@@ -57,6 +59,17 @@ is_error_like :: proc(ctx: ^LintContext, type: ^ast.Expr) -> bool {
 		return true
 	case SymbolEnumValue:
 		return slice.contains(v.names, "None")
+	}
+	return false
+}
+
+// The parser gives an unnamed result the name `_`.
+@(private = "file")
+bool_is_error :: proc(field: ^ast.Field) -> bool {
+	for n in field.names {
+		ident, is_ident := n.derived.(^ast.Ident)
+		if !is_ident do continue
+		if ident.name == "ok" || ident.name == "_" do return true
 	}
 	return false
 }

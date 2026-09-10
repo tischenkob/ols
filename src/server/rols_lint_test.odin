@@ -2,6 +2,7 @@ package server
 
 import "core:fmt"
 import "core:odin/ast"
+import "core:strings"
 
 import "src:common"
 
@@ -37,6 +38,8 @@ lint_test_attribute :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 		return
 	}
 	if !takes_t do return
+	// A proc called from elsewhere in the file is a helper.
+	if is_used_elsewhere(ctx, name) do return
 
 	append(
 		diags,
@@ -62,8 +65,24 @@ lint_test_attribute :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 }
 
 @(private = "file")
+is_used_elsewhere :: proc(ctx: ^LintContext, name: ^ast.Ident) -> bool {
+	for decl in ctx.document.ast.decls {
+		for use in collect_ident_uses(decl) {
+			if use.ident.name == name.name && use.ident != name do return true
+		}
+	}
+	return false
+}
+
+@(private = "file")
 takes_testing_t :: proc(ctx: ^LintContext, lit: ^ast.Proc_Lit) -> bool {
 	params := lit.type.params
 	if params == nil || len(params.list) != 1 || len(params.list[0].names) != 1 || params.list[0].type == nil do return false
-	return node_text(ctx.src, params.list[0].type) == "^testing.T"
+	if node_text(ctx.src, params.list[0].type) != "^testing.T" do return false
+	// Another package can also be named `testing` and export its own `T`.
+	for imp in ctx.document.ast.imports {
+		if !strings.contains(imp.fullpath, "core:testing") do continue
+		if imp.name.text == "" || imp.name.text == "testing" do return true
+	}
+	return false
 }

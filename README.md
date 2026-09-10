@@ -266,7 +266,7 @@ Options:
 
 - `enable_lint_invisible_characters`: Report a string literal containing a literal zero-width, bidirectional or control character. Defaults to true.
 
-- `enable_lint_result_order`: Report a procedure whose error-like result is followed by another result, so `or_return` cannot be used. Defaults to true.
+- `enable_lint_result_order`: Report a procedure whose error-like result is followed by another result, so `or_return` cannot be used. A `bool` counts as an error result only when unnamed or named `ok`. Defaults to true.
 
 - `enable_lint_switch`: Report a `#partial` switch that already lists every case, and a `break` at the end of a case. Defaults to true.
 

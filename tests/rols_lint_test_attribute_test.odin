@@ -16,6 +16,10 @@ forgot :: proc(t: ^testing.T) {
 
 @(test)
 kept :: proc(t: ^testing.T) {
+	setup(t)
+}
+
+setup :: proc(t: ^testing.T) {
 }
 
 helper :: proc(t: ^testing.T, name: string) {
@@ -30,6 +34,26 @@ main :: proc() {
 	}
 
 	test.expect_lint_diagnostics(t, &source, {{4, "missing-test-attribute"}})
+}
+
+@(test)
+lint_missing_test_attribute_other_package :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import testing "other"
+
+f :: proc(t: ^testing.T) {
+}
+`,
+		packages = {{pkg = "other", source = `package other
+
+T :: struct {}
+`}},
+		config = {enable_lint_test_attribute = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
 }
 
 @(test)

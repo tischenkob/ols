@@ -17,6 +17,12 @@ lint_recursion :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diag
 	body, is_block := proc_lit.body.derived.(^ast.Block_Stmt)
 	if !is_block do return
 
+	// A local constant is visible to the whole block, so a shadowing declaration anywhere in
+	// the body makes every call in it refer to something else.
+	for stmt in body.stmts {
+		if redeclares(stmt, name.name) do return
+	}
+
 	for stmt in body.stmts {
 		if contains_or_expr(stmt) do return
 
@@ -45,6 +51,30 @@ lint_recursion :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diag
 			if _, is_return := stmt.derived.(^ast.Return_Stmt); is_return do return
 		}
 	}
+}
+
+@(private = "file")
+redeclares :: proc(stmt: ^ast.Stmt, name: string) -> bool {
+	#partial switch s in stmt.derived {
+	case ^ast.Value_Decl:
+		return declares(s, name)
+	case ^ast.Foreign_Block_Decl:
+		if s.body == nil do return false
+		block, is_block := s.body.derived.(^ast.Block_Stmt)
+		if !is_block do return false
+		for inner in block.stmts {
+			if decl, is_decl := inner.derived.(^ast.Value_Decl); is_decl && declares(decl, name) do return true
+		}
+	}
+	return false
+}
+
+@(private = "file")
+declares :: proc(decl: ^ast.Value_Decl, name: string) -> bool {
+	for n in decl.names {
+		if ident, is_ident := n.derived.(^ast.Ident); is_ident && ident.name == name do return true
+	}
+	return false
 }
 
 @(private = "file")
