@@ -39,6 +39,14 @@ bad_union :: proc() -> (Value, int) {
 	return nil, 0
 }
 
+flags :: proc() -> (bless, verbose: bool, name: string, ok: bool) {
+	return false, false, "", true
+}
+
+unnamed :: proc() -> (bool, int) {
+	return false, 0
+}
+
 good :: proc() -> (int, Parse_Error) {
 	return 0, .Bad
 }
@@ -59,6 +67,12 @@ foreign lib {
 	test.expect_lint_diagnostics(
 		t,
 		&source,
-		{{16, "error-not-last"}, {20, "error-not-last"}, {24, "error-not-last"}, {28, "error-not-last"}},
+		{
+			{16, "error-not-last"},
+			{20, "error-not-last"},
+			{24, "error-not-last"},
+			{28, "error-not-last"},
+			{36, "error-not-last"},
+		},
 	)
 }

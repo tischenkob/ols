@@ -30,6 +30,26 @@ k :: proc(n: int) -> int {
 	}
 	return cb(n)
 }
+
+foreign import lib "system:lib"
+
+wrap :: proc(n: int) -> int {
+	foreign lib {
+		wrap :: proc(n: int) -> int ---
+	}
+	return wrap(n)
+}
+
+shadow :: proc(n: int) -> int {
+	shadow :: proc(n: int) -> int { return n }
+	return shadow(n)
+}
+
+shadow_after :: proc(n: int) -> int {
+	v := shadow_after(n)
+	shadow_after :: proc(n: int) -> int { return n }
+	return v
+}
 `,
 		config = {enable_lint_recursion = true},
 	}
