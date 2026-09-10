@@ -378,6 +378,12 @@ Mouse_Button :: enum {
 	RIGHT = 3,
 }
 
+Slot :: enum {
+	_1,
+	_2,
+	_Bad,
+}
+
 Flags :: bit_field u8 {
 	is_on: bool | 1,
 	isOff: bool | 1,
@@ -393,6 +399,13 @@ Callback :: #type proc(x: int)
 Handle :: Meters
 Vector :: struct($T: typeid) {}
 Vec_F32 :: Vector(f32)
+w :: f32(48)
+Scale :: Meters(2)
+Small :: struct($N: int, $T: typeid) {}
+Item_List :: Small(16, int)
+when ODIN_OS == .Windows {
+	maxPath :: 260
+}
 
 my_var := 1
 myVar := 2
@@ -408,17 +421,20 @@ main :: proc() {
 		&source,
 		{
 			{4, "naming"},
-			{5, "naming"},
 			{9, "naming"},
 			{9, "naming"},
 			{14, "naming"},
 			{17, "naming"},
 			{23, "naming"},
-			{29, "naming"},
-			{33, "naming"},
+			{30, "naming"},
 			{35, "naming"},
-			{37, "naming"},
-			{44, "naming"},
+			{39, "naming"},
+			{41, "naming"},
+			{43, "naming"},
+			{48, "naming"},
+			{49, "naming"},
+			{53, "naming"},
+			{57, "naming"},
 		},
 	)
 }
@@ -506,12 +522,7 @@ f :: proc(xs: []int, i, j: int, p: ^int, u, v: S) {
 	test.expect_lint_diagnostics(
 		t,
 		&source,
-		{
-			{11, "self-assignment"},
-			{12, "self-assignment"},
-			{13, "self-assignment"},
-			{16, "self-assignment"},
-		},
+		{{11, "self-assignment"}, {12, "self-assignment"}, {13, "self-assignment"}, {16, "self-assignment"}},
 	)
 }
 

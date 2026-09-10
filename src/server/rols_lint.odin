@@ -24,6 +24,27 @@ Lint_Fix :: struct {
 	title, text: string,
 }
 
+@(private = "package")
+is_top_level :: proc(ctx: ^LintContext, decl: ^ast.Value_Decl) -> bool {
+	for stmt in ctx.document.ast.decls do if declares(stmt, decl) do return true
+	return false
+}
+
+// A file-scope `when` holds declarations that are still top level.
+@(private = "file")
+declares :: proc(stmt: ^ast.Stmt, decl: ^ast.Value_Decl) -> bool {
+	if stmt == nil do return false
+	#partial switch s in stmt.derived {
+	case ^ast.Value_Decl:
+		return s == decl
+	case ^ast.Block_Stmt:
+		for inner in s.stmts do if declares(inner, decl) do return true
+	case ^ast.When_Stmt:
+		return declares(s.body, decl) || declares(s.else_stmt, decl)
+	}
+	return false
+}
+
 lint_symbols :: proc(ctx: ^LintContext) -> SymbolAndNodeMap {
 	symbols, has_symbols := ctx.symbols.?
 	if !has_symbols {
