@@ -67,11 +67,3 @@ takes_testing_t :: proc(ctx: ^LintContext, lit: ^ast.Proc_Lit) -> bool {
 	if params == nil || len(params.list) != 1 || len(params.list[0].names) != 1 || params.list[0].type == nil do return false
 	return node_text(ctx.src, params.list[0].type) == "^testing.T"
 }
-
-@(private = "file")
-is_top_level :: proc(ctx: ^LintContext, decl: ^ast.Value_Decl) -> bool {
-	for stmt in ctx.document.ast.decls {
-		if (stmt.derived.(^ast.Value_Decl) or_else nil) == decl do return true
-	}
-	return false
-}
