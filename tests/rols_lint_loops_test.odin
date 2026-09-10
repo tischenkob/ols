@@ -27,6 +27,14 @@ f :: proc(xs: []int) -> int {
 			return x
 		}
 	}
+	outer: for x in xs {
+		for y in xs {
+			if y == x {
+				continue outer
+			}
+		}
+		return x
+	}
 	return 0
 }
 `,
@@ -50,6 +58,26 @@ g :: proc(n: int) {
 	}
 	for i < n {
 		i += 1
+	}
+	for i < n {
+		v := f() or_break
+		use(v)
+	}
+}
+
+f :: proc() -> (int, bool) {
+	return 0, true
+}
+
+depth := 3
+
+pop :: proc() {
+	depth -= 1
+}
+
+h :: proc() {
+	for depth > 0 {
+		pop()
 	}
 }
 `,
