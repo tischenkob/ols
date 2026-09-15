@@ -13,11 +13,11 @@ lint_loops :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnost
 
 	#partial switch n in node.derived {
 	case ^ast.For_Stmt:
-		loop_single_iteration(ctx, n.for_pos, n.body, diags)
+		loop_single_iteration(ctx, n.for_pos, n.body, n.label, diags)
 		loop_condition_constant(ctx, n, diags)
 		empty_loop(ctx, n, diags)
 	case ^ast.Range_Stmt:
-		loop_single_iteration(ctx, n.for_pos, n.body, diags)
+		loop_single_iteration(ctx, n.for_pos, n.body, n.label, diags)
 		range_off_by_one(ctx, n, diags)
 		range_map_lookup(ctx, n, diags)
 	}
@@ -37,35 +37,86 @@ Loop_Jumps :: struct {
 	has_exit:     bool, // break or return
 }
 
-// Jumps that belong to this loop. Nested loops own their own jumps and a proc literal's
-// jumps belong to that proc, so neither is descended into.
 @(private = "file")
-loop_jumps :: proc(body: ^ast.Stmt) -> (jumps: Loop_Jumps) {
+Jump_Scan :: struct {
+	using jumps: Loop_Jumps,
+	name:        string, // this loop's label, "" when it has none
+}
+
+@(private = "file")
+label_name :: proc(label: ^ast.Expr) -> string {
+	if label == nil do return ""
+	ident, is_ident := label.derived.(^ast.Ident)
+	return is_ident ? ident.name : ""
+}
+
+// Jumps that belong to this loop. A nested loop owns its unlabelled jumps but a jump labelled with
+// this loop's name is ours wherever it sits. A proc literal's jumps belong to that proc.
+@(private = "file")
+loop_jumps :: proc(body: ^ast.Stmt, label: ^ast.Expr) -> Loop_Jumps {
+	scan := Jump_Scan {
+		name = label_name(label),
+	}
 	visitor := ast.Visitor {
-		data = &jumps,
+		data = &scan,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
 			if node == nil do return nil
-			jumps := (^Loop_Jumps)(visitor.data)
+			scan := (^Jump_Scan)(visitor.data)
 			#partial switch n in node.derived {
-			case ^ast.For_Stmt, ^ast.Range_Stmt, ^ast.Unroll_Range_Stmt, ^ast.Proc_Lit:
+			case ^ast.For_Stmt, ^ast.Range_Stmt, ^ast.Unroll_Range_Stmt:
+				labelled_jumps(node, scan)
+				return nil
+			case ^ast.Proc_Lit:
 				return nil
 			case ^ast.Return_Stmt:
-				jumps.has_exit = true
+				scan.jumps.has_exit = true
 			case ^ast.Or_Branch_Expr:
-				if n.token.kind == .Or_Continue do jumps.has_continue = true
+				#partial switch n.token.kind {
+				case .Or_Continue:
+					scan.jumps.has_continue = true
+				case .Or_Break, .Or_Return:
+					scan.jumps.has_exit = true
+				}
 			case ^ast.Branch_Stmt:
 				#partial switch n.tok.kind {
 				case .Continue:
-					jumps.has_continue = true
+					scan.jumps.has_continue = true
 				case .Break:
-					jumps.has_exit = true
+					scan.jumps.has_exit = true
 				}
 			}
 			return visitor
 		},
 	}
 	ast.walk(&visitor, body)
-	return
+	return scan.jumps
+}
+
+@(private = "file")
+labelled_jumps :: proc(loop: ^ast.Node, scan: ^Jump_Scan) {
+	if scan.name == "" do return
+	visitor := ast.Visitor {
+		data = scan,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil do return nil
+			scan := (^Jump_Scan)(visitor.data)
+			#partial switch n in node.derived {
+			case ^ast.Proc_Lit:
+				return nil
+			case ^ast.Branch_Stmt:
+				if label_name(n.label) == scan.name {
+					#partial switch n.tok.kind {
+					case .Continue:
+						scan.jumps.has_continue = true
+					case .Break:
+						scan.jumps.has_exit = true
+					}
+				}
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, loop)
 }
 
 @(private = "file")
@@ -73,6 +124,7 @@ loop_single_iteration :: proc(
 	ctx: ^LintContext,
 	for_pos: tokenizer.Pos,
 	body: ^ast.Stmt,
+	label: ^ast.Expr,
 	diags: ^[dynamic]Diagnostic,
 ) {
 	block, is_block := body.derived.(^ast.Block_Stmt)
@@ -85,7 +137,7 @@ loop_single_iteration :: proc(
 	case ^ast.Branch_Stmt:
 		exits = s.tok.kind == .Break && s.label == nil
 	}
-	if !exits || loop_jumps(body).has_continue do return
+	if !exits || loop_jumps(body, label).has_continue do return
 
 	append(
 		diags,
@@ -107,7 +159,8 @@ loop_condition_constant :: proc(ctx: ^LintContext, n: ^ast.For_Stmt, diags: ^[dy
 	for use in collect_ident_uses(n.cond) {
 		names[use.ident.name] = {}
 	}
-	if len(names) == 0 || loop_jumps(n.body).has_exit do return
+	if len(names) == 0 || loop_jumps(n.body, n.label).has_exit do return
+	if condition_global_call(ctx, n) do return
 
 	for use in collect_ident_uses(n.body) {
 		if use.ident.name not_in names do continue
@@ -132,6 +185,36 @@ loop_condition_constant :: proc(ctx: ^LintContext, n: ^ast.For_Stmt, diags: ^[dy
 			message = "loop condition never changes inside the body",
 		},
 	)
+}
+
+// A call in the body can reach a global the condition reads, without naming it here. An identifier
+// that does not resolve is assumed global for the same reason.
+@(private = "file")
+condition_global_call :: proc(ctx: ^LintContext, n: ^ast.For_Stmt) -> bool {
+	if !loop_body_has_call(n.body) do return false
+	for use in collect_ident_uses(n.cond) {
+		resolved, ok := lint_symbols(ctx)[uintptr(use.ident)]
+		if !ok || resolved.is_unresolved do return true
+		if .Local not_in resolved.symbol.flags && .Mutable in resolved.symbol.flags do return true
+	}
+	return false
+}
+
+@(private = "file")
+loop_body_has_call :: proc(body: ^ast.Stmt) -> (found: bool) {
+	visitor := ast.Visitor {
+		data = &found,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil do return nil
+			if _, is_call := node.derived.(^ast.Call_Expr); is_call {
+				(^bool)(visitor.data)^ = true
+				return nil
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, body)
+	return
 }
 
 @(private = "file")
