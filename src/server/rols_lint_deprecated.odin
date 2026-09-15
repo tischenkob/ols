@@ -22,6 +22,8 @@ lint_deprecated :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Dia
 
 	resolved, found := lint_symbols(ctx)[uintptr(node)]
 	if !found || resolved.is_unresolved || .Deprecated not_in resolved.symbol.flags do return
+	// `p := f` resolves `p` to `f`'s symbol; only the name that spells it out is a use.
+	if field.name != resolved.symbol.name do return
 
 	// A selector and its own field ident both resolve to the same symbol; the selector comes first.
 	range := common.get_token_range(field, ctx.src)

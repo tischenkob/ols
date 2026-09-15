@@ -2,8 +2,6 @@ package server
 
 import "core:fmt"
 import "core:odin/ast"
-import "core:strings"
-
 import "src:common"
 
 // `odin test` only runs procedures marked `@(test)`, and it calls them as `proc(t: ^testing.T)`,
@@ -78,11 +76,21 @@ is_used_elsewhere :: proc(ctx: ^LintContext, name: ^ast.Ident) -> bool {
 takes_testing_t :: proc(ctx: ^LintContext, lit: ^ast.Proc_Lit) -> bool {
 	params := lit.type.params
 	if params == nil || len(params.list) != 1 || len(params.list[0].names) != 1 || params.list[0].type == nil do return false
-	if node_text(ctx.src, params.list[0].type) != "^testing.T" do return false
-	// Another package can also be named `testing` and export its own `T`.
+	return node_text(ctx.src, params.list[0].type) == fmt.tprintf("^%s.T", testing_package_name(ctx))
+}
+
+@(private = "file")
+testing_package_name :: proc(ctx: ^LintContext) -> string {
 	for imp in ctx.document.ast.imports {
-		if !strings.contains(imp.fullpath, "core:testing") do continue
-		if imp.name.text == "" || imp.name.text == "testing" do return true
+		if imp.fullpath == `"core:testing"` && imp.name.text != "" do return imp.name.text
+	}
+	return "testing"
+}
+
+@(private = "file")
+is_top_level :: proc(ctx: ^LintContext, decl: ^ast.Value_Decl) -> bool {
+	for stmt in ctx.document.ast.decls {
+		if (stmt.derived.(^ast.Value_Decl) or_else nil) == decl do return true
 	}
 	return false
 }

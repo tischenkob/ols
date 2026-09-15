@@ -28,12 +28,10 @@ lint_calls :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnost
 	value, is_proc := symbol.value.(SymbolProcedureValue)
 	if !is_proc || value.generic do return
 
+	// ponytail: a spread or a named argument bails the whole call; match names to parameters if it matters.
+	if call.ellipsis.kind == .Ellipsis do return
 	for arg in call.args {
-		// ponytail: a spread or a named argument bails the whole call; match names to parameters if it matters.
-		#partial switch _ in arg.derived {
-		case ^ast.Ellipsis, ^ast.Field_Value:
-			return
-		}
+		if _, is_named := arg.derived.(^ast.Field_Value); is_named do return
 	}
 
 	required, total := 0, 0
