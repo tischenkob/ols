@@ -10,24 +10,25 @@ import "core:strings"
 Cleanup :: struct {
 	pkg, callee: string,
 	text:        string, // format string taking the variable name
+	allocator:   bool, // the cleanup takes the allocator the call was given as a second argument
 }
 
 // Bare callees are the runtime builtins. Temp-allocator procs are left out on purpose.
 cleanups := [?]Cleanup {
-	{"", "make", "delete(%s)"},
-	{"", "new", "free(%s)"},
-	{"", "new_clone", "free(%s)"},
-	{"strings", "builder_make", "strings.builder_destroy(&%s)"},
-	{"strings", "clone", "delete(%s)"},
-	{"strings", "concatenate", "delete(%s)"},
-	{"strings", "join", "delete(%s)"},
-	{"fmt", "aprintf", "delete(%s)"},
-	{"fmt", "aprint", "delete(%s)"},
-	{"fmt", "aprintln", "delete(%s)"},
-	{"os", "read_entire_file", "delete(%s)"},
-	{"slice", "clone", "delete(%s)"},
-	{"mem", "alloc", "free(%s)"},
-	{"mem", "alloc_bytes", "delete(%s)"},
+	{"", "make", "delete(%s)", true},
+	{"", "new", "free(%s)", true},
+	{"", "new_clone", "free(%s)", true},
+	{"strings", "builder_make", "strings.builder_destroy(&%s)", false},
+	{"strings", "clone", "delete(%s)", true},
+	{"strings", "concatenate", "delete(%s)", true},
+	{"strings", "join", "delete(%s)", true},
+	{"fmt", "aprintf", "delete(%s)", true},
+	{"fmt", "aprint", "delete(%s)", true},
+	{"fmt", "aprintln", "delete(%s)", true},
+	{"os", "read_entire_file", "delete(%s)", true},
+	{"slice", "clone", "delete(%s)", true},
+	{"mem", "alloc", "free(%s)", true},
+	{"mem", "alloc_bytes", "delete(%s)", true},
 }
 
 @(private = "package")
@@ -40,10 +41,11 @@ add_defer_delete_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 
-	stmt: ^ast.Node
+	stmt, block: ^ast.Node
 	name: ^ast.Ident
 	value: ^ast.Expr
 	#reverse for at in nodes_at({function.body}, ctx.range.start) {
+		block = at.parent
 		#partial switch n in at.node.derived {
 		case ^ast.Value_Decl:
 			if !n.is_mutable || len(n.values) != 1 || len(n.names) == 0 {
@@ -63,6 +65,10 @@ add_defer_delete_action :: proc(ctx: ^ActionContext) {
 		break
 	}
 	if stmt == nil || name == nil || name.name == "_" {
+		return
+	}
+	// A `do` body holds one statement, so a defer after it would name something out of scope.
+	if block != nil && do_keyword(block) != "" {
 		return
 	}
 
@@ -95,11 +101,41 @@ add_defer_delete_action :: proc(ctx: ^ActionContext) {
 	case:
 		return
 	}
+	// The memory has to go back to the allocator it came from, so an argument naming one is
+	// passed on to the cleanup.
+	src := ctx.document.ast.src
+	allocator: string
+	if len(call.args) > 0 {
+		last := call.args[len(call.args) - 1]
+		#partial switch _ in last.derived {
+		case ^ast.Ident, ^ast.Selector_Expr:
+			text := node_text(src, last)
+			if strings.has_suffix(text, "temp_allocator") {
+				return
+			}
+			if strings.has_suffix(text, "allocator") {
+				allocator = text
+			}
+		}
+	}
+	// `delete` on a dynamic array or a map takes no allocator.
+	if pkg == "" && callee == "make" && len(call.args) > 0 {
+		#partial switch _ in call.args[0].derived {
+		case ^ast.Dynamic_Array_Type, ^ast.Map_Type:
+			allocator = ""
+		}
+	}
+
 	cleanup: string
 	for entry in cleanups {
-		if entry.pkg == pkg && entry.callee == callee {
-			cleanup = fmt.tprintf(entry.text, name.name)
+		if entry.pkg != pkg || entry.callee != callee {
+			continue
 		}
+		argument := name.name
+		if entry.allocator && allocator != "" {
+			argument = fmt.tprintf("%s, %s", name.name, allocator)
+		}
+		cleanup = fmt.tprintf(entry.text, argument)
 	}
 	if cleanup == "" {
 		return
@@ -114,13 +150,6 @@ add_defer_delete_action :: proc(ctx: ^ActionContext) {
 	case SymbolProcedureValue, SymbolProcedureGroupValue, SymbolAggregateValue:
 	case:
 		return
-	}
-
-	src := ctx.document.ast.src
-	for arg in call.args {
-		if strings.contains(node_text(src, arg), "temp_allocator") {
-			return
-		}
 	}
 
 	if list, ok := find_stmt_list_at(function.body, stmt.pos.offset, stmt.end.offset); ok {

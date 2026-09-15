@@ -418,3 +418,196 @@ main :: proc() {
 }
 `, enabled = false)
 }
+
+@(test)
+result_or_return_single_result_statement :: proc(t: ^testing.T) {
+	expect_result_action(t, OR_RETURN_ACTION, `package test
+
+f :: proc() -> bool { return true }
+
+main :: proc() -> bool {
+	f({*})
+	return true
+}
+`, `package test
+
+f :: proc() -> bool { return true }
+
+main :: proc() -> bool {
+	f() or_return
+	return true
+}
+`)
+}
+
+@(test)
+result_or_return_single_result_value :: proc(t: ^testing.T) {
+	expect_no_result_action(t, OR_RETURN_ACTION, `package test
+
+f :: proc() -> bool { return true }
+
+main :: proc() -> bool {
+	x := f({*})
+	return x
+}
+`)
+}
+
+@(test)
+result_if_single_result :: proc(t: ^testing.T) {
+	expect_no_result_action(t, HANDLE_IF_ACTION, `package test
+
+f :: proc() -> bool { return true }
+
+main :: proc() -> bool {
+	x := f({*})
+	return x
+}
+`)
+}
+
+@(test)
+result_discard_already_assigned :: proc(t: ^testing.T) {
+	expect_no_result_action(t, DISCARD_ACTION, `package test
+
+f :: proc() -> int { return 1 }
+
+main :: proc() {
+	x := f({*})
+}
+`)
+}
+
+@(test)
+result_optional_ok :: proc(t: ^testing.T) {
+	expect_result_action(t, OR_ELSE_ACTION, `package test
+
+f :: proc() -> (int, bool) #optional_ok { return 1, true }
+
+main :: proc() {
+	x := f({*})
+}
+`, `package test
+
+f :: proc() -> (int, bool) #optional_ok { return 1, true }
+
+main :: proc() {
+	x := f() or_else 0
+}
+`)
+}
+
+@(test)
+result_optional_allocator_error :: proc(t: ^testing.T) {
+	expect_result_action(t, HANDLE_IF_ACTION, `package test
+
+Allocator_Error :: enum { None, Out_Of_Memory }
+
+f :: proc() -> ([]int, Allocator_Error) #optional_allocator_error { return nil, .None }
+
+main :: proc() {
+	s := f({*})
+}
+`, `package test
+
+Allocator_Error :: enum { None, Out_Of_Memory }
+
+f :: proc() -> ([]int, Allocator_Error) #optional_allocator_error { return nil, .None }
+
+main :: proc() {
+	s, err := f()
+	if err != nil {
+		return
+	}
+}
+`)
+}
+
+@(test)
+result_in_expression :: proc(t: ^testing.T) {
+	expect_no_result_action(t, HANDLE_IF_ACTION, `package test
+
+f :: proc() -> (int, bool) { return 1, true }
+g :: proc(x: int) {}
+
+main :: proc() {
+	g(f({*}))
+}
+`)
+	expect_no_result_action(t, DISCARD_ACTION, `package test
+
+f :: proc() -> (int, bool) { return 1, true }
+g :: proc(x: int) {}
+
+main :: proc() {
+	g(f({*}))
+}
+`)
+}
+
+@(test)
+result_no_error_like_result :: proc(t: ^testing.T) {
+	expect_no_result_action(t, OR_ELSE_ACTION, `package test
+
+f :: proc() -> (int, int) { return 1, 2 }
+
+main :: proc() {
+	x := f({*})
+}
+`)
+}
+
+@(test)
+result_or_else_maybe :: proc(t: ^testing.T) {
+	expect_result_action(t, OR_ELSE_ACTION, `package test
+
+Maybe :: union($T: typeid) { T }
+
+f :: proc() -> (Maybe(int), bool) { return nil, true }
+
+main :: proc() {
+	x := f({*})
+}
+`, `package test
+
+Maybe :: union($T: typeid) { T }
+
+f :: proc() -> (Maybe(int), bool) { return nil, true }
+
+main :: proc() {
+	x := f() or_else {}
+}
+`)
+}
+
+@(test)
+result_or_return_then_expand :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+My_Error :: enum { None, Bad }
+
+f :: proc() -> (int, My_Error) { return 1, .None }
+
+main :: proc() -> (int, My_Error) {
+	x := f({*})
+	return x, nil
+}
+`,
+		config = {enable_code_action_result_handling = true, enable_code_action_expand = true},
+	}
+	test.expect_action_chain(t, &source, {OR_RETURN_ACTION, "Expand or_return"}, `package test
+
+My_Error :: enum { None, Bad }
+
+f :: proc() -> (int, My_Error) { return 1, .None }
+
+main :: proc() -> (int, My_Error) {
+	x, err := f()
+	if err != nil {
+		return 0, err
+	}
+	return x, nil
+}
+`)
+}
