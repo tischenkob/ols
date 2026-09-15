@@ -27,6 +27,10 @@ add_add_ok_result_action :: proc(ctx: ^ActionContext) {
 	if lit == nil || lit.type == nil || lit.body == nil {
 		return
 	}
+	// Both tags require exactly two results, so a third one would not compile.
+	if lit.type.tags & {.Optional_Ok, .Optional_Allocator_Error} != {} {
+		return
+	}
 
 	pos := ctx.range.start
 	results := lit.type.results
@@ -48,6 +52,26 @@ add_add_ok_result_action :: proc(ctx: ^ActionContext) {
 			at -= 1
 		}
 		append(&edits, TextEdit{range = range_of(ctx, at, at), newText = " -> bool"})
+
+		// Falling off the end is the success path, and a bool result makes it a missing return.
+		block := lit.body.derived_stmt.(^ast.Block_Stmt)
+		ends_in_return := false
+		if n := len(block.stmts); n > 0 {
+			_, ends_in_return = block.stmts[n - 1].derived_stmt.(^ast.Return_Stmt)
+		}
+		if !ends_in_return {
+			ind := get_line_indentation(src, decl.pos.offset)
+			first: ^ast.Stmt
+			if len(block.stmts) > 0 {
+				first = block.stmts[0]
+			}
+			close := block.close.offset
+			for close > 0 && strings.is_space(rune(src[close - 1])) {
+				close -= 1
+			}
+			text := fmt.tprintf("\n%s%sreturn true", ind, indent_unit(src, ind, first))
+			append(&edits, TextEdit{range = range_of(ctx, close, close), newText = text})
+		}
 	} else {
 		named := false
 		taken := make([dynamic]string, context.temp_allocator)
@@ -58,9 +82,14 @@ add_add_ok_result_action :: proc(ctx: ^ActionContext) {
 				}
 			}
 		}
+		// The parser gives an unnamed result a synthesised name at the type's own position, so
+		// counting names would read `(int, bool)` as named and write a list mixing the two forms.
 		for field in results.list {
-			named ||= len(field.names) > 0
 			for name in field.names {
+				if field.type != nil && name.pos.offset == field.type.pos.offset {
+					continue
+				}
+				named = true
 				append(&taken, final_name(name))
 			}
 		}
