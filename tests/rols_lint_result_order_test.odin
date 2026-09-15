@@ -76,3 +76,56 @@ foreign lib {
 		},
 	)
 }
+
+@(test)
+lint_result_order_cases :: proc(t: ^testing.T) {
+	cases := []Lint_Case {
+		{
+			"named results",
+			`package test
+
+Parse_Error :: enum {
+	None,
+	Bad,
+}
+
+f :: proc() -> (err: Parse_Error, v: int) {
+	return .None, 0
+}
+`,
+			{{7, "error-not-last"}},
+		},
+		{
+			"an error-like result followed only by errors",
+			`package test
+
+Parse_Error :: enum {
+	None,
+	Bad,
+}
+
+f :: proc() -> (int, bool, Parse_Error) {
+	return 0, false, .None
+}
+`,
+			{},
+		},
+		{
+			"a procedure type in a struct field",
+			`package test
+
+Parse_Error :: enum {
+	None,
+	Bad,
+}
+
+Handler :: struct {
+	run: proc() -> (Parse_Error, int),
+}
+`,
+			{{8, "error-not-last"}},
+		},
+	}
+
+	expect_lint_cases(t, cases, {enable_lint_result_order = true})
+}
