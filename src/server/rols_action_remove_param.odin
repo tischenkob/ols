@@ -37,6 +37,12 @@ add_remove_param_action :: proc(ctx: ^ActionContext) {
 	if !sites_ok {
 		return
 	}
+	// Deleting the argument would delete whatever evaluating it does.
+	for site in sites {
+		if has_side_effect(site.call.args[index]) {
+			return
+		}
+	}
 
 	changes := make(Changes, context.temp_allocator)
 	fields := function.type.params.list

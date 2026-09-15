@@ -69,12 +69,43 @@ area :: proc(radius: f32) -> f32 {
 	return radius * radius
 }
 
-run :: proc(radius: f64) {
+run :: proc(radius: f32) {
 	a := area(radius)
 }
 
 main :: proc() {
 	run(3.5)
+}
+`)
+}
+
+@(test)
+action_introduce_param_takes_the_callee_parameter_type :: proc(t: ^testing.T) {
+	expect_introduce_param(t, `package test
+
+scale :: proc(factor: f64) -> f64 {
+	return factor
+}
+
+run :: proc() {
+	a := scale({[2]})
+}
+
+main :: proc() {
+	run()
+}
+`, `package test
+
+scale :: proc(factor: f64) -> f64 {
+	return factor
+}
+
+run :: proc(factor: f64) {
+	a := scale(factor)
+}
+
+main :: proc() {
+	run(2)
 }
 `)
 }
@@ -176,4 +207,132 @@ main :: proc() {
 	a := grow(1)
 }
 `, enabled = false)
+}
+
+@(test)
+action_introduce_param_string_holding_a_comma :: proc(t: ^testing.T) {
+	expect_introduce_param(t, `package test
+
+greet :: proc(name: string) -> string {
+	return {["a, b"]} + name
+}
+
+main :: proc() {
+	s := greet("bob")
+}
+`, `package test
+
+greet :: proc(name: string, value: string) -> string {
+	return value + name
+}
+
+main :: proc() {
+	s := greet("bob", "a, b")
+}
+`)
+}
+
+@(test)
+action_introduce_param_binary_constant :: proc(t: ^testing.T) {
+	expect_introduce_param(t, `package test
+
+use :: proc(n: int) {
+}
+
+f :: proc(x: int) {
+	use(x)
+	use({[1 + 2]})
+}
+
+main :: proc() {
+	f(1)
+}
+`, `package test
+
+use :: proc(n: int) {
+}
+
+f :: proc(x: int, n: int) {
+	use(x)
+	use(n)
+}
+
+main :: proc() {
+	f(1, 1 + 2)
+}
+`)
+}
+
+@(test)
+action_introduce_param_name_collision :: proc(t: ^testing.T) {
+	expect_introduce_param(t, `package test
+
+grow :: proc(value: int) -> int {
+	return value * {*}2
+}
+
+main :: proc() {
+	a := grow(1)
+}
+`, `package test
+
+grow :: proc(value: int, value2: int) -> int {
+	return value * value2
+}
+
+main :: proc() {
+	a := grow(1, 2)
+}
+`)
+}
+
+@(test)
+action_introduce_param_no_params :: proc(t: ^testing.T) {
+	expect_introduce_param(t, `package test
+
+f :: proc() -> int {
+	return {*}10
+}
+
+main :: proc() {
+	a := f()
+}
+`, `package test
+
+f :: proc(value: int) -> int {
+	return value
+}
+
+main :: proc() {
+	a := f(10)
+}
+`)
+}
+
+@(test)
+action_introduce_param_refused_variadic_param :: proc(t: ^testing.T) {
+	expect_no_introduce_param(t, `package test
+
+f :: proc(xs: ..int) -> int {
+	return {*}10
+}
+
+main :: proc() {
+	a := f(1)
+}
+`)
+}
+
+@(test)
+action_introduce_param_refused_default_param :: proc(t: ^testing.T) {
+	expect_no_introduce_param(t, `package test
+
+f :: proc(a: int = 1) -> int {
+	return {*}10
+}
+
+main :: proc() {
+	b := f()
+}
+`)
 }
