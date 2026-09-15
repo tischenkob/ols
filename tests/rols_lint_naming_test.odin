@@ -64,7 +64,6 @@ main :: proc() {
 		&source,
 		{
 			{4, "naming"},
-			{5, "naming"},
 			{9, "naming"},
 			{9, "naming"},
 			{14, "naming"},
