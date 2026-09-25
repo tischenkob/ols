@@ -17,9 +17,8 @@ DiagnosticType :: enum {
 	Unused_Decl,
 }
 
-// rols: file-private; other files read through diagnostics_of
-@(private = "file")
 diagnostics: [DiagnosticType]map[string][dynamic]Diagnostic
+// rols: file-private; other files read diagnostics through diagnostics_of
 @(private = "file")
 diagnostic_mutex: sync.Mutex
 

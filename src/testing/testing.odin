@@ -1,5 +1,7 @@
 package ols_testing
 
+// rols: seed_check_diagnostic allocates off the tracked test allocators
+import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:mem/virtual"
@@ -7,6 +9,8 @@ import "core:odin/ast"
 import "core:odin/parser"
 import "core:slice"
 import "core:strings"
+// rols: seed_mutex
+import "core:sync"
 import "core:testing"
 
 import "src:common"
@@ -163,6 +167,12 @@ teardown :: proc(src: ^Source) {
 
 	defer spall.thread_end()
 	spall.trace(#procedure)
+
+	// rols: release the lock a seeded checker diagnostic took
+	if seed_locked {
+		seed_locked = false
+		sync.unlock(&seed_mutex)
+	}
 
 	server.free_index()
 	server.indexer.index = {}
@@ -866,7 +876,6 @@ expect_action :: proc(t: ^testing.T, src: ^Source, expect_action_names: []string
 	defer teardown(src)
 
 	actions, ok := server.get_code_actions(src.document, ctx, input_range, &src.config, package_files(src))
-	defer delete(actions)
 	if !ok {
 		log.error("Failed to find actions")
 	}
@@ -902,7 +911,6 @@ expect_action_with_edit :: proc(t: ^testing.T, src: ^Source, action_name: string
 	defer teardown(src)
 
 	actions, ok := server.get_code_actions(src.document, {}, input_range, &src.config)
-	defer delete(actions)
 	if !ok {
 		log.error("Failed to find actions")
 		return
@@ -933,13 +941,23 @@ expect_action_with_edit :: proc(t: ^testing.T, src: ^Source, action_name: string
 }
 
 // rols: lets a test stand in for the checker
+seed_mutex: sync.Mutex
+@(thread_local)
+seed_locked: bool
+
 /*
 	Puts one checker diagnostic on the main file, which no test ever runs the checker for. Call it
 	before the assertion, which runs the setup. The positions are those of the source without its
 	cursor mark. The diagnostic outlives the test, so it is allocated off the per-test allocators,
 	which is also what frees the one a previous test seeded.
+
+	Every seed goes to the same global slot, so a seeding test holds `seed_mutex` until its teardown
+	to keep parallel tests from swapping the diagnostic under it.
 */
 seed_check_diagnostic :: proc(src: ^Source, line, col, end_col: int, message: string) {
+	sync.lock(&seed_mutex)
+	seed_locked = true
+
 	name := len(src.main) > 0 ? "main.odin" : src.files[0].name
 
 	context.allocator = runtime.default_allocator()
@@ -1003,7 +1021,6 @@ apply_action :: proc(
 	defer teardown(src)
 
 	actions, ok := server.get_code_actions(src.document, ctx, input_range, &src.config, package_files(src))
-	defer delete(actions)
 	if !ok {
 		log.error("Failed to find actions")
 		return "", false
