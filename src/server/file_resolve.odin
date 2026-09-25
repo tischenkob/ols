@@ -82,6 +82,7 @@ resolve_entire_file_internal :: proc(
 
 	ast_context.current_package = ast_context.document_package
 
+	// rols: no preallocation: most files resolve to far fewer nodes
 	symbols = make(SymbolAndNodeMap, allocator)
 
 	for decl in document.ast.decls {
