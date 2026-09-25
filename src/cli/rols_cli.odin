@@ -380,7 +380,7 @@ setup :: proc(root: string) {
 	for pkg in server.indexer.builtin_packages {
 		server.try_build_package(pkg)
 	}
-	server.find_all_package_aliases()
+	server.find_all_package_aliases(config)
 }
 
 // Also called for a missing file: read_ols_initialize_options adds the core, base and vendor collections.
@@ -555,7 +555,7 @@ collect_lints :: proc(target: string) -> ([]Entry, bool) {
 		}
 	}
 
-	// document_open runs the per-file lints and the unused import check.
+	// document_open runs the per-file lints; the unused import check runs per open, as didOpen does.
 	uris := make(map[string]struct{}, context.temp_allocator)
 	document: ^server.Document
 	for file in files {
@@ -564,6 +564,7 @@ collect_lints :: proc(target: string) -> ([]Entry, bool) {
 		if !ok {
 			return {}, false
 		}
+		server.check_unused_imports(document, &common.config)
 		uris[document.uri.uri] = {}
 	}
 	if document != nil {

@@ -40,7 +40,7 @@ Entry `src/main.odin`: `ols version`, `ols query …` (runs `src/cli/rols_cli.od
 Threads (`src/server/requests.odin`): a reader thread parses JSON-RPC frames into a queue; the main thread runs every handler serially from `call_map`; a checker thread runs `odin check` subprocesses (`check.odin`). The indexer and build cache are thread-local to the main thread. After each request the index cache is cleared and `context.temp_allocator` is freed, so anything that outlives a request must not live in temp memory.
 
 Data flow for a request:
-1. `documents.odin`: `Document` holds text, the parsed `ast.File` and a per-document arena. Any change reparses the whole file (no incremental parsing), then runs parser diagnostics, unused-import checks and lints.
+1. `documents.odin`: `Document` holds text, the parsed `ast.File` and a per-document arena. Any change reparses the whole file (no incremental parsing), then runs parser diagnostics and lints. Unused-import checks run on open and save, and on change only with `enable_unused_imports_on_change`.
 2. `position_context.odin`: `get_document_position_context` walks the AST to the cursor and records every enclosing node that matters. The `hint` argument changes what counts as "at" the cursor.
 3. `analysis.odin`: `AstContext` is the resolution environment (locals, globals, imports, current package). `resolve_type_expression` turns an expression into a `Symbol`, looking up locals, then globals, then the indexer. Poly params are solved in `generics.odin`.
 4. `file_resolve.odin`: `resolve_entire_file` resolves every node of an open document once into a map keyed by node pointer, cached on the document. Semantic tokens, inlay hints, lints and references read that map instead of resolving per node.
