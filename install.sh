@@ -24,6 +24,13 @@ WRAP
 chmod 755 "$BIN/ols"
 echo "installed $VERSION to $BIN/ols"
 
+# Helix formats through odinfmt -stdin, not the server.
+tmp="$(mktemp)"
+odin build tools/odinfmt/main.odin -file -collection:src=src -out:"$tmp" -microarch:native -o:speed
+install -m 755 "$tmp" "$BIN/odinfmt"
+rm -f "$tmp"
+echo "installed odinfmt to $BIN/odinfmt"
+
 # Claude Code loads the plugin from its cache; a new version there needs a bump in plugin.json.
 PLUGIN="$HOME/.claude/local-plugins/odin-lsp"
 if [ -d "$(dirname "$PLUGIN")" ]; then
