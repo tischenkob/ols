@@ -24,7 +24,7 @@ Needs `odin` on PATH (repo tracks Odin master).
 ./build.sh single_test NAME     # one test; NAME is the proc name, package prefix optional, comma-separated for several
 ./odinfmt.sh                    # build ./odinfmt
 tools/odinfmt/tests.sh          # formatter snapshot tests (separate suite)
-./install.sh                    # install to ~/.local/bin/ols (wrapper sets OLS_BUILTIN_FOLDER, execs ols-bin)
+./install.sh                    # install ~/.local/bin/ols (wrapper sets OLS_BUILTIN_FOLDER, execs ols-bin) and ~/.local/bin/odinfmt
 ```
 
 Smoke scripts after a build: `tools/cli_smoke.sh` (every `ols query` subcommand), `OLS=./ols tools/invert_if_smoke.sh` (invert-if round trips through `odin check`), `python3 tools/save_imports_smoke.py` (organize-imports on save over real stdio).
