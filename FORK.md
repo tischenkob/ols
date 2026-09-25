@@ -55,10 +55,10 @@ Rewritten procs:
 
 - `src/server/response.odin`: all four senders frame through `write_message`; ids for server-initiated requests.
 - `src/server/lens.odin`: `textDocument/codeLens` handler and the budgeted reference sweep.
-- `src/server/file_resolve.odin`: the resolve cache gets its own arena and heap-allocated symbols so the map can hold pointers.
+- `src/server/file_resolve.odin`: heap-allocated symbols in upstream's resolve cache arena so the map can hold pointers.
 - `src/server/references.odin`: reference search callable without a cursor, and the shared file list the code lens uses.
 - `src/server/action_invert_if_statements.odin`: takes an `ActionContext`, offers the early-exit variant, keeps labels, do-bodies and indentation.
-- `src/testing/testing.odin`: selection sources, a shared document fixture, a checker stand-in, and the `expect_*` assertions for the fork features.
+- `src/testing/testing.odin`: selection sources, a shared document fixture, a checker stand-in serialized by `seed_mutex` for the parallel runner, and the `expect_*` assertions for the fork features.
 
 Small fixes:
 
@@ -69,11 +69,11 @@ Small fixes:
 - `src/server/build.odin`: drop stale symbols on removal and reindex.
 - `src/server/generics.odin`: keep procedure tags when solving a generic.
 - `src/server/writer.odin`: framed write of one message.
-- `src/server/diagnostics.odin`: fork producers, and the merge that runs under the lock.
+- `src/server/diagnostics.odin`: fork producers, a file-private mutex, and the merge that runs under the lock.
 - `src/server/hover.odin`: struct layout and field offsets.
 - `src/server/inlay_hints.odin`: fork hint kinds, enclosing procedure tracking, and a resolve context built only when a kind needs it.
 - `src/server/check.odin`: never block the request thread, drain the pipe incrementally, reap killed processes, vet and style flags from the config, vet findings as warnings.
-- `src/server/documents.odin`: resolve cache arena lifetime, reject a change before touching the document, refresh lint diagnostics.
+- `src/server/documents.odin`: reject a change before touching the document, refresh lint diagnostics.
 
 Tests:
 
