@@ -7,6 +7,7 @@ import "core:odin/ast"
 import "core:odin/parser"
 import "core:slice"
 import "core:strings"
+import "core:sync"
 
 // A rule is an Odin proc: value parameters are metavariables, the body is the pattern and the
 // `@replace` doc comment names the core procedure the pattern is a hand-written copy of.
@@ -43,14 +44,13 @@ Stdlib_Match :: struct {
 cached_rules: []Stdlib_Rule
 
 @(private = "file")
-cached_rules_parsed: bool
+cached_rules_once: sync.Once
 
-// Handlers run serially on the main thread and the CLI is single threaded, so a plain global is enough.
+// The test runner lints from several threads, so the first parse is guarded.
 stdlib_rules :: proc() -> []Stdlib_Rule {
-	if !cached_rules_parsed {
-		cached_rules_parsed = true
+	sync.once_do(&cached_rules_once, proc() {
 		cached_rules = parse_stdlib_rules(STDLIB_RULES, runtime.heap_allocator())
-	}
+	})
 	return cached_rules
 }
 

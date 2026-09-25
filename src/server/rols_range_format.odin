@@ -70,6 +70,9 @@ get_range_format :: proc(document: ^Document, range: common.Range, config: ^comm
 	if !config.enable_range_format do return edits[:]
 	if document.ast.syntax_error_count > 0 do return edits[:]
 
+	// The parser inside format.format allocates the fragment's AST from context.allocator.
+	context.allocator = context.temp_allocator
+
 	src := document.ast.src
 	text := document.text[:document.used_text]
 	style := format.find_config_file_or_default(filepath.dir(document.fullpath))
