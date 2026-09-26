@@ -170,11 +170,10 @@ diff <(git show upstream/master:misc/ols.schema.json | grep -o '"enable_[a-z_]*"
 - `enable_inlay_hints_range_types`
 - `enable_inlay_hints_variable_types`
 
-### Other (6)
+### Other (5)
 
 - `enable_code_lens_references`
 - `enable_hover_struct_size`
-- `enable_linked_editing`
 - `enable_organize_imports_on_save`
 - `enable_range_format`
 - `enable_selection_range`
@@ -186,7 +185,6 @@ Client-to-server, added to `call_map`:
 - `textDocument/rangeFormatting`
 - `textDocument/foldingRange`
 - `textDocument/selectionRange`
-- `textDocument/linkedEditingRange`
 - `textDocument/implementation`
 - `textDocument/prepareCallHierarchy`
 - `textDocument/codeLens`

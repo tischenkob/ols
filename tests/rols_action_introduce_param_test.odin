@@ -336,3 +336,35 @@ main :: proc() {
 }
 `)
 }
+
+@(test)
+action_introduce_param_avoids_constant_in_other_file :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+grow :: proc(x: int) -> int {
+	return x * {*}2
+}
+
+main :: proc() {
+	a := grow(1)
+}
+`,
+		files = {{name = "values.odin", source = `package test
+
+value :: 5
+`}},
+		config = {enable_code_action_introduce_param = true},
+	}
+
+	test.expect_action_applied_files(t, &source, INTRODUCE_PARAM_ACTION, {{"main.odin", `package test
+
+grow :: proc(x: int, value2: int) -> int {
+	return x * value2
+}
+
+main :: proc() {
+	a := grow(1, 2)
+}
+`}})
+}
