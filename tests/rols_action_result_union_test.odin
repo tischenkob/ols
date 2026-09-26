@@ -40,6 +40,9 @@ load_shared :: proc() -> (int, union #shared_nil {base.Allocator_Error, Error}) 
 write_int :: proc(x: int) -> bool { return true }
 write_string :: proc(x: string) -> bool { return true }
 write :: proc {write_int, write_string}
+join :: proc(a: string) -> (string, base.Allocator_Error) { return a, nil }
+pair :: proc() -> (int, Error) { return 0, nil }
+triple :: proc() -> (int, bool, Error) { return 0, true, nil }
 `,
 		},
 	)
@@ -457,15 +460,33 @@ run :: proc() -> union{bool,os.Error} {
 
 @(test)
 result_union_multiple_results :: proc(t: ^testing.T) {
-	expect_no_result_union(
+	expect_result_union(
 		t,
 		`package test
 
 import "core:os"
 
-run :: proc() -> (int, bool) {
-	os.wa{*}it() or_return
-	return 1, true
+Shader :: struct {}
+
+load :: proc(name: string) -> (^Shader, union {}) {
+	path := os.join(name) or_return
+	data := os.re{*}ad(path) or_return
+	shader: ^Shader
+	return shader
+}
+`,
+		`package test
+import "core:runtime"
+
+import "core:os"
+
+Shader :: struct {}
+
+load :: proc(name: string) -> (shader2: ^Shader, err: union {runtime.Allocator_Error, os.Error}) {
+	path := os.join(name) or_return
+	data := os.read(path) or_return
+	shader: ^Shader
+	return shader
 }
 `,
 	)
@@ -1017,7 +1038,7 @@ run :: proc() -> (res: []os.File) {
 
 import "core:os"
 
-run :: proc() -> (res: union {bool, []os.File}) {
+run :: proc() -> (res: bool) {
 	os.wait() or_return
 	return res
 }
@@ -1453,6 +1474,878 @@ run :: proc() -> int {
 
 run :: proc() -> f64 {
 	return -1.5
+}
+`,
+	)
+}
+
+@(test)
+result_union_multiple_results_keep_names :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (count: int, failed: bool) {
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (count: int, failed: os.Error) {
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_multiple_results_split_shared_field :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (a, b, c: int) {
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (a, b: int, c: os.Error) {
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_multiple_results_matching_return :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc(flag: bool) -> (int, bool) {
+	os.re{*}ad("x") or_return
+	if flag {
+		return 1, true
+	}
+	return 2
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc(flag: bool) -> (result: int, err: union {os.Error, bool}) {
+	os.read("x") or_return
+	if flag {
+		return 1, true
+	}
+	return 2
+}
+`,
+	)
+}
+
+@(test)
+result_union_multiple_results_forwarded_call :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (int, bool) {
+	os.wait() or_return
+	ret{*}urn os.pair()
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (result: int, err: union {bool, os.Error}) {
+	os.wait() or_return
+	return os.pair()
+}
+`,
+	)
+}
+
+@(test)
+result_union_multiple_results_constant :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (x: int, y: f32) {
+	os.wa{*}it() or_return
+	return 1, 2
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (x: int, y: union {bool, f32}) {
+	os.wait() or_return
+	return 1, 2
+}
+`,
+	)
+}
+
+@(test)
+result_union_multiple_results_nil_needs_nilable :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (int, int) {
+	os.wa{*}it() or_return
+	return 1, nil
+}
+`,
+	)
+}
+
+@(test)
+result_union_multiple_results_param_named_err :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc(err: int) -> (int, bool) {
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc(err: int) -> (result: int, err2: os.Error) {
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_multiple_results_types_match :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (int, os.Error) {
+	os.re{*}ad("x") or_return
+	return 1, nil
+}
+`,
+	)
+}
+
+@(test)
+result_union_multiple_results_on_return :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (int, os.Error) {
+	e: os.Error
+	os.wait() or_return
+	re{*}turn 1, e
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (result: int, err: union {bool, os.Error}) {
+	e: os.Error
+	os.wait() or_return
+	return 1, e
+}
+`,
+	)
+}
+
+@(test)
+result_union_multiple_results_cursor_elsewhere :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (int, os.Error) {
+	x := 1{*}
+	os.wait() or_return
+	return x, nil
+}
+`,
+	)
+}
+
+@(test)
+result_union_multiple_results_forwarded_or_return :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (int, int) {
+	ret{*}urn os.triple() or_return
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (result: int, err: union {bool, os.Error}) {
+	return os.triple() or_return
+}
+`,
+	)
+}
+
+@(test)
+result_union_writes_named_last_result :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (n: int, err: os.General_Error) {
+	err = .Exist
+	if err != nil {
+		return
+	}
+	data := os.re{*}ad("x") or_return
+	return len(data), nil
+}
+`,
+	)
+}
+
+@(test)
+result_union_writes_named_single_result :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (err: int) {
+	err = 5
+	os.wa{*}it() or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_compound_assigns_named_result :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (err: int) {
+	err += 1
+	os.wa{*}it() or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_address_of_named_result :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+set :: proc(e: ^os.General_Error) {}
+
+run :: proc() -> (n: int, err: os.General_Error) {
+	set(&err)
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_reads_named_result :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (n: int, err: ^os.File) {
+	if err != nil {
+		return
+	}
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (n: int, err: os.Error) {
+	if err != nil {
+		return
+	}
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_deferred_nil_check :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (n: int, err: ^os.File) {
+	defer if nil != err {}
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (n: int, err: os.Error) {
+	defer if nil != err {}
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_compares_named_result :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (n: int, err: os.General_Error) {
+	if err != .None {
+		return
+	}
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_passes_named_result :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+report :: proc(e: os.General_Error) {}
+
+run :: proc() -> (n: int, err: os.General_Error) {
+	defer report(err)
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_switches_on_named_result :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (n: int, err: os.General_Error) {
+	defer switch err {
+	case .Exist:
+	}
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_writes_shadowing_local :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (n: int, err: os.General_Error) {
+	{
+		err := 1
+		err = 2
+	}
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (n: int, err: os.Error) {
+	{
+		err := 1
+		err = 2
+	}
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_returns_named_last_result :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+load :: proc() -> (shader: ^os.File, err: union {}) {
+	path := os.jo{*}in("a") or_return
+	data := os.read(path) or_return
+	return shader, err
+}
+`,
+		`package test
+import "core:runtime"
+
+import "core:os"
+
+load :: proc() -> (shader: ^os.File, err: union {runtime.Allocator_Error, os.Error}) {
+	path := os.join("a") or_return
+	data := os.read(path) or_return
+	return shader, err
+}
+`,
+	)
+}
+
+@(test)
+result_union_returns_named_result_first :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (a: os.General_Error, err: os.General_Error) {
+	os.re{*}ad("x") or_return
+	x: os.General_Error
+	return err, x
+}
+`,
+	)
+}
+
+@(test)
+result_union_named_argument_value :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+set :: proc(err: os.General_Error) {}
+
+run :: proc() -> (n: int, err: os.General_Error) {
+	defer set(err = err)
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_selector_base :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+Bad :: struct {
+	code: int,
+}
+
+run :: proc() -> (n: int, err: Bad) {
+	defer if err.code != 0 {}
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_returns_call_on_named_result :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+wrap :: proc(e: os.General_Error) -> os.General_Error {
+	return e
+}
+
+run :: proc() -> (err: os.General_Error) {
+	os.wa{*}it() or_return
+	return wrap(err)
+}
+`,
+	)
+}
+
+@(test)
+result_union_default_value_refused :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (ok: int = 1) {
+	os.wa{*}it() or_return
+	return ok
+}
+`,
+	)
+}
+
+@(test)
+result_union_keeps_result_list_comments :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (
+	n: int, // count
+	err: os.General_Error,
+) {
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (
+	n: int, // count
+	err: os.Error,
+) {
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_nested_proc_uses_result_name :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (n: int, err: os.General_Error) {
+	helper :: proc(err: ^int) {
+		err^ = 1
+	}
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (n: int, err: os.Error) {
+	helper :: proc(err: ^int) {
+		err^ = 1
+	}
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_field_named_like_result :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+Pair :: struct {
+	err: int,
+}
+
+run :: proc(p: Pair) -> (n: int, err: os.General_Error) {
+	defer if p.err != 0 {}
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+Pair :: struct {
+	err: int,
+}
+
+run :: proc(p: Pair) -> (n: int, err: os.Error) {
+	defer if p.err != 0 {}
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_implicit_selector_named_like_result :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+Kind :: enum {
+	ok,
+	err,
+}
+
+run :: proc(k: Kind) -> (n: int, err: os.General_Error) {
+	defer if k == .err {}
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+Kind :: enum {
+	ok,
+	err,
+}
+
+run :: proc(k: Kind) -> (n: int, err: os.Error) {
+	defer if k == .err {}
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_field_value_named_like_result :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+Pair :: struct {
+	err: int,
+}
+
+run :: proc() -> (n: int, err: os.General_Error) {
+	defer _ = Pair{err = 1}
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+Pair :: struct {
+	err: int,
+}
+
+run :: proc() -> (n: int, err: os.Error) {
+	defer _ = Pair{err = 1}
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_nil_check_needs_nilable_type :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (n: int, err: ^os.File) {
+	if err != nil {
+		return
+	}
+	os.wa{*}it() or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_nil_check_needs_nilable_single_type :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (err: ^os.File) {
+	if err != nil {
+		return
+	}
+	os.wa{*}it() or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_map_literal_key :: proc(t: ^testing.T) {
+	expect_no_result_union(
+		t,
+		`#+feature dynamic-literals
+package test
+
+import "core:os"
+
+run :: proc() -> (n: int, err: os.General_Error) {
+	defer _ = map[os.General_Error]int{err = 1}
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_names_blank_result :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (n: int, _: os.General_Error) {
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (n: int, err: os.Error) {
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_keeps_earlier_default_value :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (a: int = 1, err: os.General_Error) {
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (a: int = 1, err: os.Error) {
+	os.read("x") or_return
+	return
 }
 `,
 	)

@@ -30,19 +30,7 @@ add_named_results_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 
-	taken := make([dynamic]string, context.temp_allocator)
-	if lit.type.params != nil {
-		for field in lit.type.params.list {
-			for name in field.names {
-				append(&taken, final_name(name))
-			}
-		}
-	}
-	for field in lit.type.results.list {
-		for name in field.names {
-			append(&taken, final_name(name))
-		}
-	}
+	taken := signature_names(lit)
 
 	src := ctx.document.ast.src
 	sb := strings.builder_make(context.temp_allocator)
@@ -75,9 +63,31 @@ add_named_results_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 
-	// The result list node excludes its parentheses.
-	results := lit.type.results
-	start, end := results.pos.offset, results.end.offset
+	start, end := result_list_range(src, lit.type.results)
+	append_replace_range(ctx, start, end, "Use named results", strings.to_string(sb))
+}
+
+// The parameter and result names of a procedure literal, as a list new names are added to.
+@(private = "package")
+signature_names :: proc(lit: ^ast.Proc_Lit) -> [dynamic]string {
+	taken := make([dynamic]string, context.temp_allocator)
+	for list in ([]^ast.Field_List{lit.type.params, lit.type.results}) {
+		if list == nil {
+			continue
+		}
+		for field in list.list {
+			for name in field.names {
+				append(&taken, final_name(name))
+			}
+		}
+	}
+	return taken
+}
+
+// The offsets of a result list with its parentheses; the list node excludes them.
+@(private = "package")
+result_list_range :: proc(src: string, results: ^ast.Field_List) -> (start, end: int) {
+	start, end = results.pos.offset, results.end.offset
 	open := start
 	for open > 0 && strings.is_space(rune(src[open - 1])) {
 		open -= 1
@@ -92,11 +102,12 @@ add_named_results_action :: proc(ctx: ^ActionContext) {
 	if close < len(src) && src[close] == ')' {
 		end = close + 1
 	}
-	append_replace_range(ctx, start, end, "Use named results", strings.to_string(sb))
+	return
 }
 
 // ok for bool, err for error-like types, the lowercased type name for named types and pointers
 // to them, result otherwise. Numbered when taken.
+@(private = "package")
 fresh_result_name :: proc(taken: ^[dynamic]string, type: ^ast.Expr) -> string {
 	type := type
 	for {
@@ -117,6 +128,12 @@ fresh_result_name :: proc(taken: ^[dynamic]string, type: ^ast.Expr) -> string {
 			base = strings.to_lower(name, context.temp_allocator)
 		}
 	}
+	return take_result_name(taken, base)
+}
+
+// base, else base2, base3... whichever is not taken yet, then marks it taken.
+@(private = "package")
+take_result_name :: proc(taken: ^[dynamic]string, base: string) -> string {
 	name := base
 	for i := 2; slice.contains(taken[:], name); i += 1 {
 		name = fmt.tprintf("%s%d", base, i)
