@@ -288,7 +288,7 @@ Options:
 
 - `enable_selection_range`: Expand the selection outwards through the syntax tree. Defaults to true.
 
-- `enable_linked_editing`: Edit every occurrence of a local variable or parameter at once. Defaults to true.
+- `enable_linked_editing`: Edit every occurrence of a local variable or parameter at once while editing its declaration. Defaults to true.
 
 - `checker_skip_packages`: Paths to packages that should not be checked by `odin check` when using `enable_checker_workspace_diagnostics`.
 

@@ -33,8 +33,9 @@ request_linked_editing_range :: proc(
 	return .None
 }
 
-// Occurrences of the local or parameter under the cursor, declaration included. Anything wider than one
-// function body is a rename, not a linked edit, so globals and fields report nothing.
+// Occurrences of the local or parameter whose declaration name is under the cursor, declaration included.
+// A cursor on a use reports nothing. Anything wider than one function body is a rename, not a linked edit,
+// so globals and fields report nothing.
 get_linked_editing_ranges :: proc(
 	document: ^Document,
 	position: common.Position,
@@ -67,6 +68,14 @@ get_linked_editing_ranges :: proc(
 	if !found do return {}, false
 	if symbol.flags & {.Local, .Parameter} == {} do return {}, false
 	if !strings.equal_fold(symbol.uri, document.uri.uri) do return {}, false
+
+	// Typing on a use is ordinary editing (`err.field`, switching to another variable), not a rename.
+	decl := symbol.range
+	if position.line != decl.start.line ||
+	   position.character < decl.start.character ||
+	   position.character > decl.end.character {
+		return {}, false
+	}
 
 	locations, located := find_symbol_references(
 		document,
