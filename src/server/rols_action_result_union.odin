@@ -13,7 +13,9 @@ TITLE :: "Change result type to returned types"
 Result_Types :: struct {
 	ctx:       ^ActionContext,
 	lit:       ^ast.Proc_Lit,
-	declared:  ^ast.Expr,
+	declared:  ^ast.Expr, // the last result's type, the one rewritten
+	last_name: ^ast.Expr, // the last result's name, nil when unnamed
+	count:     int, // result values of the procedure
 	texts:     [dynamic]string,
 	keys:      [dynamic]string, // texts without whitespace, for deduplication
 	edits:     [dynamic]TextEdit, // imports the texts need
@@ -49,9 +51,10 @@ Proc_Exit :: union {
 	^ast.Or_Return_Expr,
 }
 
-// Rewrites the result type of a one-result procedure to the union of the types that reach it
-// through its returns and or_returns. Odin does not widen one union into another, so a union that
-// reaches the result becomes one variant as a whole.
+// Rewrites the last result type of a procedure to the union of the types that reach it through
+// its returns and or_returns. Odin does not widen one union into another, so a union that reaches
+// the result becomes one variant as a whole. With several results, or_return needs them named, so
+// the edit names every unnamed result too.
 @(private = "package")
 add_result_union_action :: proc(ctx: ^ActionContext) {
 	if !ctx.config.enable_code_action_result_union {
@@ -78,17 +81,35 @@ add_result_union_action :: proc(ctx: ^ActionContext) {
 	if lit == nil || lit.type == nil || lit.body == nil || lit.type.results == nil {
 		return
 	}
-	// TODO: several results take one union per result position.
 	results := lit.type.results.list
-	if len(results) != 1 || len(field_types(results)) != 1 || results[0].type == nil {
+	count := len(field_types(results))
+	if count == 0 {
 		return
 	}
-	declared := results[0].type
+	for field in results {
+		if field.type == nil {
+			return
+		}
+	}
+	last := results[len(results) - 1]
+	// A default value of the old type may not convert to the new one.
+	if last.default_value != nil {
+		return
+	}
+	declared := last.type
+	last_name: ^ast.Expr
+	if len(last.names) > 0 {
+		if name := final_name(last.names[len(last.names) - 1]); name != "" && name != "_" {
+			last_name = last.names[len(last.names) - 1]
+		}
+	}
 
 	types := Result_Types {
 		ctx       = ctx,
 		lit       = lit,
 		declared  = declared,
+		count     = count,
+		last_name = last_name,
 		texts     = make([dynamic]string, context.temp_allocator),
 		keys      = make([dynamic]string, context.temp_allocator),
 		edits     = make([dynamic]TextEdit, context.temp_allocator),
@@ -101,6 +122,10 @@ add_result_union_action :: proc(ctx: ^ActionContext) {
 	defer {
 		clear_locals(ctx.ast_context)
 		get_locals(ctx.ast_context, ctx.position_context)
+	}
+	// Writes and most reads of the named last result depend on its old type.
+	if uses_result(&types) {
+		return
 	}
 	for exit in proc_exits(lit.body) {
 		ok: bool
@@ -137,8 +162,21 @@ add_result_union_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 
+	// With every result named and the last field holding one name, only the type changes, which
+	// keeps comments and layout of the list.
+	all_named := true
+	for field in results {
+		all_named &&= len(field.names) > 0
+		for name in field.names {
+			all_named &&= final_name(name) != "" && final_name(name) != "_"
+		}
+	}
 	edits := make([dynamic]TextEdit, context.temp_allocator)
-	append(&edits, TextEdit{range = range_of(ctx, declared.pos.offset, declared.end.offset), newText = text})
+	if count == 1 || all_named && len(last.names) == 1 {
+		append(&edits, TextEdit{range = range_of(ctx, declared.pos.offset, declared.end.offset), newText = text})
+	} else {
+		append(&edits, named_results_edit(ctx, lit, text))
+	}
 	append(&edits, ..types.edits[:])
 	append(ctx.actions, make_code_action(ctx, TITLE, "quickfix", edits[:]))
 }
@@ -168,16 +206,111 @@ proc_exits :: proc(body: ^ast.Stmt) -> []Proc_Exit {
 	return found[:]
 }
 
+// The results list with the last type replaced by text, every unnamed result named. The list is
+// written out in full so that a last field shared as `a, b: T` splits.
+named_results_edit :: proc(ctx: ^ActionContext, lit: ^ast.Proc_Lit, text: string) -> TextEdit {
+	src := ctx.document.ast.src
+	results := lit.type.results
+
+	taken := signature_names(lit)
+	// A new name must not shadow or redeclare a name the body uses.
+	append(&taken, ..body_ident_names(lit.body))
+
+	// Names are chosen left to right, as the named-results action does.
+	Value :: struct {
+		name, type, default_value: string,
+		field:                     int,
+	}
+	values := make([dynamic]Value, context.temp_allocator)
+	for field, i in results.list {
+		default_value := field.default_value != nil ? node_text(src, field.default_value) : ""
+		for j in 0 ..< max(len(field.names), 1) {
+			value := Value {
+				type          = node_text(src, field.type),
+				default_value = default_value,
+				field         = i,
+			}
+			if j < len(field.names) {
+				value.name = final_name(field.names[j])
+			}
+			append(&values, value)
+		}
+	}
+	values[len(values) - 1].type = text
+	for &value, i in values {
+		if value.name != "" && value.name != "_" {
+			continue
+		}
+		if i + 1 < len(values) {
+			value.name = fresh_result_name(&taken, results.list[value.field].type)
+		} else {
+			value.name = take_result_name(&taken, text == "bool" ? "ok" : "err")
+		}
+	}
+
+	// Values of one field stay grouped, except the last value, whose type changes.
+	sb := strings.builder_make(context.temp_allocator)
+	strings.write_byte(&sb, '(')
+	for value, i in values {
+		strings.write_string(&sb, value.name)
+		next_shares := i + 2 < len(values) && values[i + 1].field == value.field
+		if next_shares {
+			strings.write_string(&sb, ", ")
+			continue
+		}
+		strings.write_string(&sb, ": ")
+		strings.write_string(&sb, value.type)
+		if value.default_value != "" {
+			strings.write_string(&sb, " = ")
+			strings.write_string(&sb, value.default_value)
+		}
+		if i + 1 < len(values) {
+			strings.write_string(&sb, ", ")
+		}
+	}
+	strings.write_byte(&sb, ')')
+
+	start, end := result_list_range(src, results)
+	return TextEdit{range = range_of(ctx, start, end), newText = strings.to_string(sb)}
+}
+
+// Every identifier in the body, nested procedures included.
+body_ident_names :: proc(body: ^ast.Stmt) -> []string {
+	names := make([dynamic]string, context.temp_allocator)
+	visitor := ast.Visitor {
+		data = &names,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil {
+				return nil
+			}
+			if ident, is_ident := node.derived.(^ast.Ident); is_ident {
+				append((^[dynamic]string)(visitor.data), ident.name)
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, body)
+	return names[:]
+}
+
 // A bare return, nil, an implicit selector and an untyped compound literal take the result's type,
-// so they add nothing.
+// so they add nothing. With several results only the last value counts, and a return with another
+// number of values, already a compile error, adds nothing.
 add_return_type :: proc(types: ^Result_Types, ret: ^ast.Return_Stmt) -> bool {
 	if len(ret.results) == 0 {
 		return true
 	}
-	if len(ret.results) != 1 {
-		return false
+	count := types.count
+	if len(ret.results) != count {
+		if count == 1 {
+			return false
+		}
+		if len(ret.results) != 1 {
+			return true
+		}
+		return add_forwarded_type(types, unparen(ret.results[0]))
 	}
-	value := unparen(ret.results[0])
+	value := unparen(ret.results[count - 1])
 
 	#partial switch v in value.derived {
 	case ^ast.Ident:
@@ -221,17 +354,14 @@ add_return_type :: proc(types: ^Result_Types, ret: ^ast.Return_Stmt) -> bool {
 	}
 
 	ctx := types.ctx
-	// Locals are gathered up to a position, so re-gather them at this return.
-	pc := ctx.position_context^
-	pc.function = types.lit
-	pc.position = ret.pos.offset
-	pc.nested_position = ret.pos.offset
-	clear_locals(ctx.ast_context)
-	get_locals(ctx.ast_context, &pc)
-	ctx.ast_context.use_locals = true
+	locals_at(types, ret.pos.offset)
 
 	// A declared type prints as written, anonymous or not.
 	ident, is_ident := value.derived.(^ast.Ident)
+	if is_ident && is_last_result(types, ident) {
+		// Never written, it holds the zero value, which the new type takes, like a bare return.
+		return true
+	}
 	if is_ident {
 		if type_expr, has_type := declared_type(types, ident); has_type {
 			return add_type_node(types, type_expr, ctx.ast_context.document_package)
@@ -281,6 +411,103 @@ add_return_type :: proc(types: ^Result_Types, ret: ^ast.Return_Stmt) -> bool {
 	// Untyped constants print as their default types only when marked mutable.
 	symbol.flags += {.Mutable}
 	return add_symbol_type(types, symbol, ident.name if is_ident else "")
+}
+
+// Whether the body uses the named last result in a way that depends on its old type. Returning
+// it as the last value works with any new type, and comparing it with nil with any type that takes
+// nil; any other use, a write included, does not.
+// Uses in nested procedures and of shadowing locals do not count.
+uses_result :: proc(types: ^Result_Types) -> bool {
+	if types.last_name == nil {
+		return false
+	}
+	name := final_name(types.last_name)
+	outer: for use in collect_ident_uses(types.lit.body) {
+		if use.ident.name != name || len(use.parents) == 0 {
+			continue
+		}
+		for parent in use.parents {
+			if _, is_lit := parent.derived.(^ast.Proc_Lit); is_lit {
+				continue outer
+			}
+		}
+		#partial switch p in use.parents[len(use.parents) - 1].derived {
+		case ^ast.Return_Stmt:
+			// Only the last value goes to the last result.
+			if p.results[len(p.results) - 1] == use.ident {
+				continue
+			}
+		case ^ast.Binary_Expr:
+			if p.op.kind == .Cmp_Eq || p.op.kind == .Not_Eq {
+				other := p.right if p.left == use.ident else p.left
+				if nil_ident, is_ident := other.derived.(^ast.Ident); is_ident && nil_ident.name == "nil" {
+					// The new type then has to take nil, as for a returned nil.
+					locals_at(types, use.ident.pos.offset)
+					types.has_nil ||= is_last_result(types, use.ident)
+					continue
+				}
+			}
+		// Field names spelled like the result are not uses of it.
+		case ^ast.Selector_Expr:
+			if p.field == use.ident {
+				continue
+			}
+		case ^ast.Implicit_Selector_Expr:
+			continue
+		case ^ast.Field_Value:
+			if p.field == use.ident && names_field(types, use) {
+				continue
+			}
+		}
+		locals_at(types, use.ident.pos.offset)
+		if is_last_result(types, use.ident) {
+			return true
+		}
+	}
+	return false
+}
+
+// Whether the field of a field value names a struct field or a named argument. A map literal's
+// key is a value; a literal of unknown type counts as one.
+names_field :: proc(types: ^Result_Types, use: IdentUse) -> bool {
+	if len(use.parents) < 2 {
+		return false
+	}
+	lit, is_lit := use.parents[len(use.parents) - 2].derived.(^ast.Comp_Lit)
+	if !is_lit {
+		return true
+	}
+	if lit.type == nil {
+		return false
+	}
+	locals_at(types, lit.pos.offset)
+	symbol := resolve_type_expression(types.ctx.ast_context, lit.type) or_return
+	#partial switch _ in symbol.value {
+	case SymbolStructValue, SymbolBitFieldValue:
+		return true
+	}
+	return false
+}
+
+// Locals are gathered up to a position, so re-gathers them at offset in the procedure.
+locals_at :: proc(types: ^Result_Types, offset: int) {
+	ctx := types.ctx
+	pc := ctx.position_context^
+	pc.function = types.lit
+	pc.position = offset
+	pc.nested_position = offset
+	clear_locals(ctx.ast_context)
+	get_locals(ctx.ast_context, &pc)
+	ctx.ast_context.use_locals = true
+}
+
+// Whether ident resolves to the named last result among the locals gathered.
+is_last_result :: proc(types: ^Result_Types, ident: ^ast.Ident) -> bool {
+	if types.last_name == nil {
+		return false
+	}
+	local, is_local := get_local(types.ctx.ast_context^, ident^)
+	return is_local && local.lhs == types.last_name
 }
 
 // The type written in the declaration of a local, parameter, named result or global variable.
@@ -441,6 +668,26 @@ untyped_accepts :: proc(name: string) -> bit_set[SymbolUntypedValueType] {
 		return {.Integer, .Rune}
 	}
 	return {}
+}
+
+// `return f()` passes on every result of f, `return f() or_return` all but its last. Either gives
+// the last result's type when the counts match; any other single value is a count error.
+add_forwarded_type :: proc(types: ^Result_Types, value: ^ast.Expr) -> bool {
+	value := value
+	extra := 0
+	if forward, is_forward := value.derived.(^ast.Or_Return_Expr); is_forward {
+		value = unparen(forward.expr)
+		extra = 1
+	}
+	call, is_call := value.derived.(^ast.Call_Expr)
+	if !is_call {
+		return true
+	}
+	results, decl_pkg := call_result_types(types, call) or_return
+	if len(results) != types.count + extra {
+		return true
+	}
+	return add_type_node(types, results[types.count - 1], decl_pkg)
 }
 
 // The last result of the called procedure is what or_return passes on.
