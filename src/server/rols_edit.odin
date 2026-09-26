@@ -475,11 +475,18 @@ zero_value_text :: proc(symbol: Symbol, resolved: bool) -> string {
 	return "{}"
 }
 
+// A fresh local must not shadow a package symbol from any file of the package, or a builtin such as `len`.
 is_taken :: proc(ctx: ^ActionContext, ident: ast.Ident) -> bool {
 	if ident.name in ctx.ast_context.globals {
 		return true
 	}
-	_, ok := get_local(ctx.ast_context^, ident)
+	if _, ok := get_local(ctx.ast_context^, ident); ok {
+		return true
+	}
+	if _, ok := lookup(ident.name, ctx.ast_context.current_package, ctx.document.fullpath); ok {
+		return true
+	}
+	_, ok := lookup(ident.name, "$builtin", ctx.document.fullpath)
 	return ok
 }
 

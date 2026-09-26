@@ -276,7 +276,6 @@ call_map: map[string]proc(_: json.Value, _: RequestId, _: ^common.Config, _: ^Wr
 	// rols: fork request handlers
 	"textDocument/foldingRange"         = request_folding_range,
 	"textDocument/selectionRange"       = request_selection_range,
-	"textDocument/linkedEditingRange"   = request_linked_editing_range,
 	"textDocument/implementation"       = request_implementation,
 	"textDocument/prepareCallHierarchy" = request_prepare_call_hierarchy,
 	"callHierarchy/incomingCalls"       = request_incoming_calls,
@@ -543,7 +542,6 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	config.enable_code_lens_references =
 		ols_config.enable_code_lens_references.(bool) or_else config.enable_code_lens_references
 	config.enable_selection_range = ols_config.enable_selection_range.(bool) or_else config.enable_selection_range
-	config.enable_linked_editing = ols_config.enable_linked_editing.(bool) or_else config.enable_linked_editing
 	config.enable_checker_vet_shadowing =
 		ols_config.enable_checker_vet_shadowing.(bool) or_else config.enable_checker_vet_shadowing
 	config.enable_hover_struct_size =
@@ -994,7 +992,6 @@ request_initialize :: proc(
 				codeActionProvider = {resolveProvider = false, codeActionKinds = {"quickfix", "refactor.rewrite", "refactor.extract", "refactor.inline", "refactor.more", "refactor.move", "source.organizeImports"}},
 				foldingRangeProvider = true,
 				selectionRangeProvider = config.enable_selection_range,
-				linkedEditingRangeProvider = config.enable_linked_editing,
 				implementationProvider = true,
 				callHierarchyProvider = true,
 				codeLensProvider = CodeLensOptions{resolveProvider = false} if config.enable_code_lens_references else nil,
@@ -1137,7 +1134,6 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_lint_use_stdlib = true
 	config.enable_code_lens_references = true
 	config.enable_selection_range = true
-	config.enable_linked_editing = true
 	config.enable_checker_vet_shadowing = true
 	config.enable_hover_struct_size = true
 	config.enable_checker_vet_unused_variables = true
