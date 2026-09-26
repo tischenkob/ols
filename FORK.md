@@ -88,7 +88,7 @@ Regenerate with:
 diff <(git show upstream/master:misc/ols.schema.json | grep -o '"enable_[a-z_]*"' | sort -u) <(grep -o '"enable_[a-z_]*"' misc/ols.schema.json | sort -u) | grep '^>' | tr -d '>" '
 ```
 
-### `enable_code_action_*` (28)
+### `enable_code_action_*` (29)
 
 - `enable_code_action_add_explicit_type`
 - `enable_code_action_add_ok_result`
@@ -114,6 +114,7 @@ diff <(git show upstream/master:misc/ols.schema.json | grep -o '"enable_[a-z_]*"
 - `enable_code_action_named_results`
 - `enable_code_action_remove_param`
 - `enable_code_action_result_handling`
+- `enable_code_action_result_union`
 - `enable_code_action_rewrite_expression`
 - `enable_code_action_split_merge_if`
 - `enable_code_action_ternary`

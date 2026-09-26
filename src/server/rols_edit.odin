@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:odin/ast"
 import "core:odin/tokenizer"
+import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 
@@ -491,4 +492,342 @@ fresh_name :: proc(ctx: ^ActionContext, base: string, pos: tokenizer.Pos) -> str
 		probe.name = fmt.tprintf("%s%d", base, i)
 	}
 	return probe.name
+}
+
+// The alias of the import of import_path (e.g. `core:os`), "" when it has none. `document.imports`
+// drops packages whose collection is not configured, so read the parsed imports.
+import_alias :: proc(document: ^Document, import_path: string) -> (alias: string, imported: bool) {
+	fullpath := fmt.tprintf("\"%s\"", import_path)
+	for imp in document.ast.imports {
+		if imp.fullpath == fullpath {
+			return imp.name.text, true
+		}
+	}
+	return "", false
+}
+
+// Adds `import "<import_path>"` after the package clause, or after the last import when
+// enable_add_import_to_bottom is set.
+import_edit :: proc(ctx: ^ActionContext, import_path: string) -> TextEdit {
+	if ctx.config.enable_add_import_to_bottom {
+		line, is_import := find_most_bottom_line_number(ctx.ast_context)
+		return {
+			range = {start = {line = line, character = 0}, end = {line = line, character = 0}},
+			newText = is_import ? fmt.tprintf("import \"%s\"\n", import_path) : fmt.tprintf("\nimport \"%s\"", import_path),
+		}
+	}
+
+	// pkg_decl lines are 1-based, so this is the 0-based line right after the package clause.
+	line := ctx.ast_context.file.pkg_decl.end.line
+	return {
+		range = {start = {line = line, character = 0}, end = {line = line, character = 0}},
+		newText = fmt.tprintf("import \"%s\"\n", import_path),
+	}
+}
+
+// A type node as source text for the current document. decl_pkg is the directory of the package
+// that declares the node. Indexed nodes name other packages by directory, and those print through
+// the current document's import alias, with a missing import appended to edits. Builtin type
+// names stay bare. Fails on polymorphic and unsupported nodes.
+requalified_type_text :: proc(
+	ctx: ^ActionContext,
+	type_expr: ^ast.Expr,
+	decl_pkg: string,
+	edits: ^[dynamic]TextEdit,
+) -> (
+	string,
+	bool,
+) {
+	sb := strings.builder_make(context.temp_allocator)
+	if !write_requalified_type(&sb, ctx, type_expr, decl_pkg, edits) {
+		return "", false
+	}
+	return strings.to_string(sb), true
+}
+
+@(private = "file")
+write_requalified_type :: proc(
+	sb: ^strings.Builder,
+	ctx: ^ActionContext,
+	node: ^ast.Expr,
+	decl_pkg: string,
+	edits: ^[dynamic]TextEdit,
+) -> bool {
+	if node == nil {
+		return false
+	}
+	#partial switch n in node.derived {
+	case ^ast.Ident:
+		// Names in the current document or package need no qualifier.
+		local := node.pos.file == ctx.document.fullpath || decl_pkg == ctx.ast_context.document_package
+		if n.name in keyword_map || local {
+			strings.write_string(sb, n.name)
+			return true
+		}
+		// Anything but a declaration of decl_pkg, such as a polymorphic parameter, has no name here.
+		if decl_pkg == "" || decl_pkg == "$builtin" || strings.contains(n.name, "/") {
+			return false
+		}
+		if _, found := memory_index_lookup(&indexer.index, n.name, decl_pkg); !found {
+			return false
+		}
+		alias := package_alias(ctx, decl_pkg, edits) or_return
+		if alias != "" {
+			strings.write_string(sb, alias)
+			strings.write_byte(sb, '.')
+		}
+		strings.write_string(sb, n.name)
+	case ^ast.Selector_Expr:
+		base, is_ident := n.expr.derived.(^ast.Ident)
+		if !is_ident || n.field == nil {
+			return false
+		}
+		alias: string
+		if strings.contains(base.name, "/") {
+			// The indexer replaced the declaring file's alias with the package directory.
+			alias = package_alias(ctx, base.name, edits) or_return
+		} else if node.pos.file == ctx.document.fullpath && document_imports_alias(ctx.document, base.name) {
+			alias = base.name
+		} else {
+			return false
+		}
+		if alias != "" {
+			strings.write_string(sb, alias)
+			strings.write_byte(sb, '.')
+		}
+		strings.write_string(sb, n.field.name)
+	case ^ast.Basic_Lit:
+		strings.write_string(sb, n.tok.text)
+	case ^ast.Paren_Expr:
+		return write_requalified_type(sb, ctx, n.expr, decl_pkg, edits)
+	case ^ast.Pointer_Type:
+		if n.tag != nil {
+			return false
+		}
+		strings.write_byte(sb, '^')
+		return write_requalified_type(sb, ctx, n.elem, decl_pkg, edits)
+	case ^ast.Multi_Pointer_Type:
+		strings.write_string(sb, "[^]")
+		return write_requalified_type(sb, ctx, n.elem, decl_pkg, edits)
+	case ^ast.Array_Type:
+		if n.tag != nil {
+			return false
+		}
+		strings.write_byte(sb, '[')
+		if n.len != nil && !write_requalified_type(sb, ctx, n.len, decl_pkg, edits) {
+			return false
+		}
+		strings.write_byte(sb, ']')
+		return write_requalified_type(sb, ctx, n.elem, decl_pkg, edits)
+	case ^ast.Dynamic_Array_Type:
+		if n.tag != nil {
+			return false
+		}
+		strings.write_string(sb, "[dynamic]")
+		return write_requalified_type(sb, ctx, n.elem, decl_pkg, edits)
+	case ^ast.Map_Type:
+		strings.write_string(sb, "map[")
+		if !write_requalified_type(sb, ctx, n.key, decl_pkg, edits) {
+			return false
+		}
+		strings.write_byte(sb, ']')
+		return write_requalified_type(sb, ctx, n.value, decl_pkg, edits)
+	case ^ast.Union_Type:
+		if n.poly_params != nil || n.align != nil || len(n.where_clauses) > 0 || n.kind == .maybe {
+			return false
+		}
+		strings.write_string(sb, "union")
+		#partial switch n.kind {
+		case .no_nil:
+			strings.write_string(sb, " #no_nil")
+		case .shared_nil:
+			strings.write_string(sb, " #shared_nil")
+		}
+		strings.write_string(sb, " {")
+		for variant, i in n.variants {
+			if i > 0 {
+				strings.write_string(sb, ", ")
+			}
+			if !write_requalified_type(sb, ctx, variant, decl_pkg, edits) {
+				return false
+			}
+		}
+		strings.write_byte(sb, '}')
+	case ^ast.Struct_Type:
+		if n.poly_params != nil ||
+		   n.align != nil ||
+		   n.min_field_align != nil ||
+		   n.max_field_align != nil ||
+		   len(n.where_clauses) > 0 ||
+		   n.is_packed ||
+		   n.is_raw_union ||
+		   n.is_no_copy ||
+		   n.is_all_or_none {
+			return false
+		}
+		strings.write_string(sb, "struct {")
+		if !write_requalified_fields(sb, ctx, n.fields, decl_pkg, edits) {
+			return false
+		}
+		strings.write_byte(sb, '}')
+	case ^ast.Proc_Type:
+		if n.generic || n.diverging || n.tags != {} || n.calling_convention != nil {
+			return false
+		}
+		strings.write_string(sb, "proc(")
+		if !write_requalified_fields(sb, ctx, n.params, decl_pkg, edits) {
+			return false
+		}
+		strings.write_byte(sb, ')')
+		if n.results == nil || len(n.results.list) == 0 {
+			return true
+		}
+		strings.write_string(sb, " -> ")
+		results := n.results.list
+		if len(results) == 1 && !field_has_names(results[0]) {
+			return write_requalified_type(sb, ctx, results[0].type, decl_pkg, edits)
+		}
+		strings.write_byte(sb, '(')
+		if !write_requalified_fields(sb, ctx, n.results, decl_pkg, edits) {
+			return false
+		}
+		strings.write_byte(sb, ')')
+	case:
+		return false
+	}
+	return true
+}
+
+// The parser gives an unnamed parameter or result a synthesised name at its type's position.
+@(private = "file")
+field_has_names :: proc(field: ^ast.Field) -> bool {
+	for name in field.names {
+		if field.type == nil || name.pos.offset != field.type.pos.offset {
+			return true
+		}
+	}
+	return false
+}
+
+@(private = "file")
+write_requalified_fields :: proc(
+	sb: ^strings.Builder,
+	ctx: ^ActionContext,
+	fields: ^ast.Field_List,
+	decl_pkg: string,
+	edits: ^[dynamic]TextEdit,
+) -> bool {
+	if fields == nil {
+		return true
+	}
+	UNPRINTED :: ast.Field_Flags {
+		.Ellipsis,
+		.Using,
+		.No_Alias,
+		.C_Vararg,
+		.Const,
+		.Any_Int,
+		.Subtype,
+		.By_Ptr,
+		.No_Broadcast,
+		.No_Capture,
+	}
+	for field, i in fields.list {
+		if field.type == nil || field.default_value != nil || field.tag.text != "" || field.flags & UNPRINTED != {} {
+			return false
+		}
+		if i > 0 {
+			strings.write_string(sb, ", ")
+		}
+		if field_has_names(field) {
+			for name, j in field.names {
+				ident, is_ident := name.derived.(^ast.Ident)
+				if !is_ident {
+					return false
+				}
+				if j > 0 {
+					strings.write_string(sb, ", ")
+				}
+				strings.write_string(sb, ident.name)
+			}
+			strings.write_string(sb, ": ")
+		}
+		if !write_requalified_type(sb, ctx, field.type, decl_pkg, edits) {
+			return false
+		}
+	}
+	return true
+}
+
+@(private = "file")
+document_imports_alias :: proc(document: ^Document, alias: string) -> bool {
+	for imp in document.imports {
+		if imp.base == alias {
+			return true
+		}
+	}
+	return false
+}
+
+// How the current document names the package in directory dir: "" for its own package, else the
+// import alias. An unimported package gets its directory name and an import appended to edits,
+// unless that name is already taken.
+package_alias :: proc(ctx: ^ActionContext, dir: string, edits: ^[dynamic]TextEdit) -> (string, bool) {
+	if dir == ctx.ast_context.document_package {
+		return "", true
+	}
+	for imp in ctx.document.imports {
+		if imp.name == dir {
+			return imp.base, true
+		}
+	}
+	if dir not_in indexer.index.collection.packages {
+		return "", false
+	}
+	import_path, has_path := package_import_path(ctx, dir)
+	if !has_path {
+		return "", false
+	}
+	alias := filepath.base(dir)
+	// Any local gathered so far counts, including the parameters.
+	probe: ast.Ident
+	probe.name = alias
+	probe.pos.offset = len(ctx.document.ast.src)
+	if alias in keyword_map || is_taken(ctx, probe) || document_imports_alias(ctx.document, alias) {
+		return "", false
+	}
+	edit := import_edit(ctx, import_path)
+	for existing in edits {
+		if existing.newText == edit.newText {
+			return alias, true
+		}
+	}
+	append(edits, edit)
+	return alias, true
+}
+
+// `collection:rest` for the collection with the longest root containing dir, else dir relative to
+// the current package. Import paths use '/' on every platform.
+@(private = "file")
+package_import_path :: proc(ctx: ^ActionContext, dir: string) -> (string, bool) {
+	dir, _ := filepath.replace_separators(dir, '/', context.temp_allocator)
+	best := ""
+	best_len := -1
+	for name, root in ctx.config.collections {
+		root, _ := filepath.replace_separators(root, '/', context.temp_allocator)
+		root = strings.trim_right(root, "/")
+		if len(root) > best_len && len(dir) > len(root) && dir[len(root)] == '/' && strings.has_prefix(dir, root) {
+			best = fmt.tprintf("%s:%s", name, dir[len(root) + 1:])
+			best_len = len(root)
+		}
+	}
+	if best_len >= 0 {
+		return best, true
+	}
+	rel, err := filepath.rel(ctx.ast_context.document_package, dir, context.temp_allocator)
+	if err != .None {
+		return "", false
+	}
+	rel, _ = filepath.replace_separators(rel, '/', context.temp_allocator)
+	return rel, true
 }
