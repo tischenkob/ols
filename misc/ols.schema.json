@@ -555,7 +555,7 @@
 		},
 		"enable_linked_editing": {
 			"type": "boolean",
-			"description": "Edit every occurrence of a local variable or parameter at once.",
+			"description": "Edit every occurrence of a local variable or parameter at once while editing its declaration.",
 			"default": true
 		},
 		"checker_skip_packages": {
