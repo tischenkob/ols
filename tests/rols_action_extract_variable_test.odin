@@ -413,3 +413,55 @@ main :: proc() {
 }
 `)
 }
+
+@(test)
+action_extract_variable_avoids_proc_in_other_file :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	some_procedure(some_nested_{*}call(1))
+}
+`,
+		files = {
+			{
+				name = "procs.odin",
+				source = `package test
+
+some_procedure :: proc(x: int) -> int { return x }
+some_nested_call :: proc(x: int) -> int { return x }
+`,
+			},
+		},
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(t, &source, EXTRACT_VARIABLE_ACTION, `package test
+
+main :: proc() {
+	some_nested_call2 := some_nested_call(1)
+	some_procedure(some_nested_call2)
+}
+`)
+}
+
+@(test)
+action_extract_variable_avoids_builtin :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc(s: []int) {
+	bar({[len(s)]})
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(t, &source, EXTRACT_VARIABLE_ACTION, `package test
+
+main :: proc(s: []int) {
+	len2 := len(s)
+	bar(len2)
+}
+`)
+}
