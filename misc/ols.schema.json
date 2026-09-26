@@ -217,7 +217,7 @@
 		},
 		"enable_code_action_result_union": {
 			"type": "boolean",
-			"description": "Enables the quick fix changing a procedure's result type to a union of the types its returns and or_return calls produce.",
+			"description": "Enables the quick fix changing a procedure's last result type to a union of the types its returns and or_return calls produce, naming the results when there are several.",
 			"default": true
 		},
 		"enable_code_action_defer_delete": {

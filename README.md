@@ -161,7 +161,7 @@ Options:
 
 - `enable_code_action_add_ok_result`: Enables the code action adding a `bool` result to a procedure. Defaults to true.
 
-- `enable_code_action_result_union`: Enables the quick fix changing the result type of a single-result procedure to a union of the types its `return` statements and `or_return` calls produce. Defaults to true.
+- `enable_code_action_result_union`: Enables the quick fix changing the last result type of a procedure to a union of the types its `return` statements and `or_return` calls produce. With several results, it also names the unnamed ones, since `or_return` needs named results. Defaults to true.
 
 - `enable_code_action_defer_delete`: Enables the code action adding a `defer` that frees an allocation. Defaults to true.
 
