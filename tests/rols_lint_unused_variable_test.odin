@@ -39,6 +39,21 @@ loops :: proc(n: int) {
 }
 
 @(test)
+lint_unused_variable_tags :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+f :: proc() {
+	x := 1
+}
+`,
+		config = {enable_lint_unused_variable = true},
+	}
+
+	test.expect_lint_tags(t, &src, {.Unnecessary})
+}
+
+@(test)
 lint_fix_unused_variable :: proc(t: ^testing.T) {
 	removable := test.Source {
 		main = `package test

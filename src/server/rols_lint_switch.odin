@@ -29,7 +29,7 @@ lint_switch :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnos
 				severity = .Hint,
 				code = "unnecessary-break",
 				message = "break at the end of a case does nothing",
-				tags = {.Unnecessary},
+				tags = unnecessary_tags,
 			},
 		)
 		start, end := whole_lines(ctx.src, last.pos.offset, last.end.offset)
@@ -65,7 +65,7 @@ redundant_partial :: proc(
 			severity = .Hint,
 			code = "redundant-partial",
 			message = "#partial is unnecessary: every case is listed",
-			tags = {.Unnecessary},
+			tags = unnecessary_tags,
 		},
 	)
 	append(&ctx.fixes, Lint_Fix{start, node.pos.offset, "Remove #partial", ""})

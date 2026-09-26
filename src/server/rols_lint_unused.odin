@@ -159,7 +159,7 @@ unused_declarations :: proc(
 					candidate.symbol.name,
 					filepath.base(pkg),
 				),
-				tags = {.Unnecessary},
+				tags = unnecessary_tags,
 			},
 		)
 	}
