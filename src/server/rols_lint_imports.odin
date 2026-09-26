@@ -26,7 +26,7 @@ lint_imports :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagno
 				severity = .Hint,
 				code = "duplicate-import",
 				message = fmt.tprintf("'%s' is already imported", path),
-				tags = {.Unnecessary},
+				tags = unnecessary_tags,
 			},
 		)
 		start, end := whole_lines(ctx.src, imp.pos.offset, imp.end.offset)

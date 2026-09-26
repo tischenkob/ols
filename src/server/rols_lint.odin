@@ -54,6 +54,11 @@ lint_symbols :: proc(ctx: ^LintContext) -> SymbolAndNodeMap {
 	return symbols
 }
 
+// A `{.Unnecessary}` literal inside a lint proc lives on its stack, and run_lints reads the
+// diagnostics after the proc returns. These have static storage.
+unnecessary_tags := []DiagnosticTag{.Unnecessary}
+deprecated_tags := []DiagnosticTag{.Deprecated}
+
 @(private = "file")
 lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_self_assignment,
@@ -139,7 +144,7 @@ lint_document :: proc(document: ^Document, config: ^common.Config) -> []Diagnost
 					severity = .Hint,
 					code = s.code,
 					message = simplification_message(s),
-					tags = {.Unnecessary},
+					tags = unnecessary_tags,
 				},
 			)
 		}
@@ -156,7 +161,7 @@ lint_document :: proc(document: ^Document, config: ^common.Config) -> []Diagnost
 					severity = .Hint,
 					code = "use_stdlib",
 					message = fmt.tprintf("Use %s", m.rule.target),
-					tags = {.Unnecessary},
+					tags = unnecessary_tags,
 				},
 			)
 		}
@@ -290,7 +295,7 @@ lint_unreachable_code :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynam
 				severity = .Hint,
 				code = "unreachable-code",
 				message = "unreachable code",
-				tags = {.Unnecessary},
+				tags = unnecessary_tags,
 			},
 		)
 		start, end := whole_lines(ctx.src, stmts[i + 1].pos.offset, stmts[len(stmts) - 1].end.offset)
@@ -496,7 +501,7 @@ lint_unused_parameter :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynam
 				severity = .Hint,
 				code = "unused-parameter",
 				message = fmt.tprintf("parameter %s is unused", ident.name),
-				tags = {.Unnecessary},
+				tags = unnecessary_tags,
 			},
 		)
 		if declares_one_name(lit, ident) {

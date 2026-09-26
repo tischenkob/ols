@@ -37,7 +37,7 @@ lint_deprecated :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Dia
 			range = range,
 			severity = .Warning,
 			code = "deprecated",
-			tags = {.Deprecated},
+			tags = deprecated_tags,
 			message = fmt.tprintf("'%s' is deprecated", resolved.symbol.name),
 		},
 	)
