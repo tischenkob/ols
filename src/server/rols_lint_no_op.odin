@@ -100,7 +100,7 @@ no_op_arithmetic :: proc(ctx: ^LintContext, bin: ^ast.Binary_Expr, diags: ^[dyna
 				severity = .Hint,
 				code = "no-op-arithmetic",
 				message = "this operation leaves the value unchanged",
-				tags = {.Unnecessary},
+				tags = unnecessary_tags,
 			},
 		)
 		append(
@@ -139,7 +139,7 @@ no_op_compound_assign :: proc(ctx: ^LintContext, assign: ^ast.Assign_Stmt, diags
 			severity = .Hint,
 			code = "no-op-arithmetic",
 			message = "this assignment leaves the value unchanged",
-			tags = {.Unnecessary},
+			tags = unnecessary_tags,
 		},
 	)
 	start, end := whole_lines(ctx.src, assign.pos.offset, assign.end.offset)
@@ -258,7 +258,7 @@ no_op_append :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagno
 				severity = .Hint,
 				code = "append-no-values",
 				message = "append without values does nothing",
-				tags = {.Unnecessary},
+				tags = unnecessary_tags,
 			},
 		)
 	case ^ast.Expr_Stmt:

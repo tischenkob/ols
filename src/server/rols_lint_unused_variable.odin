@@ -27,7 +27,7 @@ lint_unused_variable :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynami
 					severity = .Hint,
 					code = "unused-variable",
 					message = fmt.tprintf("'%s' declared but not used", ident.name),
-					tags = {.Unnecessary},
+					tags = unnecessary_tags,
 				},
 			)
 			unused_variable_fixes(ctx.src, decl, ident, "Remove declaration", "Replace with `_`", &ctx.fixes)

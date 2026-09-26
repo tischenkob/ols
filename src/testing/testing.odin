@@ -2,6 +2,8 @@ package ols_testing
 
 // rols: seed_check_diagnostic allocates off the tracked test allocators
 import "base:runtime"
+// rols: overwrite_stack
+import "base:intrinsics"
 import "core:fmt"
 import "core:log"
 import "core:mem/virtual"
@@ -1332,8 +1334,18 @@ expect_lint_tags :: proc(t: ^testing.T, src: ^Source, tags: []server.DiagnosticT
 
 	diagnostics := server.lint_document(src.document, &src.config)
 	testing.expect(t, len(diagnostics) > 0, "Expected lint diagnostics")
+	overwrite_stack()
 	for d in diagnostics {
 		testing.expectf(t, slice.equal(d.tags, tags), "\nExpected tags %v but received %v", tags, d.tags)
+	}
+}
+
+// rols: tags that point into a returned lint proc's stack read back as garbage after this
+@(private = "file")
+overwrite_stack :: #force_no_inline proc() {
+	buf: [64 * 1024]u8
+	for &b in buf {
+		intrinsics.volatile_store(&b, 0xAA)
 	}
 }
 

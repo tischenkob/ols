@@ -94,7 +94,7 @@ replace_count :: proc(ctx: ^LintContext, call: ^ast.Call_Expr, diags: ^[dynamic]
 				severity = .Hint,
 				code = "replace-count",
 				message = "use strings.replace_all",
-				tags = {.Unnecessary},
+				tags = unnecessary_tags,
 			},
 		)
 		selector := call.expr.derived.(^ast.Selector_Expr)
