@@ -220,6 +220,11 @@
 			"description": "Enables the code action adding a bool result to a procedure.",
 			"default": true
 		},
+		"enable_code_action_result_union": {
+			"type": "boolean",
+			"description": "Enables the quick fix changing a procedure's result type to a union of the types its returns and or_return calls produce.",
+			"default": true
+		},
 		"enable_code_action_defer_delete": {
 			"type": "boolean",
 			"description": "Enables the code action adding a defer that frees an allocation.",
