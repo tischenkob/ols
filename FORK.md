@@ -43,6 +43,14 @@ Capabilities:
 - `src/server/requests.odin`: initialize response: range formatting, fork action kinds and providers, the hint kinds that turn the provider on, organize-on-save and file-creation client support.
 - `src/server/types.odin`: capability and payload types for the fork requests, server-initiated request payloads, and the named response union that lets `workspace/applyEdit` be sent.
 
+Workspace filter (`src/common/rols_workspace_filter.odin`), applied to workspace symbols (directories only), the reference file list behind references, rename, change signature, incoming calls, code lens and the CLI, and the checker's fallback package list:
+
+- `src/server/workspace_symbols.odin`: the package walk skips filtered directories.
+- `src/common/util.odin`, `src/common/util_windows.odin`: `search_for_odin_files` takes the filter, and `run_executable` spawns under `process_spawn_lock`.
+- `src/server/references.odin`: `workspace_odin_files` builds a filter per workspace root.
+- `src/server/build.odin`: `append_packages` takes the filter.
+- `src/server/check.odin`: the fallback package list for workspace diagnostics filters each root, and `odin check` spawns under `process_spawn_lock`.
+
 CLI:
 
 - `src/main.odin`: `ols query` dispatch and the reused logger.

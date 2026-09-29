@@ -33,13 +33,17 @@ get_workspace_symbols :: proc(query: string) -> (workspace_symbols: []WorkspaceS
 			pkgs := make([dynamic]string, 0, context.temp_allocator)
 			append(&pkgs, uri.path)
 
+			// rols: skip git-ignored and excluded directories, one filter per root and rescan
+			filter := common.workspace_filter_make(uri.path, &common.config, context.temp_allocator)
+
 			w := os.walker_create(uri.path)
 			defer os.walker_destroy(&w)
 			for info in os.walker_walk(&w) {
 				if info.type == .Directory {
 					dir, _ := filepath.replace_separators(info.fullpath, '/', context.temp_allocator)
 					dir_name := filepath.base(dir)
-					if slice.contains(dir_blacklist, dir_name) {
+					// rols: the filter skips a directory like the blacklist
+					if slice.contains(dir_blacklist, dir_name) || common.workspace_filter_skip_dir(&filter, info.fullpath) {
 						os.walker_skip_dir(&w)
 					} else {
 						append(&pkgs, dir)

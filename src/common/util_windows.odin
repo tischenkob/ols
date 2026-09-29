@@ -96,6 +96,13 @@ run_executable :: proc(command: string, stdout: ^[]byte) -> (u32, bool, []byte) 
 	attributes.bInheritHandle = true
 	attributes.lpSecurityDescriptor = nil
 
+	// rols: spawn lock from pipe creation until the parent closes the write end
+	process_spawn_lock()
+	spawn_locked := true
+	defer if spawn_locked {
+		process_spawn_unlock()
+	}
+
 	if win32.CreatePipe(&stdout_read, &stdout_write, &attributes, 0) == false {
 		return 0, false, stdout[0:]
 	}
@@ -129,6 +136,10 @@ run_executable :: proc(command: string, stdout: ^[]byte) -> (u32, bool, []byte) 
 	}
 
 	win32.CloseHandle(stdout_write)
+
+	// rols: the child owns the only inheritable pipe end now
+	process_spawn_unlock()
+	spawn_locked = false
 
 	index: int
 	read: u32
@@ -173,7 +184,14 @@ run_executable :: proc(command: string, stdout: ^[]byte) -> (u32, bool, []byte) 
 	return exit_code, true, stdout[0:index]
 }
 
-search_for_odin_files :: proc(base_path: string, exclude_file: string, dir_blacklist: []string, odin_files_out: ^[dynamic]string) {
+// rols: filter skips git-ignored and excluded paths
+search_for_odin_files :: proc(
+	base_path: string,
+	exclude_file: string,
+	dir_blacklist: []string,
+	odin_files_out: ^[dynamic]string,
+	filter: ^Workspace_Filter = nil,
+) {
     search_pattern := fmt.tprintf("%s\\*", base_path)
     wide_pattern := win32.utf8_to_wstring(search_pattern)
 
@@ -197,11 +215,13 @@ search_for_odin_files :: proc(base_path: string, exclude_file: string, dir_black
 				dir, _ := filepath.replace_separators(full_path, '/', context.temp_allocator)
 				dir_name := filepath.base(dir)
 
-				if !slice.contains(dir_blacklist, dir_name) {
-					search_for_odin_files(full_path, exclude_file, dir_blacklist, odin_files_out)
+				// rols: skip filtered directories and pass the filter down
+				if !slice.contains(dir_blacklist, dir_name) && !workspace_filter_skip_dir(filter, full_path) {
+					search_for_odin_files(full_path, exclude_file, dir_blacklist, odin_files_out, filter)
 				}
             } else {
-                if strings.has_suffix(file_name, ".odin") {
+                // rols: skip filtered files
+                if strings.has_suffix(file_name, ".odin") && !workspace_filter_skip_file(filter, full_path) {
 					// doing the thing the other branch does
 					slash_path, _ := filepath.replace_separators(full_path, '/', context.temp_allocator)
 					if !strings.equal_fold(slash_path, exclude_file) {

@@ -465,7 +465,8 @@ workspace_odin_files :: proc(
 	when !ODIN_TEST {
 		for workspace in common.config.workspace_folders {
 			uri, _ := common.parse_uri(workspace.uri, context.temp_allocator)
-			common.search_for_odin_files(uri.path, exclude, dir_blacklist, &fullpaths)
+			filter := common.workspace_filter_make(uri.path, &common.config, context.temp_allocator)
+			common.search_for_odin_files(uri.path, exclude, dir_blacklist, &fullpaths, &filter)
 		}
 	}
 

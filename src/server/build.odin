@@ -127,6 +127,8 @@ append_packages :: proc(
 	skip: map[string]struct{},
 	allocator := context.temp_allocator,
 	skip_hidden := false,
+	// rols: filter skips git-ignored and excluded paths
+	filter: ^common.Workspace_Filter = nil,
 ) {
 	if path in skip {
 		return
@@ -139,10 +141,18 @@ append_packages :: proc(
 			if info.fullpath in skip || (skip_hidden && strings.has_prefix(info.name, ".")) {
 				os.walker_skip_dir(&w)
 			}
+			// rols: skip filtered directories
+			if common.workspace_filter_skip_dir(filter, info.fullpath) {
+				os.walker_skip_dir(&w)
+			}
 			continue
 		}
 
 		if filepath.ext(info.name) == ".odin" {
+			// rols: skip filtered files
+			if common.workspace_filter_skip_file(filter, info.fullpath) {
+				continue
+			}
 			dir := filepath.dir(info.fullpath)
 			if !slice.contains(pkgs[:], dir) {
 				append(pkgs, strings.clone(dir, allocator))

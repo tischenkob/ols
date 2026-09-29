@@ -82,7 +82,10 @@ FILE :: struct {}
 when ODIN_OS == .Darwin || ODIN_OS == .FreeBSD || ODIN_OS == .OpenBSD || ODIN_OS == .Linux || ODIN_OS == .NetBSD {
 
 	run_executable :: proc(command: string, stdout: ^[]byte) -> (u32, bool, []byte) {
+		// rols: popen creates its pipe and forks inside one call, so the spawn lock spans it
+		process_spawn_lock()
 		fp := popen(strings.clone_to_cstring(command, context.temp_allocator), "r")
+		process_spawn_unlock()
 		if fp == nil {
 			return 0, false, stdout[0:]
 		}
@@ -116,7 +119,14 @@ when ODIN_OS == .Darwin || ODIN_OS == .FreeBSD || ODIN_OS == .OpenBSD || ODIN_OS
 		return 0, true, stdout[0:index]
 	}
 
-	search_for_odin_files :: proc(base_path: string, exclude_file: string, dir_blacklist: []string, odin_files_out: ^[dynamic]string) {
+	// rols: filter skips git-ignored and excluded paths
+	search_for_odin_files :: proc(
+		base_path: string,
+		exclude_file: string,
+		dir_blacklist: []string,
+		odin_files_out: ^[dynamic]string,
+		filter: ^Workspace_Filter = nil,
+	) {
 		w := os.walker_create(base_path)
 		defer os.walker_destroy(&w)
 		for info in os.walker_walk(&w) {
@@ -124,6 +134,10 @@ when ODIN_OS == .Darwin || ODIN_OS == .FreeBSD || ODIN_OS == .OpenBSD || ODIN_OS
 				dir, _ := filepath.replace_separators(info.fullpath, '/', context.temp_allocator)
 				dir_name := filepath.base(dir)
 				if slice.contains(dir_blacklist, dir_name) {
+					os.walker_skip_dir(&w)
+				}
+				// rols: skip filtered directories
+				if workspace_filter_skip_dir(filter, info.fullpath) {
 					os.walker_skip_dir(&w)
 				}
 				continue
@@ -134,6 +148,10 @@ when ODIN_OS == .Darwin || ODIN_OS == .FreeBSD || ODIN_OS == .OpenBSD || ODIN_OS
 			}
 
 			if strings.has_suffix(info.name, ".odin") {
+				// rols: skip filtered files
+				if workspace_filter_skip_file(filter, info.fullpath) {
+					continue
+				}
 				slash_path, _ := filepath.replace_separators(info.fullpath, '/', context.temp_allocator)
 				if !strings.equal_fold(slash_path, exclude_file) {
 					append(odin_files_out, strings.clone(info.fullpath, context.temp_allocator))
