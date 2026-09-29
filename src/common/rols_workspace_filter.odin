@@ -4,12 +4,29 @@ import "base:runtime"
 import "core:os"
 import "core:path/slashpath"
 import "core:strings"
+import "core:sync"
+
+// Serializes child-process spawns across threads. A pipe end created on one thread can leak into a child
+// that another thread forks or creates at the same moment, and a reader then waits for that child to exit.
+// Hold it from pipe creation until the parent closes the child's pipe end, never across a wait.
+@(private = "file")
+process_spawn_mutex: sync.Mutex
+
+process_spawn_lock :: proc() {
+	sync.mutex_lock(&process_spawn_mutex)
+}
+
+process_spawn_unlock :: proc() {
+	sync.mutex_unlock(&process_spawn_mutex)
+}
 
 // Decides which workspace paths a walk skips: git-ignored paths plus the user's exclude and include globs.
 // Holds no thread-local state, so any thread may query it.
 Workspace_Filter :: struct {
 	// Workspace root with `/` separators and no trailing `/`.
 	root:      string,
+	// Root with symlinks resolved, the form os.walker reports, or empty when it cannot be resolved.
+	real_root: string,
 	// Git-ignored paths relative to root, without trailing `/`.
 	ignored:   map[string]struct{},
 	exclude:   []string,
@@ -25,6 +42,10 @@ workspace_filter_make :: proc(root: string, cfg: ^Config, allocator := context.a
 		ignored   = make(map[string]struct{}),
 		allocator = allocator,
 	}
+	if absolute, err := os.get_absolute_path(root, allocator); err == nil {
+		f.real_root = normalize_filter_path(absolute)
+		delete(absolute)
+	}
 	f.exclude = clone_string_list(cfg.workspace_exclude)
 	f.include = clone_string_list(cfg.workspace_include)
 
@@ -37,6 +58,7 @@ workspace_filter_make :: proc(root: string, cfg: ^Config, allocator := context.a
 workspace_filter_destroy :: proc(f: ^Workspace_Filter) {
 	context.allocator = f.allocator
 	delete(f.root)
+	delete(f.real_root)
 	for key in f.ignored {
 		delete(key)
 	}
@@ -98,7 +120,11 @@ filter_skip :: proc(f: ^Workspace_Filter, fullpath: string, is_dir: bool) -> boo
 
 @(private = "file")
 filter_skip_rel :: proc(f: ^Workspace_Filter, fullpath: string, is_dir: bool) -> bool {
-	rel, inside := relative_to_root(f.root, strings.trim_right(fullpath, "/"))
+	path := strings.trim_right(fullpath, "/")
+	rel, inside := relative_to_root(f.root, path)
+	if !inside && f.real_root != "" {
+		rel, inside = relative_to_root(f.real_root, path)
+	}
 	if !inside || rel == "" {
 		return false
 	}
@@ -246,6 +272,7 @@ clone_string_list :: proc(list: []string, allocator := context.allocator) -> []s
 }
 
 // Fills the ignored set from git. A missing git, a failed run or a root outside a repository leaves it empty.
+// A root that git ignores itself, listed as `./`, also leaves it empty: git would report nothing below it.
 @(private = "file")
 collect_git_ignored :: proc(f: ^Workspace_Filter, root: string) {
 	// A repository-controlled core.fsmonitor would run an arbitrary command, so override it.
@@ -262,7 +289,10 @@ collect_git_ignored :: proc(f: ^Workspace_Filter, root: string) {
 		"--exclude-standard",
 		"--directory",
 	}
+	// process_exec creates its pipes and waits inside one call, so the lock spans it. git ls-files is short.
+	process_spawn_lock()
 	state, stdout, stderr, err := os.process_exec({command = command}, f.allocator)
+	process_spawn_unlock()
 	defer delete(stdout, f.allocator)
 	defer delete(stderr, f.allocator)
 	if err != nil || !state.success || state.exit_code != 0 {
@@ -272,6 +302,13 @@ collect_git_ignored :: proc(f: ^Workspace_Filter, root: string) {
 	output := string(stdout)
 	for entry in strings.split_iterator(&output, "\x00") {
 		path := strings.trim_right(entry, "/")
+		if path == "." {
+			for key in f.ignored {
+				delete(key, f.allocator)
+			}
+			clear(&f.ignored)
+			return
+		}
 		if path != "" && path not_in f.ignored {
 			f.ignored[strings.clone(path, f.allocator)] = {}
 		}

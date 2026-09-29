@@ -119,7 +119,9 @@ fallback_find_odin_directories :: proc(config: ^common.Config) -> []string {
 
 	for workspace in config.workspace_folders {
 		if uri, ok := common.parse_uri(workspace.uri, context.temp_allocator); ok {
-			append_packages(uri.path, &data, config.checker_skip_packages, context.temp_allocator)
+			// rols: skip git-ignored and excluded paths, one filter per root
+			filter := common.workspace_filter_make(uri.path, config, context.temp_allocator)
+			append_packages(uri.path, &data, config.checker_skip_packages, context.temp_allocator, filter = &filter)
 		}
 	}
 
@@ -439,6 +441,10 @@ start_check_process :: proc(
 			append(&cmd, arg)
 		}
 	}
+
+	// rols: spawn lock from pipe creation until the deferred close of the write end
+	common.process_spawn_lock()
+	defer common.process_spawn_unlock()
 
 	r, w, err := os.pipe()
 	if err != nil {

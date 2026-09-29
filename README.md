@@ -228,7 +228,7 @@ Options:
 
 - `enable_checker_strict_style`: Pass `-strict-style` to `odin check`. Report style violations as hard errors; subsumes `-vet-style` and `-vet-semicolon`. Defaults to false.
 
-- `enable_workspace_gitignore`: Skip paths that git reports as ignored when walking the workspace. Does nothing outside a git repository or when `git` is not on PATH. Defaults to true.
+- `enable_workspace_gitignore`: Skip paths that git reports as ignored when walking the workspace. Does nothing outside a git repository or when `git` is not on PATH. Defaults to true. Workspace walks feed workspace symbols; references, rename, change signature, incoming calls and code lens; the CLI `find`, `refs`, `rename` and `callers` queries; and the package list for workspace diagnostics from `odin check`. Workspace symbols filter directories only and index whole packages, so a file glob such as `*_gen.odin` has no effect there. Imported packages and collections are never filtered. Rename and change signature do not edit git-ignored files either, so list ignored code that still compiles in `workspace_include`.
 
 - `workspace_exclude`: Globs relative to each workspace root. Workspace walks skip matching files and directories, and everything below a matching directory. `*`, `?` and `[...]` match within one path segment, `**` spans any number of segments, a glob without `/` matches a name at any depth, and a leading `/` anchors a glob to the root. Defaults to empty.
 
