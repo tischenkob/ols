@@ -393,6 +393,27 @@
 			"description": "Pass -strict-style to odin check. Report style violations as hard errors; subsumes -vet-style and -vet-semicolon.",
 			"default": false
 		},
+		"enable_workspace_gitignore": {
+			"type": "boolean",
+			"description": "Skip paths that git reports as ignored when walking the workspace.",
+			"default": true
+		},
+		"workspace_exclude": {
+			"type": "array",
+			"description": "Globs relative to each workspace root. Workspace walks skip matching files and directories. A glob without / matches a name at any depth, and ** spans directories.",
+			"items": {
+				"type": "string"
+			},
+			"default": []
+		},
+		"workspace_include": {
+			"type": "array",
+			"description": "Globs relative to each workspace root. Workspace walks keep matching paths even when git ignores them. workspace_exclude wins over workspace_include.",
+			"items": {
+				"type": "string"
+			},
+			"default": []
+		},
 		"enable_lint_self_assignment": {
 			"type": "boolean",
 			"description": "Warn when a variable is assigned to itself.",

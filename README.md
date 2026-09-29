@@ -226,6 +226,12 @@ Options:
 
 - `enable_checker_strict_style`: Pass `-strict-style` to `odin check`. Report style violations as hard errors; subsumes `-vet-style` and `-vet-semicolon`. Defaults to false.
 
+- `enable_workspace_gitignore`: Skip paths that git reports as ignored when walking the workspace. Does nothing outside a git repository or when `git` is not on PATH. Defaults to true.
+
+- `workspace_exclude`: Globs relative to each workspace root. Workspace walks skip matching files and directories, and everything below a matching directory. `*`, `?` and `[...]` match within one path segment, `**` spans any number of segments, a glob without `/` matches a name at any depth, and a leading `/` anchors a glob to the root. Defaults to empty.
+
+- `workspace_include`: Globs relative to each workspace root, with the same syntax. Workspace walks keep matching paths even when git ignores them. `workspace_exclude` wins over `workspace_include`. Defaults to empty.
+
 - `enable_lint_self_assignment`: Warn when a variable is assigned to itself. Defaults to true.
 
 - `enable_lint_identical_branches`: Warn when the if and else branches, or both ternary branches, are identical. Defaults to true.

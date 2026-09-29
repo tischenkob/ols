@@ -555,6 +555,14 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	config.enable_checker_vet_tabs = ols_config.enable_checker_vet_tabs.(bool) or_else config.enable_checker_vet_tabs
 	config.enable_checker_strict_style =
 		ols_config.enable_checker_strict_style.(bool) or_else config.enable_checker_strict_style
+	config.enable_workspace_gitignore =
+		ols_config.enable_workspace_gitignore.(bool) or_else config.enable_workspace_gitignore
+	if ols_config.workspace_exclude != nil {
+		config.workspace_exclude = common.clone_string_list(ols_config.workspace_exclude, context.allocator)
+	}
+	if ols_config.workspace_include != nil {
+		config.workspace_include = common.clone_string_list(ols_config.workspace_include, context.allocator)
+	}
 	config.verbose = ols_config.verbose.(bool) or_else config.verbose
 	config.file_log = ols_config.file_log.(bool) or_else config.file_log
 
@@ -1142,6 +1150,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_checker_vet_semicolon = true
 	config.enable_checker_vet_tabs = true
 	config.enable_checker_strict_style = false
+	config.enable_workspace_gitignore = true
 }
 
 get_builtin_path :: proc(allocator := context.allocator) -> string {
