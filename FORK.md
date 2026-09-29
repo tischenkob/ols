@@ -34,8 +34,8 @@ Registration:
 
 Config:
 
-- `src/common/config.odin`: range formatting, extra inlay hint kinds, fork code action, lint, lens and checker flags, client file-creation support.
-- `src/server/types.odin`: the same flags as `Maybe(bool)` in `OlsConfig`.
+- `src/common/config.odin`: range formatting, extra inlay hint kinds, fork code action, lint, lens and checker flags, workspace filter keys, client file-creation support.
+- `src/server/types.odin`: the same flags as `Maybe(bool)` in `OlsConfig`, and the workspace glob lists.
 - `src/server/requests.odin`: initialize-option merge for those flags, and `apply_default_config` holding every default so the CLI can reuse them.
 
 Capabilities:
@@ -170,13 +170,21 @@ diff <(git show upstream/master:misc/ols.schema.json | grep -o '"enable_[a-z_]*"
 - `enable_inlay_hints_range_types`
 - `enable_inlay_hints_variable_types`
 
-### Other (5)
+### Other (6)
 
 - `enable_code_lens_references`
 - `enable_hover_struct_size`
 - `enable_organize_imports_on_save`
 - `enable_range_format`
 - `enable_selection_range`
+- `enable_workspace_gitignore`
+
+### Non-flag keys
+
+The regenerate command above lists only `enable_*` keys.
+
+- `workspace_exclude`
+- `workspace_include`
 
 ## Fork-only LSP requests
 
