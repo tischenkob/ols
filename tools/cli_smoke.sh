@@ -79,6 +79,35 @@ expect api-group "^combine :: proc {add, add_f}" "$OLS" query api "$dir"
 expect api-name "^add :: proc(a, b: int) -> int" "$OLS" query api "$dir" add
 expect api-core "^clone :: proc(s: string" "$OLS" query --root "$dir" api core:strings clone
 expect find "util.odin:3:1: Function add" "$OLS" query --root "$dir" find add
+if command -v git >/dev/null; then
+	git -C "$dir" init -q
+	echo 'out/' > "$dir/.gitignore"
+	mkdir "$dir/out"
+	cat > "$dir/out/gen.odin" <<'ODIN'
+package gen
+
+import "core:fmt"
+
+smoke_generated_marker :: proc() {
+	fmt.println(1)
+}
+ODIN
+	found="$("$OLS" query --root "$dir" find smoke_generated_marker || true)"
+	if grep -q "out/gen.odin" <<<"$found"; then echo "FAIL find-gitignored: $found"; exit 1; fi
+	echo "ok find-gitignored"
+	refs="$("$OLS" query --root "$dir" refs "$dir/main.odin:8:7")"
+	if ! grep -q "main.odin:8:7" <<<"$refs" || grep -q "out/gen.odin" <<<"$refs"; then echo "FAIL refs-gitignored: $refs"; exit 1; fi
+	echo "ok refs-gitignored"
+	echo '{"workspace_include": ["out/**"]}' > "$dir/ols.json"
+	expect find-included "out/gen.odin:5:1: Function smoke_generated_marker" "$OLS" query --root "$dir" find smoke_generated_marker
+	expect refs-included "out/gen.odin:6:6" "$OLS" query --root "$dir" refs "$dir/main.odin:8:7"
+	echo '{"enable_workspace_gitignore": false}' > "$dir/ols.json"
+	expect find-gitignore-off "out/gen.odin:5:1: Function smoke_generated_marker" "$OLS" query --root "$dir" find smoke_generated_marker
+	echo '{}' > "$dir/ols.json"
+	rm -rf "$dir/out"
+else
+	echo "skip workspace filter: git is not on PATH"
+fi
 expect actions "Invert if" "$OLS" query actions "$dir/main.odin:7:2"
 expect actions-apply "main.odin" "$OLS" query actions "$dir/main.odin:10:11-10:20" --apply "Extract variable"
 grep -q "value \* 3" "$dir/main.odin" && grep -q "total := .* + 1" "$dir/main.odin"
