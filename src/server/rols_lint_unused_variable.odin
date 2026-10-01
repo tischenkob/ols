@@ -75,22 +75,22 @@ unused_variable_fixes :: proc(
 	fixes: ^[dynamic]Lint_Fix,
 ) {
 	if len(decl.names) != 1 || !alone_on_line(src, decl) {
-		append(fixes, Lint_Fix{ident.pos.offset, ident.end.offset, discard_title, "_"})
+		append(fixes, Lint_Fix{ident.pos.offset, ident.end.offset, discard_title, "_", "unused-variable/discard"})
 		return
 	}
 
 	if !any_side_effect(decl.values) {
 		start, end := whole_lines(src, decl.pos.offset, decl.end.offset)
-		append(fixes, Lint_Fix{start, end, remove_title, ""})
+		append(fixes, Lint_Fix{start, end, remove_title, "", "unused-variable/remove"})
 	}
 
 	// `_ := v` is not valid, so the value keeps its name and a discard follows it.
 	if len(decl.values) > 0 {
 		indent := get_line_indentation(src, decl.pos.offset)
 		text := fmt.tprintf("%s\n%s_ = %s", node_text(src, decl), indent, ident.name)
-		append(fixes, Lint_Fix{decl.pos.offset, decl.end.offset, discard_title, text})
+		append(fixes, Lint_Fix{decl.pos.offset, decl.end.offset, discard_title, text, "unused-variable/discard"})
 	} else {
-		append(fixes, Lint_Fix{ident.pos.offset, ident.end.offset, discard_title, "_"})
+		append(fixes, Lint_Fix{ident.pos.offset, ident.end.offset, discard_title, "_", "unused-variable/discard"})
 	}
 }
 

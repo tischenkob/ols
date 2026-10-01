@@ -654,3 +654,26 @@ main :: proc(s: []int, x: int) -> bool {
 
 	expect_fix_twice(t, cases, {enable_lint_use_stdlib = true})
 }
+
+// max would call next once where the code calls it twice.
+@(test)
+lint_use_stdlib_call_argument :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+next :: proc() -> int {
+	return 1
+}
+
+main :: proc() -> int {
+	if next() < 5 {
+		return 5
+	}
+	return next()
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_lint_diagnostics(t, &src, {})
+}

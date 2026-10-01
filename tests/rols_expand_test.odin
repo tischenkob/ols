@@ -519,6 +519,7 @@ expand_range_round_trip_bounds :: proc(t: ^testing.T) {
 
 f :: proc(n, a, b: int) {
 	for i {*}in `, bounds, ` {
+		g(i)
 	}
 }
 `}, context.temp_allocator)

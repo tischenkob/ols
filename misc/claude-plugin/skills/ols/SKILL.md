@@ -31,6 +31,7 @@ Positions are `file:line:col`, 1-based, columns in bytes, in every input and out
 - Without `--apply` they print a unified diff and change nothing. Read it before applying.
 - `--apply` writes every file or none. It runs `odin check` on the touched packages and restores every file when the edit adds an error.
 - Exit codes: 0 applied or previewed, 1 refused (each `error:` line says why), 2 usage, 3 nothing to change, 4 rolled back after new check errors.
+- `ols query modernize [DIR]` lists the exact idiom rewrites (simplifications, core library calls) for every file; `--diff` shows them, `--apply` writes them and adds the imports they need, checked and with the exit codes above. `--list` prints the rules; `--rule ID,…` picks rules or families, like `review` for the fixes that delete code.
 
 ## Tests
 

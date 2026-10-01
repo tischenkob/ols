@@ -255,7 +255,13 @@ range_off_by_one :: proc(ctx: ^LintContext, n: ^ast.Range_Stmt, diags: ^[dynamic
 	#partial switch bin.op.kind {
 	case .Range_Full:
 		if _, ok := len_call(bin.right); !ok do return
-		fix = {bin.op.pos.offset, bin.op.pos.offset + len(bin.op.text), "Use ..< instead of ..=", "..<"}
+		fix = {
+			bin.op.pos.offset,
+			bin.op.pos.offset + len(bin.op.text),
+			"Use ..< instead of ..=",
+			"..<",
+			"range-off-by-one",
+		}
 	case .Range_Half:
 		plus, is_plus := unparen(bin.right).derived.(^ast.Binary_Expr)
 		if !is_plus || plus.op.kind != .Add do return
@@ -263,7 +269,13 @@ range_off_by_one :: proc(ctx: ^LintContext, n: ^ast.Range_Stmt, diags: ^[dynamic
 		lit, is_lit := unparen(plus.right).derived.(^ast.Basic_Lit)
 		if !is_lit || lit.tok.kind != .Integer do return
 		if value, ok := strconv.parse_i64_maybe_prefixed(lit.tok.text); !ok || value != 1 do return
-		fix = {plus.pos.offset, plus.end.offset, "Remove '+ 1' from the range end", node_text(ctx.src, plus.left)}
+		fix = {
+			plus.pos.offset,
+			plus.end.offset,
+			"Remove '+ 1' from the range end",
+			node_text(ctx.src, plus.left),
+			"range-off-by-one",
+		}
 	case:
 		return
 	}

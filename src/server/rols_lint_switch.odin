@@ -33,7 +33,7 @@ lint_switch :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnos
 			},
 		)
 		start, end := whole_lines(ctx.src, last.pos.offset, last.end.offset)
-		append(&ctx.fixes, Lint_Fix{start, end, "Remove break", ""})
+		append(&ctx.fixes, Lint_Fix{start, end, "Remove break", "", "unnecessary-break"})
 	}
 }
 
@@ -68,7 +68,7 @@ redundant_partial :: proc(
 			tags = unnecessary_tags,
 		},
 	)
-	append(&ctx.fixes, Lint_Fix{start, node.pos.offset, "Remove #partial", ""})
+	append(&ctx.fixes, Lint_Fix{start, node.pos.offset, "Remove #partial", "", "redundant-partial"})
 }
 
 // The switch statement starts at the `switch` token, so `#partial` is found by scanning back.
