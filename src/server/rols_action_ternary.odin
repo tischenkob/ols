@@ -16,7 +16,11 @@ add_ternary_action :: proc(ctx: ^ActionContext) {
 
 add_to_ternary :: proc(ctx: ^ActionContext) {
 	if_stmt := find_if_stmt_at_position(ctx.document.ast.decls[:], ctx.range.start)
-	if if_stmt == nil || if_stmt.init != nil || if_stmt.label != nil || if_stmt.body == nil || if_stmt.else_stmt == nil {
+	if if_stmt == nil ||
+	   if_stmt.init != nil ||
+	   if_stmt.label != nil ||
+	   if_stmt.body == nil ||
+	   if_stmt.else_stmt == nil {
 		return
 	}
 	src := ctx.document.ast.src
@@ -61,7 +65,8 @@ add_to_ternary :: proc(ctx: ^ActionContext) {
 @(private = "package")
 single_stmt :: proc(src: string, stmt: ^ast.Stmt) -> (^ast.Stmt, bool) {
 	block, ok := stmt.derived.(^ast.Block_Stmt)
-	if !ok || len(block.stmts) != 1 {
+	// A `do` body has no braces: its open is the statement's start, so it has no inner text.
+	if !ok || len(block.stmts) != 1 || block.uses_do {
 		return nil, false
 	}
 	inner := block.stmts[0]

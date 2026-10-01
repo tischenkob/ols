@@ -66,6 +66,8 @@ simplify_rules := [?]Modernize_Rule {
 	{"range-loop", "idiom", true},
 	{"or-else", "idiom", true},
 	{"or-return", "idiom", true},
+	{"or-break", "idiom", true},
+	{"or-continue", "idiom", true},
 	// Can change behavior: in an `else if` chain the unwrapped else runs after the whole chain,
 	// and before trailing statements it leaves code after a return, which Odin rejects.
 	{"redundant-else", "review", false},

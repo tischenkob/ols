@@ -32,6 +32,8 @@ rules := [?]Rule {
 	simplify_range_loop,
 	simplify_or_else,
 	simplify_or_return,
+	simplify_or_break,
+	simplify_or_continue,
 	simplify_redundant_else,
 	simplify_trailing_return,
 }
@@ -54,6 +56,8 @@ SIMPLIFY_CODES :: [?]string {
 	"range-loop",
 	"or-else",
 	"or-return",
+	"or-break",
+	"or-continue",
 	"redundant-else",
 	"trailing-return",
 }
@@ -92,7 +96,16 @@ simplifications :: proc(document: ^Document) -> []Simplification {
 	for decl in document.ast.decls {
 		ast.walk(&visitor, decl)
 	}
-	return w.out[:]
+	// These rewrite a declaration and drop the `if` after it, so a comment in between would be lost.
+	kept := make([dynamic]Simplification, 0, len(w.out), context.temp_allocator)
+	for s in w.out {
+		switch s.code {
+		case "or-return", "or-break", "or-continue":
+			if len(comments_overlapping(document.ast, s.start, s.end)) > 0 do continue
+		}
+		append(&kept, s)
+	}
+	return kept[:]
 }
 
 simplification_message :: proc(s: Simplification) -> string {
@@ -665,12 +678,17 @@ simplify_range_loop :: proc(src: string, node: ^ast.Node, parents: []^ast.Node, 
 	if contains_call(loop.body) && !local_expr(cond.right, enclosing_proc(parents), loop) {
 		return
 	}
-	op := cond.op.kind == .Lt ? "..<" : "..="
 	// The C-style loop reads its variable in the condition; a range loop whose body never reads it
-	// names it `_`, or `odin check -vet-unused-variables` rejects it.
+	// names it `_`, or `odin check -vet-unused-variables` rejects it. A literal field named like the
+	// variable may be a map key that reads it, so neither name is safe.
+	reads, unsure := reads_name(loop.body, name.name)
+	if !reads && unsure {
+		return
+	}
+	op := cond.op.kind == .Lt ? "..<" : "..="
 	text := fmt.tprintf(
 		"for %s in %s%s%s %s",
-		reads_name(loop.body, name.name) ? name.name : "_",
+		reads ? name.name : "_",
 		node_text(src, decl.values[0]),
 		op,
 		node_text(src, cond.right),
@@ -680,30 +698,53 @@ simplify_range_loop :: proc(src: string, node: ^ast.Node, parents: []^ast.Node, 
 }
 
 // Any identifier named name in root outside nested procedure literals, which cannot see the
-// locals around them. A declaration of the name counts too, which is conservative.
+// locals around them. A declaration of the name counts too, which is conservative. unsure reports
+// a compound literal field named name, which reads it only when the literal is a map.
 @(private = "file")
-reads_name :: proc(root: ^ast.Node, name: string) -> bool {
+reads_name :: proc(root: ^ast.Node, name: string) -> (found, unsure: bool) {
 	Search :: struct {
-		name:  string,
-		found: bool,
+		name:          string,
+		found, unsure: bool,
 	}
-	search := Search{name, false}
+	search := Search{name, false, false}
 	visitor := ast.Visitor {
 		data = &search,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
 			if node == nil do return nil
 			search := (^Search)(visitor.data)
 			#partial switch n in node.derived {
-			case ^ast.Proc_Lit:
+			case ^ast.Proc_Lit, ^ast.Implicit_Selector_Expr:
 				return nil
 			case ^ast.Ident:
 				if n.name == search.name do search.found = true
+			case ^ast.Selector_Expr:
+				// The field after the dot names a member, not a variable.
+				ast.walk(visitor, n.expr)
+				return nil
+			case ^ast.Comp_Lit:
+				// A struct field name is not a read, but a map key is. Only a written map type
+				// shows which one a field is; a named or inferred type leaves it unsure.
+				if n.type != nil {
+					if _, is_map := n.type.derived.(^ast.Map_Type); is_map do break
+				}
+				ast.walk(visitor, n.type)
+				for elem in n.elems {
+					field, is_field := elem.derived.(^ast.Field_Value)
+					if !is_field {
+						ast.walk(visitor, elem)
+						continue
+					}
+					if ident_named(field.field, search.name) do search.unsure = true
+					if _, is_ident := field.field.derived.(^ast.Ident); !is_ident do ast.walk(visitor, field.field)
+					ast.walk(visitor, field.value)
+				}
+				return nil
 			}
 			return visitor
 		},
 	}
 	ast.walk(&visitor, root)
-	return search.found
+	return search.found, search.unsure
 }
 
 // Names an `if`'s init declares live only inside the statement, so text that mentions
@@ -1002,15 +1043,91 @@ is_zero_result :: proc(expr: ^ast.Expr, named: string, writes: []IdentUse, at: ^
 	return false
 }
 
+// The statements of a block or a switch case.
 @(private = "file")
-simplify_or_return :: proc(src: string, node: ^ast.Node, parents: []^ast.Node, out: ^[dynamic]Simplification) {
-	stmts: []^ast.Stmt
+block_stmts :: proc(node: ^ast.Node) -> []^ast.Stmt {
 	#partial switch n in node.derived {
 	case ^ast.Block_Stmt:
-		stmts = n.stmts
+		return n.stmts
 	case ^ast.Case_Clause:
-		stmts = n.body
+		return n.body
+	}
+	return nil
+}
+
+// stmts[i] declares the results of a call, and stmts[i + 1] is an `if` with no init, else or
+// label that tests the last name as `!ok` or `err != nil`. bool_test is true for `!ok`.
+@(private = "file")
+checked_call :: proc(
+	stmts: []^ast.Stmt,
+	i: int,
+) -> (
+	decl: ^ast.Value_Decl,
+	check: ^ast.Ident,
+	if_stmt: ^ast.If_Stmt,
+	bool_test: bool,
+	ok: bool,
+) {
+	decl = stmts[i].derived.(^ast.Value_Decl) or_return
+	if !decl.is_mutable || len(decl.names) == 0 || len(decl.values) != 1 {
+		return
+	}
+	_ = decl.values[0].derived.(^ast.Call_Expr) or_return
+	check = decl.names[len(decl.names) - 1].derived.(^ast.Ident) or_return
+	if_stmt = stmts[i + 1].derived.(^ast.If_Stmt) or_return
+	if if_stmt.init != nil || if_stmt.else_stmt != nil || if_stmt.label != nil {
+		return
+	}
+	#partial switch c in if_stmt.cond.derived {
+	case ^ast.Binary_Expr:
+		if c.op.kind != .Not_Eq || !ident_named(c.left, check.name) || !ident_named(c.right, "nil") {
+			return
+		}
+	case ^ast.Unary_Expr:
+		if c.op.kind != .Not || c.expr == nil || !ident_named(c.expr, check.name) {
+			return
+		}
+		bool_test = true
 	case:
+		return
+	}
+	return decl, check, if_stmt, bool_test, true
+}
+
+@(private = "file")
+mentioned_in :: proc(stmts: []^ast.Stmt, name: string) -> bool {
+	for stmt in stmts {
+		if mentions_any(stmt, name) do return true
+	}
+	return false
+}
+
+// decl without its last name, its value followed by suffix: `a, b := f() or_return`. Odin rejects
+// `_ := …` as declaring nothing, so names that are all `_` assign instead.
+@(private = "file")
+or_text :: proc(src: string, decl: ^ast.Value_Decl, suffix: string) -> string {
+	sb := strings.builder_make(context.temp_allocator)
+	all_blank := true
+	for name, j in decl.names[:len(decl.names) - 1] {
+		strings.write_string(&sb, j > 0 ? ", " : "")
+		strings.write_string(&sb, node_text(src, name))
+		all_blank &&= ident_named(name, "_")
+	}
+	if len(decl.names) > 1 && all_blank {
+		strings.write_string(&sb, " = ")
+	} else if len(decl.names) > 1 {
+		strings.write_string(&sb, decl.type == nil ? " := " : fmt.tprintf(": %s = ", node_text(src, decl.type)))
+	}
+	strings.write_string(&sb, node_text(src, decl.values[0]))
+	strings.write_string(&sb, " ")
+	strings.write_string(&sb, suffix)
+	return strings.to_string(sb)
+}
+
+@(private = "file")
+simplify_or_return :: proc(src: string, node: ^ast.Node, parents: []^ast.Node, out: ^[dynamic]Simplification) {
+	stmts := block_stmts(node)
+	if len(stmts) < 2 {
 		return
 	}
 	lit := enclosing_proc(parents)
@@ -1022,37 +1139,9 @@ simplify_or_return :: proc(src: string, node: ^ast.Node, parents: []^ast.Node, o
 	for use in collect_ident_uses(lit.body) {
 		if is_write(use) do append(&writes, use)
 	}
-	for stmt, i in stmts[:max(len(stmts) - 1, 0)] {
-		decl, is_decl := stmt.derived.(^ast.Value_Decl)
-		if !is_decl || !decl.is_mutable || len(decl.names) == 0 || len(decl.values) != 1 {
-			continue
-		}
-		if _, is_call := decl.values[0].derived.(^ast.Call_Expr); !is_call {
-			continue
-		}
-		err, is_ident := decl.names[len(decl.names) - 1].derived.(^ast.Ident)
-		if !is_ident {
-			continue
-		}
-		if_stmt, is_if := stmts[i + 1].derived.(^ast.If_Stmt)
-		if !is_if || if_stmt.init != nil || if_stmt.else_stmt != nil || if_stmt.label != nil {
-			continue
-		}
-		last := "nil"
-		#partial switch c in if_stmt.cond.derived {
-		case ^ast.Binary_Expr:
-			if c.op.kind != .Not_Eq || !ident_named(c.left, err.name) || !ident_named(c.right, "nil") {
-				continue
-			}
-			last = err.name
-		case ^ast.Unary_Expr:
-			if c.op.kind != .Not || c.expr == nil || !ident_named(c.expr, err.name) {
-				continue
-			}
-			last = "false"
-		case:
-			continue
-		}
+	for i in 0 ..< len(stmts) - 1 {
+		decl, err, if_stmt, bool_test := checked_call(stmts, i) or_continue
+		last := bool_test ? "false" : err.name
 		then := single_stmt(src, if_stmt.body) or_continue
 		ret, is_return := then.derived.(^ast.Return_Stmt)
 		if !is_return || len(ret.results) != len(results) || !ident_named(ret.results[len(results) - 1], last) {
@@ -1062,33 +1151,76 @@ simplify_or_return :: proc(src: string, node: ^ast.Node, parents: []^ast.Node, o
 		for result, j in ret.results[:len(results) - 1] {
 			zero &&= is_zero_result(result, results[j], writes[:], if_stmt)
 		}
-		if !zero {
+		if !zero || mentioned_in(stmts[i + 2:], err.name) {
 			continue
 		}
-		used := false
-		for later in stmts[i + 2:] {
-			for use in collect_ident_uses(later) {
-				used ||= use.ident.name == err.name
-			}
-		}
-		if used {
-			continue
-		}
-		sb := strings.builder_make(context.temp_allocator)
-		for name, j in decl.names[:len(decl.names) - 1] {
-			strings.write_string(&sb, j > 0 ? ", " : "")
-			strings.write_string(&sb, node_text(src, name))
-		}
-		if len(decl.names) > 1 {
-			strings.write_string(&sb, decl.type == nil ? " := " : fmt.tprintf(": %s = ", node_text(src, decl.type)))
-		}
-		strings.write_string(&sb, node_text(src, decl.values[0]))
-		strings.write_string(&sb, " or_return")
 		append(
 			out,
-			Simplification{decl.pos.offset, if_stmt.end.offset, "or-return", "Use or_return", strings.to_string(sb)},
+			Simplification {
+				decl.pos.offset,
+				if_stmt.end.offset,
+				"or-return",
+				"Use or_return",
+				or_text(src, decl, "or_return"),
+			},
 		)
 	}
+}
+
+// Without a label, break leaves the innermost loop or switch and continue the innermost loop.
+// or_break and or_continue bind the same way but are invalid in an #unroll loop.
+@(private = "file")
+binds_like_branch :: proc(parents: []^ast.Node, kind: tokenizer.Token_Kind) -> bool {
+	#reverse for parent in parents {
+		#partial switch _ in parent.derived {
+		case ^ast.Proc_Lit, ^ast.Inline_Range_Stmt:
+			return false
+		case ^ast.For_Stmt, ^ast.Range_Stmt:
+			return true
+		case ^ast.Switch_Stmt, ^ast.Type_Switch_Stmt:
+			if kind == .Break do return true
+		}
+	}
+	return false
+}
+
+// `v, ok := f()` then `if !ok { break }` is `v := f() or_break`; continue and a label carry over.
+// The checked name disappears, so nothing after the `if` may mention it.
+@(private = "file")
+or_branch :: proc(
+	src: string,
+	node: ^ast.Node,
+	parents: []^ast.Node,
+	out: ^[dynamic]Simplification,
+	kind: tokenizer.Token_Kind,
+	code, title, keyword: string,
+) {
+	stmts := block_stmts(node)
+	for i in 0 ..< max(len(stmts) - 1, 0) {
+		decl, check, if_stmt, _ := checked_call(stmts, i) or_continue
+		then := single_stmt(src, if_stmt.body) or_continue
+		branch, is_branch := then.derived.(^ast.Branch_Stmt)
+		if !is_branch || branch.tok.kind != kind || mentioned_in(stmts[i + 2:], check.name) {
+			continue
+		}
+		suffix := keyword
+		if branch.label != nil {
+			suffix = fmt.tprintf("%s %s", keyword, branch.label.name)
+		} else if !binds_like_branch(parents, kind) {
+			continue
+		}
+		append(out, Simplification{decl.pos.offset, if_stmt.end.offset, code, title, or_text(src, decl, suffix)})
+	}
+}
+
+@(private = "file")
+simplify_or_break :: proc(src: string, node: ^ast.Node, parents: []^ast.Node, out: ^[dynamic]Simplification) {
+	or_branch(src, node, parents, out, .Break, "or-break", "Use or_break", "or_break")
+}
+
+@(private = "file")
+simplify_or_continue :: proc(src: string, node: ^ast.Node, parents: []^ast.Node, out: ^[dynamic]Simplification) {
+	or_branch(src, node, parents, out, .Continue, "or-continue", "Use or_continue", "or_continue")
 }
 
 @(private = "file")
