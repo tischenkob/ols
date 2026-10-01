@@ -21,6 +21,7 @@ Modernize_Fix :: struct {
 // id is the diagnostic code, or `use-stdlib/<rule>` for the use_stdlib rules. Families:
 // idiom: exact, behavior-preserving rewrites, the default set.
 // review: fixes that delete code or can change behavior; they run only when --rule names them.
+// migration: rewrites from deprecated or removed Odin forms to current ones; they have no lint.
 Modernize_Rule :: struct {
 	id:      string,
 	family:  string,
@@ -110,6 +111,9 @@ modernize_rules :: proc() -> []Modernize_Rule {
 			append(&rules, Modernize_Rule{stdlib_rule_id(&rule, context.allocator), exact ? "idiom" : "review", exact})
 		}
 		for rule in lint_rules {
+			append(&rules, rule)
+		}
+		for rule in migration_rules {
 			append(&rules, rule)
 		}
 		cached_rules = rules[:]
@@ -229,6 +233,12 @@ modernize_fixes :: proc(
 			)
 		}
 	}
+
+	wants_migration := false
+	for rule in migration_rules do if rule.id in selected do wants_migration = true
+	if wants_migration {
+		append(&out, ..migration_fixes(document, selected))
+	}
 	return out[:]
 }
 
@@ -249,10 +259,10 @@ modernize_pass :: proc(
 
 	sorted := slice.clone(fixes, context.temp_allocator)
 	slice.stable_sort_by(sorted, proc(a, b: Modernize_Fix) -> bool {
-			if a.start != b.start do return a.start < b.start
-			if a.end != b.end do return a.end > b.end
-			return rule_priority(a.rule) < rule_priority(b.rule)
-		})
+		if a.start != b.start do return a.start < b.start
+		if a.end != b.end do return a.end > b.end
+		return rule_priority(a.rule) < rule_priority(b.rule)
+	})
 	chosen := make([dynamic]Modernize_Fix, context.temp_allocator)
 	for fix in sorted {
 		if len(chosen) > 0 && fix.start < chosen[len(chosen) - 1].end do continue
@@ -433,7 +443,7 @@ import_name :: proc(imp: ^ast.Import_Decl) -> string {
 	return path
 }
 
-@(private = "file")
+@(private = "package")
 ident_is :: proc(expr: ^ast.Expr, name: string) -> bool {
 	ident, ok := expr.derived.(^ast.Ident)
 	return ok && ident.name == name
