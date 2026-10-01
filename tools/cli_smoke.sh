@@ -275,7 +275,15 @@ ln -s newpkg "$dir/pk/alias"
 mkdir "$dir/pk/linked"
 printf 'package linked\n\nimport "../alias"\n\nL :: alias.X\n' > "$dir/pk/linked/l.odin"
 expect rename-package-symlink "^error: .*linked/l.odin:3:8: cannot rewrite import path \"../alias\"" sh -c "\"$OLS\" query rename-package \"$dir/pk/newpkg\" thirdpkg 2>&1 || true"
-rm -rf "$dir/pk/linked" "$dir/pk/alias"
+# A relative import from inside the package that leaves it and comes back through the symlink would dangle too.
+printf 'package newpkg\n\nimport "../alias/sub"\n' > "$dir/pk/newpkg/back.odin"
+expect rename-package-symlink-back "^error: .*newpkg/back.odin:3:8: cannot rewrite import path \"../alias/sub\"" sh -c "\"$OLS\" query rename-package \"$dir/pk/newpkg\" thirdpkg 2>&1 || true"
+rm -rf "$dir/pk/linked" "$dir/pk/newpkg/back.odin"
+# A file that does not parse and reaches the package only through the symlink is left alone with a warning.
+mkdir "$dir/pk/broken"
+printf 'package broken\n\nimport "../alias"\n\nb :: proc( {\n' > "$dir/pk/broken/b.odin"
+expect rename-package-unparsable "^warning: cannot parse .*broken/b.odin, which mentions or imports .newpkg." sh -c "\"$OLS\" query rename-package \"$dir/pk/newpkg\" thirdpkg 2>&1"
+rm -rf "$dir/pk/broken" "$dir/pk/alias"
 expect rename-package-root "^error: .* is the workspace root" sh -c "\"$OLS\" query rename-package \"$dir\" other 2>&1 || true"
 # The workspace filter skips hidden.odin, which still imports ../newpkg: the rename warns, and odin check rolls it back.
 printf 'package app\n\nimport "../newpkg"\n\nhidden :: proc() -> int {\n\treturn newpkg.X\n}\n' > "$dir/pk/app/hidden.odin"

@@ -1493,12 +1493,18 @@ expect_rename_refused :: proc(t: ^testing.T, src: ^Source, new_name: string, cau
 @(private)
 expect_causes :: proc(t: ^testing.T, reasons, causes: []string) {
 	testing.expectf(t, len(reasons) == len(causes), "\nExpected %d reasons, but received %v", len(causes), reasons)
-	for cause in causes {
+	expect_contained(t, reasons, causes)
+}
+
+// Each of wanted is contained in one entry of got.
+@(private)
+expect_contained :: proc(t: ^testing.T, got, wanted: []string) {
+	for w in wanted {
 		found := false
-		for reason in reasons {
-			found ||= strings.contains(reason, cause)
+		for entry in got {
+			found ||= strings.contains(entry, w)
 		}
-		testing.expectf(t, found, "\nExpected a reason containing %q in %v", cause, reasons)
+		testing.expectf(t, found, "\nExpected an entry containing %q in %v", w, got)
 	}
 }
 
@@ -1522,13 +1528,7 @@ expect_rename_package :: proc(
 	if !testing.expectf(t, ok, "Expected the package rename to pass its check, but received %v", reasons) do return
 	// The expected files carry their new paths, so they are found only when the directory rename applies.
 	expect_workspace_edit(t, src, edit, expected)
-	for warning in warnings {
-		found := false
-		for w in got {
-			found ||= strings.contains(w, warning)
-		}
-		testing.expectf(t, found, "\nExpected a warning containing %q in %v", warning, got)
-	}
+	expect_contained(t, got, warnings)
 }
 
 // Renaming the package in test/dir to new_name is refused with one reason per cause, each containing its cause.
@@ -1571,13 +1571,7 @@ expect_attr_edit :: proc(
 		testing.expectf(t, len(edit.changes) > 0, "Expected an edit, but received a no-op")
 		expect_workspace_edit(t, src, edit, expected)
 	}
-	for warning in warnings {
-		found := false
-		for w in got {
-			found ||= strings.contains(w, warning)
-		}
-		testing.expectf(t, found, "\nExpected a warning containing %q in %v", warning, got)
-	}
+	expect_contained(t, got, warnings)
 }
 
 // The attr command is refused with one reason per cause, each containing its cause.
