@@ -1487,22 +1487,8 @@ h :: proc() -> (int, bool) {
 		config = {enable_lint_simplify = true},
 	}
 
-	test.expect_lint_diagnostics(
-		t,
-		&source,
-		{
-			{4, "or-else"},
-			{6, "redundant-else"},
-			{9, "or-else"},
-			{14, "or-else"},
-			{16, "redundant-else"},
-			{26, "redundant-else"},
-			{31, "redundant-else"},
-			{29, "bool-compare"},
-			{36, "redundant-else"},
-			{41, "redundant-else"},
-		},
-	)
+	// No redundant-else: each else ends in a return and more statements follow the if.
+	test.expect_lint_diagnostics(t, &source, {{4, "or-else"}, {9, "or-else"}, {14, "or-else"}, {29, "bool-compare"}})
 }
 
 @(test)
@@ -1936,8 +1922,8 @@ refused :: proc(xs: []int) -> int {
 		config = {enable_lint_simplify = true},
 	}
 
-	// The else after a break is redundant, which is a separate rule.
-	test.expect_lint_diagnostics(t, &source, {{18, "redundant-else"}})
+	// redundant-else refuses too: statements follow the if.
+	test.expect_lint_diagnostics(t, &source, {})
 }
 
 @(test)
@@ -2317,11 +2303,24 @@ f :: proc(a: bool, x: int) -> int {
 	}
 	return 0
 }
+
+g :: proc(x: int) -> int {
+	switch x {
+	case 1:
+		if x > 0 {
+			return 1
+		} else {
+			return 2
+		}
+	}
+	return 0
+}
 `,
 		config = {enable_lint_simplify = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{5, "redundant-else"}, {11, "redundant-else"}})
+	// Line 5 is refused: the for loop follows the if.
+	test.expect_lint_diagnostics(t, &source, {{11, "redundant-else"}, {33, "redundant-else"}})
 
 	action := test.Source {
 		main = `package test
@@ -2351,6 +2350,92 @@ f :: proc(a: bool) -> int {
 }
 `,
 	)
+}
+
+// Unwrapping any of these changes behavior or leaves code Odin rejects.
+@(test)
+simplify_redundant_else_refused :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+// The unwrapped else would run after the whole chain, also when a is true.
+chain :: proc(a, b: bool, x: ^int) {
+	if a {
+		return
+	} else if b {
+		return
+	} else {
+		x^ = 1
+	}
+}
+
+// The unwrapped return 2 would leave return 0 unreachable.
+trailing :: proc(a: bool) -> int {
+	if a {
+		return 1
+	} else {
+		return 2
+	}
+	return 0
+}
+
+// break blk leaves only the if, so the unwrapped else would run after it.
+labeled :: proc(a: bool, x: ^int) {
+	blk: if a {
+		break blk
+	} else {
+		x^ = 1
+	}
+}
+
+do_body :: proc(xs: []int, x: ^int) {
+	for v in xs do if v > 0 { break } else { x^ = v }
+}
+
+// A when body opens no scope, so the defer would run after g instead of before it.
+in_when :: proc(a: bool) {
+	when true {
+		if a {
+			return
+		} else {
+			defer g(1)
+		}
+	}
+	g(2)
+}
+
+// The unwrapped y := 1 would redeclare y in the same block.
+redeclared :: proc(a: bool) {
+	y := 0
+	g(y)
+	if a {
+		return
+	} else {
+		y := 1
+		g(y)
+	}
+}
+
+// The y := 1 in the when body lands in the else's scope, so it would redeclare y too.
+redeclared_in_when :: proc(a: bool) {
+	y := 0
+	g(y)
+	if a {
+		return
+	} else {
+		when true {
+			y := 1
+			g(y)
+		}
+	}
+}
+
+g :: proc(x: int) {}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
 }
 
 @(test)
