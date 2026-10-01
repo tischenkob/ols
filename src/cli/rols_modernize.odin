@@ -27,28 +27,6 @@ Modernize_Entry :: struct {
 // the same diff, write every file or none after odin check, and share the refactor exit codes; the
 // list uses them too: 0 with fixes, 1 refused, 2 usage, 3 nothing to change.
 modernize :: proc(paths: []string, root: string, options: Modernize_Options) -> int {
-	if options.list {
-		rules := server.modernize_rules()
-		if options.json {
-			print(rules)
-			return 0
-		}
-		for rule in rules {
-			fmt.printfln("%s\t%s%s", rule.id, rule.family, rule.default ? "\tdefault" : "")
-		}
-		return 0
-	}
-
-	tokens: []string
-	if options.rules != "" {
-		tokens = strings.split(options.rules, ",", context.temp_allocator)
-	}
-	selected, unknown, ok := server.modernize_select(tokens, context.allocator)
-	if !ok {
-		fmt.eprintfln("unknown rule or family %q; `ols query modernize --list` prints them", unknown)
-		return 2
-	}
-
 	targets := make([dynamic]string, context.temp_allocator)
 	for p in paths {
 		append(&targets, absolute(p))
@@ -63,7 +41,35 @@ modernize :: proc(paths: []string, root: string, options: Modernize_Options) -> 
 		root = find_root(start)
 	}
 	root = strings.clone(absolute(root))
+	// The recipes of ols.json are rules too, so --list and --rule need the config.
 	setup(root)
+
+	// A broken recipe is skipped like a file that does not parse; the other rules still run.
+	for problem in server.modernize_recipe_errors(&common.config) {
+		fmt.eprintfln("%s; skipped", problem)
+	}
+
+	if options.list {
+		rules := server.modernize_rules(&common.config)
+		if options.json {
+			print(rules)
+			return 0
+		}
+		for rule in rules {
+			fmt.printfln("%s\t%s%s", rule.id, rule.family, rule.default ? "\tdefault" : "")
+		}
+		return 0
+	}
+
+	tokens: []string
+	if options.rules != "" {
+		tokens = strings.split(options.rules, ",", context.temp_allocator)
+	}
+	selected, unknown, ok := server.modernize_select(tokens, &common.config, context.allocator)
+	if !ok {
+		fmt.eprintfln("unknown rule or family %q; `ols query modernize --list` prints them", unknown)
+		return 2
+	}
 
 	files := modernize_files(targets[:], root)
 	entries := make([dynamic]Modernize_Entry)

@@ -22,6 +22,7 @@ Modernize_Fix :: struct {
 // idiom: exact, behavior-preserving rewrites, the default set.
 // review: fixes that delete code or can change behavior; they run only when --rule names them.
 // migration: rewrites from deprecated or removed Odin forms to current ones; they have no lint.
+// recipe: `recipe/<name>` for each `modernize_recipes` entry of the config, all default.
 Modernize_Rule :: struct {
 	id:      string,
 	family:  string,
@@ -101,7 +102,19 @@ cached_rules: []Modernize_Rule
 @(private = "file")
 cached_rules_once: sync.Once
 
-modernize_rules :: proc() -> []Modernize_Rule {
+// The built-in rules, then one per usable recipe of config.
+modernize_rules :: proc(config: ^common.Config) -> []Modernize_Rule {
+	if set := modernize_recipe_set(config); set != nil do return set.rules
+	return modernize_builtin_rules()
+}
+
+// One line per configured recipe that does not run, in config order.
+modernize_recipe_errors :: proc(config: ^common.Config) -> []string {
+	set := modernize_recipe_set(config)
+	return set.errors if set != nil else nil
+}
+
+modernize_builtin_rules :: proc() -> []Modernize_Rule {
 	sync.once_do(&cached_rules_once, proc() {
 		context.allocator = runtime.heap_allocator()
 		rules := make([dynamic]Modernize_Rule)
@@ -151,6 +164,7 @@ stdlib_rule_id :: proc(rule: ^Stdlib_Rule, allocator := context.temp_allocator) 
 // first token that names neither.
 modernize_select :: proc(
 	tokens: []string,
+	config: ^common.Config,
 	allocator := context.temp_allocator,
 ) -> (
 	selected: map[string]struct{},
@@ -158,7 +172,7 @@ modernize_select :: proc(
 	ok: bool,
 ) {
 	selected = make(map[string]struct{}, allocator)
-	rules := modernize_rules()
+	rules := modernize_rules(config)
 	if len(tokens) == 0 {
 		for rule in rules do if rule.default do selected[rule.id] = {}
 		return selected, "", true
@@ -178,8 +192,9 @@ modernize_select :: proc(
 }
 
 @(private = "file")
+// Recipes come after every built-in rule, in config order: the sort is stable.
 rule_priority :: proc(id: string) -> int {
-	for rule, i in modernize_rules() do if rule.id == id do return i
+	for rule, i in modernize_builtin_rules() do if rule.id == id do return i
 	return max(int)
 }
 
@@ -240,6 +255,10 @@ modernize_fixes :: proc(
 	for rule in migration_rules do if rule.id in selected do wants_migration = true
 	if wants_migration {
 		append(&out, ..migration_fixes(document, selected))
+	}
+
+	if set := modernize_recipe_set(config); set != nil {
+		append(&out, ..recipe_fixes(document, set, selected))
 	}
 	return out[:]
 }
@@ -422,27 +441,19 @@ reparse :: proc(document: ^Document, text: string, config: ^common.Config) -> bo
 // name, the qualifier a fix at offset writes, would not reach the package of import_path: the
 // file declares it, imports another package under it, or the enclosing top-level declaration
 // declares it as a parameter, result, local or loop variable.
-@(private = "file")
+@(private = "package")
 name_taken :: proc(document: ^Document, offset: int, name, import_path: string) -> bool {
 	fullpath := fmt.tprintf("\"%s\"", import_path)
 	for decl in document.ast.decls {
 		#partial switch d in decl.derived {
 		case ^ast.Import_Decl:
-			if d.fullpath != fullpath && import_name(d) == name do return true
+			if d.fullpath != fullpath && pattern_import_name(d) == name do return true
 		case ^ast.Value_Decl:
 			for n in d.names do if ident_is(n, name) do return true
 		}
 		if decl.pos.offset <= offset && offset < decl.end.offset && declares_inside(decl, name) do return true
 	}
 	return false
-}
-
-@(private = "file")
-import_name :: proc(imp: ^ast.Import_Decl) -> string {
-	if imp.name.text != "" do return imp.name.text
-	path := strings.trim(imp.fullpath, "\"")
-	if i := strings.last_index_any(path, ":/"); i >= 0 do path = path[i + 1:]
-	return path
 }
 
 @(private = "package")

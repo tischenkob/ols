@@ -155,7 +155,7 @@ collect_bound :: proc(bound: ^map[string]bool, body: ^ast.Stmt) {
 			#partial switch n in node.derived {
 			case ^ast.Range_Stmt:
 				for val in n.vals {
-					val := unparen(val)
+					val := pattern_unparen(val)
 					if unary, ok := val.derived.(^ast.Unary_Expr); ok {
 						val = unary.expr
 					}
@@ -176,193 +176,6 @@ collect_bound :: proc(bound: ^map[string]bool, body: ^ast.Stmt) {
 	ast.walk(&visitor, body)
 }
 
-@(private = "file")
-Matcher :: struct {
-	rule:     ^Stdlib_Rule,
-	src:      string,
-	binds:    map[string]^ast.Node, // metavariable -> code expression
-	names:    map[string]string, // pattern-local name -> code name
-	form:     Stdlib_Form,
-	has_form: bool,
-	target:   ^ast.Node, // assignment target shared by every `return` of the match
-}
-
-@(private = "file")
-unparen :: proc(node: ^ast.Node) -> ^ast.Node {
-	node := node
-	for {
-		paren, ok := node.derived.(^ast.Paren_Expr)
-		if !ok do return node
-		node = paren.expr
-	}
-}
-
-@(private = "file")
-same_node_text :: proc(src: string, a, b: ^ast.Node) -> bool {
-	return strip_space(node_text(src, a)) == strip_space(node_text(src, b))
-}
-
-@(private = "file")
-set_form :: proc(m: ^Matcher, form: Stdlib_Form) -> bool {
-	if m.has_form do return m.form == form
-	m.form = form
-	m.has_form = true
-	return true
-}
-
-@(private = "file")
-match :: proc(m: ^Matcher, pattern, code: ^ast.Node) -> bool {
-	if pattern == nil || code == nil do return pattern == nil && code == nil
-
-	pattern, code := unparen(pattern), unparen(code)
-
-	#partial switch p in pattern.derived {
-	case ^ast.Ident:
-		if slice.contains(m.rule.params, p.name) {
-			if bound, seen := m.binds[p.name]; seen {
-				return same_node_text(m.src, bound, code)
-			}
-			// The rewrite evaluates each argument once, the pattern maybe several times.
-			if contains_call(code) do return false
-			m.binds[p.name] = code
-			return true
-		}
-		c, is_ident := code.derived.(^ast.Ident)
-		if !is_ident do return false
-		if p.name in m.rule.bound {
-			if name, seen := m.names[p.name]; seen {
-				return name == c.name
-			}
-			m.names[p.name] = c.name
-			return true
-		}
-		return p.name == c.name
-
-	case ^ast.Basic_Lit:
-		c, ok := code.derived.(^ast.Basic_Lit)
-		return ok && p.tok.text == c.tok.text
-
-	case ^ast.Unary_Expr:
-		c, ok := code.derived.(^ast.Unary_Expr)
-		return ok && p.op.kind == c.op.kind && match(m, p.expr, c.expr)
-
-	case ^ast.Binary_Expr:
-		c, ok := code.derived.(^ast.Binary_Expr)
-		return ok && p.op.kind == c.op.kind && match(m, p.left, c.left) && match(m, p.right, c.right)
-
-	case ^ast.Selector_Expr:
-		c, ok := code.derived.(^ast.Selector_Expr)
-		if !ok || p.field == nil || c.field == nil || p.field.name != c.field.name do return false
-		return match(m, p.expr, c.expr)
-
-	case ^ast.Index_Expr:
-		c, ok := code.derived.(^ast.Index_Expr)
-		return ok && match(m, p.expr, c.expr) && match(m, p.index, c.index)
-
-	case ^ast.Slice_Expr:
-		c, ok := code.derived.(^ast.Slice_Expr)
-		if !ok || (p.low == nil) != (c.low == nil) || (p.high == nil) != (c.high == nil) do return false
-		return match(m, p.expr, c.expr) && match(m, p.low, c.low) && match(m, p.high, c.high)
-
-	case ^ast.Call_Expr:
-		c, ok := code.derived.(^ast.Call_Expr)
-		if !ok || len(p.args) != len(c.args) || !match(m, p.expr, c.expr) do return false
-		for arg, i in p.args {
-			if !match(m, arg, c.args[i]) do return false
-		}
-		return true
-
-	case ^ast.Expr_Stmt:
-		c, ok := code.derived.(^ast.Expr_Stmt)
-		return ok && match(m, p.expr, c.expr)
-
-	case ^ast.Assign_Stmt:
-		c, ok := code.derived.(^ast.Assign_Stmt)
-		if !ok || p.op.kind != c.op.kind do return false
-		if len(p.lhs) != len(c.lhs) || len(p.rhs) != len(c.rhs) do return false
-		for lhs, i in p.lhs {
-			if !match(m, lhs, c.lhs[i]) do return false
-		}
-		for rhs, i in p.rhs {
-			if !match(m, rhs, c.rhs[i]) do return false
-		}
-		return true
-
-	case ^ast.Value_Decl:
-		c, ok := code.derived.(^ast.Value_Decl)
-		if !ok || p.is_mutable != c.is_mutable || p.type != nil || c.type != nil do return false
-		if len(p.names) != len(c.names) || len(p.values) != len(c.values) do return false
-		for name, i in p.names {
-			if !match(m, name, c.names[i]) do return false
-		}
-		for value, i in p.values {
-			if !match(m, value, c.values[i]) do return false
-		}
-		return true
-
-	case ^ast.Block_Stmt:
-		c, ok := code.derived.(^ast.Block_Stmt)
-		if !ok || len(p.stmts) != len(c.stmts) do return false
-		for stmt, i in p.stmts {
-			if !match(m, stmt, c.stmts[i]) do return false
-		}
-		return true
-
-	case ^ast.If_Stmt:
-		c, ok := code.derived.(^ast.If_Stmt)
-		if !ok || (p.init == nil) != (c.init == nil) || (p.else_stmt == nil) != (c.else_stmt == nil) do return false
-		return(
-			match(m, p.init, c.init) &&
-			match(m, p.cond, c.cond) &&
-			match(m, p.body, c.body) &&
-			match(m, p.else_stmt, c.else_stmt) \
-		)
-
-	case ^ast.For_Stmt:
-		c, ok := code.derived.(^ast.For_Stmt)
-		if !ok do return false
-		if (p.init == nil) != (c.init == nil) || (p.cond == nil) != (c.cond == nil) do return false
-		if (p.post == nil) != (c.post == nil) do return false
-		return(
-			match(m, p.init, c.init) &&
-			match(m, p.cond, c.cond) &&
-			match(m, p.post, c.post) &&
-			match(m, p.body, c.body) \
-		)
-
-	case ^ast.Range_Stmt:
-		c, ok := code.derived.(^ast.Range_Stmt)
-		if !ok || p.reverse != c.reverse || len(p.vals) != len(c.vals) do return false
-		for val, i in p.vals {
-			if !match(m, val, c.vals[i]) do return false
-		}
-		return match(m, p.expr, c.expr) && match(m, p.body, c.body)
-
-	case ^ast.Return_Stmt:
-		if len(p.results) == 1 {
-			if c, ok := code.derived.(^ast.Assign_Stmt); ok {
-				if c.op.kind != .Eq || len(c.lhs) != 1 || len(c.rhs) != 1 do return false
-				if !set_form(m, .Assign) do return false
-				if m.target == nil {
-					m.target = c.lhs[0]
-				} else if !same_node_text(m.src, m.target, c.lhs[0]) {
-					return false
-				}
-				return match(m, p.results[0], c.rhs[0])
-			}
-		}
-		c, ok := code.derived.(^ast.Return_Stmt)
-		if !ok || len(p.results) != len(c.results) do return false
-		if !set_form(m, .Return) do return false
-		for result, i in p.results {
-			if !match(m, result, c.results[i]) do return false
-		}
-		return true
-	}
-
-	return false
-}
-
 // ponytail: syntactic; only the slice parameters of a rule are type checked, and only against strings.
 @(private = "file")
 is_string_expr :: proc(document: ^Document, node: ^ast.Node) -> bool {
@@ -378,7 +191,8 @@ Stdlib_Walker :: struct {
 	document:  ^Document,
 	src:       string,
 	rules:     []Stdlib_Rule,
-	matcher:   Matcher,
+	rule:      ^Stdlib_Rule, // the rule of the current attempt
+	matcher:   Pattern_Matcher,
 	out:       [dynamic]Stdlib_Match,
 	allocator: mem.Allocator,
 }
@@ -386,19 +200,26 @@ Stdlib_Walker :: struct {
 @(private = "file")
 finish :: proc(w: ^Stdlib_Walker, start, end: int, form: Stdlib_Form) -> (result: Stdlib_Match, ok: bool) {
 	m := &w.matcher
-	args := make([]string, len(m.rule.params), w.allocator)
-	for param, i in m.rule.params {
+	args := make([]string, len(w.rule.params), w.allocator)
+	for param, i in w.rule.params {
 		bound, bound_ok := m.binds[param]
 		if !bound_ok do return
-		if m.rule.slice_params[i] && is_string_expr(w.document, bound) do return
+		if w.rule.slice_params[i] && is_string_expr(w.document, bound) do return
 		args[i] = node_text(m.src, bound)
 	}
 	result = Stdlib_Match {
 		start = start,
 		end   = end,
-		rule  = m.rule,
+		rule  = w.rule,
 		args  = args,
-		form  = m.has_form ? m.form : form,
+		form  = form,
+	}
+	switch m.form {
+	case .None:
+	case .Return:
+		result.form = .Return
+	case .Assign:
+		result.form = .Assign
 	}
 	if m.target != nil {
 		result.target = node_text(m.src, m.target)
@@ -408,15 +229,8 @@ finish :: proc(w: ^Stdlib_Walker, start, end: int, form: Stdlib_Form) -> (result
 
 @(private = "file")
 try_stmts :: proc(w: ^Stdlib_Walker, rule: ^Stdlib_Rule, pattern, code: []^ast.Stmt) -> (Stdlib_Match, bool) {
-	w.matcher.rule = rule
-	clear(&w.matcher.binds)
-	clear(&w.matcher.names)
-	w.matcher.has_form = false
-	w.matcher.target = nil
-
-	for stmt, i in pattern {
-		if !match(&w.matcher, stmt, code[i]) do return {}, false
-	}
+	start_attempt(w, rule)
+	if !pattern_match_stmts(&w.matcher, pattern, code) do return {}, false
 	return finish(w, code[0].pos.offset, code[len(code) - 1].end.offset, .Stmt)
 }
 
@@ -479,9 +293,8 @@ stdlib_matches :: proc(document: ^Document, allocator := context.temp_allocator)
 		out       = make([dynamic]Stdlib_Match, context.temp_allocator),
 		allocator = allocator,
 	}
-	w.matcher.src = w.src
-	w.matcher.binds = make(map[string]^ast.Node, context.temp_allocator)
-	w.matcher.names = make(map[string]string, context.temp_allocator)
+	w.matcher = pattern_matcher_make(w.src)
+	w.matcher.return_as_assign = true
 
 	visitor := ast.Visitor {
 		data = &w,
@@ -527,14 +340,17 @@ stdlib_matches :: proc(document: ^Document, allocator := context.temp_allocator)
 }
 
 @(private = "file")
-try_expr :: proc(w: ^Stdlib_Walker, rule: ^Stdlib_Rule, node: ^ast.Node) -> (Stdlib_Match, bool) {
-	w.matcher.rule = rule
-	clear(&w.matcher.binds)
-	clear(&w.matcher.names)
-	w.matcher.has_form = false
-	w.matcher.target = nil
+start_attempt :: proc(w: ^Stdlib_Walker, rule: ^Stdlib_Rule) {
+	w.rule = rule
+	w.matcher.vars = rule.params
+	w.matcher.bound = rule.bound
+	pattern_reset(&w.matcher)
+}
 
-	if !match(&w.matcher, rule.expr, node) do return {}, false
+@(private = "file")
+try_expr :: proc(w: ^Stdlib_Walker, rule: ^Stdlib_Rule, node: ^ast.Node) -> (Stdlib_Match, bool) {
+	start_attempt(w, rule)
+	if !pattern_match(&w.matcher, rule.expr, node) do return {}, false
 	return finish(w, node.pos.offset, node.end.offset, .Expr)
 }
 
