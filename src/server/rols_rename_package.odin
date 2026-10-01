@@ -123,7 +123,7 @@ rename_package :: proc(
 			append(
 				&r.warnings,
 				fmt.tprintf(
-					"cannot parse %s, which mentions `%s`; the rename does not change it",
+					"cannot parse %s, which mentions or imports `%s`; the rename does not change it",
 					file.fullpath,
 					old_name,
 				),
@@ -263,22 +263,21 @@ check_package_location :: proc(out: ^[dynamic]string, dir: string, config: ^comm
 // Rewrites the import paths of document that step into the package directory and, for an import of the
 // package itself without an alias, every qualifier that resolves to it. Appends a cause for an import that
 // resolves into the directory, with symlinks resolved, when the walk over its segments finds no segment
-// to rename: a symlink in the path, or a `\` separator, would otherwise leave it pointing at nothing.
+// to rename: a symlink in the path would otherwise leave it pointing at nothing.
 @(private = "file")
 rewrite_importer :: proc(r: ^Package_Rename, document: ^Document) {
 	src := document.ast.src
-	inside := at_or_below(canonical_dir(path.dir(document.fullpath)), r.real_dir)
 	for imp in document.ast.imports {
-		new_path, changed := rewrite_import_path(r, document, imp)
+		new_path, final, changed := rewrite_import_path(r, document, imp)
 		if changed {
 			add_edit(r, document.uri.uri, text_range(imp.relpath.pos, imp.relpath.text, src), new_path)
 		}
 		// parse_imports drops an import with an unknown collection, which then resolves nowhere.
 		pkg := imported_package(document, imp) or_continue
 		target := canonical_dir(pkg.name)
-		relative := !strings.contains(imp.relpath.text, ":")
-		// A relative import from inside the directory moves with it, so its target is unaffected.
-		if !changed && at_or_below(target, r.real_dir) && !(inside && relative) {
+		// A walk that ends in the directory, as a relative import from inside it that stays there does, moves
+		// with it, so its target is unaffected. One that leaves and comes back through a symlink would dangle.
+		if !changed && at_or_below(target, r.real_dir) && !at_or_below(final, r.real_dir) {
 			append(
 				r.reasons,
 				fmt.tprintf(
@@ -321,7 +320,8 @@ split_import_path :: proc(
 // resolved, for a file whose text never names the package, as an import through a symlink does not.
 @(private = "file")
 imports_into :: proc(r: ^Package_Rename, file, text: string) -> bool {
-	for dir in scan_import_dirs(r.config, file, text) {
+	// rename-package refuses a directory in core:, vendor: or base:, so no library import can reach it.
+	for dir in scan_import_dirs(r.config, file, text, skip_libraries = true) {
 		if at_or_below(dir, r.real_dir) {
 			return true
 		}
@@ -330,11 +330,12 @@ imports_into :: proc(r: ^Package_Rename, file, text: string) -> bool {
 }
 
 // The directories, with symlinks resolved, that the imports of text, the source of file, name. Scans
-// tokens without parsing, so a file that does not parse still counts. Skips foreign imports and unknown
-// collections.
+// tokens without parsing, so a file that does not parse still counts. Skips foreign imports, unknown
+// collections and, with skip_libraries, core:, vendor: and base: before their realpath.
 @(private = "file")
-scan_import_dirs :: proc(config: ^common.Config, file, text: string) -> []string {
+scan_import_dirs :: proc(config: ^common.Config, file, text: string, skip_libraries := false) -> []string {
 	dirs := make([dynamic]string, context.temp_allocator)
+	libraries := LIBRARY_COLLECTIONS
 	t: tokenizer.Tokenizer
 	tokenizer.init(&t, text, file, proc(pos: tokenizer.Pos, msg: string, args: ..any) {})
 	previous: tokenizer.Token
@@ -346,8 +347,9 @@ scan_import_dirs :: proc(config: ^common.Config, file, text: string) -> []string
 		case .Ident, .Comment:
 		case .String:
 			if in_import && len(token.text) >= 2 {
-				_, rel, start, known := split_import_path(config, file, token.text[1:len(token.text) - 1])
-				if known {
+				prefix, rel, start, known := split_import_path(config, file, token.text[1:len(token.text) - 1])
+				library := skip_libraries && slice.contains(libraries[:], strings.trim_suffix(prefix, ":"))
+				if known && !library {
 					append(&dirs, canonical_dir(path.join({start, rel}, context.temp_allocator)))
 				}
 			}
@@ -404,9 +406,11 @@ imported_package :: proc(document: ^Document, imp: ^ast.Import_Decl) -> (pkg: Pa
 	return {}, false
 }
 
-// The import path of imp with the segment that steps into the package directory renamed, quotes included.
-// Each segment is followed from the directory the path starts at, so a relative path that only leaves the
-// package with `..` stays as it is. Only the start has its symlinks resolved.
+// The import path of imp with the segment that steps into the package directory renamed, quotes included,
+// and final, the directory the walk over its segments ends at. Each segment is followed from the directory
+// the path starts at, so a relative path that only leaves the package with `..` stays as it is. Only the
+// start has its symlinks resolved. A segment ends at `/` or `\`, and each separator is kept as written; the
+// empty segment between an escaped `\\` is skipped.
 @(private = "file")
 rewrite_import_path :: proc(
 	r: ^Package_Rename,
@@ -414,6 +418,7 @@ rewrite_import_path :: proc(
 	imp: ^ast.Import_Decl,
 ) -> (
 	new_path: string,
+	final: string,
 	changed: bool,
 ) {
 	quoted := imp.relpath.text
@@ -423,9 +428,14 @@ rewrite_import_path :: proc(
 	body := quoted[1:len(quoted) - 1]
 	prefix, rel, start := split_import_path(r.config, document.fullpath, body) or_return
 
+	b := strings.builder_make()
+	strings.write_string(&b, quoted[:1])
+	strings.write_string(&b, prefix)
 	current := canonical_dir(start)
-	segments := strings.split(rel, "/")
-	for &segment in segments {
+	rest := rel
+	for {
+		i := strings.index_any(rest, `/\`)
+		segment := rest if i < 0 else rest[:i]
 		switch segment {
 		case "", ".":
 		case "..":
@@ -437,9 +447,15 @@ rewrite_import_path :: proc(
 				changed = true
 			}
 		}
+		strings.write_string(&b, segment)
+		if i < 0 {
+			break
+		}
+		strings.write_byte(&b, rest[i])
+		rest = rest[i + 1:]
 	}
-	quote := quoted[:1]
-	return strings.concatenate({quote, prefix, strings.join(segments, "/"), quote}), changed
+	strings.write_string(&b, quoted[:1])
+	return strings.to_string(b), current, changed
 }
 
 // Renames each `old.x` of document whose `old` resolves to the package imported by imp. Appends a cause
