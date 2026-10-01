@@ -434,6 +434,33 @@ main :: proc() {
 	test.expect_action_missing(t, &missing, "Invert if (early break)")
 }
 
+// A `do` body has no braces, so the early exit must not slice from its open brace.
+@(test)
+invert_if_early_exit_do_body :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	for x in xs {
+		if {*}x > 0 do continue
+		foo(x)
+	}
+}
+`,
+		config = {enable_code_action_invert_if = true},
+	}
+	test.expect_action_applied(t, &source, "Invert if (early continue)", `package test
+
+main :: proc() {
+	for x in xs {
+		if x <= 0 {
+			foo(x)
+		}
+	}
+}
+`)
+}
+
 // A lone CRLF line must not pull the inverted if onto CRLF.
 @(test)
 invert_if_mixed_line_endings :: proc(t: ^testing.T) {
