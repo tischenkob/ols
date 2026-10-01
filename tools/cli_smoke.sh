@@ -334,6 +334,20 @@ rc=0
 "$OLS" query --root "$mdir" modernize > /dev/null || rc=$?
 [[ $rc == 3 ]] || { echo "FAIL modernize not clean after apply: exit $rc"; exit 1; }
 echo "ok modernize-clean"
+mkdir "$dir/mig"
+cat > "$dir/mig/m.odin" <<'ODIN'
+package mig
+
+import "core:runtime"
+
+main :: proc() {
+	_ = runtime.Allocator{}
+}
+ODIN
+expect modernize-migration "^modernize: .* written" "$OLS" query --root "$dir/mig" modernize --rule migration --apply
+grep -q '^import "base:runtime"' "$dir/mig/m.odin" || { echo "FAIL modernize-migration"; cat "$dir/mig/m.odin"; exit 1; }
+odin check "$dir/mig"
+echo "ok modernize-migration check"
 mkdir "$dir/t"
 cat > "$dir/t/t_test.odin" <<'ODIN'
 package t

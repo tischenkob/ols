@@ -116,6 +116,7 @@ is_do_candidate :: proc(src: string, block: ^ast.Block_Stmt) -> bool {
 	return true
 }
 
+@(private = "package")
 write_braces :: proc(sb: ^strings.Builder, src: string, block: ^ast.Block_Stmt, ind, unit: string) {
 	strings.write_byte(sb, '{')
 	if lines := block_lines(src, block, ind, unit); len(lines) > 0 {
