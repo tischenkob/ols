@@ -61,4 +61,4 @@ Code action: a new `src/server/rols_action_<name>.odin` with `#+private file`, o
 
 Test: `tests/rols_<feature>_test.odin` using `src/testing`. A `Source` has `main` with a `{*}` cursor or `{[ … ]}` selection, optional extra `files` and `packages`, and `config` to enable the flag. Assert with the matching `expect_*` proc (`expect_action_applied`, `expect_hover`, `expect_lint_diagnostics`, …). Multi-package tests set `collections = {"core" = "test"}` and inline a `BUILTINS` string because the harness has no runtime package.
 
-CLI: `src/cli/rols_cli.odin` builds the workspace in-process and calls the same `server.get_*` procs as the LSP handlers. `--apply` writes edits with `common.apply_text_edits`.
+CLI: `src/cli/rols_cli.odin` builds the workspace in-process and calls the same `server.get_*` procs as the LSP handlers. Refactor commands pass their `WorkspaceEdit` to `run_edit` in `src/cli/rols_apply.odin`, which prints a diff on a dry run and, with `--apply`, checks, writes, re-checks and rolls back on new errors. README "Command line queries" holds the contract and exit codes.
