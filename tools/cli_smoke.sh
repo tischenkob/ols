@@ -288,6 +288,60 @@ diff -r "$dir/pk" "$dir/pk.orig" || { echo "FAIL rename-package rollback is not 
 echo "ok rename-package rollback"
 rm -rf "$dir/pk.orig"
 echo '{}' > "$dir/ols.json"
+# attr: add by symbol path, a rename refusal, remove --all, and an unknown key that odin check rolls back.
+mkdir "$dir/at"
+cat > "$dir/at/at.odin" <<'ODIN'
+package at
+
+@(private)
+helper :: proc() -> int {
+	return 1
+}
+
+@private
+counter := 0
+
+@(private, rodata)
+table := [2]int{1, 2}
+
+main :: proc() {
+	when ODIN_OS != .Freestanding {
+		@(static) calls: int
+		calls += helper() + counter + table[0]
+	}
+}
+ODIN
+cp "$dir/at/at.odin" "$dir/at.orig"
+expect attr-add-diff '^+@(private, require_results)$' sh -c "cd \"$dir\" && \"$OLS\" query attr add at.helper require_results"
+expect attr-add-json '"status": "dry_run"' sh -c "cd \"$dir\" && \"$OLS\" query attr add at.helper require_results --json"
+cmp -s "$dir/at/at.odin" "$dir/at.orig" || { echo "FAIL attr dry run wrote the file"; exit 1; }
+expect attr-add-apply "^attr add: 1 edit in 1 file written$" sh -c "cd \"$dir\" && \"$OLS\" query attr add at.helper require_results --apply"
+grep -q "^@(private, require_results)$" "$dir/at/at.odin" || { echo "FAIL attr-add-apply text"; exit 1; }
+odin check "$dir/at"
+echo "ok attr-add-apply check"
+expect_exit 1 attr-rename-refused-exit "$OLS" query attr rename private rodata "$dir/at"
+expect attr-rename-refused-cause "^error: .*at.odin:11:3: the declaration already has .rodata." sh -c "\"$OLS\" query attr rename private rodata \"$dir/at\" 2>&1 || true"
+expect_exit 1 attr-library-exit "$OLS" query --root "$dir" attr add core:fmt.println cold
+expect_exit 2 attr-all-usage "$OLS" query attr rename --all private hidden "$dir/at"
+expect_exit 2 all-usage "$OLS" query rename --all "$dir/at.counter" total
+# The filter skips at/hidden.odin and skipped.odin; with DIR at, the warning names only the first.
+printf 'package at\n\n@(private) hidden := 0\n' > "$dir/at/hidden.odin"
+printf 'package smoke\n\n@(private) skipped := 0\n' > "$dir/skipped.odin"
+echo '{"workspace_exclude": ["at/hidden.odin", "skipped.odin"]}' > "$dir/ols.json"
+expect attr-remove-all-skipped '^warning: 1 workspace file skipped .* contains `private`, and attr remove does not change it: .*at/hidden.odin$' sh -c "\"$OLS\" query attr remove --all private \"$dir/at\" 2>&1"
+expect attr-remove-all "^attr remove: 3 edits in 1 file written$" "$OLS" query attr remove --all private "$dir/at" --apply
+! grep -q "private" "$dir/at/at.odin" && grep -q "^counter := 0$" "$dir/at/at.odin" && grep -q "^@(rodata)$" "$dir/at/at.odin" || { echo "FAIL attr-remove-all text"; cat "$dir/at/at.odin"; exit 1; }
+odin check "$dir/at"
+echo "ok attr-remove-all check"
+rm "$dir/at/hidden.odin" "$dir/skipped.odin"
+echo '{}' > "$dir/ols.json"
+expect_exit 3 attr-remove-noop "$OLS" query attr remove "$dir/at.counter" private
+cp "$dir/at/at.odin" "$dir/at.orig"
+expect_exit 4 attr-check-failed-exit "$OLS" query attr add "$dir/at.counter" foobar --apply
+cmp -s "$dir/at/at.odin" "$dir/at.orig" || { echo "FAIL attr check-failed rollback is not byte for byte"; exit 1; }
+echo "ok attr check-failed rollback"
+expect attr-check-failed-error "^error: .*at.odin:.*Unknown attribute element name 'foobar'" sh -c "\"$OLS\" query attr add \"$dir/at.counter\" foobar --apply 2>&1 || true"
+rm "$dir/at.orig"
 expect check "not an int\|Cannot assign\|cannot" "$OLS" query check "$dir/bad"
 expect check-text 'bad.odin:3:10: error:' "$OLS" query check "$dir/bad"
 expect check-json '"diagnostic"' "$OLS" query check "$dir/bad" --json

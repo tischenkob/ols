@@ -38,6 +38,16 @@ USAGE :: `usage: ols query <command> [--root DIR] [--json]
   api     PKG [NAME]                       exported symbols of a package (a directory or core:strings), one per line;
                                            with NAME the full signature and doc comment
   find    QUERY                            fuzzy symbol search over the workspace
+  attr add TARGET KEY[=VALUE] [--apply [--no-check]]
+                                           adds KEY to the last @(…) group of the declaration, or a new
+                                           @(KEY) line above it; VALUE must parse as an Odin expression
+  attr remove TARGET KEY [--apply [--no-check]]
+  attr remove --all KEY [DIR] [--apply [--no-check]]
+                                           removes KEY from one declaration, or from every declaration in DIR
+                                           or the workspace; an emptied group goes, with its line when alone
+  attr rename OLD NEW [DIR] [--apply [--no-check]]
+                                           renames the attribute key OLD to NEW, keeping its value, in DIR or
+                                           the workspace
   modernize [PATH...] [--rule ID,...] [--list] [--diff] [--apply [--no-check]]
                                            rewrites every file with the exact idiom rules, or the rules and
                                            families --rule names, until nothing changes; without --diff or
@@ -48,7 +58,7 @@ Lines and columns are 1-based, columns in bytes, as odin check prints them.
 --root defaults to the nearest directory with an ols.json above the file, else the cwd.
 TARGET is FILE:LINE:COL or a symbol path PKG.Name[.Member]: PKG is a directory or a collection path like
 core:strings, and Member a struct field, enum member or bit_field field.
-rename, reorder-params, move and rename-package without --apply print a unified diff and a summary line.
+rename, reorder-params, move, rename-package and attr without --apply print a unified diff and a summary line.
 --apply writes every file or none, after odin check on each touched package; new errors restore every
 file. rename-package writes the files first and renames DIR last; a rollback renames it back first.
 --no-check skips odin check. With --json they print {"status", "edit", "summary", "reasons"}.
@@ -72,7 +82,7 @@ run :: proc(args: []string) -> int {
 
 	root, apply_title, order_text, move_to := "", "", "", ""
 	fail_on := ""
-	apply, check_edit := false, true
+	apply, check_edit, all := false, true, false
 	modernize_options: Modernize_Options
 	rest := make([dynamic]string, context.temp_allocator)
 
@@ -104,6 +114,8 @@ run :: proc(args: []string) -> int {
 			move_to = args[i]
 		case "--json":
 			json_output = true
+		case "--all":
+			all = true
 		case "--no-check":
 			check_edit = false
 		case "--rule":
@@ -133,10 +145,18 @@ run :: proc(args: []string) -> int {
 
 	command := rest[0]
 	rest_args := rest[1:]
+	// --all belongs to attr remove, which checks it.
+	if all && command != "attr" {
+		return usage()
+	}
 
 	if command == "modernize" {
 		modernize_options.apply, modernize_options.json, modernize_options.check = apply, json_output, check_edit
 		return modernize(rest_args, root, modernize_options)
+	}
+
+	if command == "attr" {
+		return attr(rest_args, root, all, apply, check_edit)
 	}
 
 	if command == "check" {
@@ -205,37 +225,16 @@ run :: proc(args: []string) -> int {
 		return usage()
 	}
 
-	target, target_ok := parse_target(rest_args[0])
 	refactor := command == "rename" || command == "reorder-params" || command == "move"
-	symbol_path := rest_args[0] if !target_ok && refactor else ""
-	if command == "symbols" {
-		target, target_ok = Target {
-				file  = absolute(rest_args[0]),
-				start = {1, 1},
-				end   = {1, 1},
-			}, true
-	}
-	if !target_ok && symbol_path == "" {
-		fmt.eprintfln("cannot parse position %q", rest_args[0])
-		return 2
-	}
-
-	if root == "" {
-		root =
-			symbol_path_root(symbol_path) if symbol_path != "" else find_root(path.dir(target.file, context.temp_allocator))
-	}
-	setup(root)
-	if symbol_path != "" {
-		reason: string
-		target, reason, target_ok = resolve_symbol_path(symbol_path)
-		if !target_ok {
-			return refuse(command, reason)
-		}
-	}
-
-	document, position, range, open_ok := open(target)
-	if !open_ok {
-		return 1
+	document, target, position, range, code, opened := open_target(
+		command,
+		rest_args[0],
+		root,
+		symbol_paths = refactor,
+		whole_file = command == "symbols",
+	)
+	if !opened {
+		return code
 	}
 	config := &common.config
 
@@ -348,6 +347,58 @@ run :: proc(args: []string) -> int {
 	}
 
 	return usage()
+}
+
+// Sets up the workspace for spec and opens the file of target, the position spec names. spec is
+// FILE:LINE:COL, or a symbol path when symbol_paths is set; with whole_file it is a file, opened at 1:1.
+// On failure the cause is printed and code is the exit code: 2 when spec is neither, 1 otherwise.
+open_target :: proc(
+	name, spec, root: string,
+	symbol_paths := false,
+	whole_file := false,
+) -> (
+	document: ^server.Document,
+	target: Target,
+	position: common.Position,
+	range: common.Range,
+	code: int,
+	ok: bool,
+) {
+	target_ok: bool
+	target, target_ok = parse_target(spec)
+	symbol_path := spec if !target_ok && symbol_paths else ""
+	if whole_file {
+		target, target_ok = Target {
+				file  = absolute(spec),
+				start = {1, 1},
+				end   = {1, 1},
+			}, true
+	}
+	if !target_ok && symbol_path == "" {
+		fmt.eprintfln("cannot parse position %q", spec)
+		return nil, {}, {}, {}, 2, false
+	}
+
+	root := root
+	if root == "" {
+		root =
+			symbol_path_root(symbol_path) if symbol_path != "" else find_root(path.dir(target.file, context.temp_allocator))
+	}
+	setup(root)
+	if symbol_path != "" {
+		reason: string
+		target, reason, target_ok = resolve_symbol_path(symbol_path)
+		if !target_ok {
+			return nil, {}, {}, {}, refuse(name, reason), false
+		}
+	}
+
+	opened: bool
+	document, position, range, opened = open(target)
+	if !opened {
+		return nil, {}, {}, {}, 1, false
+	}
+	return document, target, position, range, 0, true
 }
 
 usage :: proc() -> int {

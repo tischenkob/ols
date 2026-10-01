@@ -1568,6 +1568,83 @@ expect_rename_package_refused :: proc(t: ^testing.T, src: ^Source, dir, new_name
 	expect_causes(t, reasons, causes)
 }
 
+Attr_Command :: enum {
+	Add, // args: KEY[=VALUE], at the cursor
+	Remove, // args: KEY, at the cursor
+	Remove_All, // args: KEY, DIR
+	Rename, // args: OLD, NEW, DIR
+}
+
+// Runs the attr command over the files and packages of src and compares each file listed in expected by
+// name; empty expected means a no-op. DIR is relative to test, "" for the whole workspace. Each of
+// warnings must be contained in one warning.
+expect_attr_edit :: proc(
+	t: ^testing.T,
+	src: ^Source,
+	command: Attr_Command,
+	args: []string,
+	expected: []File,
+	warnings: []string = {},
+) {
+	edit, got, reasons, ok := run_attr_command(src, command, args)
+	defer teardown(src)
+	if !testing.expectf(t, ok, "Expected the attr edit to pass its check, but received %v", reasons) do return
+	if len(expected) == 0 {
+		testing.expectf(t, len(edit.changes) == 0, "Expected a no-op, but received %v", edit.changes)
+	} else {
+		testing.expectf(t, len(edit.changes) > 0, "Expected an edit, but received a no-op")
+		expect_workspace_edit(t, src, edit, expected)
+	}
+	for warning in warnings {
+		found := false
+		for w in got {
+			found ||= strings.contains(w, warning)
+		}
+		testing.expectf(t, found, "\nExpected a warning containing %q in %v", warning, got)
+	}
+}
+
+// The attr command is refused with one reason per cause, each containing its cause.
+expect_attr_refused :: proc(t: ^testing.T, src: ^Source, command: Attr_Command, args: []string, causes: []string) {
+	_, _, reasons, ok := run_attr_command(src, command, args)
+	defer teardown(src)
+	testing.expect(t, !ok, "Expected the attr edit to be refused")
+	expect_causes(t, reasons, causes)
+}
+
+// Sets src up and runs the command; the caller tears it down.
+@(private)
+run_attr_command :: proc(
+	src: ^Source,
+	command: Attr_Command,
+	args: []string,
+) -> (
+	server.WorkspaceEdit,
+	[]string,
+	[]string,
+	bool,
+) {
+	cursor: common.Position
+	if command == .Add || command == .Remove {
+		cursor = source_remove_cursor(src)
+	}
+	setup(src)
+	dir :: proc(name: string) -> string {
+		return "" if name == "" else strings.join({"test", name}, "/", context.temp_allocator)
+	}
+	switch command {
+	case .Add:
+		return server.attr_add(src.document, cursor, args[0], &src.config)
+	case .Remove:
+		return server.attr_remove(src.document, cursor, args[0], &src.config)
+	case .Remove_All:
+		return server.attr_sweep(dir(args[1]), args[0], "", &src.config, source_files(src))
+	case .Rename:
+		return server.attr_sweep(dir(args[2]), args[0], args[1], &src.config, source_files(src))
+	}
+	return {}, {}, {}, false
+}
+
 // The files of the test package and of every package of src, as the workspace walk would find them.
 @(private)
 source_files :: proc(src: ^Source) -> []server.Package_File {

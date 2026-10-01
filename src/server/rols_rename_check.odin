@@ -189,7 +189,7 @@ is_builtin_name :: proc(name: string, current_file: string) -> bool {
 }
 
 // The cause when the file of uri is in core:, vendor: or base:, or lies outside every workspace folder.
-@(private = "file")
+@(private)
 library_location :: proc(uri: string, config: ^common.Config) -> (reason: string, library: bool) {
 	file := common.uri_to_path(uri, context.temp_allocator)
 	dir := path.dir(file, context.temp_allocator)
@@ -211,6 +211,29 @@ library_location :: proc(uri: string, config: ^common.Config) -> (reason: string
 		}
 	}
 	return fmt.tprintf("the declaration is in %s, outside the workspace folders", file), true
+}
+
+// Appends a cause when dir is in core:, vendor: or base:, which sets library and stops there, or lies outside
+// every workspace folder. is_root is set when dir is a workspace folder itself.
+@(private)
+check_dir_location :: proc(out: ^[dynamic]string, dir: string, config: ^common.Config) -> (is_root, library: bool) {
+	libraries := LIBRARY_COLLECTIONS
+	for name, root in config.collections {
+		if rel, inside := relative_dir(root, dir); inside && slice.contains(libraries[:], name) {
+			append(out, fmt.tprintf("%s is in %s:%s, a library outside the workspace", dir, name, rel))
+			return false, true
+		}
+	}
+	if len(config.workspace_folders) == 0 {
+		return
+	}
+	for folder in config.workspace_folders {
+		if rel, inside := relative_dir(common.uri_to_path(folder.uri, context.temp_allocator), dir); inside {
+			return rel == "", false
+		}
+	}
+	append(out, fmt.tprintf("%s is outside the workspace folders", dir))
+	return
 }
 
 // dir relative to root with forward slashes, "" for root itself; inside is false when dir is not under root.
@@ -595,12 +618,15 @@ scope_declarations :: proc(document: ^Document, offset: int) -> []^ast.Ident {
 }
 
 // A warning naming the workspace files the gitignore, exclude or include filter skipped that mention
-// word, since the rename does not change them. Empty when there are none.
+// word, since actor does not change them. Empty when there are none. dir, when given, limits the files
+// to those at or below it.
 @(private)
 skipped_files_warning :: proc(
 	word: string,
 	config: ^common.Config,
 	mentions: proc(text, word: string) -> bool = contains_word,
+	actor := "the rename",
+	dir := "",
 ) -> []string {
 	skipped := make([dynamic]string, context.temp_allocator)
 	when !ODIN_TEST {
@@ -621,6 +647,9 @@ skipped_files_warning :: proc(
 					continue
 				}
 				seen[file] = {}
+				if dir != "" {
+					if _, inside := relative_dir(dir, path.dir(file, context.temp_allocator)); !inside do continue
+				}
 				// Each file is freed before the next one is read, so the memory stays bounded.
 				data, err := os.read_entire_file(file, context.allocator)
 				if err == nil {
@@ -643,11 +672,12 @@ skipped_files_warning :: proc(
 	}
 	warnings := make([]string, 1, context.temp_allocator)
 	warnings[0] = fmt.tprintf(
-		"%d workspace file%s skipped by the gitignore, exclude or include filter contain%s `%s`, and the rename does not change %s: %s",
+		"%d workspace file%s skipped by the gitignore, exclude or include filter contain%s `%s`, and %s does not change %s: %s",
 		len(skipped),
 		"" if len(skipped) == 1 else "s",
 		"s" if len(skipped) == 1 else "",
 		word,
+		actor,
 		"it" if len(skipped) == 1 else "them",
 		list,
 	)
