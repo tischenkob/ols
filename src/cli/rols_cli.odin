@@ -210,15 +210,13 @@ run :: proc(args: []string) -> int {
 			root = find_root(absolute(rest_args[0]))
 		}
 		setup(root)
-		edit, warnings, reasons, ok := server.rename_package(
-			resolve_package(rest_args[0]),
-			rest_args[1],
-			&common.config,
-		)
+		dir := resolve_package(rest_args[0])
+		edit, warnings, reasons, ok := server.rename_package(dir, rest_args[1], &common.config)
 		if !ok {
 			return refuse(command, ..reasons)
 		}
-		return run_edit(command, edit, apply, check_edit, warnings)
+		// An unaliased import binds the directory name, so check errors name the package by it.
+		return run_edit(command, edit, apply, check_edit, warnings, {path.base(dir), rest_args[1]})
 	}
 
 	if len(rest_args) < 1 || (command == "rename" && len(rest_args) < 2) {
@@ -315,7 +313,16 @@ run :: proc(args: []string) -> int {
 		if !ok || len(edit.changes) == 0 {
 			return refuse("rename", "no symbol to rename at the position")
 		}
-		return run_edit("rename", edit, apply, check_edit, warnings)
+		// Every edit replaces an occurrence of the old name; the target document has at least one.
+		names: [2]string
+		if edits := edit.changes[document.uri.uri]; len(edits) > 0 {
+			text := document.text[:document.used_text]
+			if r, r_ok := common.get_absolute_range(edits[0].range, text);
+			   r_ok && r.start <= r.end && r.end <= len(text) {
+				names = {string(text[r.start:r.end]), new_name}
+			}
+		}
+		return run_edit("rename", edit, apply, check_edit, warnings, names)
 	case "reorder-params":
 		order, order_ok := parse_order(order_text)
 		if !order_ok {

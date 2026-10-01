@@ -68,9 +68,17 @@ Check_Error :: struct {
 
 // Previews or applies edit for the refactor command name and returns the exit code. A dry run prints a
 // unified diff. An apply writes every file or none: with check set, `odin check` runs on each touched
-// package before and after the write, and new errors restore the originals. warnings do not stop the
-// edit: text mode prints them on stderr, and JSON keeps them in reasons.
-run_edit :: proc(name: string, edit: server.WorkspaceEdit, apply, check: bool, warnings: []string = {}) -> int {
+// package and each workspace package that imports one, before and after the write, and new errors
+// restore the originals. warnings do not stop the edit: text mode prints them on stderr, and JSON keeps
+// them in reasons. names, the old and new name of a rename, lets an existing error that names the old
+// one match its renamed form.
+run_edit :: proc(
+	name: string,
+	edit: server.WorkspaceEdit,
+	apply, check: bool,
+	warnings: []string = {},
+	names: [2]string = {},
+) -> int {
 	// Every outcome keeps the warnings.
 	reasons := make([dynamic]string, context.temp_allocator)
 	for warning in warnings {
@@ -113,11 +121,16 @@ run_edit :: proc(name: string, edit: server.WorkspaceEdit, apply, check: bool, w
 	check := check
 	// The packages are checked at their old paths before the write and at their new paths after it.
 	dirs := package_dirs(changed, renames)
+	if check {
+		// An edit can break a package that imports a touched one without touching it.
+		dirs = slice.concatenate([][]string{dirs, server.importer_dirs(dirs, &common.config)}, context.temp_allocator)
+	}
 	moved_dirs := make([]string, len(dirs), context.temp_allocator)
 	for dir, i in dirs {
 		moved_dirs[i] = renamed_path(renames, dir)
 	}
 	before: []Check_Error
+	checked := 0
 	if check {
 		paths := checkable_paths(dirs)
 		if len(paths) == 0 {
@@ -132,6 +145,8 @@ run_edit :: proc(name: string, edit: server.WorkspaceEdit, apply, check: bool, w
 				append(&reasons, reason)
 				return finish(name, .Refused, edit, {}, reasons[:])
 			}
+			checked = len(paths)
+			warn_existing_errors(&reasons, before)
 		}
 	}
 
@@ -158,14 +173,37 @@ run_edit :: proc(name: string, edit: server.WorkspaceEdit, apply, check: bool, w
 			append(&reasons, fmt.tprintf("%s after writing", after_reason))
 			return roll_back(name, .Refused, edit, changed, renames, &reasons, plan.edits)
 		}
-		if fresh := new_errors(before, after); len(fresh) > 0 {
+		if fresh := new_errors(before, after, names); len(fresh) > 0 {
 			for e in fresh {
 				append(&reasons, fmt.tprintf("%s:%d:%d: %s", e.file, e.line, e.column, e.message))
 			}
-			return roll_back(name, .Check_Failed, edit, changed, renames, &reasons, plan.edits)
+			return roll_back(name, .Check_Failed, edit, changed, renames, &reasons, plan.edits, checked)
 		}
 	}
-	return finish(name, .Applied, edit, changed, reasons[:], plan.edits, renames)
+	return finish(name, .Applied, edit, changed, reasons[:], plan.edits, renames, checked = checked)
+}
+
+// Warns once per directory that already has `odin check` errors: a parse error stops the check there, and
+// Odin stops reporting at its error limit, so new errors can hide behind them.
+@(private = "file")
+warn_existing_errors :: proc(reasons: ^[dynamic]string, errors: []Check_Error) {
+	dirs := make([dynamic]string, context.temp_allocator)
+	for e in errors {
+		dir := path.dir(e.file, context.temp_allocator)
+		if !slice.contains(dirs[:], dir) {
+			append(&dirs, dir)
+		}
+	}
+	slice.sort(dirs[:])
+	for dir in dirs {
+		warn(
+			reasons,
+			fmt.tprintf(
+				"odin check already reports errors in %s; a parse error or Odin's error limit there can hide new errors, so the gate cannot see them",
+				workspace_relative(dir),
+			),
+		)
+	}
 }
 
 // Prints warning on stderr in text mode, or keeps it in reasons for JSON.
@@ -189,13 +227,14 @@ roll_back :: proc(
 	renames: []Path_Rename,
 	reasons: ^[dynamic]string,
 	edits: int,
+	checked := 0,
 ) -> int {
 	failures := undo_edit(files, renames)
 	if len(failures) > 0 {
 		append(reasons, ..failures)
 		return finish(name, .Refused, edit, files, reasons[:], edits, left_modified = len(failures))
 	}
-	return finish(name, status, edit, files, reasons[:], edits)
+	return finish(name, status, edit, files, reasons[:], edits, checked = checked)
 }
 
 // Runs each rename in order; on failure, renamed counts the renames already done.
@@ -503,18 +542,39 @@ check_errors :: proc(paths: []string) -> (errors: []Check_Error, reason: string,
 }
 
 // The errors of after that before does not have, keyed by the first line of the message and counting
-// repeats: a second copy of an existing error is new.
+// repeats: a second copy of an existing error is new. With names, the old and new name of a rename, a
+// before error left unmatched also matches with the old name replaced as a whole word, so an existing
+// error that names the renamed symbol is not new. The unchanged key is tried first, so an error about
+// another symbol of the same name still matches.
 @(private = "file")
-new_errors :: proc(before, after: []Check_Error) -> []Check_Error {
+new_errors :: proc(before, after: []Check_Error, names: [2]string = {}) -> []Check_Error {
 	counts := make(map[string]int, context.temp_allocator)
 	for e in before {
 		counts[strings.truncate_to_byte(e.message, '\n')] += 1
 	}
-	fresh := make([dynamic]Check_Error, context.temp_allocator)
+	unmatched := make([dynamic]Check_Error, context.temp_allocator)
 	for e in after {
 		key := strings.truncate_to_byte(e.message, '\n')
 		if counts[key] > 0 {
 			counts[key] -= 1
+		} else {
+			append(&unmatched, e)
+		}
+	}
+	if names[0] == "" || len(unmatched) == 0 {
+		return unmatched[:]
+	}
+	renamed := make(map[string]int, context.temp_allocator)
+	for key, count in counts {
+		if count > 0 {
+			renamed[server.replace_word(key, names[0], names[1])] += count
+		}
+	}
+	fresh := make([dynamic]Check_Error, context.temp_allocator)
+	for e in unmatched {
+		key := strings.truncate_to_byte(e.message, '\n')
+		if renamed[key] > 0 {
+			renamed[key] -= 1
 		} else {
 			append(&fresh, e)
 		}
@@ -541,8 +601,9 @@ workspace_relative :: proc(file: string) -> string {
 	return file
 }
 
-// Prints the result of a refactor command and returns its exit code. renames name the moved paths, and
-// left_modified counts the paths a failed rollback could not restore.
+// Prints the result of a refactor command and returns its exit code. renames name the moved paths,
+// left_modified counts the paths a failed rollback could not restore, and checked counts the packages
+// `odin check` ran on.
 @(private = "file")
 finish :: proc(
 	name: string,
@@ -553,6 +614,7 @@ finish :: proc(
 	edits := 0,
 	renames: []Path_Rename = {},
 	left_modified := 0,
+	checked := 0,
 ) -> int {
 	summary: string
 	counts := fmt.tprintf(
@@ -585,6 +647,9 @@ finish :: proc(
 		}
 	case .Check_Failed:
 		summary = fmt.tprintf("%s: %s rolled back, odin check reports new errors", name, counts)
+	}
+	if checked > 0 && (status == .Applied || status == .Check_Failed) {
+		summary = fmt.tprintf("%s, %d package%s checked", summary, checked, "" if checked == 1 else "s")
 	}
 
 	exit_codes := STATUS_EXIT

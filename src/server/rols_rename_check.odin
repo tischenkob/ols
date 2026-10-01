@@ -687,24 +687,43 @@ skipped_files_warning :: proc(
 // Whether word occurs in text with no identifier character on either side.
 @(private)
 contains_word :: proc(text, word: string) -> bool {
-	if word == "" {
-		return false
+	return index_word(text, word, 0) >= 0
+}
+
+// text with with in place of each occurrence of word that contains_word would find.
+replace_word :: proc(text, word, with: string, allocator := context.temp_allocator) -> string {
+	b := strings.builder_make(allocator)
+	last := 0
+	for i := index_word(text, word, 0); i >= 0; i = index_word(text, word, last) {
+		strings.write_string(&b, text[last:i])
+		strings.write_string(&b, with)
+		last = i + len(word)
 	}
-	for start := 0; start <= len(text); {
+	strings.write_string(&b, text[last:])
+	return strings.to_string(b)
+}
+
+// The offset of the first occurrence of word at or after from with no identifier character on either side, or -1.
+@(private)
+index_word :: proc(text, word: string, from: int) -> int {
+	if word == "" {
+		return -1
+	}
+	for start := from; start <= len(text); {
 		i := strings.index(text[start:], word)
 		if i < 0 {
-			return false
+			return -1
 		}
 		i += start
 		end := i + len(word)
 		before, _ := utf8.decode_last_rune_in_string(text[:i])
 		after, _ := utf8.decode_rune_in_string(text[end:])
 		if (i == 0 || !is_ident_rune(before)) && (end == len(text) || !is_ident_rune(after)) {
-			return true
+			return i
 		}
 		start = i + 1
 	}
-	return false
+	return -1
 }
 
 @(private)
