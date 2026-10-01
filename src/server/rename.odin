@@ -8,7 +8,16 @@ import "core:strings"
 
 import "src:common"
 
-get_rename :: proc(document: ^Document, new_text: string, position: common.Position) -> (WorkspaceEdit, bool) {
+get_rename :: proc(
+	document: ^Document,
+	new_text: string,
+	position: common.Position,
+	// rols: files stand in for the workspace walk, as in find_symbol_references
+	files: []Package_File = {},
+) -> (
+	WorkspaceEdit,
+	bool,
+) {
 	ast_context := make_ast_context(
 		document.ast,
 		document.imports,
@@ -29,7 +38,8 @@ get_rename :: proc(document: ^Document, new_text: string, position: common.Posit
 	get_globals(document.ast, &ast_context)
 	get_locals(&ast_context, &position_context)
 
-	locations, ok2 := resolve_references(document, &ast_context, &position_context)
+	// rols: pass the files on
+	locations, ok2 := resolve_references(document, &ast_context, &position_context, files = files)
 
 	changes := make(map[string][dynamic]TextEdit, 0, context.temp_allocator)
 
