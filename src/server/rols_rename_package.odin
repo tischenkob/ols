@@ -243,12 +243,12 @@ package_sources :: proc(out: ^[dynamic]string, dir: string, files: []Package_Fil
 // base:, or holds the root of a collection, which the rename would leave pointing at nothing.
 @(private = "file")
 check_package_location :: proc(out: ^[dynamic]string, dir: string, config: ^common.Config) {
-	libraries := LIBRARY_COLLECTIONS
-	for name, root in config.collections {
-		if rel, inside := relative_dir(root, dir); inside && slice.contains(libraries[:], name) {
-			append(out, fmt.tprintf("%s is in %s:%s, a library outside the workspace", dir, name, rel))
-			return
-		}
+	is_root, library := check_dir_location(out, dir, config)
+	if library {
+		return
+	}
+	if is_root {
+		append(out, fmt.tprintf("%s is the workspace root", dir))
 	}
 	for name, root in config.collections {
 		if _, inside := relative_dir(dir, root); inside {
@@ -258,19 +258,6 @@ check_package_location :: proc(out: ^[dynamic]string, dir: string, config: ^comm
 			)
 		}
 	}
-	if len(config.workspace_folders) == 0 {
-		return
-	}
-	for folder in config.workspace_folders {
-		root := common.uri_to_path(folder.uri, context.temp_allocator)
-		if rel, inside := relative_dir(root, dir); inside {
-			if rel == "" {
-				append(out, fmt.tprintf("%s is the workspace root", dir))
-			}
-			return
-		}
-	}
-	append(out, fmt.tprintf("%s is outside the workspace folders", dir))
 }
 
 // Rewrites the import paths of document that step into the package directory and, for an import of the
