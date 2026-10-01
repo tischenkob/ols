@@ -2246,6 +2246,37 @@ run :: proc() -> (n: int, err: os.Error) {
 }
 
 @(test)
+result_union_named_argument_named_like_result :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+set :: proc(err: os.General_Error) {}
+
+run :: proc() -> (n: int, err: os.General_Error) {
+	defer set(err = .Exist)
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+set :: proc(err: os.General_Error) {}
+
+run :: proc() -> (n: int, err: os.Error) {
+	defer set(err = .Exist)
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
 result_union_nil_check_needs_nilable_type :: proc(t: ^testing.T) {
 	expect_no_result_union(
 		t,
