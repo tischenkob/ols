@@ -355,3 +355,116 @@ modernize_registers_every_rule :: proc(t: ^testing.T) {
 	testing.expect(t, "file-tags" in ids && "file-tags" not_in selected, "file-tags should be a non-default rule")
 	free_all(context.temp_allocator)
 }
+
+@(test)
+modernize_or_break_or_continue :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+Error :: union {
+	int,
+}
+
+f :: proc(i: int) -> (int, bool) {
+	return i, true
+}
+
+g :: proc(i: int) -> bool {
+	return i > 0
+}
+
+h :: proc(i: int) -> (int, Error) {
+	return i, nil
+}
+
+loops :: proc(xs: []int) -> int {
+	total := 0
+	for x in xs {
+		v, ok := f(x)
+		if !ok {
+			break
+		}
+		total += v
+	}
+	for x in xs {
+		v, err := h(x)
+		if err != nil {
+			continue
+		}
+		total += v
+	}
+	outer: for x in xs {
+		for y in xs {
+			ok := g(x + y)
+			if !ok {
+				continue outer
+			}
+			total += y
+		}
+	}
+	for x in xs {
+		switch x {
+		case 0:
+			v, ok := f(x)
+			if !ok {
+				break
+			}
+			total += v
+		}
+	}
+	return total
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_modernized(
+		t,
+		&src,
+		{},
+		`package test
+
+Error :: union {
+	int,
+}
+
+f :: proc(i: int) -> (int, bool) {
+	return i, true
+}
+
+g :: proc(i: int) -> bool {
+	return i > 0
+}
+
+h :: proc(i: int) -> (int, Error) {
+	return i, nil
+}
+
+loops :: proc(xs: []int) -> int {
+	total := 0
+	for x in xs {
+		v := f(x) or_break
+		total += v
+	}
+	for x in xs {
+		v := h(x) or_continue
+		total += v
+	}
+	outer: for x in xs {
+		for y in xs {
+			g(x + y) or_continue outer
+			total += y
+		}
+	}
+	for x in xs {
+		switch x {
+		case 0:
+			v := f(x) or_break
+			total += v
+		}
+	}
+	return total
+}
+`,
+	)
+}

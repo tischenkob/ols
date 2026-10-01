@@ -89,6 +89,7 @@ add_comment_form_action :: proc(ctx: ^ActionContext) {
 	append_replace_range(ctx, line_start, last_end, "Convert to block comment", to_block_comment(toks, ind))
 }
 
+@(private = "package")
 comments_overlapping :: proc(file: ast.File, start, end: int) -> []tokenizer.Token {
 	found := make([dynamic]tokenizer.Token, context.temp_allocator)
 	for group in file.comments {

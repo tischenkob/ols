@@ -901,6 +901,164 @@ f :: proc(n: int) {
 	)
 }
 
+// A field after a dot and an implicit selector do not read the loop variable.
+@(test)
+action_simplify_range_loop_field_names :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	i: int,
+}
+
+E :: enum {
+	a,
+	i,
+}
+
+f :: proc(s: ^S, n: int) -> E {
+	e := E.a
+	for i := 0; i {*}< n; i += 1 {
+		s.i += 1
+		e = .i
+	}
+	return e
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Use range loop",
+		`package test
+
+S :: struct {
+	i: int,
+}
+
+E :: enum {
+	a,
+	i,
+}
+
+f :: proc(s: ^S, n: int) -> E {
+	e := E.a
+	for _ in 0..<n {
+		s.i += 1
+		e = .i
+	}
+	return e
+}
+`,
+	)
+}
+
+// A map literal key is an expression that reads the loop variable.
+@(test)
+action_simplify_range_loop_map_key :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature dynamic-literals
+package test
+
+f :: proc(n: int) -> int {
+	total := 0
+	for i := 0; i {*}< n; i += 1 {
+		m := map[int]int{i = 1}
+		total += len(m)
+		delete(m)
+	}
+	return total
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Use range loop",
+		`#+feature dynamic-literals
+package test
+
+f :: proc(n: int) -> int {
+	total := 0
+	for i in 0..<n {
+		m := map[int]int{i = 1}
+		total += len(m)
+		delete(m)
+	}
+	return total
+}
+`,
+	)
+}
+
+// A field named like the loop variable in a literal whose map type is named or inferred may be a
+// key that reads it, so neither `i` nor `_` is safe.
+@(test)
+lint_simplify_range_loop_unsure_field :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature dynamic-literals
+package test
+
+M :: map[int]int
+
+f :: proc(out: []M, n: int) {
+	for i := 0; i < n; i += 1 {
+		out[0] = M{i = 1}
+	}
+	for i := 0; i < n; i += 1 {
+		out[1] = {i = 1}
+	}
+	for i := 0; i < n; i += 1 {
+		out[2] = M{i + 1 = 1}
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	// A key that is not a plain name is an expression, so the last loop reads i and keeps it.
+	test.expect_lint_diagnostics(t, &source, {{12, "range-loop"}})
+}
+
+@(test)
+action_simplify_range_loop_expression_key :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature dynamic-literals
+package test
+
+M :: map[int]int
+
+f :: proc(out: []M, n: int) {
+	for i := 0; i {*}< n; i += 1 {
+		out[0] = M{i + 1 = 1}
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Use range loop",
+		`#+feature dynamic-literals
+package test
+
+M :: map[int]int
+
+f :: proc(out: []M, n: int) {
+	for i in 0..<n {
+		out[0] = M{i + 1 = 1}
+	}
+}
+`,
+	)
+}
+
 // A local array, slice or make result keeps its length while the body calls something.
 @(test)
 lint_simplify_range_loop_local_bound :: proc(t: ^testing.T) {
@@ -1639,6 +1797,496 @@ f :: proc() -> Error {
 	)
 }
 
+// or_break leaves the innermost loop or switch like the break it replaces, and or_continue the
+// innermost loop. A label carries over, and a bare checked name leaves only the call.
+@(test)
+lint_simplify_or_break :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Error :: union {
+	int,
+}
+
+f :: proc(i: int) -> (int, bool) {
+	return i, true
+}
+
+g :: proc(i: int) -> bool {
+	return i > 0
+}
+
+h :: proc(i: int) -> (int, Error) {
+	return i, nil
+}
+
+loops :: proc(xs: []int) -> int {
+	total := 0
+	for x in xs {
+		v, ok := f(x)
+		if !ok {
+			break
+		}
+		total += v
+	}
+	for x in xs {
+		v, err := h(x)
+		if err != nil {
+			continue
+		}
+		total += v
+	}
+	outer: for x in xs {
+		for y in xs {
+			ok := g(x + y)
+			if !ok {
+				continue outer
+			}
+			total += y
+		}
+	}
+	for x in xs {
+		switch x {
+		case 0:
+			v, ok := f(x)
+			if !ok {
+				break
+			}
+			total += v
+		}
+	}
+	return total
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{21, "or-break"}, {28, "or-continue"}, {36, "or-continue"}, {46, "or-break"}},
+	)
+}
+
+// Refused: an else branch, the checked name used after the if, the checked name not last, a body
+// with more than the branch, and an assignment, which would leave the declared ok unused.
+@(test)
+lint_simplify_or_break_refused :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(i: int) -> (int, bool) {
+	return i, true
+}
+
+k :: proc(i: int) -> (bool, int) {
+	return true, i
+}
+
+log :: proc(v: int) {}
+
+refused :: proc(xs: []int) -> int {
+	total := 0
+	for x in xs {
+		v, ok := f(x)
+		if !ok {
+			break
+		} else {
+			total += 1
+		}
+		total += v
+	}
+	for x in xs {
+		v, ok := f(x)
+		if !ok {
+			continue
+		}
+		total += v
+		if ok {
+			total += 1
+		}
+	}
+	for x in xs {
+		ok, v := k(x)
+		if !ok {
+			break
+		}
+		total += v
+	}
+	for x in xs {
+		v, ok := f(x)
+		if !ok {
+			log(v)
+			break
+		}
+		total += v
+	}
+	v: int
+	ok: bool
+	for x in xs {
+		v, ok = f(x)
+		if !ok {
+			break
+		}
+		total += v
+	}
+	return total
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	// The else after a break is redundant, which is a separate rule.
+	test.expect_lint_diagnostics(t, &source, {{18, "redundant-else"}})
+}
+
+@(test)
+action_simplify_or_break :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(i: int) -> (int, int, bool) {
+	return i, i, true
+}
+
+g :: proc(xs: []int) -> int {
+	total := 0
+	outer: for x in xs {
+		for y in xs {
+			a, b, ok := f(x + y)
+			if {*}!ok {
+				break outer
+			}
+			total += a + b
+		}
+	}
+	return total
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Use or_break",
+		`package test
+
+f :: proc(i: int) -> (int, int, bool) {
+	return i, i, true
+}
+
+g :: proc(xs: []int) -> int {
+	total := 0
+	outer: for x in xs {
+		for y in xs {
+			a, b := f(x + y) or_break outer
+			total += a + b
+		}
+	}
+	return total
+}
+`,
+	)
+}
+
+// Odin rejects `_ := f() or_break` as declaring nothing, so a blank name assigns.
+@(test)
+action_simplify_or_break_blank :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(i: int) -> (int, bool) {
+	return i, true
+}
+
+g :: proc(xs: []int) -> int {
+	total := 0
+	for x in xs {
+		_, ok := f(x)
+		if {*}!ok {
+			break
+		}
+		total += x
+	}
+	return total
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Use or_break",
+		`package test
+
+f :: proc(i: int) -> (int, bool) {
+	return i, true
+}
+
+g :: proc(xs: []int) -> int {
+	total := 0
+	for x in xs {
+		_ = f(x) or_break
+		total += x
+	}
+	return total
+}
+`,
+	)
+}
+
+// A comment between the declaration and the `if`, or after the declaration, would be lost.
+@(test)
+lint_simplify_or_branch_comment :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(i: int) -> (int, bool) {
+	return i, true
+}
+
+g :: proc(xs: []int) -> int {
+	total := 0
+	for x in xs {
+		v, ok := f(x)
+		// stop at the first failure
+		if !ok {
+			break
+		}
+		total += v
+	}
+	for x in xs {
+		v, ok := f(x) // the value may be stale
+		if !ok {
+			continue
+		}
+		total += v
+	}
+	return total
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
+
+// Without a loop, or_break leaves the switch like the break it replaces.
+@(test)
+action_simplify_or_break_switch :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(i: int) -> (int, bool) {
+	return i, true
+}
+
+g :: proc(x: int) -> int {
+	total := 0
+	switch x {
+	case 0:
+		v, ok := f(x)
+		if {*}!ok {
+			break
+		}
+		total += v
+	}
+	return total
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Use or_break",
+		`package test
+
+f :: proc(i: int) -> (int, bool) {
+	return i, true
+}
+
+g :: proc(x: int) -> int {
+	total := 0
+	switch x {
+	case 0:
+		v := f(x) or_break
+		total += v
+	}
+	return total
+}
+`,
+	)
+}
+
+// A labelled break carries its label, to a block or out of an #unroll loop.
+@(test)
+lint_simplify_or_break_labels :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(i: int) -> (int, bool) {
+	return i, true
+}
+
+g :: proc(xs: []int) -> int {
+	total := 0
+	for x in xs {
+		blk: {
+			v, ok := f(x)
+			if !ok {
+				break blk
+			}
+			total += v
+		}
+	}
+	outer: for x in xs {
+		#unroll for i in 0 ..< 2 {
+			v, ok := f(x + i)
+			if !ok {
+				break outer
+			}
+			total += v
+		}
+	}
+	return total
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{10, "or-break"}, {19, "or-break"}})
+}
+
+// A `do` body is refused: its end, and its `if`'s, stop before an unlabelled break.
+@(test)
+lint_simplify_or_break_do :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(i: int) -> (int, bool) {
+	return i, true
+}
+
+g :: proc(xs: []int) -> int {
+	total := 0
+	for x in xs {
+		v, ok := f(x)
+		if !ok do break
+		total += v
+	}
+	return total
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
+
+@(test)
+action_simplify_or_return_blank :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Error :: union {
+	int,
+}
+
+f :: proc() -> (int, Error) {
+	return 0, nil
+}
+
+g :: proc() -> Error {
+	_, err := f()
+	if err {*}!= nil {
+		return err
+	}
+	return nil
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Use or_return",
+		`package test
+
+Error :: union {
+	int,
+}
+
+f :: proc() -> (int, Error) {
+	return 0, nil
+}
+
+g :: proc() -> Error {
+	_ = f() or_return
+	return nil
+}
+`,
+	)
+}
+
+@(test)
+action_simplify_or_continue :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Error :: union {
+	int,
+}
+
+f :: proc(i: int) -> (int, Error) {
+	return i, nil
+}
+
+g :: proc(xs: []int) -> int {
+	total := 0
+	for x in xs {
+		v, err := f(x)
+		if err {*}!= nil {
+			continue
+		}
+		total += v
+	}
+	return total
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Use or_continue",
+		`package test
+
+Error :: union {
+	int,
+}
+
+f :: proc(i: int) -> (int, Error) {
+	return i, nil
+}
+
+g :: proc(xs: []int) -> int {
+	total := 0
+	for x in xs {
+		v := f(x) or_continue
+		total += v
+	}
+	return total
+}
+`,
+	)
+}
+
 @(test)
 simplify_redundant_else :: proc(t: ^testing.T) {
 	source := test.Source {
@@ -2232,6 +2880,56 @@ f :: proc() -> (res: int, err: Error) {
 		"or_return",
 	},
 	{
+		"or-break",
+		"Use or_break",
+		`package test
+
+f :: proc(i: int) -> (int, bool) {
+	return i, true
+}
+
+g :: proc(xs: []int) -> int {
+	total := 0
+	for x in xs {
+		v, ok := f(x)
+		if {*}!ok {
+			break
+		}
+		total += v
+	}
+	return total
+}
+`,
+		"or_break",
+	},
+	{
+		"or-continue",
+		"Use or_continue",
+		`package test
+
+Error :: union {
+	int,
+}
+
+f :: proc(i: int) -> (int, Error) {
+	return i, nil
+}
+
+g :: proc(xs: []int) -> int {
+	total := 0
+	for x in xs {
+		v, err := f(x)
+		if err {*}!= nil {
+			continue
+		}
+		total += v
+	}
+	return total
+}
+`,
+		"or_continue",
+	},
+	{
 		"redundant-else",
 		"Remove redundant else",
 		`package test
@@ -2265,4 +2963,36 @@ f :: proc() {
 @(test)
 simplify_fix_twice :: proc(t: ^testing.T) {
 	expect_fix_twice(t, FIX_TWICE, {enable_lint_simplify = true})
+}
+
+// fix_branch_stmt_ends gives the `do` body and its `if` the end of the whole break, so the
+// removal starts after it.
+@(test)
+action_simplify_empty_else_after_do_break :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(xs: []int) {
+	for x in xs {
+		if x > 0 do break
+		else {{*}}
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Remove empty else",
+		`package test
+
+f :: proc(xs: []int) {
+	for x in xs {
+		if x > 0 do break
+	}
+}
+`,
+	)
 }

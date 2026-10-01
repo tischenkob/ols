@@ -238,7 +238,7 @@ Options:
 
 - `enable_lint_unreachable_code`: Mark statements after `return`, `break`, `continue`, `fallthrough`, `panic` or `unreachable` as unnecessary. Defaults to true.
 
-- `enable_lint_simplify`: Mark code that has a shorter equivalent (array literal with identical elements, `x == true`, `if c { return true } else { return false }`, redundant parentheses, `s[0:len(s)]`, C-style counting loops, nested ifs, manual `or_else`/`or_return` patterns) as unnecessary and offer the rewrite as a quick fix. Defaults to true.
+- `enable_lint_simplify`: Mark code that has a shorter equivalent (array literal with identical elements, `x == true`, `if c { return true } else { return false }`, redundant parentheses, `s[0:len(s)]`, C-style counting loops, nested ifs, manual `or_else`/`or_return`/`or_break`/`or_continue` patterns) as unnecessary and offer the rewrite as a quick fix. Defaults to true.
 
 - `enable_lint_float_equality`: Report `==` and `!=` comparisons on floats. Defaults to true.
 
