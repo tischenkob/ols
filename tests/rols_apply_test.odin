@@ -147,3 +147,100 @@ apply_restore_files :: proc(t: ^testing.T) {
 		testing.expectf(t, strings.contains(failures[0], "c.odin remains modified"), "failure: %q", failures[0])
 	}
 }
+
+@(test)
+apply_plan_directory_rename :: proc(t: ^testing.T) {
+	dir, dir_err := os.make_directory_temp("", "rols_rename_dir_*", context.temp_allocator)
+	if !testing.expect_value(t, dir_err, nil) do return
+	defer os.remove_all(dir)
+
+	old_dir, _ := filepath.join({dir, "old"}, context.temp_allocator)
+	new_dir, _ := filepath.join({dir, "fresh"}, context.temp_allocator)
+	file, _ := filepath.join({old_dir, "a.odin"}, context.temp_allocator)
+	testing.expect_value(t, os.make_directory(old_dir), nil)
+	testing.expect_value(t, os.write_entire_file(file, "package old\n"), nil)
+	uri := common.create_uri(file, context.temp_allocator).uri
+	rename := server.RenameFile {
+		kind   = "rename",
+		oldUri = common.create_uri(old_dir, context.temp_allocator).uri,
+		newUri = common.create_uri(new_dir, context.temp_allocator).uri,
+	}
+
+	edit := []server.DocumentChange {
+		server.TextDocumentEdit{textDocument = {uri = uri}, edits = {text_edit({0, 8}, {0, 11}, "fresh")}},
+		rename,
+	}
+	plan, reason, ok := cli.plan_workspace_edit({documentChanges = edit})
+	if !testing.expectf(t, ok, "refused: %s", reason) do return
+	testing.expect_value(t, len(plan.files), 1)
+	testing.expect_value(t, plan.files[0].text, "package fresh\n")
+	if testing.expect_value(t, len(plan.renames), 1) {
+		testing.expect_value(t, plan.renames[0].old, old_dir)
+		testing.expect_value(t, plan.renames[0].new, new_dir)
+		new_file, _ := filepath.join({new_dir, "a.odin"}, context.temp_allocator)
+		testing.expect_value(t, cli.renamed_path(plan.renames[:], file), new_file)
+	}
+
+	after := []server.DocumentChange {
+		rename,
+		server.TextDocumentEdit{textDocument = {uri = uri}, edits = {text_edit({0, 8}, {0, 11}, "fresh")}},
+	}
+	_, reason, ok = cli.plan_workspace_edit({documentChanges = after})
+	testing.expect(t, !ok, "an edit after the rename of its file must fail")
+	testing.expectf(t, strings.contains(reason, "after a rename"), "reason: %q", reason)
+
+	testing.expect_value(t, os.make_directory(new_dir), nil)
+	_, reason, ok = cli.plan_workspace_edit({documentChanges = edit})
+	testing.expect(t, !ok, "a rename onto an existing directory must fail")
+	testing.expectf(t, strings.contains(reason, "already exists"), "reason: %q", reason)
+}
+
+@(test)
+apply_roll_back_directory_rename :: proc(t: ^testing.T) {
+	dir, dir_err := os.make_directory_temp("", "rols_undo_dir_*", context.temp_allocator)
+	if !testing.expect_value(t, dir_err, nil) do return
+	defer os.remove_all(dir)
+
+	old_dir, _ := filepath.join({dir, "old"}, context.temp_allocator)
+	new_dir, _ := filepath.join({dir, "fresh"}, context.temp_allocator)
+	file, _ := filepath.join({old_dir, "a.odin"}, context.temp_allocator)
+	testing.expect_value(t, os.make_directory(old_dir), nil)
+	testing.expect_value(t, os.write_entire_file(file, "package old\r\n"), nil)
+
+	// The apply order: write at the old path, then rename.
+	files := []cli.File_State {
+		{path = file, existed = true, original = "package old\r\n", exists = true, text = "package fresh\n"},
+	}
+	renames := []cli.Path_Rename{{old_dir, new_dir}}
+	testing.expect_value(t, os.write_entire_file(file, files[0].text), nil)
+	renamed, reason, ok := cli.rename_paths(renames)
+	if !testing.expectf(t, ok && renamed == 1, "rename failed: %s", reason) do return
+	testing.expect(t, !os.exists(old_dir) && os.exists(new_dir))
+
+	failures := cli.undo_edit(files, renames)
+	testing.expectf(t, len(failures) == 0, "failures: %v", failures)
+	testing.expect(t, os.is_directory(old_dir) && !os.exists(new_dir), "the directory is renamed back")
+	data, _ := os.read_entire_file(file, context.temp_allocator)
+	testing.expect_value(t, string(data), "package old\r\n")
+
+	// A rename that fails leaves the directory where it was and reports why.
+	unreachable, _ := filepath.join({dir, "missing", "fresh"}, context.temp_allocator)
+	renamed, reason, ok = cli.rename_paths({{old_dir, unreachable}})
+	testing.expect(t, !ok && renamed == 0, "a rename into a missing parent must fail")
+	testing.expectf(t, strings.contains(reason, "cannot rename"), "reason: %q", reason)
+	testing.expect(t, os.is_directory(old_dir))
+
+	// When the rename cannot be undone, the files are restored where they are and the cause is named.
+	testing.expect_value(t, os.rename(old_dir, new_dir), nil)
+	moved, _ := filepath.join({new_dir, "a.odin"}, context.temp_allocator)
+	testing.expect_value(t, os.write_entire_file(moved, "package fresh\n"), nil)
+	testing.expect_value(t, os.make_directory(old_dir), nil)
+	blocker, _ := filepath.join({old_dir, "keep.txt"}, context.temp_allocator)
+	testing.expect_value(t, os.write_entire_file(blocker, "x"), nil)
+	failures = cli.undo_edit(files, renames)
+	if testing.expect_value(t, len(failures), 1) {
+		testing.expectf(t, strings.contains(failures[0], "remains renamed"), "failure: %q", failures[0])
+	}
+	data, _ = os.read_entire_file(moved, context.temp_allocator)
+	testing.expect_value(t, string(data), "package old\r\n")
+}

@@ -1,0 +1,648 @@
+package server
+
+import "core:fmt"
+import "core:odin/ast"
+import "core:odin/tokenizer"
+import "core:os"
+import "core:path/filepath"
+import path "core:path/slashpath"
+import "core:slice"
+import "core:strings"
+
+import "src:common"
+
+// Comments and directive strings that mention the old name, listed before the rest are only counted.
+@(private = "file")
+MENTIONS_SHOWN :: 10
+
+// Directives whose string arguments name files or values the rename does not change.
+@(private = "file")
+STRING_DIRECTIVES :: [?]string{"load", "load_hash", "load_directory", "config"}
+
+// Renames the package in dir to new_name: its package clauses, every import path that steps into dir,
+// the `old.x` qualifiers of importers without an alias, and dir itself, to a sibling named new_name.
+// The edit puts the text edits first, at the old paths, and the directory rename last. reasons holds one
+// cause per refusal and makes ok false. Renaming to the current name gives an empty edit, a no-op.
+// files, when given, replaces both the directory listing and the workspace walk.
+rename_package :: proc(
+	dir, new_name: string,
+	config: ^common.Config,
+	files: []Package_File = {},
+) -> (
+	edit: WorkspaceEdit,
+	warnings: []string,
+	reasons: []string,
+	ok: bool,
+) {
+	context.allocator = context.temp_allocator
+	out := make([dynamic]string)
+
+	dir, _ := filepath.replace_separators(dir, '/', context.temp_allocator)
+	dir = path.clean(dir)
+	old_name := path.base(dir)
+	check_package_location(&out, dir, config)
+	sources, listed := package_sources(&out, dir, files)
+	if !listed || len(out) > 0 {
+		return {}, {}, out[:], false
+	}
+	if new_name == old_name {
+		return {}, {}, {}, true
+	}
+
+	if check_new_name(&out, new_name) && is_builtin_name(new_name, sources[0].fullpath) {
+		append(&out, fmt.tprintf("`%s` is a builtin name, which the import would shadow in each importer", new_name))
+	}
+	new_dir := path.join({path.dir(dir), new_name})
+	if os.exists(new_dir) {
+		append(&out, fmt.tprintf("%s already exists", new_dir))
+	}
+
+	r := Package_Rename {
+		real_dir = canonical_dir(dir),
+		old_name = old_name,
+		new_name = new_name,
+		config   = config,
+		reasons  = &out,
+		edits    = make(map[string][dynamic]TextEdit),
+	}
+
+	// The clauses of dir; each file must name the directory, with or without `_test`.
+	documents := make([dynamic]^Document)
+	for source in sources {
+		document, parsed := parse_package_file(source, config)
+		if !parsed {
+			append(&out, fmt.tprintf("cannot parse %s", source.fullpath))
+			continue
+		}
+		clause := document.ast.pkg_decl
+		suffix := "_test" if strings.has_suffix(clause.name, "_test") else ""
+		if strings.trim_suffix(clause.name, "_test") != old_name {
+			append(
+				&out,
+				fmt.tprintf(
+					"%s:%d:%d declares `package %s`, but Odin imports the package by its directory name `%s`; make them match first",
+					source.fullpath,
+					clause.pos.line,
+					clause.pos.column,
+					clause.name,
+					old_name,
+				),
+			)
+			continue
+		}
+		add_edit(
+			&r,
+			document.uri.uri,
+			text_range(clause.pos, clause.name, document.ast.src),
+			strings.concatenate({new_name, suffix}),
+		)
+		append(&documents, new_clone(document))
+	}
+	if len(out) > 0 {
+		return {}, {}, out[:], false
+	}
+
+	// Every other workspace file that mentions the old name may import it.
+	for file in workspace_odin_files("", files) {
+		if is_source(sources, file.fullpath) {
+			continue
+		}
+		text := file.text
+		if text == "" {
+			data, err := os.read_entire_file(file.fullpath, context.temp_allocator)
+			if err != nil {
+				continue
+			}
+			text = string(data)
+		}
+		if !contains_word(text, old_name) && !imports_into(&r, file.fullpath, text) {
+			continue
+		}
+		document, parsed := parse_package_file({file.fullpath, text}, config)
+		if !parsed {
+			append(
+				&r.warnings,
+				fmt.tprintf(
+					"cannot parse %s, which mentions `%s`; the rename does not change it",
+					file.fullpath,
+					old_name,
+				),
+			)
+			continue
+		}
+		append(&documents, new_clone(document))
+	}
+
+	for document in documents {
+		rewrite_importer(&r, document)
+	}
+	if len(out) > 0 {
+		return {}, {}, out[:], false
+	}
+
+	uris, _ := slice.map_keys(r.edits)
+	slice.sort(uris)
+	changes := make([dynamic]DocumentChange)
+	for uri in uris {
+		append(&changes, TextDocumentEdit{textDocument = {uri = uri}, edits = r.edits[uri][:]})
+	}
+	append(
+		&changes,
+		RenameFile {
+			kind = "rename",
+			oldUri = common.create_uri(dir, context.temp_allocator).uri,
+			newUri = common.create_uri(new_dir, context.temp_allocator).uri,
+		},
+	)
+	edit.documentChanges = changes[:]
+
+	all_warnings := make([dynamic]string)
+	append(&all_warnings, ..r.warnings[:])
+	append(&all_warnings, ..skipped_files_warning(old_name, config, mentions_package))
+	append(&all_warnings, ..mention_warnings(documents[:], old_name))
+	return edit, all_warnings[:], {}, true
+}
+
+@(private = "file")
+Package_Rename :: struct {
+	real_dir: string, // dir with symlinks resolved, to compare resolved import paths
+	old_name: string,
+	new_name: string,
+	config:   ^common.Config,
+	reasons:  ^[dynamic]string,
+	edits:    map[string][dynamic]TextEdit,
+	warnings: [dynamic]string,
+}
+
+@(private = "file")
+add_edit :: proc(r: ^Package_Rename, uri: string, range: common.Range, text: string) {
+	list := r.edits[uri] or_else make([dynamic]TextEdit)
+	append(&list, TextEdit{range = range, newText = text})
+	r.edits[uri] = list
+}
+
+// The range of text where it starts at pos in src.
+@(private = "file")
+text_range :: proc(pos: tokenizer.Pos, text, src: string) -> common.Range {
+	end := pos
+	end.offset += len(text)
+	end.column += len(text)
+	return common.get_token_range(ast.Node{pos = pos, end = end}, src)
+}
+
+// Whether p is dir or lies below it; both use forward slashes.
+at_or_below :: proc(p, dir: string) -> bool {
+	return p == dir || (len(p) > len(dir) && p[len(dir)] == '/' && strings.has_prefix(p, dir))
+}
+
+@(private = "file")
+is_source :: proc(sources: []Package_File, fullpath: string) -> bool {
+	for source in sources {
+		if source.fullpath == fullpath {
+			return true
+		}
+	}
+	return false
+}
+
+// The .odin files directly in dir with their texts, from files when given, else from disk. Appends a cause
+// when dir is not a directory of .odin files.
+@(private = "file")
+package_sources :: proc(out: ^[dynamic]string, dir: string, files: []Package_File) -> ([]Package_File, bool) {
+	sources := make([dynamic]Package_File)
+	if len(files) > 0 {
+		for file in files {
+			if path.dir(file.fullpath) == dir {
+				append(&sources, file)
+			}
+		}
+	} else if !os.is_directory(dir) {
+		append(out, fmt.tprintf("%s is not a directory", dir))
+		return {}, false
+	} else {
+		matches, _ := filepath.glob(path.join({dir, "*.odin"}), context.temp_allocator)
+		slice.sort(matches)
+		for match in matches {
+			data, err := os.read_entire_file(match, context.temp_allocator)
+			if err != nil {
+				append(out, fmt.tprintf("cannot read %s: %v", match, err))
+				return {}, false
+			}
+			slashed, _ := filepath.replace_separators(match, '/', context.temp_allocator)
+			append(&sources, Package_File{slashed, string(data)})
+		}
+	}
+	if len(sources) == 0 {
+		append(out, fmt.tprintf("%s contains no .odin files", dir))
+		return {}, false
+	}
+	return sources[:], true
+}
+
+// Appends a cause when dir is the workspace root, outside the workspace folders, in core:, vendor: or
+// base:, or holds the root of a collection, which the rename would leave pointing at nothing.
+@(private = "file")
+check_package_location :: proc(out: ^[dynamic]string, dir: string, config: ^common.Config) {
+	libraries := LIBRARY_COLLECTIONS
+	for name, root in config.collections {
+		if rel, inside := relative_dir(root, dir); inside && slice.contains(libraries[:], name) {
+			append(out, fmt.tprintf("%s is in %s:%s, a library outside the workspace", dir, name, rel))
+			return
+		}
+	}
+	for name, root in config.collections {
+		if _, inside := relative_dir(dir, root); inside {
+			append(
+				out,
+				fmt.tprintf("the collection `%s` points into %s; renaming the directory would break it", name, dir),
+			)
+		}
+	}
+	if len(config.workspace_folders) == 0 {
+		return
+	}
+	for folder in config.workspace_folders {
+		root := common.uri_to_path(folder.uri, context.temp_allocator)
+		if rel, inside := relative_dir(root, dir); inside {
+			if rel == "" {
+				append(out, fmt.tprintf("%s is the workspace root", dir))
+			}
+			return
+		}
+	}
+	append(out, fmt.tprintf("%s is outside the workspace folders", dir))
+}
+
+// Rewrites the import paths of document that step into the package directory and, for an import of the
+// package itself without an alias, every qualifier that resolves to it. Appends a cause for an import that
+// resolves into the directory, with symlinks resolved, when the walk over its segments finds no segment
+// to rename: a symlink in the path, or a `\` separator, would otherwise leave it pointing at nothing.
+@(private = "file")
+rewrite_importer :: proc(r: ^Package_Rename, document: ^Document) {
+	src := document.ast.src
+	inside := at_or_below(canonical_dir(path.dir(document.fullpath)), r.real_dir)
+	for imp in document.ast.imports {
+		new_path, changed := rewrite_import_path(r, document, imp)
+		if changed {
+			add_edit(r, document.uri.uri, text_range(imp.relpath.pos, imp.relpath.text, src), new_path)
+		}
+		// parse_imports drops an import with an unknown collection, which then resolves nowhere.
+		pkg := imported_package(document, imp) or_continue
+		target := canonical_dir(pkg.name)
+		relative := !strings.contains(imp.relpath.text, ":")
+		// A relative import from inside the directory moves with it, so its target is unaffected.
+		if !changed && at_or_below(target, r.real_dir) && !(inside && relative) {
+			append(
+				r.reasons,
+				fmt.tprintf(
+					"%s:%d:%d: cannot rewrite import path %s, which resolves into %s",
+					document.fullpath,
+					imp.relpath.pos.line,
+					imp.relpath.pos.column,
+					imp.relpath.text,
+					r.real_dir,
+				),
+			)
+		}
+		// An import without an alias binds the directory name, whatever its path says.
+		if target == r.real_dir && imp.name.text == "" {
+			rewrite_qualifiers(r, document, imp)
+		}
+	}
+}
+
+// The collection prefix with its colon, the rest of the path, and the directory the rest starts at: the
+// collection root, or the directory of file for a relative path. Fails on an unknown collection.
+@(private = "file")
+split_import_path :: proc(
+	r: ^Package_Rename,
+	file, body: string,
+) -> (
+	prefix: string,
+	rel: string,
+	start: string,
+	ok: bool,
+) {
+	if i := strings.index_byte(body, ':'); i > 0 {
+		root := r.config.collections[body[:i]] or_return
+		return body[:i + 1], body[i + 1:], root, true
+	}
+	return "", body, path.dir(file), true
+}
+
+// Whether an import of text, the source of file, resolves into the package directory with symlinks
+// resolved, for a file whose text never names the package, as an import through a symlink does not.
+@(private = "file")
+imports_into :: proc(r: ^Package_Rename, file, text: string) -> bool {
+	t: tokenizer.Tokenizer
+	tokenizer.init(&t, text, file, proc(pos: tokenizer.Pos, msg: string, args: ..any) {})
+	previous: tokenizer.Token
+	in_import := false
+	for token := tokenizer.scan(&t); token.kind != .EOF; previous, token = token, tokenizer.scan(&t) {
+		#partial switch token.kind {
+		case .Import:
+			in_import = previous.kind != .Foreign
+		case .Ident, .Comment:
+		case .String:
+			if in_import && len(token.text) >= 2 {
+				_, rel, start, known := split_import_path(r, file, token.text[1:len(token.text) - 1])
+				if known && at_or_below(canonical_dir(path.join({start, rel})), r.real_dir) {
+					return true
+				}
+			}
+			in_import = false
+		case:
+			in_import = false
+		}
+	}
+	return false
+}
+
+// The package that parse_imports resolved for imp.
+@(private = "file")
+imported_package :: proc(document: ^Document, imp: ^ast.Import_Decl) -> (pkg: Package, ok: bool) {
+	for candidate in document.imports {
+		if candidate.import_decl == imp {
+			return candidate, true
+		}
+	}
+	return {}, false
+}
+
+// The import path of imp with the segment that steps into the package directory renamed, quotes included.
+// Each segment is followed from the directory the path starts at, so a relative path that only leaves the
+// package with `..` stays as it is. Only the start has its symlinks resolved.
+@(private = "file")
+rewrite_import_path :: proc(
+	r: ^Package_Rename,
+	document: ^Document,
+	imp: ^ast.Import_Decl,
+) -> (
+	new_path: string,
+	changed: bool,
+) {
+	quoted := imp.relpath.text
+	if len(quoted) < 2 {
+		return
+	}
+	body := quoted[1:len(quoted) - 1]
+	prefix, rel, start := split_import_path(r, document.fullpath, body) or_return
+
+	current := canonical_dir(start)
+	segments := strings.split(rel, "/")
+	for &segment in segments {
+		switch segment {
+		case "", ".":
+		case "..":
+			current = path.dir(current)
+		case:
+			current = path.join({current, segment})
+			if current == r.real_dir {
+				segment = r.new_name
+				changed = true
+			}
+		}
+	}
+	quote := quoted[:1]
+	return strings.concatenate({quote, prefix, strings.join(segments, "/"), quote}), changed
+}
+
+// Renames each `old.x` of document whose `old` resolves to the package imported by imp. Appends a cause
+// for each binding of the new name that the import would collide with, and for each local named like
+// the new name that is visible at a qualifier, since it would capture the renamed qualifier.
+@(private = "file")
+rewrite_qualifiers :: proc(r: ^Package_Rename, document: ^Document, imp: ^ast.Import_Decl) {
+	src := document.ast.src
+	for other in document.imports {
+		if other.import_decl != imp && other.base == r.new_name {
+			append(
+				r.reasons,
+				fmt.tprintf(
+					"%s:%d:%d: the file already imports a package as `%s`",
+					document.fullpath,
+					other.import_decl.pos.line,
+					other.import_decl.pos.column,
+					r.new_name,
+				),
+			)
+		}
+	}
+	in_file := false
+	for decl in top_level_value_decls(document.ast) {
+		for name in decl.names {
+			if ident, is_ident := name.derived.(^ast.Ident); is_ident && ident.name == r.new_name {
+				in_file = true
+				append(
+					r.reasons,
+					fmt.tprintf(
+						"%s:%d:%d: `%s` is already declared at file scope of an importer",
+						document.fullpath,
+						ident.pos.line,
+						ident.pos.column,
+						r.new_name,
+					),
+				)
+			}
+		}
+	}
+	if other, found := lookup(r.new_name, document.package_name, document.fullpath);
+	   found && !(in_file && strings.equal_fold(other.uri, document.uri.uri)) && !is_builtin_pkg(other.pkg) {
+		file := common.uri_to_path(other.uri, context.temp_allocator)
+		line, column := other.range.start.line + 1, other.range.start.character + 1
+		append(
+			r.reasons,
+			fmt.tprintf(
+				"%s:%d:%d: `%s` is already declared in the package of an importer",
+				file,
+				line,
+				column,
+				r.new_name,
+			),
+		)
+	}
+
+	for selector in qualifier_selectors(document, r.old_name) {
+		ident := selector.expr.derived.(^ast.Ident)
+		at := common.get_token_range(ident^, src)
+		symbol, found := resolve_name_at(document, at.start, ident.pos.offset, r.old_name)
+		if !found {
+			append(
+				&r.warnings,
+				fmt.tprintf(
+					"%s:%d:%d: cannot resolve `%s.%s`, so the rename does not change it",
+					document.fullpath,
+					ident.pos.line,
+					ident.pos.column,
+					r.old_name,
+					selector.field.name if selector.field != nil else "",
+				),
+			)
+			continue
+		}
+		if symbol.type != .Package || canonical_dir(symbol.pkg) != r.real_dir {
+			continue
+		}
+		if other, bound := resolve_name_at(document, at.start, ident.pos.offset, r.new_name);
+		   bound && .Local in other.flags {
+			append(
+				r.reasons,
+				fmt.tprintf(
+					"%s:%d:%d: `%s` is a local here, declared at %s, so it would capture the qualifier of `%s.%s`",
+					document.fullpath,
+					ident.pos.line,
+					ident.pos.column,
+					r.new_name,
+					declared_at(other),
+					r.old_name,
+					selector.field.name if selector.field != nil else "",
+				),
+			)
+		}
+		add_edit(r, document.uri.uri, at, r.new_name)
+	}
+}
+
+// Every `name.x` selector of document whose left side is the identifier name.
+@(private = "file")
+qualifier_selectors :: proc(document: ^Document, name: string) -> []^ast.Selector_Expr {
+	Found :: struct {
+		name:      string,
+		selectors: [dynamic]^ast.Selector_Expr,
+	}
+	found := Found{name, make([dynamic]^ast.Selector_Expr)}
+	visitor := ast.Visitor {
+		visit = proc(v: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil {
+				return nil
+			}
+			if selector, is_selector := node.derived.(^ast.Selector_Expr); is_selector && selector.expr != nil {
+				found := (^Found)(v.data)
+				if ident, is_ident := selector.expr.derived.(^ast.Ident); is_ident && ident.name == found.name {
+					append(&found.selectors, selector)
+				}
+			}
+			return v
+		},
+		data = &found,
+	}
+	for decl in document.ast.decls {
+		ast.walk(&visitor, decl)
+	}
+	return found.selectors[:]
+}
+
+// Every foreign import of document, those in `when` blocks included.
+@(private = "file")
+foreign_imports :: proc(document: ^Document) -> []^ast.Foreign_Import_Decl {
+	found := make([dynamic]^ast.Foreign_Import_Decl)
+	visitor := ast.Visitor {
+		visit = proc(v: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil {
+				return nil
+			}
+			if decl, is_decl := node.derived.(^ast.Foreign_Import_Decl); is_decl {
+				append((^[dynamic]^ast.Foreign_Import_Decl)(v.data), decl)
+			}
+			return v
+		},
+		data = &found,
+	}
+	for decl in document.ast.decls {
+		ast.walk(&visitor, decl)
+	}
+	return found[:]
+}
+
+// Whether text mentions the package name as a qualifier `name.` or as an import path segment.
+@(private = "file")
+mentions_package :: proc(text, name: string) -> bool {
+	for start := 0; start < len(text); {
+		i := strings.index(text[start:], name)
+		if i < 0 {
+			return false
+		}
+		i += start
+		end := i + len(name)
+		before := text[i - 1] if i > 0 else 0
+		after := text[end] if end < len(text) else 0
+		whole := !is_ident_rune(rune(before)) && !is_ident_rune(rune(after))
+		in_path := before == '/' || before == ':' || before == '"' || after == '/' || after == '"'
+		if whole && (after == '.' || in_path) {
+			return true
+		}
+		start = i + 1
+	}
+	return false
+}
+
+// One warning per comment, foreign import path, or #load, #load_hash, #load_directory or #config string of
+// documents that mentions name, up to MENTIONS_SHOWN, then one that counts the rest.
+@(private = "file")
+mention_warnings :: proc(documents: []^Document, name: string) -> []string {
+	warnings := make([dynamic]string)
+	hidden := 0
+	mention :: proc(warnings: ^[dynamic]string, hidden: ^int, file: string, pos: tokenizer.Pos, what, name: string) {
+		if len(warnings) == MENTIONS_SHOWN {
+			hidden^ += 1
+			return
+		}
+		append(
+			warnings,
+			fmt.tprintf(
+				"%s:%d:%d: the %s mentions `%s`, which rename-package does not change",
+				file,
+				pos.line,
+				pos.column,
+				what,
+				name,
+			),
+		)
+	}
+	directives := STRING_DIRECTIVES
+	for document in documents {
+		for decl in foreign_imports(document) {
+			for expr in decl.fullpaths {
+				if lit, is_lit := expr.derived.(^ast.Basic_Lit); is_lit && contains_word(lit.tok.text, name) {
+					mention(&warnings, &hidden, document.fullpath, lit.pos, "foreign import path", name)
+				}
+			}
+		}
+		t: tokenizer.Tokenizer
+		tokenizer.init(&t, document.ast.src, document.fullpath, proc(pos: tokenizer.Pos, msg: string, args: ..any) {})
+		directive := false
+		depth := 0
+		previous: tokenizer.Token
+		for token := tokenizer.scan(&t); token.kind != .EOF; previous, token = token, tokenizer.scan(&t) {
+			what := ""
+			#partial switch token.kind {
+			case .Comment:
+				what = "comment"
+			case .Ident:
+				if previous.kind == .Hash && slice.contains(directives[:], token.text) {
+					directive, depth = true, 0
+				}
+			case .Open_Paren:
+				depth += 1
+			case .Close_Paren:
+				depth -= 1
+				if depth <= 0 {
+					directive = false
+				}
+			case .String:
+				if directive && depth > 0 {
+					what = "directive string"
+				}
+			}
+			if what != "" && contains_word(token.text, name) {
+				mention(&warnings, &hidden, document.fullpath, token.pos, what, name)
+			}
+		}
+	}
+	if hidden > 0 {
+		append(
+			&warnings,
+			fmt.tprintf("%d more comments, foreign import paths or directive strings mention `%s`", hidden, name),
+		)
+	}
+	return warnings[:]
+}

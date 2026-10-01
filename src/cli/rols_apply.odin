@@ -37,10 +37,17 @@ File_State :: struct {
 	text:     string,
 }
 
+// A file or directory the edit moves. Text edits address files by their old path.
+Path_Rename :: struct {
+	old, new: string,
+}
+
 // Every file of a workspace edit with its new text, computed in memory before anything is written.
+// Renames run after every file is written, in order.
 Edit_Plan :: struct {
-	files: [dynamic]File_State,
-	edits: int, // text edits, for the summary
+	files:   [dynamic]File_State,
+	renames: [dynamic]Path_Rename,
+	edits:   int, // text edits, for the summary
 }
 
 // The `--json` result of a refactor command.
@@ -76,24 +83,40 @@ run_edit :: proc(name: string, edit: server.WorkspaceEdit, apply, check: bool, w
 		return finish(name, .Refused, edit, {}, reasons[:])
 	}
 	changed := changed_files(plan)
-	if len(changed) == 0 {
+	renames := plan.renames[:]
+	if len(changed) == 0 && len(renames) == 0 {
 		return finish(name, .Noop, edit, {}, reasons[:])
 	}
 	if !apply {
 		if !json_output {
 			b := strings.builder_make(context.temp_allocator)
+			for rename in renames {
+				fmt.sbprintfln(
+					&b,
+					"diff --git %s %s\nrename from %s\nrename to %s",
+					diff_label("a", rename.old),
+					diff_label("b", rename.new),
+					workspace_relative(rename.old),
+					workspace_relative(rename.new),
+				)
+			}
 			for file in changed {
 				old_label := "/dev/null" if !file.existed else diff_label("a", file.path)
-				new_label := "/dev/null" if !file.exists else diff_label("b", file.path)
+				new_label := "/dev/null" if !file.exists else diff_label("b", renamed_path(renames, file.path))
 				write_unified_diff(&b, old_label, new_label, file.original, file.text)
 			}
 			fmt.print(strings.to_string(b))
 		}
-		return finish(name, .Dry_Run, edit, changed, reasons[:], plan.edits)
+		return finish(name, .Dry_Run, edit, changed, reasons[:], plan.edits, renames)
 	}
 
 	check := check
-	dirs := package_dirs(changed)
+	// The packages are checked at their old paths before the write and at their new paths after it.
+	dirs := package_dirs(changed, renames)
+	moved_dirs := make([]string, len(dirs), context.temp_allocator)
+	for dir, i in dirs {
+		moved_dirs[i] = renamed_path(renames, dir)
+	}
 	before: []Check_Error
 	if check {
 		paths := checkable_paths(dirs)
@@ -112,31 +135,37 @@ run_edit :: proc(name: string, edit: server.WorkspaceEdit, apply, check: bool, w
 		}
 	}
 
-	if verify_reason, verify_ok := verify_unchanged(changed); !verify_ok {
+	if verify_reason, verify_ok := verify_unchanged(changed, renames); !verify_ok {
 		append(&reasons, verify_reason)
 		return finish(name, .Refused, edit, {}, reasons[:])
 	}
+	// Files are written at their old paths, then the renames move them.
 	written, write_reason, write_ok := write_files(changed)
 	if !write_ok {
 		append(&reasons, write_reason)
 		// The file that failed may be truncated, so it is restored too.
-		return roll_back(name, .Refused, edit, changed[:written + 1], &reasons, plan.edits)
+		return roll_back(name, .Refused, edit, changed[:written + 1], {}, &reasons, plan.edits)
+	}
+	renamed, rename_reason, rename_ok := rename_paths(renames)
+	if !rename_ok {
+		append(&reasons, rename_reason)
+		return roll_back(name, .Refused, edit, changed, renames[:renamed], &reasons, plan.edits)
 	}
 
 	if check {
-		after, after_reason, after_ok := check_errors(checkable_paths(dirs))
+		after, after_reason, after_ok := check_errors(checkable_paths(moved_dirs))
 		if !after_ok {
 			append(&reasons, fmt.tprintf("%s after writing", after_reason))
-			return roll_back(name, .Refused, edit, changed, &reasons, plan.edits)
+			return roll_back(name, .Refused, edit, changed, renames, &reasons, plan.edits)
 		}
 		if fresh := new_errors(before, after); len(fresh) > 0 {
 			for e in fresh {
 				append(&reasons, fmt.tprintf("%s:%d:%d: %s", e.file, e.line, e.column, e.message))
 			}
-			return roll_back(name, .Check_Failed, edit, changed, &reasons, plan.edits)
+			return roll_back(name, .Check_Failed, edit, changed, renames, &reasons, plan.edits)
 		}
 	}
-	return finish(name, .Applied, edit, changed, reasons[:], plan.edits)
+	return finish(name, .Applied, edit, changed, reasons[:], plan.edits, renames)
 }
 
 // Prints warning on stderr in text mode, or keeps it in reasons for JSON.
@@ -149,23 +178,68 @@ warn :: proc(reasons: ^[dynamic]string, warning: string) {
 	}
 }
 
-// Restores files and finishes with status, or refuses naming the files that stayed modified when a
-// restore fails.
+// Undoes renames and restores files, then finishes with status, or refuses naming what stayed modified
+// when the undo fails.
 @(private = "file")
 roll_back :: proc(
 	name: string,
 	status: Edit_Status,
 	edit: server.WorkspaceEdit,
 	files: []File_State,
+	renames: []Path_Rename,
 	reasons: ^[dynamic]string,
 	edits: int,
 ) -> int {
-	failures := restore_files(files)
+	failures := undo_edit(files, renames)
 	if len(failures) > 0 {
 		append(reasons, ..failures)
 		return finish(name, .Refused, edit, files, reasons[:], edits, left_modified = len(failures))
 	}
 	return finish(name, status, edit, files, reasons[:], edits)
+}
+
+// Runs each rename in order; on failure, renamed counts the renames already done.
+rename_paths :: proc(renames: []Path_Rename) -> (renamed: int, reason: string, ok: bool) {
+	for rename, i in renames {
+		if err := os.rename(rename.old, rename.new); err != nil {
+			return i, fmt.tprintf("cannot rename %s to %s: %v", rename.old, rename.new, err), false
+		}
+	}
+	return len(renames), "", true
+}
+
+// Undoes the renames that ran, last first, then restores files byte for byte where each one is now: a
+// rename that cannot be undone leaves its files at the new path. Returns a cause per path left modified.
+undo_edit :: proc(files: []File_State, renames: []Path_Rename) -> []string {
+	failures := make([dynamic]string, context.temp_allocator)
+	stuck := make([dynamic]Path_Rename, context.temp_allocator)
+	#reverse for rename in renames {
+		if err := os.rename(rename.new, rename.old); err != nil {
+			append(
+				&failures,
+				fmt.tprintf("%s remains renamed to %s: cannot rename it back: %v", rename.old, rename.new, err),
+			)
+			append(&stuck, rename)
+		}
+	}
+	at := make([]File_State, len(files), context.temp_allocator)
+	for file, i in files {
+		at[i] = file
+		at[i].path = renamed_path(stuck[:], file.path)
+	}
+	append(&failures, ..restore_files(at))
+	return failures[:]
+}
+
+// Where file_path is after renames: the new path of the last rename of it or of a directory above it.
+renamed_path :: proc(renames: []Path_Rename, file_path: string) -> string {
+	result := file_path
+	for rename in renames {
+		if server.at_or_below(result, rename.old) {
+			result = strings.concatenate({rename.new, result[len(rename.old):]}, context.temp_allocator)
+		}
+	}
+	return result
 }
 
 // Refuses the refactor command name before it has an edit; each reason is one cause.
@@ -174,13 +248,18 @@ refuse :: proc(name: string, reasons: ..string) -> int {
 }
 
 // Applies every change of edit to the file texts in memory. Fails on an unreadable file, an edit to a
-// missing file, or an invalid or overlapping range.
+// missing file, an invalid or overlapping range, a rename of a missing path or onto an existing one, and
+// a change after a rename to a path it moves: text edits address the old paths, so they precede renames.
 plan_workspace_edit :: proc(edit: server.WorkspaceEdit) -> (plan: Edit_Plan, reason: string, ok: bool) {
 	plan.files = make([dynamic]File_State, context.temp_allocator)
+	plan.renames = make([dynamic]Path_Rename, context.temp_allocator)
 	if changes, has := edit.documentChanges.?; has {
 		for change in changes {
 			switch c in change {
 			case server.CreateFile:
+				if order_reason, order_ok := before_renames(plan, c.uri); !order_ok {
+					return {}, order_reason, false
+				}
 				i, file_reason, file_ok := plan_file(&plan, c.uri)
 				if !file_ok {
 					return {}, file_reason, false
@@ -188,20 +267,53 @@ plan_workspace_edit :: proc(edit: server.WorkspaceEdit) -> (plan: Edit_Plan, rea
 				// An existing file stays as it is, as with ignoreIfExists.
 				plan.files[i].exists = true
 			case server.TextDocumentEdit:
+				if order_reason, order_ok := before_renames(plan, c.textDocument.uri); !order_ok {
+					return {}, order_reason, false
+				}
 				if edit_reason, edit_ok := plan_text_edits(&plan, c.textDocument.uri, c.edits); !edit_ok {
 					return {}, edit_reason, false
 				}
+			case server.RenameFile:
+				rename := Path_Rename {
+					old = common.uri_to_path(c.oldUri, context.temp_allocator),
+					new = common.uri_to_path(c.newUri, context.temp_allocator),
+				}
+				if !os.exists(rename.old) {
+					return {}, fmt.tprintf("the edit renames %s, which does not exist", rename.old), false
+				}
+				if os.exists(rename.new) {
+					return {},
+						fmt.tprintf("the edit renames %s to %s, which already exists", rename.old, rename.new),
+						false
+				}
+				append(&plan.renames, rename)
 			}
 		}
 	}
 	uris, _ := slice.map_keys(edit.changes, context.temp_allocator)
 	slice.sort(uris)
 	for uri in uris {
+		if order_reason, order_ok := before_renames(plan, uri); !order_ok {
+			return {}, order_reason, false
+		}
 		if edit_reason, edit_ok := plan_text_edits(&plan, uri, edit.changes[uri]); !edit_ok {
 			return {}, edit_reason, false
 		}
 	}
 	return plan, "", true
+}
+
+// Fails when the file of uri lies at or below a path that a planned rename moves from or to.
+@(private = "file")
+before_renames :: proc(plan: Edit_Plan, uri: string) -> (reason: string, ok: bool) {
+	file_path := common.uri_to_path(uri, context.temp_allocator)
+	for rename in plan.renames {
+		if server.at_or_below(file_path, rename.old) || server.at_or_below(file_path, rename.new) {
+			return fmt.tprintf("the edit changes %s after a rename that moves it; edit the old path first", file_path),
+				false
+		}
+	}
+	return "", true
 }
 
 @(private = "file")
@@ -258,14 +370,20 @@ changed_files :: proc(plan: Edit_Plan) -> []File_State {
 	return changed[:]
 }
 
-// The directories of the touched files, each a package `odin check` can check.
+// The directories of the touched files and the renamed directories, each a package `odin check` can check.
 @(private = "file")
-package_dirs :: proc(files: []File_State) -> []string {
+package_dirs :: proc(files: []File_State, renames: []Path_Rename) -> []string {
 	dirs := make([dynamic]string, context.temp_allocator)
 	for file in files {
 		dir := path.dir(file.path, context.temp_allocator)
 		if !slice.contains(dirs[:], dir) {
 			append(&dirs, dir)
+		}
+	}
+	// A rename with no text edit in its directory still needs the check; rename-package always edits there.
+	for rename in renames {
+		if os.is_directory(rename.old) && !slice.contains(dirs[:], rename.old) {
+			append(&dirs, rename.old)
 		}
 	}
 	return dirs[:]
@@ -289,8 +407,17 @@ write_files :: proc(files: []File_State) -> (written: int, reason: string, ok: b
 }
 
 // Fails when a file changed on disk, or appeared, since the plan read it: writing would lose that change.
+// Also fails when a rename source is gone or its target has appeared.
 @(private = "file")
-verify_unchanged :: proc(files: []File_State) -> (reason: string, ok: bool) {
+verify_unchanged :: proc(files: []File_State, renames: []Path_Rename) -> (reason: string, ok: bool) {
+	for rename in renames {
+		if !os.exists(rename.old) {
+			return fmt.tprintf("%s was removed since the edit was computed; run the command again", rename.old), false
+		}
+		if os.exists(rename.new) {
+			return fmt.tprintf("%s was created since the edit was computed; run the command again", rename.new), false
+		}
+	}
 	for file in files {
 		if !file.existed {
 			if os.exists(file.path) {
@@ -398,17 +525,24 @@ new_errors :: proc(before, after: []Check_Error) -> []Check_Error {
 // prefix/PATH with PATH relative to the workspace root, or prefix followed by the absolute path outside it.
 @(private = "file")
 diff_label :: proc(prefix, file: string) -> string {
+	rel := workspace_relative(file)
+	return strings.concatenate({prefix, "" if rel == file else "/", rel}, context.temp_allocator)
+}
+
+// file relative to the workspace root, or file itself outside it.
+@(private = "file")
+workspace_relative :: proc(file: string) -> string {
 	if len(common.config.workspace_folders) > 0 {
 		root := common.uri_to_path(common.config.workspace_folders[0].uri, context.temp_allocator)
 		if rel, err := filepath.rel(root, file, context.temp_allocator); err == nil && !strings.has_prefix(rel, "..") {
-			return strings.concatenate({prefix, "/", rel}, context.temp_allocator)
+			return rel
 		}
 	}
-	return strings.concatenate({prefix, file}, context.temp_allocator)
+	return file
 }
 
-// Prints the result of a refactor command and returns its exit code. left_modified counts the files a
-// failed rollback could not restore.
+// Prints the result of a refactor command and returns its exit code. renames name the moved paths, and
+// left_modified counts the paths a failed rollback could not restore.
 @(private = "file")
 finish :: proc(
 	name: string,
@@ -417,6 +551,7 @@ finish :: proc(
 	changed: []File_State,
 	reasons: []string,
 	edits := 0,
+	renames: []Path_Rename = {},
 	left_modified := 0,
 ) -> int {
 	summary: string
@@ -427,6 +562,9 @@ finish :: proc(
 		len(changed),
 		"" if len(changed) == 1 else "s",
 	)
+	if len(renames) > 0 {
+		counts = fmt.tprintf("%s and %d rename%s", counts, len(renames), "" if len(renames) == 1 else "s")
+	}
 	switch status {
 	case .Dry_Run:
 		summary = fmt.tprintf("%s: %s", name, counts)
@@ -457,8 +595,11 @@ finish :: proc(
 	}
 	switch status {
 	case .Applied:
+		for rename in renames {
+			fmt.printfln("%s -> %s", rename.old, rename.new)
+		}
 		for file in changed {
-			fmt.println(file.path)
+			fmt.println(renamed_path(renames, file.path))
 		}
 		fmt.println(summary)
 	case .Dry_Run, .Noop:

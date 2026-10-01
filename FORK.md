@@ -22,6 +22,7 @@
 - `.claude/skills/rebase/SKILL.md`
 
 Whole fork-only package: `src/cli`.
+Its `ols query rename-package` command runs the engine in `src/server/rols_rename_package.odin` and writes through `run_edit`, whose transaction renames the directory after the files are written; `tools/cli_smoke.sh` covers it.
 Its `ols query modernize` command (`src/cli/rols_modernize.odin`) runs the engine in `src/server/rols_modernize.odin` and writes through `run_edit` in `src/cli/rols_apply.odin`; `tools/cli_smoke.sh` covers it.
 The `migration` rules of that command, which rewrite deprecated or removed Odin forms, live in `src/server/rols_modernize_migrate.odin` and have no lint or config key; `tools/cli_smoke.sh` covers `base-imports`.
 
@@ -43,7 +44,7 @@ Config:
 Capabilities:
 
 - `src/server/requests.odin`: initialize response: range formatting, fork action kinds and providers, the hint kinds that turn the provider on, organize-on-save and file-creation client support.
-- `src/server/types.odin`: capability and payload types for the fork requests, server-initiated request payloads, and the named response union that lets `workspace/applyEdit` be sent.
+- `src/server/types.odin`: capability and payload types for the fork requests, server-initiated request payloads, the `CreateFile` and `RenameFile` document changes, and the named response union that lets `workspace/applyEdit` be sent.
 
 Workspace filter (`src/common/rols_workspace_filter.odin`), applied to workspace symbols (directories only), the reference file list behind references, rename, change signature, incoming calls, code lens and the CLI, and the checker's fallback package list:
 
@@ -85,7 +86,7 @@ Small fixes:
 - `src/server/diagnostics.odin`: fork producers, a file-private mutex, and the merge that runs under the lock.
 - `src/server/hover.odin`: struct layout and field offsets.
 - `src/server/inlay_hints.odin`: fork hint kinds, enclosing procedure tracking, and a resolve context built only when a kind needs it.
-- `src/server/check.odin`: never block the request thread, drain the pipe incrementally, reap killed processes, vet and style flags from the config, vet findings as warnings.
+- `src/server/check.odin`: never block the request thread, drain the pipe incrementally, reap killed processes, vet and style flags from the config, vet findings as warnings, and a `Syntax Error` that `-json-errors` types as a warning, such as a missing import path, as an error.
 - `src/server/documents.odin`: reject a change before touching the document, refresh lint diagnostics.
 
 Tests:
@@ -220,7 +221,7 @@ Confirm with `git diff upstream/master..HEAD -- src/server/requests.odin | grep 
 
 ## Fork sections in README.md
 
-- `## Command line queries`, including the refactor dry run, `--apply` transaction, `--no-check`, exit codes, symbol path targets and the rename refusals
+- `## Command line queries`, including the refactor dry run, `--apply` transaction with directory renames, `--no-check`, exit codes, symbol path targets, the rename refusals and `rename-package`
 - `### Claude Code`
 
 The fork's option bullets in README are the config keys listed above.
