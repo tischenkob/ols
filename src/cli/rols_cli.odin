@@ -21,11 +21,11 @@ USAGE :: `usage: ols query <command> [--root DIR] [--json]
   callees FILE:LINE:COL                    procedures it calls
   hover   FILE:LINE:COL                    signature and doc comment
   symbols FILE                             outline of one file
-  actions FILE:LINE:COL[-LINE:COL] [--apply TITLE]
+  actions FILE:LINE:COL[-LINE:COL] [--apply TITLE [--no-check]]
                                            refactorings at a position or selection; --apply writes one by title
-  rename  FILE:LINE:COL NEW [--apply]
-  reorder-params FILE:LINE:COL --order 2,0,1 [--apply]
-  move    FILE:LINE:COL --to TARGET.odin [--apply]
+  rename  FILE:LINE:COL NEW [--apply [--no-check]]
+  reorder-params FILE:LINE:COL --order 2,0,1 [--apply [--no-check]]
+  move    FILE:LINE:COL --to TARGET.odin [--apply [--no-check]]
   check   [DIR]                            odin check errors plus lints, no build or run; run after every edit
   lint    FILE|DIR [--fail-on CODE,...]    lints only, works on code that does not compile;
                                            --fail-on exits 1 when a listed code is reported
@@ -38,6 +38,11 @@ USAGE :: `usage: ols query <command> [--root DIR] [--json]
 Output is one line per result, FILE:LINE:COL: TEXT; --json prints the LSP objects instead.
 Lines and columns are 1-based, columns in bytes, as odin check prints them.
 --root defaults to the nearest directory with an ols.json above the file, else the cwd.
+rename, reorder-params and move without --apply print a unified diff and a summary line. --apply writes
+every file or none, after odin check on each touched package; new errors restore every file. --no-check
+skips odin check. With --json they print {"status", "edit", "summary", "reasons"}.
+Refactor exit codes: 0 applied or previewed, 1 refused, 2 usage, 3 nothing to change, 4 rolled back
+after odin check reported new errors.
 `
 
 // Line and column are 1-based, the column in bytes.
@@ -46,7 +51,8 @@ Target :: struct {
 	start, end: [2]int,
 }
 
-@(private = "file")
+// --json: print LSP objects instead of lines.
+@(private)
 json_output: bool
 
 run :: proc(args: []string) -> int {
@@ -54,7 +60,7 @@ run :: proc(args: []string) -> int {
 
 	root, apply_title, order_text, move_to := "", "", "", ""
 	fail_on := ""
-	apply := false
+	apply, check_edit := false, true
 	rest := make([dynamic]string, context.temp_allocator)
 
 	for i := 0; i < len(args); i += 1 {
@@ -85,6 +91,8 @@ run :: proc(args: []string) -> int {
 			move_to = args[i]
 		case "--json":
 			json_output = true
+		case "--no-check":
+			check_edit = false
 		case "--apply":
 			apply = true
 			if len(rest) > 0 && rest[0] == "actions" && i + 1 < len(args) {
@@ -234,39 +242,27 @@ run :: proc(args: []string) -> int {
 		}
 		for action in actions {
 			if action.title == apply_title {
-				return apply_edit(action.edit)
+				return run_edit("actions", action.edit, true, check_edit)
 			}
 		}
-		fmt.eprintfln("no action %q, available: %v", apply_title, titles(actions))
-		return 1
+		return refuse("actions", fmt.tprintf("no action %q, available: %v", apply_title, titles(actions)))
 	case "rename":
 		edit, ok := server.get_rename(document, rest_args[1], position)
 		if !ok || len(edit.changes) == 0 {
-			return 1
+			return refuse("rename", "no symbol to rename at the position")
 		}
-		if apply {
-			return apply_edit(edit)
-		}
-		print_edit(edit)
-		return 0
+		return run_edit("rename", edit, apply, check_edit)
 	case "reorder-params":
 		order, order_ok := parse_order(order_text)
 		if !order_ok {
 			fmt.eprintln("--order takes comma separated parameter indices, like 2,0,1")
 			return 2
 		}
-		edit, ok := server.reorder_params(document, position, order)
+		edit, reason, ok := server.reorder_params(document, position, order)
 		if !ok {
-			fmt.eprintln(
-				"cannot reorder: the position must be on the name of a plain procedure that is only ever called with every argument positional, and --order must list each index once",
-			)
-			return 1
+			return refuse("reorder-params", reason)
 		}
-		if apply {
-			return apply_edit(edit)
-		}
-		print_edit(edit)
-		return 0
+		return run_edit("reorder-params", edit, apply, check_edit)
 	case "move":
 		if move_to == "" {
 			fmt.eprintln("--to names the target file")
@@ -275,18 +271,15 @@ run :: proc(args: []string) -> int {
 		if !filepath.is_abs(move_to) {
 			move_to = path.join({path.dir(target.file, context.temp_allocator), move_to}, context.temp_allocator)
 		}
-		edit, ok := server.move_declaration(document, position, common.create_uri(move_to, context.temp_allocator).uri)
+		edit, reason, ok := server.move_declaration(
+			document,
+			position,
+			common.create_uri(move_to, context.temp_allocator).uri,
+		)
 		if !ok {
-			fmt.eprintln(
-				"cannot move: the position must be on the name of a top-level declaration that is not file private and uses no file-private symbol, and --to must name a .odin file of the same directory",
-			)
-			return 1
+			return refuse("move", reason)
 		}
-		if apply {
-			return apply_edit(edit)
-		}
-		print_edit(edit)
-		return 0
+		return run_edit("move", edit, apply, check_edit)
 	}
 
 	return usage()
@@ -597,86 +590,6 @@ print_entries :: proc(entries: []Entry) {
 		severity := strings.to_lower(fmt.tprint(entry.diagnostic.severity), context.temp_allocator)
 		message, _ := strings.replace_all(entry.diagnostic.message, "\n", "\n\t", context.temp_allocator)
 		fmt.printfln("%s:%d:%d: %s: %s [%s]", file, line, col, severity, message, entry.diagnostic.code)
-	}
-}
-
-apply_edit :: proc(edit: server.WorkspaceEdit) -> int {
-	written := make([dynamic]string, context.temp_allocator)
-	if changes, has := edit.documentChanges.?; has {
-		for change in changes {
-			switch c in change {
-			case server.CreateFile:
-				file := common.uri_to_path(c.uri, context.temp_allocator)
-				if !os.exists(file) {
-					if err := os.write_entire_file(file, ""); err != nil {
-						fmt.eprintfln("cannot create %s: %v", file, err)
-						return 1
-					}
-				}
-			case server.TextDocumentEdit:
-				if !apply_file_edits(c.textDocument.uri, c.edits, &written) {
-					return 1
-				}
-			}
-		}
-	}
-	for uri, edits in edit.changes {
-		if !apply_file_edits(uri, edits, &written) {
-			return 1
-		}
-	}
-	if json_output {
-		print(written[:])
-	} else {
-		for file in written {
-			fmt.println(file)
-		}
-	}
-	return 0
-}
-
-apply_file_edits :: proc(uri: string, edits: []server.TextEdit, written: ^[dynamic]string) -> bool {
-	file := common.uri_to_path(uri, context.temp_allocator)
-	text, err := os.read_entire_file(file, context.temp_allocator)
-	if err != nil {
-		fmt.eprintfln("cannot read %s: %v", file, err)
-		return false
-	}
-	new_text := common.apply_text_edits(edits, string(text))
-	if err := os.write_entire_file(file, transmute([]u8)new_text); err != nil {
-		fmt.eprintfln("cannot write %s: %v", file, err)
-		return false
-	}
-	append(written, file)
-	return true
-}
-
-print_edit :: proc(edit: server.WorkspaceEdit) {
-	if json_output {
-		print(edit)
-		return
-	}
-	if changes, has := edit.documentChanges.?; has {
-		for change in changes {
-			switch c in change {
-			case server.CreateFile:
-				fmt.printfln("%s: create", common.uri_to_path(c.uri, context.temp_allocator))
-			case server.TextDocumentEdit:
-				print_text_edits(c.textDocument.uri, c.edits)
-			}
-		}
-	}
-	for uri, edits in edit.changes {
-		print_text_edits(uri, edits)
-	}
-}
-
-print_text_edits :: proc(uri: string, edits: []server.TextEdit) {
-	file := common.uri_to_path(uri, context.temp_allocator)
-	for edit in edits {
-		line, col := line_col(file, edit.range.start)
-		end_line, end_col := line_col(file, edit.range.end)
-		fmt.printfln("%s:%d:%d-%d:%d: %q", file, line, col, end_line, end_col, edit.newText)
 	}
 }
 

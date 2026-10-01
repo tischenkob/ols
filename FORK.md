@@ -54,6 +54,7 @@ Workspace filter (`src/common/rols_workspace_filter.odin`), applied to workspace
 CLI:
 
 - `src/main.odin`: `ols query` dispatch and the reused logger.
+- `src/server/check.odin`: notes each process's exit status and records whether every package check ran to a parsed result, so the refactor compile gate of `ols query` can tell no errors from a check that did not run.
 
 CI:
 
@@ -215,7 +216,7 @@ Confirm with `git diff upstream/master..HEAD -- src/server/requests.odin | grep 
 
 ## Fork sections in README.md
 
-- `## Command line queries`
+- `## Command line queries`, including the refactor dry run, `--apply` transaction, `--no-check` and exit codes
 - `### Claude Code`
 
 The fork's option bullets in README are the config keys listed above.

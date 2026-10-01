@@ -1,7 +1,6 @@
 package common
 
 import "core:fmt"
-import "core:log"
 import "core:slice"
 
 @(private = "file")
@@ -11,16 +10,16 @@ AppliedTextEdit :: struct {
 	newText:  string,
 }
 
-// T is any struct with `range: Range` and `newText: string`, such as server.TextEdit.
-apply_text_edits :: proc(edits: []$T, text: string) -> string {
+// T is any struct with `range: Range` and `newText: string`, such as server.TextEdit. Fails, returning
+// text unchanged, when a range lies outside text or when two edits overlap, since overlapping edits have
+// no result independent of the order they are applied in.
+apply_text_edits :: proc(edits: []$T, text: string) -> (string, bool) {
 	applied := make([dynamic]AppliedTextEdit, 0, len(edits), context.temp_allocator)
 
 	for edit, i in edits {
 		absolute, ok := get_absolute_range(edit.range, transmute([]u8)text)
-
-		if !ok {
-			log.errorf("Failed to get the absolute range of edit %v", edit)
-			return text
+		if !ok || absolute.start > absolute.end || absolute.end > len(text) {
+			return text, false
 		}
 
 		append(&applied, AppliedTextEdit{absolute = absolute, index = i, newText = edit.newText})
@@ -39,11 +38,7 @@ apply_text_edits :: proc(edits: []$T, text: string) -> string {
 	for a, i in applied {
 		for b in applied[i + 1:] {
 			if edits_conflict(a.absolute, b.absolute) {
-				log.errorf(
-					"Overlapping edits, the result depends on the order the client applies them in: %v and %v",
-					edits[a.index],
-					edits[b.index],
-				)
+				return text, false
 			}
 		}
 	}
@@ -54,7 +49,7 @@ apply_text_edits :: proc(edits: []$T, text: string) -> string {
 		result = fmt.tprintf("%s%s%s", result[:a.absolute.start], a.newText, result[a.absolute.end:])
 	}
 
-	return result
+	return result, true
 }
 
 @(private = "file")
@@ -71,8 +66,10 @@ edits_conflict :: proc(a, b: AbsoluteRange) -> bool {
 		return b.start <= a.start && a.start < b.end
 	}
 
+	//a sorts before b, so b.start <= a.start: an insert at b ends where a begins at the latest. At the same
+	//start b comes earlier in the array, and the spec allows an insert at the start of a later replace.
 	if b_is_insert {
-		return a.start <= b.start && b.start < a.end
+		return false
 	}
 
 	return a.start < b.end && b.start < a.end

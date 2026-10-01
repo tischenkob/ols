@@ -283,6 +283,8 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config) {
 
 			p.finished = true
 			running_count -= 1
+			// rols: the exit status for record_check_run
+			note_check_exit(p.process, state.exit_code)
 
 			for {
 				n, read_err := os.read(p.reader, buf[:])
@@ -316,6 +318,9 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config) {
 			time.sleep(1 * time.Millisecond)
 		}
 	}
+
+	// rols: record whether every package check ran to a parsed result
+	record_check_run(len(paths), processes[:], len(errors))
 
 	for p in processes {
 		os.close(p.reader)
