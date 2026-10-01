@@ -371,9 +371,12 @@ attr_decls :: proc(file: ^ast.File) -> []Attr_Decl {
 }
 
 // Appends the spans that remove every key element of decl from src; an emptied group goes whole. A run of
-// removed elements takes the comma and blanks after it, or its lines and the rest of its last line when it
-// starts a line. A run at the end takes its lines when it starts a line, else the comma before it. So the
-// comments of kept elements stay, and those after a removed element on its line go with it.
+// removed elements before a kept one takes the comma and blanks after it. When only blanks or a line comment
+// follow that comma on its line, a run that starts its line takes its lines instead, and a run after code
+// goes from just after the comma before it, or from its first element when it opens the group, to the line
+// end, a CRLF's `\r` excluded. A run at the end takes its lines when it starts a line, else the comma before it. So
+// the comments of kept elements stay, and those after a removed element on its line go with it. A comment
+// between a removed element's comma and the next element on that line belongs to the next element and stays.
 @(private = "file")
 remove_key :: proc(spans: ^[dynamic]Attr_Span, src: string, decl: Attr_Decl, key: string) {
 	for group in decl.groups {
@@ -473,7 +476,8 @@ group_span :: proc(src: string, group: ^ast.Attribute) -> Attr_Span {
 	return {start, end, ""}
 }
 
-// One edit per span, with overlapping deletions merged: groups that share a line may both reach a blank.
+// One edit per span, with overlapping deletions merged: groups that share a line may both reach a blank. A
+// deletion that leaves only blanks on its line, as merged duplicate groups on one line do, takes the line.
 @(private = "file")
 span_edits :: proc(spans: []Attr_Span, src: string) -> []TextEdit {
 	slice.sort_by(spans, proc(a, b: Attr_Span) -> bool {
@@ -486,6 +490,18 @@ span_edits :: proc(spans: []Attr_Span, src: string) -> []TextEdit {
 			continue
 		}
 		append(&merged, span)
+	}
+	for &span in merged {
+		// A span that ends at a line start already took its line.
+		if span.text != "" || span.end == 0 || src[span.end - 1] == '\n' {
+			continue
+		}
+		line := line_start(src, span.start)
+		line_end := strings.index_byte(src[span.end:], '\n')
+		line_end = len(src) if line_end < 0 else span.end + line_end
+		if is_blank(src[line:span.start]) && is_blank(src[span.end:line_end]) {
+			span.start, span.end = line, min(line_end + 1, len(src))
+		}
 	}
 	text := transmute([]u8)src
 	edits := make([]TextEdit, len(merged))

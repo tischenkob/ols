@@ -410,6 +410,19 @@ attr_remove_trailing_run_keeps_comments :: proc(t: ^testing.T) {
 			{{"main.odin", "package test\n\n@(rodata,\n\tlink_name=\"y\") y := 1\n"}},
 		)
 	}
+	// After `@(` the run starts at its first element; a CRLF keeps its `\r`.
+	{
+		source := test.Source {
+			main = "package test\n\n@(private, // why\r\n\trodata) y{*} := 1\r\n",
+		}
+		test.expect_attr_edit(
+			t,
+			&source,
+			.Remove,
+			{"private"},
+			{{"main.odin", "package test\n\n@(\r\n\trodata) y := 1\r\n"}},
+		)
+	}
 	// `)` on the removed element's line keeps that line's indentation.
 	{
 		source := test.Source {
@@ -423,6 +436,21 @@ attr_remove_trailing_run_keeps_comments :: proc(t: ^testing.T) {
 			{{"main.odin", "package test\n\n@(\n\tprivate,\n\t)\ny := 1\n"}},
 		)
 	}
+}
+
+// Duplicate groups on one line, which Odin rejects, take the whole line.
+@(test)
+attr_remove_all_duplicate_groups_one_line :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = "package test\n\n@(private) @(private)\nx :: 0\n\nmain :: proc() {\n\t@(private) @(private)\n\tinner :: 1\n\t_ = inner\n}\n",
+	}
+	test.expect_attr_edit(
+		t,
+		&source,
+		.Remove_All,
+		{"private", ""},
+		{{"main.odin", "package test\n\nx :: 0\n\nmain :: proc() {\n\tinner :: 1\n\t_ = inner\n}\n"}},
+	)
 }
 
 @(test)
