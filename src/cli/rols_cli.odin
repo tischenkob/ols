@@ -35,6 +35,11 @@ USAGE :: `usage: ols query <command> [--root DIR] [--json]
   api     PKG [NAME]                       exported symbols of a package (a directory or core:strings), one per line;
                                            with NAME the full signature and doc comment
   find    QUERY                            fuzzy symbol search over the workspace
+  modernize [PATH...] [--rule ID,...] [--list] [--diff] [--apply [--no-check]]
+                                           rewrites every file with the exact idiom rules, or the rules and
+                                           families --rule names, until nothing changes; without --diff or
+                                           --apply prints FILE:LINE:COL: [rule] title. PATH defaults to the
+                                           workspace. --diff and --apply work as for rename, exit codes included
 Output is one line per result, FILE:LINE:COL: TEXT; --json prints the LSP objects instead.
 Lines and columns are 1-based, columns in bytes, as odin check prints them.
 --root defaults to the nearest directory with an ols.json above the file, else the cwd.
@@ -61,6 +66,7 @@ run :: proc(args: []string) -> int {
 	root, apply_title, order_text, move_to := "", "", "", ""
 	fail_on := ""
 	apply, check_edit := false, true
+	modernize_options: Modernize_Options
 	rest := make([dynamic]string, context.temp_allocator)
 
 	for i := 0; i < len(args); i += 1 {
@@ -93,6 +99,16 @@ run :: proc(args: []string) -> int {
 			json_output = true
 		case "--no-check":
 			check_edit = false
+		case "--rule":
+			i += 1
+			if i == len(args) {
+				return usage()
+			}
+			modernize_options.rules = args[i]
+		case "--list":
+			modernize_options.list = true
+		case "--diff":
+			modernize_options.diff = true
 		case "--apply":
 			apply = true
 			if len(rest) > 0 && rest[0] == "actions" && i + 1 < len(args) {
@@ -110,6 +126,11 @@ run :: proc(args: []string) -> int {
 
 	command := rest[0]
 	rest_args := rest[1:]
+
+	if command == "modernize" {
+		modernize_options.apply, modernize_options.json, modernize_options.check = apply, json_output, check_edit
+		return modernize(rest_args, root, modernize_options)
+	}
 
 	if command == "check" {
 		dir := os.get_working_directory(context.temp_allocator) or_else "."

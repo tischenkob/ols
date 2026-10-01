@@ -80,7 +80,10 @@ allocator_mismatch :: proc(ctx: ^LintContext, uses: []IdentUse, diags: ^[dynamic
 		if has_allocator {
 			start, end, text = arg.pos.offset, arg.end.offset, alloc.allocator
 		}
-		append(&ctx.fixes, Lint_Fix{start, end, fmt.tprintf("Free with %s", alloc.allocator), text})
+		append(
+			&ctx.fixes,
+			Lint_Fix{start, end, fmt.tprintf("Free with %s", alloc.allocator), text, "allocator-mismatch"},
+		)
 	}
 }
 
@@ -131,6 +134,7 @@ make_len_append :: proc(ctx: ^LintContext, uses: []IdentUse, diags: ^[dynamic]Di
 				length.end.offset,
 				"Make with capacity instead of length",
 				fmt.tprintf("0, %s", text),
+				"make-len-append",
 			},
 		)
 	}

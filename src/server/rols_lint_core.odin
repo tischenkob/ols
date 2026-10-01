@@ -108,6 +108,7 @@ replace_count :: proc(ctx: ^LintContext, call: ^ast.Call_Expr, diags: ^[dynamic]
 				call.args[3].end.offset,
 				"Use strings.replace_all",
 				fmt.tprintf("replace_all(%s", kept),
+				"replace-count",
 			},
 		)
 	}

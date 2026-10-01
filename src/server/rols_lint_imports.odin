@@ -30,7 +30,7 @@ lint_imports :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagno
 			},
 		)
 		start, end := whole_lines(ctx.src, imp.pos.offset, imp.end.offset)
-		append(&ctx.fixes, Lint_Fix{start, end, "Remove duplicate import", ""})
+		append(&ctx.fixes, Lint_Fix{start, end, "Remove duplicate import", "", "duplicate-import"})
 		return
 	}
 
