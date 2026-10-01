@@ -369,3 +369,71 @@ main :: proc() {
 		{"test/old/b.odin:1:9 declares `package other`, but Odin imports the package by its directory name `old`"},
 	)
 }
+
+// An import path with `\` separators, escaped or mixed with `/`, is rewritten and keeps each separator.
+@(test)
+rename_package_keeps_backslash_separators :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import s "shared:old\\sub"
+import o ".\\old/sub"
+
+main :: proc() {
+	_ = s.Y + o.Y
+}
+`,
+		packages = {
+			{pkg = "old", source = "package old\n\nX :: 1\n"},
+			{pkg = "old/sub", source = "package sub\n\nY :: 2\n"},
+		},
+		collections = {"shared" = "test"},
+	}
+	test.expect_rename_package(
+		t,
+		&source,
+		"old",
+		"fresh",
+		{
+			{
+				"main.odin",
+				`package test
+
+import s "shared:fresh\\sub"
+import o ".\\fresh/sub"
+
+main :: proc() {
+	_ = s.Y + o.Y
+}
+`,
+			},
+		},
+	)
+}
+
+// A package file that imports its own package, which Odin rejects, gets its path rewritten, but OLS skips a
+// self-import when it resolves `old`, so the qualifier stays as it is with a warning.
+@(test)
+rename_package_warns_on_unresolved_qualifier :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = "package test\n\nimport \"shared:old\"\n\nmain :: proc() {\n\t_ = old.X\n}\n",
+		packages = {
+			{
+				pkg = "old",
+				files = {
+					{"a.odin", "package old\n\nX :: 1\n"},
+					{"b.odin", "package old\n\nimport \"../old\"\n\nY :: old.X\n"},
+				},
+			},
+		},
+		collections = {"shared" = "test"},
+	}
+	test.expect_rename_package(
+		t,
+		&source,
+		"old",
+		"fresh",
+		{{"fresh/b.odin", "package fresh\n\nimport \"../fresh\"\n\nY :: old.X\n"}},
+		{"test/old/b.odin:5:6: cannot resolve `old.X`, so the rename does not change it"},
+	)
+}
