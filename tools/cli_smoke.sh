@@ -174,12 +174,19 @@ expect refused-cause "^error: the position is not on the name of a top-level pro
 expect refused-json '"status": "refused"' sh -c "\"$OLS\" query reorder-params \"$dir/safe/a.odin:4:2\" --order 0 --json || true"
 expect_exit 2 usage-exit "$OLS" query reorder-params "$dir/safe/a.odin:9:1" --order x
 expect_exit 2 usage-move-exit "$OLS" query move "$dir/safe/a.odin:9:1"
-expect_exit 4 check-failed-exit "$OLS" query rename "$dir/safe/a.odin:4:2" second --apply
+expect_exit 1 collision-exit "$OLS" query rename "$dir/safe/a.odin:4:2" second
+expect collision-cause "^error: .second. is already declared in the same scope at .*a.odin:5:2" sh -c "\"$OLS\" query rename \"$dir/safe/a.odin:4:2\" second 2>&1 || true"
+# The workspace filter skips hidden.odin, which still calls one(): the rename warns, and odin check rolls it back.
+printf 'package safe\n\nhidden :: proc() -> int {\n\treturn one()\n}\n' > "$dir/safe/hidden.odin"
+echo '{"workspace_exclude": ["safe/hidden.odin"]}' > "$dir/ols.json"
+expect skipped-warning "^warning: 1 workspace file skipped .*safe/hidden.odin" sh -c "\"$OLS\" query rename \"$dir/safe/a.odin:9:1\" uno 2>&1"
+expect_exit 4 check-failed-exit "$OLS" query rename "$dir/safe/a.odin:9:1" uno --apply
 cmp -s "$dir/safe/a.odin" "$dir/a.orig" || { echo "FAIL check-failed rollback is not byte for byte"; exit 1; }
 echo "ok check-failed rollback"
-expect check-failed-error "^error: .*a.odin:5:2: Redeclaration of 'second'" sh -c "\"$OLS\" query rename \"$dir/safe/a.odin:4:2\" second --apply 2>&1 || true"
-expect_exit 0 no-check-exit "$OLS" query rename "$dir/safe/a.odin:4:2" second --apply --no-check
+expect check-failed-error "^error: .*hidden.odin:4:9: Undeclared name: one" sh -c "\"$OLS\" query rename \"$dir/safe/a.odin:9:1\" uno --apply 2>&1 || true"
+expect_exit 0 no-check-exit "$OLS" query rename "$dir/safe/a.odin:9:1" uno --apply --no-check
 cp "$dir/a.orig" "$dir/safe/a.odin"
+rm "$dir/safe/hidden.odin"
 echo '{"odin_command": "/nonexistent/odin"}' > "$dir/ols.json"
 expect_exit 1 check-cannot-run-exit "$OLS" query rename "$dir/safe/a.odin:9:1" uno --apply
 cmp -s "$dir/safe/a.odin" "$dir/a.orig" || { echo "FAIL check-cannot-run wrote the file"; exit 1; }
@@ -199,6 +206,40 @@ expect_exit 0 applied-exit "$OLS" query rename "$dir/safe/a.odin:9:1" uno --appl
 grep -q "first := uno()" "$dir/safe/a.odin" && grep -q "^uno :: proc" "$dir/safe/a.odin"
 odin check "$dir/safe"
 echo "ok applied check"
+mkdir "$dir/sp"
+cat > "$dir/sp/sp.odin" <<'ODIN'
+package sp
+
+Thing :: struct {
+	field: int,
+}
+
+total :: proc(t: Thing) -> int {
+	return t.field
+}
+
+main :: proc() {
+	sum := 0
+	t := Thing{field = 2}
+	sum += total(t)
+	_ = sum
+}
+ODIN
+expect symbol-path-dry-run "^+.new_field: int," sh -c "cd \"$dir\" && \"$OLS\" query rename sp.Thing.field new_field"
+expect symbol-path-apply "sp.odin" sh -c "cd \"$dir\" && \"$OLS\" query rename sp.Thing.field new_field --apply"
+grep -q "return t.new_field" "$dir/sp/sp.odin" && grep -q "Thing{new_field = 2}" "$dir/sp/sp.odin"
+odin check "$dir/sp"
+echo "ok symbol-path-apply check"
+expect move-symbol-path "^move: " "$OLS" query move "$dir/sp.total" --to other.odin
+echo "{\"collections\": [{\"name\": \"shared\", \"path\": \"$dir\"}]}" > "$dir/ols.json"
+expect collection-symbol-path "^+total_of :: proc" "$OLS" query --root "$dir" rename shared:sp.total total_of
+echo '{}' > "$dir/ols.json"
+expect_exit 1 symbol-path-not-found-exit "$OLS" query rename "$dir/sp.Nope" x
+expect symbol-path-not-found-cause "^error: no top-level declaration .Nope." sh -c "\"$OLS\" query rename \"$dir/sp.Nope\" x 2>&1 || true"
+expect_exit 1 keyword-exit "$OLS" query rename "$dir/sp.total" proc
+expect keyword-cause "^error: .proc. is a keyword" sh -c "\"$OLS\" query rename \"$dir/sp.total\" proc 2>&1 || true"
+expect_exit 1 capture-exit "$OLS" query rename "$dir/sp.total" sum
+expect capture-cause "^error: at .*sp.odin:14:9 .sum. already refers to" sh -c "\"$OLS\" query rename \"$dir/sp.total\" sum 2>&1 || true"
 expect check "not an int\|Cannot assign\|cannot" "$OLS" query check "$dir/bad"
 expect check-text 'bad.odin:3:10: error:' "$OLS" query check "$dir/bad"
 expect check-json '"diagnostic"' "$OLS" query check "$dir/bad" --json

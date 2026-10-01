@@ -1458,6 +1458,64 @@ expect_move_declaration :: proc(t: ^testing.T, src: ^Source, target: string, exp
 	expect_workspace_edit(t, src, edit, expected)
 }
 
+// Renames the symbol at the cursor across the files and packages of src once check_rename passes, and
+// compares each file listed in expected by name; a package file is named `pkg/package.odin`.
+expect_rename :: proc(t: ^testing.T, src: ^Source, new_name: string, expected: []File) {
+	cursor := source_remove_cursor(src)
+
+	setup(src)
+	defer teardown(src)
+
+	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+
+	files := source_files(src)
+	reasons, _ := server.check_rename(src.document, cursor, new_name, &src.config, files)
+	if !testing.expectf(t, len(reasons) == 0, "Expected the rename to pass its check, but received %v", reasons) do return
+	edit, ok := server.get_rename(src.document, new_name, cursor, files)
+	if !testing.expect(t, ok, "Expected a rename") do return
+	expect_workspace_edit(t, src, edit, expected)
+}
+
+// Renaming the symbol at the cursor is refused with one reason per cause, each containing its cause.
+expect_rename_refused :: proc(t: ^testing.T, src: ^Source, new_name: string, causes: []string) {
+	cursor := source_remove_cursor(src)
+
+	setup(src)
+	defer teardown(src)
+
+	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+
+	reasons, _ := server.check_rename(src.document, cursor, new_name, &src.config, source_files(src))
+	testing.expectf(t, len(reasons) == len(causes), "\nExpected %d reasons, but received %v", len(causes), reasons)
+	for cause in causes {
+		found := false
+		for reason in reasons {
+			found ||= strings.contains(reason, cause)
+		}
+		testing.expectf(t, found, "\nExpected a reason containing %q in %v", cause, reasons)
+	}
+}
+
+// The files of the test package and of every package of src, as the workspace walk would find them.
+@(private)
+source_files :: proc(src: ^Source) -> []server.Package_File {
+	files := make([dynamic]server.Package_File, context.temp_allocator)
+	append(&files, ..package_files(src))
+	for pkg in src.packages {
+		if len(pkg.files) == 0 {
+			append(&files, server.Package_File{package_file_path(pkg.pkg, "package.odin"), pkg.source})
+		}
+		for f in pkg.files {
+			append(&files, server.Package_File{package_file_path(pkg.pkg, f.name), f.source})
+		}
+	}
+	return files[:]
+
+	package_file_path :: proc(pkg, name: string) -> string {
+		return strings.join({"test", pkg, name}, "/", context.temp_allocator)
+	}
+}
+
 @(private)
 test_uri :: proc(name: string) -> string {
 	return common.create_uri(strings.join({"test", name}, "/", context.temp_allocator), context.temp_allocator).uri
@@ -1468,8 +1526,8 @@ test_uri :: proc(name: string) -> string {
 @(private)
 expect_workspace_edit :: proc(t: ^testing.T, src: ^Source, edit: server.WorkspaceEdit, expected: []File) {
 	texts := make(map[string]string, context.temp_allocator)
-	for f in src.files {
-		texts[test_uri(f.name)] = f.source
+	for f in source_files(src) {
+		texts[common.create_uri(f.fullpath, context.temp_allocator).uri] = f.text
 	}
 	if changes, has := edit.documentChanges.?; has {
 		for change in changes {

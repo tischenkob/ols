@@ -138,7 +138,6 @@ find_call_sites :: proc(
 }
 
 // FILE:LINE:COL of a location in document, 1-based with the column in bytes, as the CLI prints positions.
-@(private = "file")
 location_text :: proc(location: common.Location, document: ^Document) -> string {
 	start := location.range.start
 	column := start.character
