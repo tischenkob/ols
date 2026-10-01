@@ -23,6 +23,7 @@
 
 Whole fork-only package: `src/cli`.
 Its `ols query rename-package` command runs the engine in `src/server/rols_rename_package.odin` and writes through `run_edit`, whose transaction renames the directory after the files are written; `tools/cli_smoke.sh` covers it.
+Its `ols query attr` commands (`src/cli/rols_attr.odin`) run the engine in `src/server/rols_attr_edit.odin`, which edits the attributes where the source writes them, and write through `run_edit`; `tools/cli_smoke.sh` covers them.
 Its `ols query modernize` command (`src/cli/rols_modernize.odin`) runs the engine in `src/server/rols_modernize.odin` and writes through `run_edit` in `src/cli/rols_apply.odin`; `tools/cli_smoke.sh` covers it.
 The `migration` rules of that command, which rewrite deprecated or removed Odin forms, live in `src/server/rols_modernize_migrate.odin` and have no lint or config key; `tools/cli_smoke.sh` covers `base-imports`.
 Its `recipe` rules, parsed from the `modernize_recipes` config key, live in `src/server/rols_modernize_recipe.odin` and share the pattern matcher of `src/server/rols_pattern.odin` with the use_stdlib lint; `tools/cli_smoke.sh` covers one.
@@ -223,7 +224,7 @@ Confirm with `git diff upstream/master..HEAD -- src/server/requests.odin | grep 
 
 ## Fork sections in README.md
 
-- `## Command line queries`, including the refactor dry run, `--apply` transaction with directory renames, `--no-check`, exit codes, symbol path targets, the rename refusals and `rename-package`
+- `## Command line queries`, including the refactor dry run, `--apply` transaction with directory renames, `--no-check`, exit codes, symbol path targets, the rename refusals, `rename-package` and `attr`
 - `### Claude Code`
 
 The fork's option bullets in README are the config keys listed above.
