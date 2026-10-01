@@ -244,3 +244,20 @@ apply_roll_back_directory_rename :: proc(t: ^testing.T) {
 	data, _ = os.read_entire_file(moved, context.temp_allocator)
 	testing.expect_value(t, string(data), "package old\r\n")
 }
+
+@(test)
+apply_replace_word_in_check_message :: proc(t: ^testing.T) {
+	testing.expect_value(
+		t,
+		server.replace_word("Cannot assign 'count()' to 's', count is int", "count", "tally"),
+		"Cannot assign 'tally()' to 's', tally is int",
+	)
+	testing.expect_value(t, server.replace_word("'rp.P' of rp", "rp", "rq"), "'rq.P' of rq")
+	testing.expect_value(t, server.replace_word("count", "count", "tally"), "tally")
+	testing.expect_value(
+		t,
+		server.replace_word("count_all and recount and count2", "count", "tally"),
+		"count_all and recount and count2",
+	)
+	testing.expect_value(t, server.replace_word("unchanged", "", "x"), "unchanged")
+}

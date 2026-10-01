@@ -302,7 +302,7 @@ rewrite_importer :: proc(r: ^Package_Rename, document: ^Document) {
 // collection root, or the directory of file for a relative path. Fails on an unknown collection.
 @(private = "file")
 split_import_path :: proc(
-	r: ^Package_Rename,
+	config: ^common.Config,
 	file, body: string,
 ) -> (
 	prefix: string,
@@ -311,7 +311,7 @@ split_import_path :: proc(
 	ok: bool,
 ) {
 	if i := strings.index_byte(body, ':'); i > 0 {
-		root := r.config.collections[body[:i]] or_return
+		root := config.collections[body[:i]] or_return
 		return body[:i + 1], body[i + 1:], root, true
 	}
 	return "", body, path.dir(file), true
@@ -321,6 +321,20 @@ split_import_path :: proc(
 // resolved, for a file whose text never names the package, as an import through a symlink does not.
 @(private = "file")
 imports_into :: proc(r: ^Package_Rename, file, text: string) -> bool {
+	for dir in scan_import_dirs(r.config, file, text) {
+		if at_or_below(dir, r.real_dir) {
+			return true
+		}
+	}
+	return false
+}
+
+// The directories, with symlinks resolved, that the imports of text, the source of file, name. Scans
+// tokens without parsing, so a file that does not parse still counts. Skips foreign imports and unknown
+// collections.
+@(private = "file")
+scan_import_dirs :: proc(config: ^common.Config, file, text: string) -> []string {
+	dirs := make([dynamic]string, context.temp_allocator)
 	t: tokenizer.Tokenizer
 	tokenizer.init(&t, text, file, proc(pos: tokenizer.Pos, msg: string, args: ..any) {})
 	previous: tokenizer.Token
@@ -332,9 +346,9 @@ imports_into :: proc(r: ^Package_Rename, file, text: string) -> bool {
 		case .Ident, .Comment:
 		case .String:
 			if in_import && len(token.text) >= 2 {
-				_, rel, start, known := split_import_path(r, file, token.text[1:len(token.text) - 1])
-				if known && at_or_below(canonical_dir(path.join({start, rel})), r.real_dir) {
-					return true
+				_, rel, start, known := split_import_path(config, file, token.text[1:len(token.text) - 1])
+				if known {
+					append(&dirs, canonical_dir(path.join({start, rel}, context.temp_allocator)))
 				}
 			}
 			in_import = false
@@ -342,7 +356,41 @@ imports_into :: proc(r: ^Package_Rename, file, text: string) -> bool {
 			in_import = false
 		}
 	}
-	return false
+	return dirs[:]
+}
+
+// The directories of the workspace files outside dirs that import a package in dirs directly. An edit of
+// dirs can break these importers without touching them. The walk applies the workspace filter.
+importer_dirs :: proc(dirs: []string, config: ^common.Config) -> []string {
+	targets := make([dynamic]string, context.temp_allocator)
+	for dir in dirs {
+		append(&targets, canonical_dir(dir))
+	}
+	importers := make([dynamic]string, context.temp_allocator)
+	seen := make(map[string]bool, context.temp_allocator)
+	for file in workspace_odin_files("", {}) {
+		dir := path.dir(file.fullpath, context.temp_allocator)
+		if seen[dir] {
+			continue
+		}
+		if slice.contains(targets[:], canonical_dir(dir)) {
+			seen[dir] = true
+			continue
+		}
+		data, err := os.read_entire_file(file.fullpath, context.allocator)
+		if err != nil {
+			continue
+		}
+		defer delete(data)
+		for imported in scan_import_dirs(config, file.fullpath, string(data)) {
+			if slice.contains(targets[:], imported) {
+				append(&importers, dir)
+				seen[dir] = true
+				break
+			}
+		}
+	}
+	return importers[:]
 }
 
 // The package that parse_imports resolved for imp.
@@ -373,7 +421,7 @@ rewrite_import_path :: proc(
 		return
 	}
 	body := quoted[1:len(quoted) - 1]
-	prefix, rel, start := split_import_path(r, document.fullpath, body) or_return
+	prefix, rel, start := split_import_path(r.config, document.fullpath, body) or_return
 
 	current := canonical_dir(start)
 	segments := strings.split(rel, "/")
