@@ -443,3 +443,35 @@ invert_if_mixed_line_endings :: proc(t: ^testing.T) {
 		"package test\n\n// stray\r\nmain :: proc() {\n\tif x <= 0 {\n\t} else {\n\t\tfoo()\n\t}\n}\n",
 	)
 }
+
+// The `do` body ends after the break, so inverting leaves no stray break.
+@(test)
+invert_if_do_break :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(xs: []int) {
+	for x in xs {
+		if {*}x > 0 do break
+	}
+}
+`,
+		config = {enable_code_action_invert_if = true},
+	}
+	test.expect_action_applied(
+		t,
+		&source,
+		INVERT_IF_ACTION,
+		`package test
+
+f :: proc(xs: []int) {
+	for x in xs {
+		if x <= 0 {
+		} else {
+			break
+		}
+	}
+}
+`,
+	)
+}

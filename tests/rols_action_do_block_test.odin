@@ -293,3 +293,25 @@ main :: proc() {
 	}
 	test.expect_action_missing(t, &source, TO_BLOCK_ACTION)
 }
+
+// The `do` block ends after the continue, so no stray continue is left behind.
+@(test)
+do_block_to_block_continue :: proc(t: ^testing.T) {
+	expect_do_block(t, TO_BLOCK_ACTION, `package test
+
+f :: proc(x: int) {
+	for {
+		if {*}x > 0 do continue
+	}
+}
+`, `package test
+
+f :: proc(x: int) {
+	for {
+		if x > 0 {
+			continue
+		}
+	}
+}
+`)
+}

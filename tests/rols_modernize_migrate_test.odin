@@ -513,3 +513,21 @@ package test
 package test
 `, {"file-tags"})
 }
+
+// The procedure's `do` body ends after the inner loop's break.
+@(test)
+migrate_proc_do_body_break :: proc(t: ^testing.T) {
+	migrate(
+		t,
+		`package test
+
+p :: proc(xs: []int) do for _ in xs do break
+`,
+		`package test
+
+p :: proc(xs: []int) {
+	for _ in xs do break
+}
+`,
+	)
+}
