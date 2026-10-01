@@ -33,7 +33,7 @@ add_remove_param_action :: proc(ctx: ^ActionContext) {
 	if !slice.contains(unused_params(function), target.name) {
 		return
 	}
-	sites, sites_ok := find_call_sites(ctx.document, decl, len(params), ctx.files)
+	sites, _, sites_ok := find_call_sites(ctx.document, decl, len(params), ctx.files)
 	if !sites_ok {
 		return
 	}
