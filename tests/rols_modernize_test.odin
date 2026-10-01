@@ -352,5 +352,6 @@ modernize_registers_every_rule :: proc(t: ^testing.T) {
 	for id in ([]string{"use-stdlib/clamp-if", "use-stdlib/max-lt", "use-stdlib/min-else", "use-stdlib/abs-lt"}) {
 		testing.expectf(t, id in ids && id not_in selected, "%s should be a non-default rule", id)
 	}
+	testing.expect(t, "file-tags" in ids && "file-tags" not_in selected, "file-tags should be a non-default rule")
 	free_all(context.temp_allocator)
 }
