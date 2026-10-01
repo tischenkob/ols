@@ -1224,17 +1224,50 @@ simplify_or_continue :: proc(src: string, node: ^ast.Node, parents: []^ast.Node,
 }
 
 @(private = "file")
-simplify_redundant_else :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out: ^[dynamic]Simplification) {
+append_decl_names :: proc(names: ^[dynamic]string, stmt: ^ast.Stmt) {
+	if stmt == nil do return
+	decl, is_decl := stmt.derived.(^ast.Value_Decl)
+	if !is_decl do return
+	for name in decl.names {
+		if ident, is_ident := name.derived.(^ast.Ident); is_ident {
+			append(names, ident.name)
+		}
+	}
+}
+
+@(private = "file")
+simplify_redundant_else :: proc(src: string, node: ^ast.Node, parents: []^ast.Node, out: ^[dynamic]Simplification) {
 	if_stmt, ok := node.derived.(^ast.If_Stmt)
-	if !ok || if_stmt.else_stmt == nil || if_stmt.body == nil {
+	if !ok || if_stmt.else_stmt == nil || if_stmt.body == nil || if_stmt.label != nil || len(parents) == 0 {
+		return
+	}
+	// The unwrapped else lands right after the if, so the if must be the last statement of a
+	// plain block: not the else of an outer if, not a `do` body, and with nothing after it. A
+	// `when` body opens no scope, so its declarations and defers would leak into the outer block.
+	siblings: []^ast.Stmt
+	#partial switch parent in parents[len(parents) - 1].derived {
+	case ^ast.Block_Stmt:
+		in_when := false
+		if len(parents) >= 2 {
+			_, in_when = parents[len(parents) - 2].derived.(^ast.When_Stmt)
+		}
+		if !parent.uses_do && !in_when do siblings = parent.stmts
+	case ^ast.Case_Clause:
+		siblings = parent.body
+	}
+	if len(siblings) == 0 || siblings[len(siblings) - 1] != node {
 		return
 	}
 	body, is_block := if_stmt.body.derived.(^ast.Block_Stmt)
 	if !is_block || body.uses_do || len(body.stmts) == 0 {
 		return
 	}
-	#partial switch _ in body.stmts[len(body.stmts) - 1].derived {
-	case ^ast.Return_Stmt, ^ast.Branch_Stmt:
+	#partial switch last in body.stmts[len(body.stmts) - 1].derived {
+	case ^ast.Return_Stmt:
+	case ^ast.Branch_Stmt:
+		if last.tok.kind != .Break && last.tok.kind != .Continue {
+			return
+		}
 	case:
 		return
 	}
@@ -1243,17 +1276,28 @@ simplify_redundant_else :: proc(src: string, node: ^ast.Node, _: []^ast.Node, ou
 		return
 	}
 	declared := make([dynamic]string, context.temp_allocator)
-	if if_stmt.init != nil {
-		if init, is_decl := if_stmt.init.derived.(^ast.Value_Decl); is_decl {
-			for name in init.names {
-				if ident, is_ident := name.derived.(^ast.Ident); is_ident {
-					append(&declared, ident.name)
-				}
-			}
-		}
-	}
+	append_decl_names(&declared, if_stmt.init)
 	if mentions_any(if_stmt.else_stmt, ..declared[:]) {
 		return
+	}
+	// The else's declarations move into the enclosing block, where an earlier statement may
+	// already declare or use the name, or a using statement may bring it in.
+	clear(&declared)
+	for stmt in else_block.stmts {
+		// Declarations in a when body or brought in by using land in the else's scope too.
+		#partial switch _ in stmt.derived {
+		case ^ast.When_Stmt, ^ast.Using_Stmt:
+			return
+		}
+		append_decl_names(&declared, stmt)
+	}
+	if len(declared) > 0 {
+		for stmt in siblings[:len(siblings) - 1] {
+			_, is_using := stmt.derived.(^ast.Using_Stmt)
+			if is_using || mentions_any(stmt, ..declared[:]) {
+				return
+			}
+		}
 	}
 	from := get_line_indentation(src, else_block.stmts[0].pos.offset)
 	to := get_line_indentation(src, if_stmt.pos.offset)

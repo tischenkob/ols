@@ -280,7 +280,7 @@ modernize_select_unknown_rule :: proc(t: ^testing.T) {
 	selected, _, _ := server.modernize_select({}, &common.config)
 	testing.expect(t, "nested-if" in selected && "use-stdlib/contains" in selected)
 	testing.expect(t, "use-stdlib/copy-loop" not_in selected && "self-assignment" not_in selected)
-	testing.expect(t, "redundant-else" not_in selected)
+	testing.expect(t, "redundant-else" in selected)
 	free_all(context.temp_allocator)
 }
 
