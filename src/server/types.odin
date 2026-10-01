@@ -758,7 +758,7 @@ TextDocumentEdit :: struct {
 	edits:        []TextEdit,
 }
 
-// rols: workspace edits that also create files
+// rols: workspace edits that also create or rename files
 CreateFile :: struct {
 	kind:    string,
 	uri:     string,
@@ -769,9 +769,17 @@ CreateFileOptions :: struct {
 	ignoreIfExists: bool,
 }
 
+// kind is "rename". A directory renames with everything in it.
+RenameFile :: struct {
+	kind:   string,
+	oldUri: string,
+	newUri: string,
+}
+
 DocumentChange :: union {
 	CreateFile,
 	TextDocumentEdit,
+	RenameFile,
 }
 
 // Clients apply documentChanges instead of changes when both are present, and a nil union is not

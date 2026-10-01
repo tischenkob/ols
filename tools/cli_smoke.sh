@@ -240,6 +240,54 @@ expect_exit 1 keyword-exit "$OLS" query rename "$dir/sp.total" proc
 expect keyword-cause "^error: .proc. is a keyword" sh -c "\"$OLS\" query rename \"$dir/sp.total\" proc 2>&1 || true"
 expect_exit 1 capture-exit "$OLS" query rename "$dir/sp.total" sum
 expect capture-cause "^error: at .*sp.odin:14:9 .sum. already refers to" sh -c "\"$OLS\" query rename \"$dir/sp.total\" sum 2>&1 || true"
+# rename-package: an importer, a nested sub-package that imports its parent, and an aliased importer.
+mkdir -p "$dir/pk/app" "$dir/pk/oldpkg/sub"
+printf 'package oldpkg\n\nX :: 1\n' > "$dir/pk/oldpkg/a.odin"
+printf 'package sub\n\nimport "../../oldpkg"\n\nY :: oldpkg.X\n' > "$dir/pk/oldpkg/sub/s.odin"
+cat > "$dir/pk/app/main.odin" <<'ODIN'
+package app
+
+import "core:fmt"
+import "../oldpkg"
+import "../oldpkg/sub"
+import o "../oldpkg"
+
+main :: proc() {
+	fmt.println(oldpkg.X, sub.Y, o.X)
+}
+ODIN
+expect rename-package-header "^rename from pk/oldpkg$" "$OLS" query rename-package "$dir/pk/oldpkg" newpkg
+expect rename-package-diff '^+import "../newpkg/sub"$' "$OLS" query rename-package "$dir/pk/oldpkg" newpkg
+expect rename-package-json '"kind": "rename"' "$OLS" query rename-package "$dir/pk/oldpkg" newpkg --json
+[[ -d "$dir/pk/oldpkg" && ! -e "$dir/pk/newpkg" ]] || { echo "FAIL rename-package dry run renamed the directory"; exit 1; }
+expect_exit 0 rename-package-apply "$OLS" query rename-package "$dir/pk/oldpkg" newpkg --apply
+[[ -d "$dir/pk/newpkg/sub" && ! -e "$dir/pk/oldpkg" ]] || { echo "FAIL rename-package-apply did not move the directory"; exit 1; }
+grep -q "^package newpkg" "$dir/pk/newpkg/a.odin" && grep -q 'import o "../newpkg"' "$dir/pk/app/main.odin" && grep -q "Y :: newpkg.X" "$dir/pk/newpkg/sub/s.odin" || { echo "FAIL rename-package-apply text"; exit 1; }
+odin check "$dir/pk/app"
+echo "ok rename-package-apply check"
+expect_exit 3 rename-package-noop "$OLS" query rename-package "$dir/pk/newpkg" newpkg
+mkdir "$dir/pk/taken"
+expect_exit 1 rename-package-sibling-exit "$OLS" query rename-package "$dir/pk/newpkg" taken
+expect rename-package-sibling-cause "^error: .*pk/taken already exists" sh -c "\"$OLS\" query rename-package \"$dir/pk/newpkg\" taken 2>&1 || true"
+expect_exit 1 rename-package-keyword-exit "$OLS" query rename-package "$dir/pk/newpkg" proc
+# An import through a symlink resolves into the package, but no segment of its path names the directory.
+ln -s newpkg "$dir/pk/alias"
+mkdir "$dir/pk/linked"
+printf 'package linked\n\nimport "../alias"\n\nL :: alias.X\n' > "$dir/pk/linked/l.odin"
+expect rename-package-symlink "^error: .*linked/l.odin:3:8: cannot rewrite import path \"../alias\"" sh -c "\"$OLS\" query rename-package \"$dir/pk/newpkg\" thirdpkg 2>&1 || true"
+rm -rf "$dir/pk/linked" "$dir/pk/alias"
+expect rename-package-root "^error: .* is the workspace root" sh -c "\"$OLS\" query rename-package \"$dir\" other 2>&1 || true"
+# The workspace filter skips hidden.odin, which still imports ../newpkg: the rename warns, and odin check rolls it back.
+printf 'package app\n\nimport "../newpkg"\n\nhidden :: proc() -> int {\n\treturn newpkg.X\n}\n' > "$dir/pk/app/hidden.odin"
+echo '{"workspace_exclude": ["pk/app/hidden.odin"]}' > "$dir/ols.json"
+cp -R "$dir/pk" "$dir/pk.orig"
+expect rename-package-skipped "^warning: 1 workspace file skipped .*pk/app/hidden.odin" sh -c "\"$OLS\" query rename-package \"$dir/pk/newpkg\" thirdpkg 2>&1"
+expect_exit 4 rename-package-check-failed "$OLS" query rename-package "$dir/pk/newpkg" thirdpkg --apply
+[[ -d "$dir/pk/newpkg" && ! -e "$dir/pk/thirdpkg" ]] || { echo "FAIL rename-package rollback did not rename the directory back"; exit 1; }
+diff -r "$dir/pk" "$dir/pk.orig" || { echo "FAIL rename-package rollback is not byte for byte"; exit 1; }
+echo "ok rename-package rollback"
+rm -rf "$dir/pk.orig"
+echo '{}' > "$dir/ols.json"
 expect check "not an int\|Cannot assign\|cannot" "$OLS" query check "$dir/bad"
 expect check-text 'bad.odin:3:10: error:' "$OLS" query check "$dir/bad"
 expect check-json '"diagnostic"' "$OLS" query check "$dir/bad" --json

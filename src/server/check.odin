@@ -472,9 +472,13 @@ start_check_process :: proc(
 	return CheckProcess{process = p, reader = r, buffer = buffer}, true
 }
 
-// rols: vet findings report as warnings
+// rols: vet findings report as warnings, and syntax errors as errors whatever their type
 @(private = "file")
 map_diagnostic_severity :: proc(type: string, message: string) -> DiagnosticSeverity {
+	// -json-errors types some syntax errors as warnings, such as an import path that does not exist.
+	if strings.has_prefix(message, "Syntax Error") {
+		return .Error
+	}
 	if strings.equal_fold(type, "warning") {
 		return .Warning
 	}
