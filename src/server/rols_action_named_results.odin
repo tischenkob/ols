@@ -32,39 +32,45 @@ add_named_results_action :: proc(ctx: ^ActionContext) {
 
 	taken := signature_names(lit)
 
+	// Edits touch only names and a bare result's type, so defaults, comments and line breaks stay as written.
 	src := ctx.document.ast.src
-	sb := strings.builder_make(context.temp_allocator)
-	strings.write_byte(&sb, '(')
-	unnamed := 0
-	for field, i in lit.type.results.list {
-		if i > 0 {
-			strings.write_string(&sb, ", ")
+	edits := make([dynamic]TextEdit, context.temp_allocator)
+	for field in lit.type.results.list {
+		// Only an unparenthesized result has no names.
+		if field.names == nil {
+			text := fmt.tprintf("(%s: %s)", fresh_result_name(&taken, field.type), node_text(src, field.type))
+			append(
+				&edits,
+				TextEdit{range = range_of(ctx, field.type.pos.offset, field.type.end.offset), newText = text},
+			)
+			continue
 		}
-		if len(field.names) == 0 {
-			unnamed += 1
-			strings.write_string(&sb, fresh_result_name(&taken, field.type))
+		// The parser names an unnamed result in parentheses `_`, starting where its type does.
+		if field.type != nil && field.names[0].pos.offset == field.type.pos.offset {
+			name := fresh_result_name(&taken, field.type)
+			at := field.type.pos.offset
+			append(
+				&edits,
+				TextEdit {
+					range = range_of(ctx, at, at),
+					newText = strings.concatenate({name, ": "}, context.temp_allocator),
+				},
+			)
+			continue
 		}
-		for name, j in field.names {
-			if j > 0 {
-				strings.write_string(&sb, ", ")
+		for name in field.names {
+			if text := final_name(name); text != "" && text != "_" {
+				continue
 			}
-			text := final_name(name)
-			if text == "" || text == "_" {
-				unnamed += 1
-				text = fresh_result_name(&taken, field.type)
-			}
-			strings.write_string(&sb, text)
+			// A field like `_ := false` has no type to name it after.
+			fresh := field.type != nil ? fresh_result_name(&taken, field.type) : take_result_name(&taken, "result")
+			append(&edits, TextEdit{range = range_of(ctx, name.pos.offset, name.end.offset), newText = fresh})
 		}
-		strings.write_string(&sb, ": ")
-		strings.write_string(&sb, node_text(src, field.type))
 	}
-	strings.write_byte(&sb, ')')
-	if unnamed == 0 {
+	if len(edits) == 0 {
 		return
 	}
-
-	start, end := result_list_range(src, lit.type.results)
-	append_replace_range(ctx, start, end, "Use named results", strings.to_string(sb))
+	append(ctx.actions, make_code_action(ctx, "Use named results", "refactor.rewrite", edits[:]))
 }
 
 // The parameter and result names of a procedure literal, as a list new names are added to.

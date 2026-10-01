@@ -83,6 +83,131 @@ f :: proc() -> (n: int, ok: bool) {
 }
 
 @(test)
+named_results_keeps_default_on_named_field :: proc(t: ^testing.T) {
+	expect_named_results(t, `package test
+
+f :: proc() -> (a: int = 1, _: bool{*}) {
+	return
+}
+`, `package test
+
+f :: proc() -> (a: int = 1, ok: bool) {
+	return
+}
+`)
+}
+
+@(test)
+named_results_keeps_default_on_renamed_field :: proc(t: ^testing.T) {
+	expect_named_results(t, `package test
+
+f :: proc() -> (_: int = 1, ok: bool{*}) {
+	return
+}
+`, `package test
+
+f :: proc() -> (result: int = 1, ok: bool) {
+	return
+}
+`)
+}
+
+@(test)
+named_results_keeps_inferred_default :: proc(t: ^testing.T) {
+	expect_named_results(t, `package test
+
+f :: proc() -> (a := 1, _: bool{*}) {
+	return
+}
+`, `package test
+
+f :: proc() -> (a := 1, ok: bool) {
+	return
+}
+`)
+}
+
+@(test)
+named_results_names_untyped_field :: proc(t: ^testing.T) {
+	expect_named_results(t, `package test
+
+f :: proc() -> (a: int, _ := false{*}) {
+	return
+}
+`, `package test
+
+f :: proc() -> (a: int, result := false) {
+	return
+}
+`)
+}
+
+@(test)
+named_results_keeps_multi_line_list :: proc(t: ^testing.T) {
+	expect_named_results(t, `package test
+
+f :: proc() -> (
+	_: int = 1, // count
+	_: bool{*},
+) {
+	return
+}
+`, `package test
+
+f :: proc() -> (
+	result: int = 1, // count
+	ok: bool,
+) {
+	return
+}
+`)
+}
+
+@(test)
+named_results_keeps_comment_before_unnamed_type :: proc(t: ^testing.T) {
+	expect_named_results(t, `package test
+
+f :: proc() -> (
+	int, // count
+	bool{*},
+) {
+	return 1, true
+}
+`, `package test
+
+f :: proc() -> (
+	result: int, // count
+	ok: bool,
+) {
+	return 1, true
+}
+`)
+}
+
+@(test)
+named_results_keeps_comment_before_first_result :: proc(t: ^testing.T) {
+	expect_named_results(t, `package test
+
+f :: proc() -> (
+	// first
+	int,
+	bool{*},
+) {
+	return 1, true
+}
+`, `package test
+
+f :: proc() -> (
+	// first
+	result: int,
+	ok: bool,
+) {
+	return 1, true
+}
+`)
+}
+
+@(test)
 named_results_collision :: proc(t: ^testing.T) {
 	expect_named_results(t, `package test
 
