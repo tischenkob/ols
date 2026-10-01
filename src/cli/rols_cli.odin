@@ -23,9 +23,9 @@ USAGE :: `usage: ols query <command> [--root DIR] [--json]
   symbols FILE                             outline of one file
   actions FILE:LINE:COL[-LINE:COL] [--apply TITLE [--no-check]]
                                            refactorings at a position or selection; --apply writes one by title
-  rename  FILE:LINE:COL NEW [--apply [--no-check]]
-  reorder-params FILE:LINE:COL --order 2,0,1 [--apply [--no-check]]
-  move    FILE:LINE:COL --to TARGET.odin [--apply [--no-check]]
+  rename  TARGET NEW [--apply [--no-check]]
+  reorder-params TARGET --order 2,0,1 [--apply [--no-check]]
+  move    TARGET --to FILE.odin [--apply [--no-check]]
   check   [DIR]                            odin check errors plus lints, no build or run; run after every edit
   lint    FILE|DIR [--fail-on CODE,...]    lints only, works on code that does not compile;
                                            --fail-on exits 1 when a listed code is reported
@@ -43,6 +43,8 @@ USAGE :: `usage: ols query <command> [--root DIR] [--json]
 Output is one line per result, FILE:LINE:COL: TEXT; --json prints the LSP objects instead.
 Lines and columns are 1-based, columns in bytes, as odin check prints them.
 --root defaults to the nearest directory with an ols.json above the file, else the cwd.
+TARGET is FILE:LINE:COL or a symbol path PKG.Name[.Member]: PKG is a directory or a collection path like
+core:strings, and Member a struct field, enum member or bit_field field.
 rename, reorder-params and move without --apply print a unified diff and a summary line. --apply writes
 every file or none, after odin check on each touched package; new errors restore every file. --no-check
 skips odin check. With --json they print {"status", "edit", "summary", "reasons"}.
@@ -180,6 +182,8 @@ run :: proc(args: []string) -> int {
 	}
 
 	target, target_ok := parse_target(rest_args[0])
+	refactor := command == "rename" || command == "reorder-params" || command == "move"
+	symbol_path := rest_args[0] if !target_ok && refactor else ""
 	if command == "symbols" {
 		target, target_ok = Target {
 				file  = absolute(rest_args[0]),
@@ -187,12 +191,23 @@ run :: proc(args: []string) -> int {
 				end   = {1, 1},
 			}, true
 	}
-	if !target_ok {
+	if !target_ok && symbol_path == "" {
 		fmt.eprintfln("cannot parse position %q", rest_args[0])
 		return 2
 	}
 
-	setup(root if root != "" else find_root(path.dir(target.file, context.temp_allocator)))
+	if root == "" {
+		root =
+			symbol_path_root(symbol_path) if symbol_path != "" else find_root(path.dir(target.file, context.temp_allocator))
+	}
+	setup(root)
+	if symbol_path != "" {
+		reason: string
+		target, reason, target_ok = resolve_symbol_path(symbol_path)
+		if !target_ok {
+			return refuse(command, reason)
+		}
+	}
 
 	document, position, range, open_ok := open(target)
 	if !open_ok {
@@ -268,11 +283,16 @@ run :: proc(args: []string) -> int {
 		}
 		return refuse("actions", fmt.tprintf("no action %q, available: %v", apply_title, titles(actions)))
 	case "rename":
-		edit, ok := server.get_rename(document, rest_args[1], position)
+		new_name := rest_args[1]
+		reasons, warnings := server.check_rename(document, position, new_name, config)
+		if len(reasons) > 0 {
+			return refuse("rename", ..reasons)
+		}
+		edit, ok := server.get_rename(document, new_name, position)
 		if !ok || len(edit.changes) == 0 {
 			return refuse("rename", "no symbol to rename at the position")
 		}
-		return run_edit("rename", edit, apply, check_edit)
+		return run_edit("rename", edit, apply, check_edit, warnings)
 	case "reorder-params":
 		order, order_ok := parse_order(order_text)
 		if !order_ok {
@@ -345,6 +365,41 @@ parse_target :: proc(s: string) -> (target: Target, ok: bool) {
 
 	target.file = absolute(target.file)
 	return target, target.start.x > 0 && target.start.y > 0 && target.end.x > 0 && target.end.y > 0
+}
+
+// The root for a symbol path: the nearest ols.json above the longest prefix that is a directory, else
+// above the cwd. Collection prefixes resolve only after setup reads the collections.
+symbol_path_root :: proc(spec: string) -> string {
+	for i := len(spec) - 1; i > 0; i -= 1 {
+		if spec[i] == '.' && os.is_directory(absolute(spec[:i])) {
+			return find_root(absolute(spec[:i]))
+		}
+	}
+	return find_root(os.get_working_directory(context.temp_allocator) or_else ".")
+}
+
+// PKG.Name or PKG.Name.Member, where PKG is the longest prefix before a `.` that names a directory with
+// .odin files, so package directories may contain dots. reason says why the path does not resolve.
+resolve_symbol_path :: proc(spec: string) -> (target: Target, reason: string, ok: bool) {
+	for i := len(spec) - 1; i > 0; i -= 1 {
+		if spec[i] != '.' {
+			continue
+		}
+		dir := resolve_package(spec[:i])
+		matches, _ := filepath.glob(path.join({dir, "*.odin"}, context.temp_allocator), context.temp_allocator)
+		if len(matches) == 0 {
+			continue
+		}
+		found, find_reason, found_ok := server.find_symbol_path(dir, spec[i + 1:])
+		if !found_ok {
+			return {}, find_reason, false
+		}
+		at := [2]int{found.line, found.column}
+		return {file = found.fullpath, start = at, end = at}, "", true
+	}
+	return {},
+		fmt.tprintf("`%s` is neither FILE:LINE:COL nor PKG.Name with PKG a directory of .odin files", spec),
+		false
 }
 
 parse_order :: proc(text: string) -> ([]int, bool) {

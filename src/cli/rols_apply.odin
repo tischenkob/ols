@@ -61,15 +61,23 @@ Check_Error :: struct {
 
 // Previews or applies edit for the refactor command name and returns the exit code. A dry run prints a
 // unified diff. An apply writes every file or none: with check set, `odin check` runs on each touched
-// package before and after the write, and new errors restore the originals.
-run_edit :: proc(name: string, edit: server.WorkspaceEdit, apply, check: bool) -> int {
+// package before and after the write, and new errors restore the originals. warnings do not stop the
+// edit: text mode prints them on stderr, and JSON keeps them in reasons.
+run_edit :: proc(name: string, edit: server.WorkspaceEdit, apply, check: bool, warnings: []string = {}) -> int {
+	// Every outcome keeps the warnings.
+	reasons := make([dynamic]string, context.temp_allocator)
+	for warning in warnings {
+		warn(&reasons, warning)
+	}
+
 	plan, reason, ok := plan_workspace_edit(edit)
 	if !ok {
-		return finish(name, .Refused, edit, {}, {reason})
+		append(&reasons, reason)
+		return finish(name, .Refused, edit, {}, reasons[:])
 	}
 	changed := changed_files(plan)
 	if len(changed) == 0 {
-		return finish(name, .Noop, edit, {}, {})
+		return finish(name, .Noop, edit, {}, reasons[:])
 	}
 	if !apply {
 		if !json_output {
@@ -81,23 +89,19 @@ run_edit :: proc(name: string, edit: server.WorkspaceEdit, apply, check: bool) -
 			}
 			fmt.print(strings.to_string(b))
 		}
-		return finish(name, .Dry_Run, edit, changed, {}, plan.edits)
+		return finish(name, .Dry_Run, edit, changed, reasons[:], plan.edits)
 	}
 
-	// Warnings go to stderr in text mode and into reasons in JSON; every later outcome keeps them.
-	reasons := make([dynamic]string, context.temp_allocator)
 	check := check
 	dirs := package_dirs(changed)
 	before: []Check_Error
 	if check {
 		paths := checkable_paths(dirs)
 		if len(paths) == 0 {
-			warning := "no touched package can be checked: each is missing or in checker_skip_packages; writing without odin check"
-			if json_output {
-				append(&reasons, warning)
-			} else {
-				fmt.eprintfln("warning: %s", warning)
-			}
+			warn(
+				&reasons,
+				"no touched package can be checked: each is missing or in checker_skip_packages; writing without odin check",
+			)
 			check = false
 		} else {
 			before, reason, ok = check_errors(paths)
@@ -133,6 +137,16 @@ run_edit :: proc(name: string, edit: server.WorkspaceEdit, apply, check: bool) -
 		}
 	}
 	return finish(name, .Applied, edit, changed, reasons[:], plan.edits)
+}
+
+// Prints warning on stderr in text mode, or keeps it in reasons for JSON.
+@(private = "file")
+warn :: proc(reasons: ^[dynamic]string, warning: string) {
+	if json_output {
+		append(reasons, warning)
+	} else {
+		fmt.eprintfln("warning: %s", warning)
+	}
 }
 
 // Restores files and finishes with status, or refuses naming the files that stayed modified when a

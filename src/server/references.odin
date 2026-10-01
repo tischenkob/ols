@@ -243,6 +243,8 @@ resolve_references :: proc(
 	position_context: ^DocumentPositionContext,
 	current_file_only := false,
 	include_declaration := true,
+	// rols: files stand in for the workspace walk
+	files: []Package_File = {},
 ) -> (
 	[]common.Location,
 	bool,
@@ -263,6 +265,7 @@ resolve_references :: proc(
 		current_file_only,
 		include_declaration,
 		get_target_name(position_context, resolve_flag),
+		files = files,
 	)
 }
 
