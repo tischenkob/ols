@@ -240,6 +240,59 @@ if "$OLS" query lint "$dir/lint" --fail-on range-map-lookup > /dev/null; then ec
 "$OLS" query lint "$dir/lint" --fail-on no-such-code > /dev/null || { echo "FAIL lint-fail-on-clean"; exit 1; }
 echo "ok lint-fail-on"
 expect check-lints "\[self-assignment\]" "$OLS" query check "$dir/lint"
+mdir="$dir/mod"
+mkdir "$mdir"
+echo '{}' > "$mdir/ols.json"
+cat > "$mdir/m.odin" <<'ODIN'
+package mod
+
+import "core:fmt"
+
+has :: proc(s: []int, x: int) -> bool {
+	for e in s {
+		if e == x {
+			return true
+		}
+	}
+	return false
+}
+
+main :: proc() {
+	xs := []int{1, 2}
+	for i := 0; i < len(xs); i += 1 {
+		fmt.println(xs[i], has(xs, 1))
+	}
+}
+ODIN
+expect modernize-list "^use-stdlib/contains	idiom	default" "$OLS" query modernize --list
+rc=0
+"$OLS" query modernize "$mdir" --rule no-such-rule >/dev/null 2>&1 || rc=$?
+[[ $rc == 2 ]] || { echo "FAIL modernize unknown rule: exit $rc"; exit 1; }
+echo "ok modernize-unknown-rule"
+if command -v git >/dev/null; then
+	git -C "$mdir" init -q
+	echo 'gen/' > "$mdir/.gitignore"
+	mkdir "$mdir/gen"
+	sed 's/^package mod/package gen/; /^main ::/,$d' "$mdir/m.odin" > "$mdir/gen/gen.odin"
+fi
+rc=0
+"$OLS" query modernize "$mdir" > "$dir/modernize.out" || rc=$?
+[[ $rc == 0 ]] || { echo "FAIL modernize dry-run: exit $rc"; exit 1; }
+grep -q "m.odin:6:2: \[use-stdlib/contains\] Replace with slice.contains" "$dir/modernize.out" || { echo "FAIL modernize dry-run:"; cat "$dir/modernize.out"; exit 1; }
+echo "ok modernize dry-run"
+expect modernize-diff "^+++ b/m.odin" "$OLS" query modernize "$mdir" --diff
+expect modernize-apply "^modernize: .* written" "$OLS" query --root "$mdir" modernize --apply
+grep -q "return slice.contains(s, x)" "$mdir/m.odin" && grep -q '^import "core:slice"' "$mdir/m.odin" && grep -q "for i in 0..<len(xs)" "$mdir/m.odin" || { echo "FAIL modernize-apply"; exit 1; }
+odin check "$mdir" -no-entry-point
+echo "ok modernize-apply check"
+if [[ -d "$mdir/gen" ]]; then
+	grep -q "for e in s" "$mdir/gen/gen.odin" && ! grep -q "gen.odin" "$dir/modernize.out" || { echo "FAIL modernize touched a gitignored file"; exit 1; }
+	echo "ok modernize-gitignored"
+fi
+rc=0
+"$OLS" query --root "$mdir" modernize > /dev/null || rc=$?
+[[ $rc == 3 ]] || { echo "FAIL modernize not clean after apply: exit $rc"; exit 1; }
+echo "ok modernize-clean"
 mkdir "$dir/t"
 cat > "$dir/t/t_test.odin" <<'ODIN'
 package t

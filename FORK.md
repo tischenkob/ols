@@ -22,6 +22,7 @@
 - `.claude/skills/rebase/SKILL.md`
 
 Whole fork-only package: `src/cli`.
+Its `ols query modernize` command (`src/cli/rols_modernize.odin`) runs the engine in `src/server/rols_modernize.odin` and writes through `run_edit` in `src/cli/rols_apply.odin`; `tools/cli_smoke.sh` covers it.
 
 Confirm with `git diff --name-status upstream/master..HEAD | grep '^A' | grep -v '\.odin$'`.
 

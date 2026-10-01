@@ -58,6 +58,7 @@ lint_test_attribute :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 			end = name.end.offset,
 			title = "Add @(test)",
 			text = fmt.tprintf("@(test)\n%s", ctx.src[line_start:name.end.offset]),
+			code = "missing-test-attribute",
 		},
 	)
 }

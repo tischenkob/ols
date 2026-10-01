@@ -222,6 +222,8 @@ match :: proc(m: ^Matcher, pattern, code: ^ast.Node) -> bool {
 			if bound, seen := m.binds[p.name]; seen {
 				return same_node_text(m.src, bound, code)
 			}
+			// The rewrite evaluates each argument once, the pattern maybe several times.
+			if contains_call(code) do return false
 			m.binds[p.name] = code
 			return true
 		}

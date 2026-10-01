@@ -22,6 +22,7 @@ LintContext :: struct {
 Lint_Fix :: struct {
 	start, end:  int,
 	title, text: string,
+	code:        string, // the modernize rule id: the diagnostic code, with a suffix for alternative fixes
 }
 
 @(private = "package")
@@ -195,7 +196,7 @@ lint_self_assignment :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynami
 	before := len(diags)
 	defer if len(diags) - before == len(assign.lhs) {
 		start, end := whole_lines(ctx.src, node.pos.offset, node.end.offset)
-		append(&ctx.fixes, Lint_Fix{start, end, "Remove self-assignment", ""})
+		append(&ctx.fixes, Lint_Fix{start, end, "Remove self-assignment", "", "self-assignment"})
 	}
 
 	for i in 0 ..< min(len(assign.lhs), len(assign.rhs)) {
@@ -299,7 +300,7 @@ lint_unreachable_code :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynam
 			},
 		)
 		start, end := whole_lines(ctx.src, stmts[i + 1].pos.offset, stmts[len(stmts) - 1].end.offset)
-		append(&ctx.fixes, Lint_Fix{start, end, "Remove unreachable code", ""})
+		append(&ctx.fixes, Lint_Fix{start, end, "Remove unreachable code", "", "unreachable-code"})
 		return
 	}
 }
@@ -505,7 +506,10 @@ lint_unused_parameter :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynam
 			},
 		)
 		if declares_one_name(lit, ident) {
-			append(&ctx.fixes, Lint_Fix{ident.pos.offset, ident.end.offset, "Rename parameter to `_`", "_"})
+			append(
+				&ctx.fixes,
+				Lint_Fix{ident.pos.offset, ident.end.offset, "Rename parameter to `_`", "_", "unused-parameter"},
+			)
 		}
 	}
 }

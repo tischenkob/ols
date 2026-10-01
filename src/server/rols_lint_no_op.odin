@@ -105,7 +105,13 @@ no_op_arithmetic :: proc(ctx: ^LintContext, bin: ^ast.Binary_Expr, diags: ^[dyna
 		)
 		append(
 			&ctx.fixes,
-			Lint_Fix{bin.pos.offset, bin.end.offset, "Remove no-op arithmetic", node_text(ctx.src, other)},
+			Lint_Fix {
+				bin.pos.offset,
+				bin.end.offset,
+				"Remove no-op arithmetic",
+				node_text(ctx.src, other),
+				"no-op-arithmetic",
+			},
 		)
 		return
 	}
@@ -143,7 +149,7 @@ no_op_compound_assign :: proc(ctx: ^LintContext, assign: ^ast.Assign_Stmt, diags
 		},
 	)
 	start, end := whole_lines(ctx.src, assign.pos.offset, assign.end.offset)
-	append(&ctx.fixes, Lint_Fix{start, end, "Remove no-op arithmetic", ""})
+	append(&ctx.fixes, Lint_Fix{start, end, "Remove no-op arithmetic", "", "no-op-arithmetic"})
 }
 
 @(private = "file")
@@ -265,6 +271,6 @@ no_op_append :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagno
 		call, is_call := n.expr.derived.(^ast.Call_Expr)
 		if !is_call || !append_without_values(call) do return
 		start, end := whole_lines(ctx.src, node.pos.offset, node.end.offset)
-		append(&ctx.fixes, Lint_Fix{start, end, "Remove append without values", ""})
+		append(&ctx.fixes, Lint_Fix{start, end, "Remove append without values", "", "append-no-values"})
 	}
 }

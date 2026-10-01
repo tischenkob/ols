@@ -2,6 +2,7 @@ package server
 
 import "core:fmt"
 import "core:odin/ast"
+import "core:odin/tokenizer"
 import "core:strings"
 
 Simplification :: struct {
@@ -33,6 +34,32 @@ rules := [?]Rule {
 	simplify_or_return,
 	simplify_redundant_else,
 	simplify_trailing_return,
+}
+
+// The code each entry of rules reports, in the same order; a test keeps the two in step and
+// checks that modernize registers every code.
+SIMPLIFY_CODES :: [?]string {
+	"array-broadcast",
+	"bool-return",
+	"bool-compare",
+	"double-negation",
+	"bool-ternary",
+	"redundant-parens",
+	"full-slice",
+	"for-true",
+	"make-zero",
+	"empty-else",
+	"compound-assign",
+	"nested-if",
+	"range-loop",
+	"or-else",
+	"or-return",
+	"redundant-else",
+	"trailing-return",
+}
+
+simplify_rule_count :: proc() -> int {
+	return len(rules)
 }
 
 // Every rule is syntactic; none resolves a symbol. Results are in walk order.
@@ -73,6 +100,7 @@ simplification_message :: proc(s: Simplification) -> string {
 	if i := strings.index_byte(text, '\n'); i >= 0 {
 		text = text[:i]
 	}
+	text = strings.trim_space(text)
 	if text == "" {
 		return "can be removed"
 	}
@@ -417,6 +445,14 @@ simplify_redundant_parens :: proc(src: string, node: ^ast.Node, _: []^ast.Node, 
 		if !is_paren || needs_parens(paren.expr) {
 			continue
 		}
+		// `return(x)` and `if(x)do` need a space once the parenthesis goes.
+		text := node_text(src, paren.expr)
+		if start := paren.pos.offset; start > 0 && is_word_byte(src[start - 1]) {
+			text = strings.concatenate({" ", text}, context.temp_allocator)
+		}
+		if end := paren.end.offset; end < len(src) && is_word_byte(src[end]) {
+			text = strings.concatenate({text, " "}, context.temp_allocator)
+		}
 		append(
 			out,
 			Simplification {
@@ -424,10 +460,15 @@ simplify_redundant_parens :: proc(src: string, node: ^ast.Node, _: []^ast.Node, 
 				paren.end.offset,
 				"redundant-parens",
 				"Remove redundant parentheses",
-				node_text(src, paren.expr),
+				text,
 			},
 		)
 	}
+}
+
+@(private = "file")
+is_word_byte :: proc(c: u8) -> bool {
+	return tokenizer.is_letter(rune(c)) || tokenizer.is_digit(rune(c))
 }
 
 @(private = "file")
@@ -590,7 +631,7 @@ bound_calls_ok :: proc(expr: ^ast.Expr) -> bool {
 }
 
 @(private = "file")
-simplify_range_loop :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out: ^[dynamic]Simplification) {
+simplify_range_loop :: proc(src: string, node: ^ast.Node, parents: []^ast.Node, out: ^[dynamic]Simplification) {
 	loop, ok := node.derived.(^ast.For_Stmt)
 	if !ok || loop.init == nil || loop.cond == nil || loop.post == nil || loop.body == nil {
 		return
@@ -619,16 +660,50 @@ simplify_range_loop :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out: ^
 			return
 		}
 	}
+	// A range reads its bound once. A call in the body may change a bound that calls or reads
+	// anything but the procedure's own locals, such as len(queue) while the body appends.
+	if contains_call(loop.body) && !local_expr(cond.right, enclosing_proc(parents), loop) {
+		return
+	}
 	op := cond.op.kind == .Lt ? "..<" : "..="
+	// The C-style loop reads its variable in the condition; a range loop whose body never reads it
+	// names it `_`, or `odin check -vet-unused-variables` rejects it.
 	text := fmt.tprintf(
 		"for %s in %s%s%s %s",
-		name.name,
+		reads_name(loop.body, name.name) ? name.name : "_",
 		node_text(src, decl.values[0]),
 		op,
 		node_text(src, cond.right),
 		do_keyword(loop.body),
 	)
 	append(out, Simplification{loop.for_pos.offset, loop.body.pos.offset, "range-loop", "Use range loop", text})
+}
+
+// Any identifier named name in root outside nested procedure literals, which cannot see the
+// locals around them. A declaration of the name counts too, which is conservative.
+@(private = "file")
+reads_name :: proc(root: ^ast.Node, name: string) -> bool {
+	Search :: struct {
+		name:  string,
+		found: bool,
+	}
+	search := Search{name, false}
+	visitor := ast.Visitor {
+		data = &search,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil do return nil
+			search := (^Search)(visitor.data)
+			#partial switch n in node.derived {
+			case ^ast.Proc_Lit:
+				return nil
+			case ^ast.Ident:
+				if n.name == search.name do search.found = true
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, root)
+	return search.found
 }
 
 // Names an `if`'s init declares live only inside the statement, so text that mentions
@@ -737,15 +812,192 @@ or_return_results :: proc(lit: ^ast.Proc_Lit) -> ([]string, bool) {
 	return names[:], len(names) == 1 || all_named
 }
 
+// A write of name that can run before at: earlier in the text, or in a loop around at.
 @(private = "file")
-is_zero_result :: proc(expr: ^ast.Expr, named: string) -> bool {
+written_before :: proc(writes: []IdentUse, name: string, at: ^ast.Node) -> bool {
+	for use in writes {
+		if use.ident.name != name do continue
+		if use.ident.pos.offset < at.pos.offset do return true
+		for parent in use.parents {
+			#partial switch _ in parent.derived {
+			case ^ast.For_Stmt, ^ast.Range_Stmt, ^ast.Inline_Range_Stmt:
+				if parent.pos.offset <= at.pos.offset && at.end.offset <= parent.end.offset do return true
+			}
+		}
+	}
+	return false
+}
+
+// Built only from literals, private locals and len of a private local array, which a call in
+// the loop body cannot change.
+@(private = "file")
+local_expr :: proc(expr: ^ast.Expr, lit: ^ast.Proc_Lit, loop: ^ast.Node) -> bool {
+	if lit == nil do return false
+	#partial switch e in expr.derived {
+	case ^ast.Basic_Lit:
+		return true
+	case ^ast.Ident:
+		_, _, ok := private_local(lit, e.name, loop)
+		return ok
+	case ^ast.Call_Expr:
+		if !ident_named(e.expr, "len") || len(e.args) != 1 do return false
+		arg := e.args[0].derived.(^ast.Ident) or_return
+		type, value := private_local(lit, arg.name, loop) or_return
+		return is_array_value(type, value)
+	case ^ast.Paren_Expr:
+		return local_expr(e.expr, lit, loop)
+	case ^ast.Unary_Expr:
+		return local_expr(e.expr, lit, loop)
+	case ^ast.Binary_Expr:
+		return local_expr(e.left, lit, loop) && local_expr(e.right, lit, loop)
+	}
+	return false
+}
+
+// len dereferences one pointer level, so only a declaration that shows an array, not a pointer
+// or a named type, keeps its length away from a call.
+@(private = "file")
+is_array_value :: proc(type, value: ^ast.Expr) -> bool {
+	if type != nil {
+		#partial switch _ in type.derived {
+		case ^ast.Array_Type, ^ast.Dynamic_Array_Type:
+			return true
+		}
+		return false
+	}
+	if value == nil do return false
+	#partial switch v in value.derived {
+	case ^ast.Comp_Lit, ^ast.Slice_Expr:
+		return true
+	case ^ast.Call_Expr:
+		return ident_named(v.expr, "make")
+	}
+	return false
+}
+
+// The type and value of name when exactly one declaration of lit is in scope at loop: a parameter
+// or result, or a body declaration before loop whose scope contains loop, outside nested
+// procedures. lit must never take its address.
+@(private = "file")
+private_local :: proc(lit: ^ast.Proc_Lit, name: string, loop: ^ast.Node) -> (type, value: ^ast.Expr, ok: bool) {
+	if lit.body == nil do return
+	count := 0
+	if lit.type != nil {
+		for list in ([]^ast.Field_List{lit.type.params, lit.type.results}) {
+			if list == nil do continue
+			for field in list.list {
+				for n in field.names {
+					if !ident_named(n, name) do continue
+					count += 1
+					type = field.type
+				}
+			}
+		}
+	}
+
+	Search :: struct {
+		name:  string,
+		loop:  ^ast.Node,
+		stack: [dynamic]^ast.Node,
+		count: int,
+		decl:  ^ast.Value_Decl,
+		index: int,
+	}
+	search := Search {
+		name  = name,
+		loop  = loop,
+		stack = make([dynamic]^ast.Node, context.temp_allocator),
+	}
+	visitor := ast.Visitor {
+		data = &search,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			search := (^Search)(visitor.data)
+			if node == nil {
+				pop(&search.stack)
+				return nil
+			}
+			// Range, #unroll and type switch variables are never arrays by declaration, so
+			// counting them is enough to refuse the bound when they shadow.
+			encloses_loop := node.pos.offset <= search.loop.pos.offset && search.loop.end.offset <= node.end.offset
+			#partial switch n in node.derived {
+			case ^ast.Proc_Lit:
+				return nil
+			case ^ast.Value_Decl:
+				// A `when` body opens no scope: its declarations belong to the enclosing one.
+				at := len(search.stack) - 1
+				for at > 0 {
+					_, is_when := search.stack[at].derived.(^ast.When_Stmt)
+					_, parent_when := search.stack[at - 1].derived.(^ast.When_Stmt)
+					if !is_when && !parent_when do break
+					at -= 1
+				}
+				scope := search.stack[at]
+				in_scope :=
+					n.end.offset <= search.loop.pos.offset &&
+					scope.pos.offset <= search.loop.pos.offset &&
+					search.loop.end.offset <= scope.end.offset
+				for name, i in n.names {
+					if !in_scope || !ident_named(name, search.name) do continue
+					search.count += 1
+					search.decl, search.index = n, i
+				}
+			case ^ast.Range_Stmt:
+				if encloses_loop do for v in n.vals do if ident_named(v, search.name) do search.count += 1
+			case ^ast.Inline_Range_Stmt:
+				if encloses_loop do for v in ([]^ast.Expr{n.val0, n.val1}) do if v != nil && ident_named(v, search.name) do search.count += 1
+			case ^ast.Type_Switch_Stmt:
+				if tag, is_assign := n.tag.derived.(^ast.Assign_Stmt); is_assign && encloses_loop {
+					for v in tag.lhs do if ident_named(v, search.name) do search.count += 1
+				}
+			}
+			append(&search.stack, node)
+			return visitor
+		},
+	}
+	append(&search.stack, lit.body)
+	ast.walk(&visitor, lit.body)
+
+	count += search.count
+	if count != 1 do return nil, nil, false
+	if decl := search.decl; decl != nil {
+		type = decl.type
+		if len(decl.values) == len(decl.names) do value = decl.values[search.index]
+	}
+	for use in collect_ident_uses(lit.body) {
+		if use.ident.name == name && is_write(use) && address_taken(use) do return nil, nil, false
+	}
+	return type, value, true
+}
+
+// `&x`, `&x.f` or `&x[i]`: is_write already found the unary parent.
+@(private = "file")
+address_taken :: proc(use: IdentUse) -> bool {
+	#reverse for parent in use.parents {
+		#partial switch p in parent.derived {
+		case ^ast.Selector_Expr, ^ast.Index_Expr, ^ast.Slice_Expr, ^ast.Deref_Expr, ^ast.Paren_Expr:
+			continue
+		case ^ast.Unary_Expr:
+			return p.op.kind == .And
+		}
+		return false
+	}
+	return false
+}
+
+// or_return returns the current value of a named result, so a zero literal stands for it only
+// while the procedure never writes it.
+@(private = "file")
+is_zero_result :: proc(expr: ^ast.Expr, named: string, writes: []IdentUse, at: ^ast.Node) -> bool {
+	if named != "" && (ident_named(expr, named) || written_before(writes, named, at)) {
+		return ident_named(expr, named)
+	}
 	#partial switch e in expr.derived {
 	case ^ast.Comp_Lit:
 		return e.type == nil && len(e.elems) == 0
 	case ^ast.Basic_Lit:
 		return e.tok.text == "0" || e.tok.text == `""`
 	case ^ast.Ident:
-		return e.name == "nil" || e.name == "false" || (named != "" && e.name == named)
+		return e.name == "nil" || e.name == "false"
 	}
 	return false
 }
@@ -761,9 +1013,14 @@ simplify_or_return :: proc(src: string, node: ^ast.Node, parents: []^ast.Node, o
 	case:
 		return
 	}
-	results, results_ok := or_return_results(enclosing_proc(parents))
+	lit := enclosing_proc(parents)
+	results, results_ok := or_return_results(lit)
 	if !results_ok {
 		return
+	}
+	writes := make([dynamic]IdentUse, context.temp_allocator)
+	for use in collect_ident_uses(lit.body) {
+		if is_write(use) do append(&writes, use)
 	}
 	for stmt, i in stmts[:max(len(stmts) - 1, 0)] {
 		decl, is_decl := stmt.derived.(^ast.Value_Decl)
@@ -803,7 +1060,7 @@ simplify_or_return :: proc(src: string, node: ^ast.Node, parents: []^ast.Node, o
 		}
 		zero := true
 		for result, j in ret.results[:len(results) - 1] {
-			zero &&= is_zero_result(result, results[j])
+			zero &&= is_zero_result(result, results[j], writes[:], if_stmt)
 		}
 		if !zero {
 			continue

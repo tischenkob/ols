@@ -688,6 +688,307 @@ f :: proc(a: bool) {
 }
 
 @(test)
+action_simplify_redundant_parens_after_keyword :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a: int) -> int {
+	return({*}a)
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Remove redundant parentheses",
+		`package test
+
+f :: proc(a: int) -> int {
+	return a
+}
+`,
+	)
+}
+
+@(test)
+action_simplify_redundant_parens_before_keyword :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a: bool) {
+	if({*}a)do f(a)
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Remove redundant parentheses",
+		`package test
+
+f :: proc(a: bool) {
+	if a do f(a)
+}
+`,
+	)
+}
+
+// A range reads its bound once, and a call in the body may change a bound that is not a private
+// local: a global, or a local whose address escapes.
+@(test)
+lint_simplify_range_loop_variant_bound :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+queue: [dynamic]int
+
+push :: proc(v: int) {
+	append(&queue, v)
+}
+
+f :: proc() {
+	for i := 0; i < len(queue); i += 1 {
+		if queue[i] > 0 do push(queue[i] - 1)
+	}
+}
+
+grow :: proc(p: ^[dynamic]int) {
+	append(p, 1)
+}
+
+h :: proc() {
+	xs: [dynamic]int
+	p := &xs
+	for i := 0; i < len(xs); i += 1 {
+		grow(p)
+	}
+}
+
+// len dereferences a pointer, so the length grows through it.
+by_pointer :: proc(q: ^[dynamic]int) {
+	for i := 0; i < len(q); i += 1 {
+		append(q, 1)
+	}
+}
+
+local_pointer :: proc() {
+	xs: [dynamic]int
+	p := &xs
+	for i := 0; i < len(p); i += 1 {
+		grow(p)
+	}
+}
+
+copied_pointer :: proc(q: ^[dynamic]int) {
+	r := q
+	for i := 0; i < len(q); i += 1 {
+		grow(r)
+	}
+}
+
+// The local queue comes after the loop, which reads the global.
+later_shadow :: proc() {
+	for i := 0; i < len(queue); i += 1 {
+		push(i)
+	}
+	{
+		queue := make([dynamic]int)
+		_ = queue
+	}
+}
+
+// The block ends before the loop, which reads the global.
+earlier_block :: proc() {
+	{
+		queue: [dynamic]int
+		_ = queue
+	}
+	for i := 0; i < len(queue); i += 1 {
+		push(i)
+	}
+}
+
+// The range, #unroll and type switch variables shadow the slice parameter with a pointer.
+range_shadow :: proc(xs: []int, rows: []^[dynamic]int) {
+	for xs in rows {
+		for i := 0; i < len(xs); i += 1 {
+			grow(xs)
+		}
+	}
+}
+
+unroll_shadow :: proc(xs: []int, rows: [2]^[dynamic]int) {
+	#unroll for xs in rows {
+		for i := 0; i < len(xs); i += 1 {
+			grow(xs)
+		}
+	}
+}
+
+Rows :: union {
+	^[dynamic]int,
+}
+
+type_switch_shadow :: proc(xs: []int, v: Rows) {
+	switch xs in v {
+	case ^[dynamic]int:
+		for i := 0; i < len(xs); i += 1 {
+			grow(xs)
+		}
+	}
+}
+
+// A when body opens no scope, so its xs shadows the parameter at the loop.
+when_shadow :: proc(xs: []int, q: ^[dynamic]int) {
+	when true {
+		xs := q
+	}
+	for i := 0; i < len(xs); i += 1 {
+		grow(xs)
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
+
+// A loop variable the body never reads becomes `_`, which -vet-unused-variables accepts. An i in a
+// nested procedure literal is another variable.
+@(test)
+action_simplify_range_loop_unread_variable :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+g :: proc(p: proc()) {}
+
+i: int
+
+f :: proc(n: int) {
+	for i := 0; i {*}< n; i += 1 {
+		g(proc() {
+			_ = i
+		})
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Use range loop",
+		`package test
+
+g :: proc(p: proc()) {}
+
+i: int
+
+f :: proc(n: int) {
+	for _ in 0..<n {
+		g(proc() {
+			_ = i
+		})
+	}
+}
+`,
+	)
+}
+
+// A local array, slice or make result keeps its length while the body calls something.
+@(test)
+lint_simplify_range_loop_local_bound :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+g :: proc(v: int) {}
+
+f :: proc(xs: []int, n: int) {
+	ys := make([dynamic]int, 4)
+	for i := 0; i < len(ys); i += 1 {
+		g(ys[i])
+	}
+	for i := 0; i < len(xs); i += 1 {
+		g(xs[i])
+	}
+	for i := 0; i < n; i += 1 {
+		g(i)
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{6, "range-loop"}, {9, "range-loop"}, {12, "range-loop"}})
+}
+
+// An earlier iteration of the #unroll loop sets n, which or_return would return.
+@(test)
+lint_simplify_or_return_written_in_unroll :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Error :: union {
+	int,
+}
+
+f :: proc() -> (int, Error) {
+	return 0, nil
+}
+
+g :: proc() -> (n: int, err: Error) {
+	#unroll for k in 0 ..< 2 {
+		v, e := f()
+		if e != nil {
+			return 0, e
+		}
+		n += v
+	}
+	return
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
+
+// or_return returns the current value of a named result, which is 5 here, not 0.
+@(test)
+lint_simplify_or_return_written_result :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Error :: union {
+	int,
+}
+
+f :: proc() -> (int, Error) {
+	return 0, nil
+}
+
+g :: proc() -> (n: int, err: Error) {
+	n = 5
+	v, e := f()
+	if e != nil {
+		return 0, e
+	}
+	return v, nil
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
+
+@(test)
 action_simplify_full_slice :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
@@ -1179,7 +1480,7 @@ f :: proc(n: int) {
 		`package test
 
 f :: proc(n: int) {
-	for i in 1..=n {
+	for _ in 1..=n {
 	}
 }
 `,
