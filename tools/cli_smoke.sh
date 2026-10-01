@@ -315,7 +315,7 @@ cp "$dir/at/at.odin" "$dir/at.orig"
 expect attr-add-diff '^+@(private, require_results)$' sh -c "cd \"$dir\" && \"$OLS\" query attr add at.helper require_results"
 expect attr-add-json '"status": "dry_run"' sh -c "cd \"$dir\" && \"$OLS\" query attr add at.helper require_results --json"
 cmp -s "$dir/at/at.odin" "$dir/at.orig" || { echo "FAIL attr dry run wrote the file"; exit 1; }
-expect attr-add-apply "^attr add: 1 edit in 1 file written$" sh -c "cd \"$dir\" && \"$OLS\" query attr add at.helper require_results --apply"
+expect attr-add-apply "^attr add: 1 edit in 1 file written, 1 package checked$" sh -c "cd \"$dir\" && \"$OLS\" query attr add at.helper require_results --apply"
 grep -q "^@(private, require_results)$" "$dir/at/at.odin" || { echo "FAIL attr-add-apply text"; exit 1; }
 odin check "$dir/at"
 echo "ok attr-add-apply check"
@@ -329,7 +329,7 @@ printf 'package at\n\n@(private) hidden := 0\n' > "$dir/at/hidden.odin"
 printf 'package smoke\n\n@(private) skipped := 0\n' > "$dir/skipped.odin"
 echo '{"workspace_exclude": ["at/hidden.odin", "skipped.odin"]}' > "$dir/ols.json"
 expect attr-remove-all-skipped '^warning: 1 workspace file skipped .* contains `private`, and attr remove does not change it: .*at/hidden.odin$' sh -c "\"$OLS\" query attr remove --all private \"$dir/at\" 2>&1"
-expect attr-remove-all "^attr remove: 3 edits in 1 file written$" "$OLS" query attr remove --all private "$dir/at" --apply
+expect attr-remove-all "^attr remove: 3 edits in 1 file written, 1 package checked$" "$OLS" query attr remove --all private "$dir/at" --apply
 ! grep -q "private" "$dir/at/at.odin" && grep -q "^counter := 0$" "$dir/at/at.odin" && grep -q "^@(rodata)$" "$dir/at/at.odin" || { echo "FAIL attr-remove-all text"; cat "$dir/at/at.odin"; exit 1; }
 odin check "$dir/at"
 echo "ok attr-remove-all check"
@@ -496,4 +496,32 @@ if "$OLS" query test "$dir/t" >/dev/null 2>&1; then echo "FAIL test exit code"; 
 echo "ok test failure exit"
 if "$OLS" query nonsense >/dev/null 2>&1; then echo "FAIL usage exit"; exit 1; fi
 echo "ok usage"
+# Compile gate: an unedited importer is checked, existing errors warn, and an existing error that names
+# the renamed symbol or package is not new.
+mkdir -p "$dir/imp/lib" "$dir/imp/use"
+printf 'package lib\n\nL :: proc() -> int {\n\treturn 1\n}\n' > "$dir/imp/lib/lib.odin"
+printf 'package use\n\nimport "../lib"\n\nmain :: proc() {\n\t_ = lib.L()\n}\n' > "$dir/imp/use/use.odin"
+cp "$dir/imp/lib/lib.odin" "$dir/lib.orig"
+expect_exit 4 importer-check-failed "$OLS" query attr add "$dir/imp/lib.L" private --apply
+cmp -s "$dir/imp/lib/lib.odin" "$dir/lib.orig" || { echo "FAIL importer rollback is not byte for byte"; exit 1; }
+echo "ok importer rollback"
+expect importer-error "^error: .*use.odin:6:6: 'L' is not exported by 'lib'" sh -c "\"$OLS\" query attr add \"$dir/imp/lib.L\" private --apply 2>&1 || true"
+expect importer-checked "^attr add: 1 edit in 1 file written, 2 packages checked$" "$OLS" query attr add "$dir/imp/lib.L" cold --apply
+rm -rf "$dir/imp" "$dir/lib.orig"
+mkdir "$dir/pre"
+printf 'package pre\n\nx: int = "s"\n\nhelper :: proc() -> int {\n\treturn 1\n}\n' > "$dir/pre/pre.odin"
+expect_exit 0 existing-errors-exit "$OLS" query rename "$dir/pre.helper" helper2 --apply
+expect existing-errors-warning "^warning: odin check already reports errors in pre;" sh -c "\"$OLS\" query rename \"$dir/pre.helper2\" helper3 --apply 2>&1"
+rm -rf "$dir/pre"
+mkdir "$dir/fr"
+printf 'package fr\n\ncount :: proc() -> int {\n\treturn 1\n}\n\nmain :: proc() {\n\ts: string = count()\n\t_ = s\n}\n' > "$dir/fr/fr.odin"
+expect_exit 0 existing-error-renamed "$OLS" query rename "$dir/fr.count" tally --apply
+grep -q "s: string = tally()" "$dir/fr/fr.odin" || { echo "FAIL existing-error-renamed text"; exit 1; }
+rm -rf "$dir/fr"
+mkdir -p "$dir/rp/rpold" "$dir/rp/user"
+printf 'package rpold\n\nP :: proc() -> int {\n\treturn 1\n}\n' > "$dir/rp/rpold/p.odin"
+printf 'package user\n\nimport "../rpold"\n\nmain :: proc() {\n\ts: string = rpold.P()\n\t_ = s\n}\n' > "$dir/rp/user/u.odin"
+expect_exit 0 existing-error-package-renamed "$OLS" query rename-package "$dir/rp/rpold" rpnew --apply
+[[ -d "$dir/rp/rpnew" ]] && grep -q "s: string = rpnew.P()" "$dir/rp/user/u.odin" || { echo "FAIL existing-error-package-renamed text"; exit 1; }
+rm -rf "$dir/rp"
 echo "all ok"
