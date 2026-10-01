@@ -139,6 +139,7 @@ Config :: struct {
 	enable_workspace_gitignore:              bool,
 	workspace_exclude:                       []string,
 	workspace_include:                       []string,
+	modernize_recipes:                       []Modernize_Recipe,
 	struct_fields_underscore_visibility:     StructFieldUnderscoreMeaning,
 	enable_parser_errors:                    bool,
 	enable_diagnostics:                      bool,

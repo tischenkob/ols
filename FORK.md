@@ -25,6 +25,7 @@ Whole fork-only package: `src/cli`.
 Its `ols query rename-package` command runs the engine in `src/server/rols_rename_package.odin` and writes through `run_edit`, whose transaction renames the directory after the files are written; `tools/cli_smoke.sh` covers it.
 Its `ols query modernize` command (`src/cli/rols_modernize.odin`) runs the engine in `src/server/rols_modernize.odin` and writes through `run_edit` in `src/cli/rols_apply.odin`; `tools/cli_smoke.sh` covers it.
 The `migration` rules of that command, which rewrite deprecated or removed Odin forms, live in `src/server/rols_modernize_migrate.odin` and have no lint or config key; `tools/cli_smoke.sh` covers `base-imports`.
+Its `recipe` rules, parsed from the `modernize_recipes` config key, live in `src/server/rols_modernize_recipe.odin` and share the pattern matcher of `src/server/rols_pattern.odin` with the use_stdlib lint; `tools/cli_smoke.sh` covers one.
 
 Confirm with `git diff --name-status upstream/master..HEAD | grep '^A' | grep -v '\.odin$'`.
 
@@ -199,6 +200,7 @@ The regenerate command above lists only `enable_*` keys.
 
 - `workspace_exclude`
 - `workspace_include`
+- `modernize_recipes`: user rewrite rules of `ols query modernize`. It has no `enable_*` flag: recipes run only when configured, and only from the CLI command.
 
 ## Fork-only LSP requests
 
