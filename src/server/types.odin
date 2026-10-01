@@ -559,6 +559,7 @@ OlsConfig :: struct {
 	enable_workspace_gitignore:              Maybe(bool),
 	workspace_exclude:                       []string,
 	workspace_include:                       []string,
+	modernize_recipes:                       []common.Modernize_Recipe,
 	struct_fields_underscore_visibility:     string,
 	enable_parser_errors:                    Maybe(bool),
 	disable_parser_errors:                   Maybe(bool),

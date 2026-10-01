@@ -18,7 +18,7 @@ expect_modernized :: proc(
 	setup(src)
 	defer teardown(src)
 
-	selected, unknown, ok := server.modernize_select(rules)
+	selected, unknown, ok := server.modernize_select(rules, &src.config)
 	if !testing.expectf(t, ok, "Unknown rule %q", unknown) do return
 
 	original := string(src.document.text[:src.document.used_text])

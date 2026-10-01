@@ -414,6 +414,57 @@
 			},
 			"default": []
 		},
+		"modernize_recipes": {
+			"type": "array",
+			"description": "User rewrite rules that `ols query modernize` runs as rule recipe/<name>. $name in match and replace is a metavariable.",
+			"items": {
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string",
+						"pattern": "^[A-Za-z0-9._-]+$",
+						"description": "Unique recipe name; the rule id is recipe/<name>."
+					},
+					"match": {
+						"type": "string",
+						"description": "Odin code to find: one expression, or a sequence of statements."
+					},
+					"replace": {
+						"type": "string",
+						"description": "Odin code to write; each $name becomes the code its metavariable matched."
+					},
+					"imports": {
+						"type": "array",
+						"description": "Import paths the replacement needs, such as core:slice.",
+						"items": {
+							"type": "string"
+						}
+					},
+					"where": {
+						"type": "array",
+						"description": "Type constraints on metavariables that match a name or a selector.",
+						"items": {
+							"type": "object",
+							"properties": {
+								"var": {
+									"type": "string",
+									"description": "Metavariable name without $."
+								},
+								"kind": {
+									"type": "string",
+									"enum": ["slice", "dynamic_array", "fixed_array", "map", "string", "pointer"]
+								}
+							},
+							"required": ["var", "kind"],
+							"additionalProperties": false
+						}
+					}
+				},
+				"required": ["name", "match", "replace"],
+				"additionalProperties": false
+			},
+			"default": []
+		},
 		"enable_lint_self_assignment": {
 			"type": "boolean",
 			"description": "Warn when a variable is assigned to itself.",

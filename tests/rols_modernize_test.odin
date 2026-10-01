@@ -3,6 +3,7 @@ package tests
 import "core:strings"
 import "core:testing"
 
+import "src:common"
 import "src:server"
 import test "src:testing"
 
@@ -273,10 +274,10 @@ f :: proc() {
 
 @(test)
 modernize_select_unknown_rule :: proc(t: ^testing.T) {
-	_, unknown, ok := server.modernize_select({"nested-if", "no-such-rule"})
+	_, unknown, ok := server.modernize_select({"nested-if", "no-such-rule"}, &common.config)
 	testing.expect(t, !ok && unknown == "no-such-rule")
 
-	selected, _, _ := server.modernize_select({})
+	selected, _, _ := server.modernize_select({}, &common.config)
 	testing.expect(t, "nested-if" in selected && "use-stdlib/contains" in selected)
 	testing.expect(t, "use-stdlib/copy-loop" not_in selected && "self-assignment" not_in selected)
 	testing.expect(t, "redundant-else" not_in selected)
@@ -337,7 +338,7 @@ pre :: proc(strings, p: string) -> bool {
 @(test)
 modernize_registers_every_rule :: proc(t: ^testing.T) {
 	ids := make(map[string]bool, context.temp_allocator)
-	for rule in server.modernize_rules() do ids[rule.id] = true
+	for rule in server.modernize_rules(&common.config) do ids[rule.id] = true
 
 	testing.expect_value(t, len(server.SIMPLIFY_CODES), server.simplify_rule_count())
 	for code in server.SIMPLIFY_CODES {
@@ -348,7 +349,7 @@ modernize_registers_every_rule :: proc(t: ^testing.T) {
 		id := strings.concatenate({"use-stdlib/", name}, context.temp_allocator)
 		testing.expectf(t, id in ids, "use_stdlib rule %s is not a modernize rule", id)
 	}
-	selected, _, _ := server.modernize_select({})
+	selected, _, _ := server.modernize_select({}, &common.config)
 	for id in ([]string{"use-stdlib/clamp-if", "use-stdlib/max-lt", "use-stdlib/min-else", "use-stdlib/abs-lt"}) {
 		testing.expectf(t, id in ids && id not_in selected, "%s should be a non-default rule", id)
 	}

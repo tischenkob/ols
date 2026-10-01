@@ -563,6 +563,9 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	if ols_config.workspace_include != nil {
 		config.workspace_include = common.clone_string_list(ols_config.workspace_include, context.allocator)
 	}
+	if ols_config.modernize_recipes != nil {
+		config.modernize_recipes = common.clone_modernize_recipes(ols_config.modernize_recipes, context.allocator)
+	}
 	config.verbose = ols_config.verbose.(bool) or_else config.verbose
 	config.file_log = ols_config.file_log.(bool) or_else config.file_log
 

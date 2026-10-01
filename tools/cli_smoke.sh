@@ -396,6 +396,30 @@ expect modernize-migration "^modernize: .* written" "$OLS" query --root "$dir/mi
 grep -q '^import "base:runtime"' "$dir/mig/m.odin" || { echo "FAIL modernize-migration"; cat "$dir/mig/m.odin"; exit 1; }
 odin check "$dir/mig"
 echo "ok modernize-migration check"
+mkdir "$dir/rec"
+cat > "$dir/rec/ols.json" <<'JSON'
+{"modernize_recipes": [
+	{"name": "is-empty", "match": "len($s) == 0", "replace": "slice.is_empty($s)", "imports": ["core:slice"], "where": [{"var": "s", "kind": "slice"}]},
+	{"name": "broken", "match": "f($x)", "replace": "g($y)"}
+]}
+JSON
+cat > "$dir/rec/m.odin" <<'ODIN'
+package rec
+
+import "core:fmt"
+
+main :: proc() {
+	xs := []int{1}
+	d: [dynamic]int
+	fmt.println(len(xs) == 0, len(d) == 0)
+}
+ODIN
+expect modernize-recipe-list "^recipe/is-empty	recipe	default" "$OLS" query --root "$dir/rec" modernize --list
+"$OLS" query --root "$dir/rec" modernize --rule recipe --apply > "$dir/recipe.out" 2> "$dir/recipe.err" || { echo "FAIL modernize-recipe"; cat "$dir/recipe.out" "$dir/recipe.err"; exit 1; }
+grep -q "recipe broken: replace uses \$y, which match does not bind; skipped" "$dir/recipe.err" || { echo "FAIL modernize-recipe error:"; cat "$dir/recipe.err"; exit 1; }
+grep -q "fmt.println(slice.is_empty(xs), len(d) == 0)" "$dir/rec/m.odin" && grep -q '^import "core:slice"' "$dir/rec/m.odin" || { echo "FAIL modernize-recipe"; cat "$dir/rec/m.odin"; exit 1; }
+odin check "$dir/rec"
+echo "ok modernize-recipe check"
 mkdir "$dir/t"
 cat > "$dir/t/t_test.odin" <<'ODIN'
 package t
