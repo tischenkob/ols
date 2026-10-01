@@ -26,6 +26,9 @@ USAGE :: `usage: ols query <command> [--root DIR] [--json]
   rename  TARGET NEW [--apply [--no-check]]
   reorder-params TARGET --order 2,0,1 [--apply [--no-check]]
   move    TARGET --to FILE.odin [--apply [--no-check]]
+  rename-package DIR NEW [--apply [--no-check]]
+                                           renames the package in DIR: its package clauses, the import paths
+                                           and unaliased old.x qualifiers of every importer, and DIR itself
   check   [DIR]                            odin check errors plus lints, no build or run; run after every edit
   lint    FILE|DIR [--fail-on CODE,...]    lints only, works on code that does not compile;
                                            --fail-on exits 1 when a listed code is reported
@@ -45,9 +48,11 @@ Lines and columns are 1-based, columns in bytes, as odin check prints them.
 --root defaults to the nearest directory with an ols.json above the file, else the cwd.
 TARGET is FILE:LINE:COL or a symbol path PKG.Name[.Member]: PKG is a directory or a collection path like
 core:strings, and Member a struct field, enum member or bit_field field.
-rename, reorder-params and move without --apply print a unified diff and a summary line. --apply writes
-every file or none, after odin check on each touched package; new errors restore every file. --no-check
-skips odin check. With --json they print {"status", "edit", "summary", "reasons"}.
+rename, reorder-params, move and rename-package without --apply print a unified diff and a summary line.
+--apply writes every file or none, after odin check on each touched package; new errors restore every
+file. rename-package writes the files first and renames DIR last; a rollback renames it back first.
+--no-check skips odin check. With --json they print {"status", "edit", "summary", "reasons"}.
+DIR is a directory or a collection path; --root defaults to the nearest ols.json above it, or the cwd.
 Refactor exit codes: 0 applied or previewed, 1 refused, 2 usage, 3 nothing to change, 4 rolled back
 after odin check reported new errors.
 `
@@ -175,6 +180,25 @@ run :: proc(args: []string) -> int {
 			return find(rest_args[0])
 		}
 		return api(resolve_package(rest_args[0]), rest_args[1] if len(rest_args) > 1 else "")
+	}
+
+	if command == "rename-package" {
+		if len(rest_args) < 2 {
+			return usage()
+		}
+		if root == "" {
+			root = find_root(absolute(rest_args[0]))
+		}
+		setup(root)
+		edit, warnings, reasons, ok := server.rename_package(
+			resolve_package(rest_args[0]),
+			rest_args[1],
+			&common.config,
+		)
+		if !ok {
+			return refuse(command, ..reasons)
+		}
+		return run_edit(command, edit, apply, check_edit, warnings)
 	}
 
 	if len(rest_args) < 1 || (command == "rename" && len(rest_args) < 2) {

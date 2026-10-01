@@ -13,7 +13,7 @@ import "core:unicode/utf8"
 import "src:common"
 
 // Collections that hold the Odin distribution; their declarations are never renamed.
-@(private = "file")
+@(private)
 LIBRARY_COLLECTIONS :: [?]string{"core", "vendor", "base"}
 
 // Universe constants the checker knows without a declaration in $builtin.
@@ -157,7 +157,7 @@ rename_symbol_at :: proc(
 }
 
 // Appends a cause when name is not a plain identifier or is a keyword; ok is false after any cause.
-@(private = "file")
+@(private)
 check_new_name :: proc(out: ^[dynamic]string, name: string) -> (ok: bool) {
 	t: tokenizer.Tokenizer
 	tokenizer.init(&t, name, "", proc(pos: tokenizer.Pos, msg: string, args: ..any) {})
@@ -178,7 +178,7 @@ check_new_name :: proc(out: ^[dynamic]string, name: string) -> (ok: bool) {
 
 // A builtin type name, a universe constant, or a declaration in $builtin. Fields and enum members may
 // use these names, so only identifier targets check them.
-@(private = "file")
+@(private)
 is_builtin_name :: proc(name: string, current_file: string) -> bool {
 	constants := BUILTIN_CONSTANTS
 	if name in keyword_map || slice.contains(constants[:], name) {
@@ -215,7 +215,7 @@ library_location :: proc(uri: string, config: ^common.Config) -> (reason: string
 
 // dir relative to root with forward slashes, "" for root itself; inside is false when dir is not under root.
 // Both resolve symlinks first, as the workspace filter does, so /var and /private/var compare equal.
-@(private = "file")
+@(private)
 relative_dir :: proc(root, dir: string) -> (rel: string, inside: bool) {
 	root := strings.trim_right(canonical_dir(root), "/")
 	dir := canonical_dir(dir)
@@ -238,7 +238,7 @@ relative_dir :: proc(root, dir: string) -> (rel: string, inside: bool) {
 }
 
 // The real path of dir with forward slashes, or dir cleaned when it does not exist.
-@(private = "file")
+@(private)
 canonical_dir :: proc(dir: string) -> string {
 	real, err := os.get_absolute_path(dir, context.temp_allocator)
 	if err != nil {
@@ -432,7 +432,7 @@ check_captures :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name: 
 }
 
 // What name resolves to at position in document, with the locals visible there.
-@(private = "file")
+@(private)
 resolve_name_at :: proc(
 	document: ^Document,
 	position: common.Position,
@@ -493,7 +493,7 @@ describe :: proc(symbol: Symbol, name: string) -> string {
 }
 
 // FILE:LINE of a symbol's declaration.
-@(private = "file")
+@(private)
 declared_at :: proc(symbol: Symbol) -> string {
 	return fmt.tprintf("%s:%d", common.uri_to_path(symbol.uri, context.temp_allocator), symbol.range.start.line + 1)
 }
@@ -594,10 +594,14 @@ scope_declarations :: proc(document: ^Document, offset: int) -> []^ast.Ident {
 	}
 }
 
-// A warning naming the workspace files the gitignore, exclude or include filter skipped that contain
+// A warning naming the workspace files the gitignore, exclude or include filter skipped that mention
 // word, since the rename does not change them. Empty when there are none.
-@(private = "file")
-skipped_files_warning :: proc(word: string, config: ^common.Config) -> []string {
+@(private)
+skipped_files_warning :: proc(
+	word: string,
+	config: ^common.Config,
+	mentions: proc(text, word: string) -> bool = contains_word,
+) -> []string {
 	skipped := make([dynamic]string, context.temp_allocator)
 	when !ODIN_TEST {
 		// Files the walk with the filter keeps, and files already read; overlapping folders share both.
@@ -620,7 +624,7 @@ skipped_files_warning :: proc(word: string, config: ^common.Config) -> []string 
 				// Each file is freed before the next one is read, so the memory stays bounded.
 				data, err := os.read_entire_file(file, context.allocator)
 				if err == nil {
-					if contains_word(string(data), word) {
+					if mentions(string(data), word) {
 						append(&skipped, file)
 					}
 					delete(data)
@@ -651,7 +655,7 @@ skipped_files_warning :: proc(word: string, config: ^common.Config) -> []string 
 }
 
 // Whether word occurs in text with no identifier character on either side.
-@(private = "file")
+@(private)
 contains_word :: proc(text, word: string) -> bool {
 	if word == "" {
 		return false
@@ -673,7 +677,7 @@ contains_word :: proc(text, word: string) -> bool {
 	return false
 }
 
-@(private = "file")
+@(private)
 is_ident_rune :: proc(r: rune) -> bool {
 	return r == '_' || ('0' <= r && r <= '9') || ('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || r >= 0x80
 }

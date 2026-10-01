@@ -1510,6 +1510,12 @@ expect_rename_refused :: proc(t: ^testing.T, src: ^Source, new_name: string, cau
 	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
 
 	reasons, _ := server.check_rename(src.document, cursor, new_name, &src.config, source_files(src))
+	expect_causes(t, reasons, causes)
+}
+
+// One reason per cause, each containing its cause.
+@(private)
+expect_causes :: proc(t: ^testing.T, reasons, causes: []string) {
 	testing.expectf(t, len(reasons) == len(causes), "\nExpected %d reasons, but received %v", len(causes), reasons)
 	for cause in causes {
 		found := false
@@ -1518,6 +1524,48 @@ expect_rename_refused :: proc(t: ^testing.T, src: ^Source, new_name: string, cau
 		}
 		testing.expectf(t, found, "\nExpected a reason containing %q in %v", cause, reasons)
 	}
+}
+
+// Renames the package in test/dir to new_name across the files and packages of src, and compares each
+// file listed in expected by its name after the rename; a package file is named `pkg/package.odin`. Each
+// of warnings must be contained in one warning.
+expect_rename_package :: proc(
+	t: ^testing.T,
+	src: ^Source,
+	dir, new_name: string,
+	expected: []File,
+	warnings: []string = {},
+) {
+	setup(src)
+	defer teardown(src)
+
+	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+
+	full_dir := strings.join({"test", dir}, "/", context.temp_allocator)
+	edit, got, reasons, ok := server.rename_package(full_dir, new_name, &src.config, source_files(src))
+	if !testing.expectf(t, ok, "Expected the package rename to pass its check, but received %v", reasons) do return
+	// The expected files carry their new paths, so they are found only when the directory rename applies.
+	expect_workspace_edit(t, src, edit, expected)
+	for warning in warnings {
+		found := false
+		for w in got {
+			found ||= strings.contains(w, warning)
+		}
+		testing.expectf(t, found, "\nExpected a warning containing %q in %v", warning, got)
+	}
+}
+
+// Renaming the package in test/dir to new_name is refused with one reason per cause, each containing its cause.
+expect_rename_package_refused :: proc(t: ^testing.T, src: ^Source, dir, new_name: string, causes: []string) {
+	setup(src)
+	defer teardown(src)
+
+	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+
+	full_dir := strings.join({"test", dir}, "/", context.temp_allocator)
+	_, _, reasons, ok := server.rename_package(full_dir, new_name, &src.config, source_files(src))
+	testing.expect(t, !ok, "Expected the package rename to be refused")
+	expect_causes(t, reasons, causes)
 }
 
 // The files of the test package and of every package of src, as the workspace walk would find them.
@@ -1564,6 +1612,16 @@ expect_workspace_edit :: proc(t: ^testing.T, src: ^Source, edit: server.Workspac
 				text, applied := common.apply_text_edits(c.edits, texts[c.textDocument.uri])
 				testing.expectf(t, applied, "Invalid or overlapping edit range in %v", c.edits)
 				texts[c.textDocument.uri] = text
+			case server.RenameFile:
+				// Every file at or below the old path moves to the new one.
+				uris, _ := slice.map_keys(texts, context.temp_allocator)
+				for uri in uris {
+					if server.at_or_below(uri, c.oldUri) {
+						moved := strings.concatenate({c.newUri, uri[len(c.oldUri):]}, context.temp_allocator)
+						texts[moved] = texts[uri]
+						delete_key(&texts, uri)
+					}
+				}
 			}
 		}
 	}
