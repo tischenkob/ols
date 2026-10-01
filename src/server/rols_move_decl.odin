@@ -1,5 +1,6 @@
 package server
 
+import "core:fmt"
 import "core:odin/ast"
 import "core:odin/parser"
 import "core:os"
@@ -20,6 +21,7 @@ Move :: struct {
 	imports:            []Package,
 }
 
+// reason says why a move is refused.
 move_declaration :: proc(
 	document: ^Document,
 	position: common.Position,
@@ -27,10 +29,17 @@ move_declaration :: proc(
 	files: []Package_File = {},
 ) -> (
 	edit: WorkspaceEdit,
+	reason: string,
 	ok: bool,
 ) {
-	offset := common.get_absolute_position(position, document.text[:document.used_text]) or_return
-	move := prepare_move(document, offset) or_return
+	offset, offset_ok := common.get_absolute_position(position, document.text[:document.used_text])
+	if !offset_ok {
+		return {}, "the position is outside the file", false
+	}
+	move, move_reason, move_ok := prepare_move(document, offset)
+	if !move_ok {
+		return {}, move_reason, false
+	}
 	return move_edit(move, target_uri, files)
 }
 
@@ -48,14 +57,17 @@ top_decl_at :: proc(document: ^Document, offset: int) -> (^ast.Value_Decl, bool)
 }
 
 // Refused when file-scoped privacy is involved, since a file-private declaration, or one using a
-// file-private symbol, would change meaning in another file.
-prepare_move :: proc(document: ^Document, offset: int) -> (move: Move, ok: bool) {
+// file-private symbol, would change meaning in another file. reason says why.
+prepare_move :: proc(document: ^Document, offset: int) -> (move: Move, reason: string, ok: bool) {
 	if parser.parse_file_tags(document.ast, context.temp_allocator).private == .File {
-		return {}, false
+		return {}, "the file is file-private", false
 	}
-	decl := top_decl_at(document, offset) or_return
+	decl, found := top_decl_at(document, offset)
+	if !found {
+		return {}, "the position is not on the name of a top-level declaration", false
+	}
 	if is_file_private(decl.attributes[:]) {
-		return {}, false
+		return {}, "the declaration is file-private", false
 	}
 
 	privates := make(map[common.Range]struct{}, context.temp_allocator)
@@ -73,7 +85,7 @@ prepare_move :: proc(document: ^Document, offset: int) -> (move: Move, ok: bool)
 				continue
 			}
 			if hit.symbol.uri == document.uri.uri && hit.symbol.range in privates {
-				return {}, false
+				return {}, fmt.tprintf("the declaration uses the file-private symbol %s", hit.symbol.name), false
 			}
 		}
 	}
@@ -113,18 +125,22 @@ prepare_move :: proc(document: ^Document, offset: int) -> (move: Move, ok: bool)
 	}
 
 	move.imports = used_imports(document, decl)
-	return move, true
+	return move, "", true
 }
 
-// Builds the edit moving move into target_uri, a file of the same directory.
-move_edit :: proc(move: Move, target_uri: string, files: []Package_File) -> (WorkspaceEdit, bool) {
+// Builds the edit moving move into target_uri, a file of the same directory. reason says why a move is
+// refused.
+move_edit :: proc(move: Move, target_uri: string, files: []Package_File) -> (WorkspaceEdit, string, bool) {
 	document := move.document
 	target_path := common.uri_to_path(target_uri, context.temp_allocator)
-	if target_uri == document.uri.uri || path.ext(target_path) != ".odin" {
-		return {}, false
+	if target_uri == document.uri.uri {
+		return {}, "the target is the file that holds the declaration", false
+	}
+	if path.ext(target_path) != ".odin" {
+		return {}, "the target must be a .odin file", false
 	}
 	if path.dir(target_path, context.temp_allocator) != path.dir(document.fullpath, context.temp_allocator) {
-		return {}, false
+		return {}, "the target must be in the directory of the declaration", false
 	}
 
 	changes := make(Changes, context.temp_allocator)
@@ -133,7 +149,11 @@ move_edit :: proc(move: Move, target_uri: string, files: []Package_File) -> (Wor
 	for imp, i in move.imports {
 		imports[i] = node_text(document.ast.src, imp.import_decl)
 	}
-	return append_to_package_file(&changes, document.ast.pkg_name, target_uri, imports, move.text, files)
+	edit, ok := append_to_package_file(&changes, document.ast.pkg_name, target_uri, imports, move.text, files)
+	if !ok {
+		return {}, fmt.tprintf("%s cannot be read or belongs to another package", target_path), false
+	}
+	return edit, "", true
 }
 
 // Appends text to target_uri, a file of package pkg_name, inserting after its package line the

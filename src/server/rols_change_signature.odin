@@ -1,5 +1,6 @@
 package server
 
+import "core:fmt"
 import "core:odin/ast"
 import "core:strings"
 
@@ -61,14 +62,16 @@ plain_signature :: proc(decl: ^ast.Value_Decl, lit: ^ast.Proc_Lit) -> bool {
 // Every call of the procedure decl declares, in the open document and the rest of the workspace
 // (files stands in for the workspace). Fails when the procedure is referenced other than as a callee,
 // since its argument shape then cannot change, or when a call names, spreads or omits arguments.
+// reason says why in a sentence for the user.
 find_call_sites :: proc(
 	document: ^Document,
 	decl: ^ast.Value_Decl,
 	param_count: int,
 	files: []Package_File,
 ) -> (
-	[]Call_Site,
-	bool,
+	sites: []Call_Site,
+	reason: string,
+	ok: bool,
 ) {
 	h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
 	h.documents[document.uri.uri] = document
@@ -100,15 +103,16 @@ find_call_sites :: proc(
 		files = files,
 	)
 
-	sites := make([dynamic]Call_Site, context.temp_allocator)
+	found := make([dynamic]Call_Site, context.temp_allocator)
 	for location in locations {
 		caller := hierarchy_document(&h, location.uri)
 		if caller == nil {
-			return {}, false
+			return {}, fmt.tprintf("cannot read %s", common.uri_to_path(location.uri, context.temp_allocator)), false
 		}
+		where_ := location_text(location, caller)
 		offset, offset_ok := common.get_absolute_position(location.range.start, caller.text[:caller.used_text])
 		if !offset_ok {
-			return {}, false
+			return {}, fmt.tprintf("cannot locate the reference at %s", where_), false
 		}
 		call: ^ast.Call_Expr
 		for at in nodes_at(caller.ast.decls[:], offset) {
@@ -117,17 +121,32 @@ find_call_sites :: proc(
 				call = c
 			}
 		}
-		if call == nil || call.ellipsis.kind != .Invalid || len(call.args) != param_count {
-			return {}, false
+		if call == nil {
+			return {}, fmt.tprintf("%s uses %s other than as a call", where_, name), false
+		}
+		if call.ellipsis.kind != .Invalid || len(call.args) != param_count {
+			return {}, fmt.tprintf("the call at %s spreads or omits arguments", where_), false
 		}
 		for arg in call.args {
 			if _, named := arg.derived.(^ast.Field_Value); named {
-				return {}, false
+				return {}, fmt.tprintf("the call at %s names its arguments", where_), false
 			}
 		}
-		append(&sites, Call_Site{caller, call})
+		append(&found, Call_Site{caller, call})
 	}
-	return sites[:], true
+	return found[:], "", true
+}
+
+// FILE:LINE:COL of a location in document, 1-based with the column in bytes, as the CLI prints positions.
+@(private = "file")
+location_text :: proc(location: common.Location, document: ^Document) -> string {
+	start := location.range.start
+	column := start.character
+	text := document.text[:document.used_text]
+	if line_start, ok := common.get_absolute_position({line = start.line}, text); ok {
+		column = common.get_character_offset_u16_to_u8(start.character, text[line_start:])
+	}
+	return fmt.tprintf("%s:%d:%d", document.fullpath, start.line + 1, column + 1)
 }
 
 Changes :: map[string][dynamic]TextEdit
@@ -182,7 +201,8 @@ remove_list_item :: proc(changes: ^Changes, document: ^Document, items: []$T, i:
 }
 
 // Reorders the parameters of the procedure declared at position: order lists the new order by old
-// index. Fields with several names are split so any order is possible.
+// index. Fields with several names are split so any order is possible. reason says why a reorder is
+// refused.
 reorder_params :: proc(
 	document: ^Document,
 	position: common.Position,
@@ -190,10 +210,14 @@ reorder_params :: proc(
 	files: []Package_File = {},
 ) -> (
 	edit: WorkspaceEdit,
+	reason: string,
 	ok: bool,
 ) {
 	src := document.ast.src
-	offset := common.get_absolute_position(position, document.text[:document.used_text]) or_return
+	offset, offset_ok := common.get_absolute_position(position, document.text[:document.used_text])
+	if !offset_ok {
+		return {}, "the position is outside the file", false
+	}
 
 	decl: ^ast.Value_Decl
 	for d in top_level_value_decls(document.ast) {
@@ -202,26 +226,34 @@ reorder_params :: proc(
 		}
 	}
 	if decl == nil || len(decl.values) != 1 {
-		return {}, false
+		return {}, "the position is not on the name of a top-level procedure", false
 	}
 	lit := decl.values[0].derived.(^ast.Proc_Lit) or_else nil
-	if lit == nil || !plain_signature(decl, lit) {
-		return {}, false
+	if lit == nil {
+		return {}, "the position is not on the name of a top-level procedure", false
+	}
+	if !plain_signature(decl, lit) {
+		return {},
+			"the procedure has no body, or is polymorphic, variadic, has default values, parameter flags or an attribute that fixes its signature",
+			false
 	}
 
 	params := param_names(lit)
 	if len(params) == 0 || len(order) != len(params) {
-		return {}, false
+		return {}, fmt.tprintf("--order must list %d parameter indices, one per parameter", len(params)), false
 	}
 	seen := make([]bool, len(params), context.temp_allocator)
 	for i in order {
 		if i < 0 || i >= len(params) || seen[i] {
-			return {}, false
+			return {}, fmt.tprintf("--order must list each index from 0 to %d exactly once", len(params) - 1), false
 		}
 		seen[i] = true
 	}
 
-	sites := find_call_sites(document, decl, len(params), files) or_return
+	sites, sites_reason, sites_ok := find_call_sites(document, decl, len(params), files)
+	if !sites_ok {
+		return {}, sites_reason, false
+	}
 
 	changes := make(Changes, context.temp_allocator)
 
@@ -253,5 +285,5 @@ reorder_params :: proc(
 			)
 		}
 	}
-	return workspace_edit(changes), true
+	return workspace_edit(changes), "", true
 }

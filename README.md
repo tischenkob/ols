@@ -377,16 +377,28 @@ Support Language server features:
 - `def`, `refs`, `hover`, `impl` `FILE:LINE:COL`
 - `callers`, `callees` `FILE:LINE:COL`: the call hierarchy of the procedure at the position, as `[{name, uri, range, fromRanges}]`
 - `symbols FILE`
-- `actions FILE:LINE:COL[-LINE:COL] [--apply TITLE]`
-- `rename FILE:LINE:COL NEW [--apply]`
-- `reorder-params FILE:LINE:COL --order 2,0,1 [--apply]`: position on a procedure name; `--order` lists the new parameter order by old index. Callers are updated. Refused when the procedure is used as a value or a caller names or omits arguments
-- `move FILE:LINE:COL --to TARGET.odin [--apply]`: position on a top-level declaration name; `--to` names a file of the same directory, created when missing. Refused for file-private declarations and those using file-private symbols
+- `actions FILE:LINE:COL[-LINE:COL] [--apply TITLE [--no-check]]`
+- `rename FILE:LINE:COL NEW [--apply [--no-check]]`
+- `reorder-params FILE:LINE:COL --order 2,0,1 [--apply [--no-check]]`: position on a procedure name; `--order` lists the new parameter order by old index. Callers are updated. Refused when the procedure is used as a value or a caller names or omits arguments
+- `move FILE:LINE:COL --to TARGET.odin [--apply [--no-check]]`: position on a top-level declaration name; `--to` names a file of the same directory, created when missing. Refused for file-private declarations and those using file-private symbols
 - `api PKG [NAME]`: the exported symbols of a package, one per line with the first line of the doc comment, sorted by name. `PKG` is a directory or a collection path like `core:strings`. With `NAME`, the full signature and doc comment of one symbol
 - `find QUERY`: fuzzy symbol search over the workspace, as `file:line:col: kind name`
 - `check [DIR]`: `odin check` errors and the lints below, without building or running
 - `lint FILE|DIR [--fail-on CODE,…]`: per-file lints, unused imports and unused private declarations, without running the compiler. `--fail-on` exits 1 when any listed code is reported, for CI gates
 - `tests [DIR|FILE]`: the `@(test)` procedures, as `file:line:col: name`
 - `test DIR [NAME,…]`: runs `odin test DIR` with the collections, defines and `checker_args` of `ols.json` and plain output; names select tests as `-define:ODIN_TEST_NAMES` does, `pkg.name` or `name`
+
+Without `--apply`, `rename`, `reorder-params` and `move` print a dry run: a unified diff of every changed file (`--- a/PATH`, `+++ b/PATH`, paths relative to the root, a created file diffed from `/dev/null`) and a summary line such as `rename: 7 edits in 3 files`. `--apply`, there and on `actions`, writes every file or none:
+
+1. Every new file text is computed in memory first. An invalid or overlapping edit range refuses the edit.
+2. `odin check` runs on each package directory the edit touches, then the files are written, then `odin check` runs again. Only those packages are checked: a package that imports a touched one is not.
+3. A file that changed on disk between the edit's computation and the write refuses the edit.
+4. An error that was not there before restores every file byte for byte and deletes the files the edit created. Errors are matched by the first line of their message, in any of the checked packages.
+5. A check that cannot run (no `odin`, a timeout, output that is not its JSON, a failing exit with no output) refuses the edit. A failed write restores the files it wrote, including the one that failed.
+
+When every touched package is missing or listed in `checker_skip_packages`, a `warning:` line on stderr (a `reasons` entry in JSON) says so and the edit is written without a check. `--no-check` skips both checks. With `--json` these commands print one object, `{"status", "edit", "summary", "reasons"}`, where `status` is `applied`, `dry_run`, `refused`, `noop` or `check_failed` and `edit` is the LSP `WorkspaceEdit`. In text mode each refusal cause is an `error: …` line on stderr.
+
+Exit codes of the refactor commands: `0` applied or previewed, `1` refused with nothing written, `2` usage error, `3` nothing to change, `4` rolled back after `odin check` reported new errors. When a rollback cannot restore a file, the command exits `1` with status `refused`, and each file that remains modified gets its own `error:` line. Read-only queries keep their own codes.
 
 ## Clients
 

@@ -1040,7 +1040,11 @@ apply_action :: proc(
 			return "", false
 		}
 
-		text := common.apply_text_edits(edits, string(src.document.text))
+		text, applied := common.apply_text_edits(edits, string(src.document.text))
+		if !applied {
+			log.errorf("Action '%s' has an invalid or overlapping edit range: %v", action_name, edits)
+			return "", false
+		}
 		return strings.clone(text, context.temp_allocator), true
 	}
 
@@ -1066,7 +1070,8 @@ expect_save_imports_applied :: proc(t: ^testing.T, src: ^Source, expected: strin
 
 	edits := server.organize_import_edits(src.document, &ast_context, &src.config, true)
 
-	text := common.apply_text_edits(edits, string(src.document.text))
+	text, applied := common.apply_text_edits(edits, string(src.document.text))
+	testing.expectf(t, applied, "Invalid or overlapping edit range in %v", edits)
 
 	testing.expectf(t, text == expected, "\nExpected:\n%s\n\nGot:\n%s", expected, text)
 }
@@ -1425,7 +1430,7 @@ expect_reorder_params :: proc(t: ^testing.T, src: ^Source, order: []int, expecte
 
 	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
 
-	edit, ok := server.reorder_params(src.document, cursor, order, package_files(src))
+	edit, _, ok := server.reorder_params(src.document, cursor, order, package_files(src))
 	if len(expected) == 0 {
 		testing.expectf(t, !ok, "Expected the reorder to be refused but received %v", edit)
 		return
@@ -1444,7 +1449,7 @@ expect_move_declaration :: proc(t: ^testing.T, src: ^Source, target: string, exp
 
 	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
 
-	edit, ok := server.move_declaration(src.document, cursor, test_uri(target), package_files(src))
+	edit, _, ok := server.move_declaration(src.document, cursor, test_uri(target), package_files(src))
 	if len(expected) == 0 {
 		testing.expectf(t, !ok, "Expected the move to be refused but received %v", edit)
 		return
@@ -1474,12 +1479,16 @@ expect_workspace_edit :: proc(t: ^testing.T, src: ^Source, edit: server.Workspac
 					texts[c.uri] = ""
 				}
 			case server.TextDocumentEdit:
-				texts[c.textDocument.uri] = common.apply_text_edits(c.edits, texts[c.textDocument.uri])
+				text, applied := common.apply_text_edits(c.edits, texts[c.textDocument.uri])
+				testing.expectf(t, applied, "Invalid or overlapping edit range in %v", c.edits)
+				texts[c.textDocument.uri] = text
 			}
 		}
 	}
 	for uri, edits in edit.changes {
-		texts[uri] = common.apply_text_edits(edits, texts[uri])
+		text, applied := common.apply_text_edits(edits, texts[uri])
+		testing.expectf(t, applied, "Invalid or overlapping edit range in %v", edits)
+		texts[uri] = text
 	}
 	for want in expected {
 		text, found := texts[test_uri(want.name)]
@@ -1604,7 +1613,8 @@ expect_range_format :: proc(t: ^testing.T, src: ^Source, expected: string) {
 	defer teardown(src)
 
 	edits := server.get_range_format(src.document, range, &src.config)
-	text := common.apply_text_edits(edits, string(src.document.text[:src.document.used_text]))
+	text, applied := common.apply_text_edits(edits, string(src.document.text[:src.document.used_text]))
+	testing.expectf(t, applied, "Invalid or overlapping edit range in %v", edits)
 
 	testing.expectf(t, text == expected, "\nExpected:\n%s\n\nGot:\n%s", expected, text)
 }
