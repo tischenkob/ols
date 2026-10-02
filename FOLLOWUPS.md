@@ -14,3 +14,9 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 ## Unwrap code action (`src/server/rols_action_unwrap.odin`)
 
 - **"Remove redundant else" still has the old unsafe checks.** `add_remove_else` checks only the `if` itself, as the `redundant-else` simplify rule did before `3d6c7ced`. On `if a { return } else if b { return } else { x = 1 }`, the action on the inner `if` moves `x = 1` after the whole chain. On `if a { return 1 } else { return 2 }` followed by `return 0`, it leaves code after a return. It also accepts a labeled `if`, a `when` body, and an else that redeclares a name from earlier in the block. The guards in `simplify_redundant_else` in `src/server/rols_simplify.odin` cover these cases.
+
+## CLI refactor output (`src/cli/rols_cli.odin`, `src/cli/rols_apply.odin`)
+
+- **`actions --apply` skips `refuse` when the file cannot be opened.** `open_target` calls `refuse` only when `symbol_paths` is set, which `run` sets for rename, reorder-params and move. `ols query actions missing.odin:1:1 --apply TITLE` prints the plain `cannot read` line and exits 1, with no `actions: refused, nothing written` summary and no JSON object under `--json`.
+- **`workspace_relative` states its inside-the-root test twice.** The raw comparison and the symlink-resolved comparison each repeat `err == nil && !strings.has_prefix(rel, "..")`. One loop over the two pairs of root and file would state the test once. The prefix test also misreads a file named `..x.odin` at the root as outside it.
+- **The `.Refused` summary in `finish` can be shorter.** Two one-line appends and one `tprintf` with "nothing written" as the fallback for an empty list would replace the outer `if`/`else`, about 8 lines fewer.
