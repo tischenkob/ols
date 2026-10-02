@@ -129,14 +129,19 @@ apply_restore_files :: proc(t: ^testing.T) {
 	edited, _ := filepath.join({dir, "a.odin"}, context.temp_allocator)
 	created, _ := filepath.join({dir, "b.odin"}, context.temp_allocator)
 	unwritable, _ := filepath.join({dir, "missing", "c.odin"}, context.temp_allocator)
+	// A write that failed before changing the file, as on permission denied, leaves nothing to restore.
+	untouched, _ := filepath.join({dir, "d.odin"}, context.temp_allocator)
 	testing.expect_value(t, os.write_entire_file(edited, "changed\n"), nil)
 	testing.expect_value(t, os.write_entire_file(created, "new\n"), nil)
+	testing.expect_value(t, os.write_entire_file(untouched, "package d\n"), nil)
+	testing.expect_value(t, os.change_mode(untouched, {.Read_User}), nil)
 
 	failures := cli.restore_files(
 		{
 			{path = edited, existed = true, original = "package a\n", exists = true, text = "changed\n"},
 			{path = created, exists = true, text = "new\n"},
 			{path = unwritable, existed = true, original = "package c\n", exists = true},
+			{path = untouched, existed = true, original = "package d\n", exists = true, text = "changed\n"},
 		},
 	)
 
@@ -217,8 +222,10 @@ apply_roll_back_directory_rename :: proc(t: ^testing.T) {
 	if !testing.expectf(t, ok && renamed == 1, "rename failed: %s", reason) do return
 	testing.expect(t, !os.exists(old_dir) && os.exists(new_dir))
 
-	failures := cli.undo_edit(files, renames)
+	failures, left_files, left_dirs := cli.undo_edit(files, renames)
 	testing.expectf(t, len(failures) == 0, "failures: %v", failures)
+	testing.expect_value(t, left_files, 0)
+	testing.expect_value(t, left_dirs, 0)
 	testing.expect(t, os.is_directory(old_dir) && !os.exists(new_dir), "the directory is renamed back")
 	data, _ := os.read_entire_file(file, context.temp_allocator)
 	testing.expect_value(t, string(data), "package old\r\n")
@@ -237,7 +244,10 @@ apply_roll_back_directory_rename :: proc(t: ^testing.T) {
 	testing.expect_value(t, os.make_directory(old_dir), nil)
 	blocker, _ := filepath.join({old_dir, "keep.txt"}, context.temp_allocator)
 	testing.expect_value(t, os.write_entire_file(blocker, "x"), nil)
-	failures = cli.undo_edit(files, renames)
+	failures, left_files, left_dirs = cli.undo_edit(files, renames)
+	// The directory stays renamed while its file is restored, so only the directory is counted.
+	testing.expect_value(t, left_files, 0)
+	testing.expect_value(t, left_dirs, 1)
 	if testing.expect_value(t, len(failures), 1) {
 		testing.expectf(t, strings.contains(failures[0], "remains renamed"), "failure: %q", failures[0])
 	}
