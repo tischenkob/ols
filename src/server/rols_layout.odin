@@ -12,8 +12,9 @@ POINTER_SIZE :: 8
 LAYOUT_MAX_DEPTH :: 32
 
 // write_hover_content is shared with completion and signature help, where resolving
-// every field of every struct in a list would be wasted work.
-@(private = "package")
+// every field of every struct in a list would be wasted work. Thread local because the
+// test runner hovers from several threads at once.
+@(private = "package", thread_local)
 hover_layout_scope: bool
 
 @(private = "package")
