@@ -85,7 +85,7 @@ modernize :: proc(paths: []string, root: string, options: Modernize_Options) -> 
 			free_all(context.temp_allocator)
 		}
 
-		document, _, _, opened := open(Target{file = file, start = {1, 1}, end = {1, 1}})
+		document, _, _, _, opened := open(Target{file = file, start = {1, 1}, end = {1, 1}})
 		if !opened {
 			append(&reasons, fmt.aprintf("cannot open %s", file))
 			continue
