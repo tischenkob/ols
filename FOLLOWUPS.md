@@ -20,3 +20,11 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **`actions --apply` skips `refuse` when the file cannot be opened.** `open_target` calls `refuse` only when `symbol_paths` is set, which `run` sets for rename, reorder-params and move. `ols query actions missing.odin:1:1 --apply TITLE` prints the plain `cannot read` line and exits 1, with no `actions: refused, nothing written` summary and no JSON object under `--json`.
 - **`workspace_relative` states its inside-the-root test twice.** The raw comparison and the symlink-resolved comparison each repeat `err == nil && !strings.has_prefix(rel, "..")`. One loop over the two pairs of root and file would state the test once. The prefix test also misreads a file named `..x.odin` at the root as outside it.
 - **The `.Refused` summary in `finish` can be shorter.** Two one-line appends and one `tprintf` with "nothing written" as the fallback for an empty list would replace the outer `if`/`else`, about 8 lines fewer.
+
+## `do` bodies (`src/server/rols_edit.odin` `block_inner_text`)
+
+- **The identical-branches lint flags `do` branches that differ.** For a `do` body, `open` is the statement start and `close` is its end, so `block_inner_text` returns the statement without its first character. `lint_identical_branches` in `src/server/rols_lint.odin` does not check `uses_do`, so `if c do foo()` followed by `else do goo()` compares `oo()` with `oo()` and reports `identical-branches` on code that passes `odin check`.
+
+## Test harness (`build.sh`)
+
+- **A test hung instead of failing on a reversed slice.** Before c5c8fa27, `./build.sh single_test invert_if_early_exit_do_body` spun at 100% CPU for 10 minutes until it was killed. The test build keeps bounds checks on, so the slice `src[p+1:p]` should have panicked at once. The cause is unknown.
