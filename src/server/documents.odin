@@ -412,6 +412,8 @@ document_refresh :: proc(document: ^Document, config: ^common.Config, writer: ^W
 	return .None
 }
 
+// rols: thread local, the test runner parses from several threads into their own temp allocators
+@(thread_local)
 current_errors: [dynamic]ParserError
 
 parser_error_handler :: proc(pos: tokenizer.Pos, msg: string, args: ..any) {
