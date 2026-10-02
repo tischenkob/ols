@@ -534,6 +534,10 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 
 		for arg in n.args {
 			data.position_context.position = arg.pos.offset
+			// rols: an argument takes its type from the parameter, not from an enclosing comp literal
+			old_comp_lit, old_parent_comp_lit := data.position_context.comp_lit, data.position_context.parent_comp_lit
+			data.position_context.comp_lit, data.position_context.parent_comp_lit = nil, nil
+			defer data.position_context.comp_lit, data.position_context.parent_comp_lit = old_comp_lit, old_parent_comp_lit
 			resolve_node(arg, data)
 		}
 	case ^ast.Index_Expr:

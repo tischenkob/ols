@@ -45,3 +45,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 ## Test harness (`build.sh`)
 
 - **A test hung instead of failing on a reversed slice.** Before c5c8fa27, `./build.sh single_test invert_if_early_exit_do_body` spun at 100% CPU for 10 minutes until it was killed. The test build keeps bounds checks on, so the slice `src[p+1:p]` should have panicked at once. The cause is unknown.
+
+## Whole-file resolve (`src/server/file_resolve.odin`)
+
+- **The `Call_Expr` case restores the wrong value into `position_context.call`.** Its `defer` sets `data.position_context.call = old_call`, but `old_call` holds `data.ast_context.call`, not the previous `position_context.call`. After a nested call, the walker may treat later nodes as part of the wrong call.

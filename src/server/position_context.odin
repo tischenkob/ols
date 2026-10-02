@@ -657,6 +657,9 @@ get_document_position_node :: proc(node: ^ast.Node, position_context: ^DocumentP
 		for arg in n.args {
 			if position_in_node(arg, position_context.position) {
 				position_context.call_arg = arg
+				// rols: an argument takes its type from the parameter, not from an enclosing comp literal
+				position_context.comp_lit = nil
+				position_context.parent_comp_lit = nil
 			}
 		}
 		get_document_position(n.args, position_context)
