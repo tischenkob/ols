@@ -22,7 +22,7 @@ Edit_Status :: enum {
 STATUS_EXIT :: [Edit_Status]int {
 	.Applied      = 0, // applied
 	.Dry_Run      = 0, // a dry run with edits
-	.Refused      = 1, // the causes are printed; nothing written, or the files that stayed modified are named
+	.Refused      = 1, // the causes are printed; nothing written, or the paths that stayed modified are named
 	.Noop         = 3, // nothing to change
 	.Check_Failed = 4, // `odin check` reported new errors, so every file was restored
 }
@@ -229,10 +229,10 @@ roll_back :: proc(
 	edits: int,
 	checked := 0,
 ) -> int {
-	failures := undo_edit(files, renames)
+	failures, left_files, left_dirs := undo_edit(files, renames)
 	if len(failures) > 0 {
 		append(reasons, ..failures)
-		return finish(name, .Refused, edit, files, reasons[:], edits, left_modified = len(failures))
+		return finish(name, .Refused, edit, files, reasons[:], edits, left_files = left_files, left_dirs = left_dirs)
 	}
 	return finish(name, status, edit, files, reasons[:], edits, checked = checked)
 }
@@ -248,17 +248,23 @@ rename_paths :: proc(renames: []Path_Rename) -> (renamed: int, reason: string, o
 }
 
 // Undoes the renames that ran, last first, then restores files byte for byte where each one is now: a
-// rename that cannot be undone leaves its files at the new path. Returns a cause per path left modified.
-undo_edit :: proc(files: []File_State, renames: []Path_Rename) -> []string {
-	failures := make([dynamic]string, context.temp_allocator)
+// rename that cannot be undone leaves its files at the new path. Returns a cause per path left modified, and
+// counts the files and the directories among those paths.
+undo_edit :: proc(files: []File_State, renames: []Path_Rename) -> (failures: []string, left_files, left_dirs: int) {
+	causes := make([dynamic]string, context.temp_allocator)
 	stuck := make([dynamic]Path_Rename, context.temp_allocator)
 	#reverse for rename in renames {
 		if err := os.rename(rename.new, rename.old); err != nil {
 			append(
-				&failures,
+				&causes,
 				fmt.tprintf("%s remains renamed to %s: cannot rename it back: %v", rename.old, rename.new, err),
 			)
 			append(&stuck, rename)
+			if os.is_directory(rename.new) {
+				left_dirs += 1
+			} else {
+				left_files += 1
+			}
 		}
 	}
 	at := make([]File_State, len(files), context.temp_allocator)
@@ -266,8 +272,9 @@ undo_edit :: proc(files: []File_State, renames: []Path_Rename) -> []string {
 		at[i] = file
 		at[i].path = renamed_path(stuck[:], file.path)
 	}
-	append(&failures, ..restore_files(at))
-	return failures[:]
+	restore_failures := restore_files(at)
+	append(&causes, ..restore_failures)
+	return causes[:], left_files + len(restore_failures), left_dirs
 }
 
 // Where file_path is after renames: the new path of the last rename of it or of a directory above it.
@@ -477,13 +484,18 @@ verify_unchanged :: proc(files: []File_State, renames: []Path_Rename) -> (reason
 	return "", true
 }
 
-// Puts back the original bytes of files and deletes those the edit created. Returns a cause per file
-// it could not restore.
+// Puts back the original bytes of files and deletes those the edit created. A file that still holds its
+// original bytes is left alone: a write that failed before changing it needs no restore. Returns a cause per
+// file it could not restore.
 restore_files :: proc(files: []File_State) -> []string {
 	failures := make([dynamic]string, context.temp_allocator)
 	for file in files {
 		err: os.Error
 		if file.existed {
+			if data, read_err := os.read_entire_file(file.path, context.temp_allocator);
+			   read_err == nil && string(data) == file.original {
+				continue
+			}
 			err = os.write_entire_file(file.path, file.original)
 		} else if os.exists(file.path) {
 			err = os.remove(file.path)
@@ -589,7 +601,9 @@ diff_label :: proc(prefix, file: string) -> string {
 	return strings.concatenate({prefix, "" if rel == file else "/", rel}, context.temp_allocator)
 }
 
-// file relative to the workspace root, or file itself outside it.
+// file relative to the workspace root, or file itself outside it. When the spellings differ, both sides
+// resolve symlinks, so /var and /private/var compare equal; only the parent of file resolves, as created
+// files and rename targets do not exist yet.
 @(private = "file")
 workspace_relative :: proc(file: string) -> string {
 	if len(common.config.workspace_folders) > 0 {
@@ -597,13 +611,21 @@ workspace_relative :: proc(file: string) -> string {
 		if rel, err := filepath.rel(root, file, context.temp_allocator); err == nil && !strings.has_prefix(rel, "..") {
 			return rel
 		}
+		real := path.join(
+			{server.canonical_dir(path.dir(file, context.temp_allocator)), path.base(file)},
+			context.temp_allocator,
+		)
+		if rel, err := filepath.rel(server.canonical_dir(root), real, context.temp_allocator);
+		   err == nil && !strings.has_prefix(rel, "..") {
+			return rel
+		}
 	}
 	return file
 }
 
 // Prints the result of a refactor command and returns its exit code. renames name the moved paths,
-// left_modified counts the paths a failed rollback could not restore, and checked counts the packages
-// `odin check` ran on.
+// left_files and left_dirs count the files and directories a failed rollback could not restore, and
+// checked counts the packages `odin check` ran on.
 @(private = "file")
 finish :: proc(
 	name: string,
@@ -613,7 +635,8 @@ finish :: proc(
 	reasons: []string,
 	edits := 0,
 	renames: []Path_Rename = {},
-	left_modified := 0,
+	left_files := 0,
+	left_dirs := 0,
 	checked := 0,
 ) -> int {
 	summary: string
@@ -635,13 +658,25 @@ finish :: proc(
 	case .Noop:
 		summary = fmt.tprintf("%s: nothing to change", name)
 	case .Refused:
-		if left_modified > 0 {
-			summary = fmt.tprintf(
-				"%s: refused, %d %s modified",
-				name,
-				left_modified,
-				"file remains" if left_modified == 1 else "files remain",
-			)
+		if left_files > 0 || left_dirs > 0 {
+			left := make([dynamic]string, context.temp_allocator)
+			if left_files > 0 {
+				append(
+					&left,
+					fmt.tprintf("%d %s modified", left_files, "file remains" if left_files == 1 else "files remain"),
+				)
+			}
+			if left_dirs > 0 {
+				append(
+					&left,
+					fmt.tprintf(
+						"%d %s renamed",
+						left_dirs,
+						"directory remains" if left_dirs == 1 else "directories remain",
+					),
+				)
+			}
+			summary = fmt.tprintf("%s: refused, %s", name, strings.join(left[:], " and ", context.temp_allocator))
 		} else {
 			summary = fmt.tprintf("%s: refused, nothing written", name)
 		}

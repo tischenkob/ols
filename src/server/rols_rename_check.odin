@@ -261,7 +261,6 @@ relative_dir :: proc(root, dir: string) -> (rel: string, inside: bool) {
 }
 
 // The real path of dir with forward slashes, or dir cleaned when it does not exist.
-@(private)
 canonical_dir :: proc(dir: string) -> string {
 	real, err := os.get_absolute_path(dir, context.temp_allocator)
 	if err != nil {

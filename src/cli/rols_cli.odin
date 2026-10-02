@@ -358,7 +358,8 @@ run :: proc(args: []string) -> int {
 
 // Sets up the workspace for spec and opens the file of target, the position spec names. spec is
 // FILE:LINE:COL, or a symbol path when symbol_paths is set; with whole_file it is a file, opened at 1:1.
-// On failure the cause is printed and code is the exit code: 2 when spec is neither, 1 otherwise.
+// On failure the cause is printed and code is the exit code: 2 when spec is neither, 1 otherwise. The refactor
+// commands set symbol_paths, so their failures go through refuse.
 open_target :: proc(
 	name, spec, root: string,
 	symbol_paths := false,
@@ -401,8 +402,13 @@ open_target :: proc(
 	}
 
 	opened: bool
-	document, position, range, opened = open(target)
+	reason: string
+	document, position, range, reason, opened = open(target)
 	if !opened {
+		if symbol_paths {
+			return nil, {}, {}, {}, refuse(name, reason), false
+		}
+		fmt.eprintln(reason)
 		return nil, {}, {}, {}, 1, false
 	}
 	return document, target, position, range, 0, true
@@ -551,33 +557,36 @@ open :: proc(
 	document: ^server.Document,
 	position: common.Position,
 	range: common.Range,
+	reason: string,
 	ok: bool,
 ) {
 	text, err := os.read_entire_file(target.file, context.allocator)
 	if err != nil {
-		fmt.eprintfln("cannot read %s: %v", target.file, err)
+		reason = fmt.tprintf("cannot read %s: %v", target.file, err)
 		return
 	}
 
 	uri := common.create_uri(target.file, context.temp_allocator)
 	if server.document_open(uri.uri, string(text), &common.config, nil) != .None {
-		fmt.eprintfln("cannot parse %s", target.file)
+		reason = fmt.tprintf("cannot parse %s", target.file)
 		return
 	}
 	document = server.document_get(uri.uri)
 
-	range.start = to_position(target.start, text) or_return
-	range.end = to_position(target.end, text) or_return
-	return document, range.start, range, true
+	// or_return would drop the reason: it assigns only the last value on failure.
+	range.start, reason, ok = to_position(target.start, text)
+	if !ok do return
+	range.end, reason, ok = to_position(target.end, text)
+	if !ok do return
+	return document, range.start, range, "", true
 }
 
-to_position :: proc(line_col: [2]int, text: []u8) -> (common.Position, bool) {
+to_position :: proc(line_col: [2]int, text: []u8) -> (common.Position, string, bool) {
 	line_start, ok := common.get_absolute_position({line = line_col.x - 1}, text)
 	if !ok {
-		fmt.eprintfln("line %d is past the end of the file", line_col.x)
-		return {}, false
+		return {}, fmt.tprintf("line %d is past the end of the file", line_col.x), false
 	}
-	return {line_col.x - 1, common.get_character_offset_u8_to_u16(line_col.y - 1, text[line_start:])}, true
+	return {line_col.x - 1, common.get_character_offset_u8_to_u16(line_col.y - 1, text[line_start:])}, "", true
 }
 
 check :: proc(dir: string) -> int {
@@ -711,8 +720,10 @@ collect_lints :: proc(target: string) -> ([]Entry, bool) {
 	document: ^server.Document
 	for file in files {
 		ok: bool
-		document, _, _, ok = open(Target{file = file, start = {1, 1}, end = {1, 1}})
+		reason: string
+		document, _, _, reason, ok = open(Target{file = file, start = {1, 1}, end = {1, 1}})
 		if !ok {
+			fmt.eprintln(reason)
 			return {}, false
 		}
 		server.check_unused_imports(document, &common.config)

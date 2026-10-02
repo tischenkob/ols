@@ -7,7 +7,7 @@ OLS="$PWD/ols"
 export OLS_BUILTIN_FOLDER="$PWD/builtin"
 
 dir="$(mktemp -d)"
-trap 'rm -rf "$dir"' EXIT
+trap 'rm -rf "$dir" "$dir.link"' EXIT
 mkdir "$dir/bad"
 echo '{}' > "$dir/ols.json"
 cat > "$dir/main.odin" <<'ODIN'
@@ -164,6 +164,9 @@ ODIN
 cp "$dir/safe/a.odin" "$dir/a.orig"
 expect dry-run-diff "^+uno :: proc() -> int {" "$OLS" query rename "$dir/safe/a.odin:9:1" uno
 expect dry-run-header "^--- a.*safe/a.odin" "$OLS" query rename "$dir/safe/a.odin:9:1" uno
+# The root is a symlink to the directory of the file: the header stays relative to the root.
+ln -s "$dir" "$dir.link"
+expect dry-run-header-symlink "^--- a/safe/a.odin$" "$OLS" query --root "$dir.link" rename "$dir/safe/a.odin:9:1" uno
 expect dry-run-summary "^rename: 2 edits in 1 file$" "$OLS" query rename "$dir/safe/a.odin:9:1" uno
 expect dry-run-json '"status": "dry_run"' "$OLS" query rename "$dir/safe/a.odin:9:1" uno --json
 cmp -s "$dir/safe/a.odin" "$dir/a.orig" || { echo "FAIL dry run wrote the file"; exit 1; }
@@ -176,6 +179,17 @@ expect_exit 2 usage-exit "$OLS" query reorder-params "$dir/safe/a.odin:9:1" --or
 expect_exit 2 usage-move-exit "$OLS" query move "$dir/safe/a.odin:9:1"
 expect_exit 1 collision-exit "$OLS" query rename "$dir/safe/a.odin:4:2" second
 expect collision-cause "^error: .second. is already declared in the same scope at .*a.odin:5:2" sh -c "\"$OLS\" query rename \"$dir/safe/a.odin:4:2\" second 2>&1 || true"
+expect_exit 1 missing-file-exit "$OLS" query rename "$dir/safe/missing.odin:1:1" x
+expect missing-file-cause "^error: cannot read .*missing.odin" sh -c "\"$OLS\" query rename \"$dir/safe/missing.odin:1:1\" x 2>&1 || true"
+expect missing-file-json '"status": "refused"' sh -c "\"$OLS\" query rename \"$dir/safe/missing.odin:1:1\" x --json || true"
+expect past-end-cause "^error: line 999 is past the end of the file" sh -c "\"$OLS\" query rename \"$dir/safe/a.odin:999:1\" x 2>&1 || true"
+expect past-end-query "^line 999 is past the end of the file" sh -c "\"$OLS\" query hover \"$dir/safe/a.odin:999:1\" 2>&1 || true"
+# a.odin is written first and z.odin is read-only: the rollback restores a.odin and leaves z.odin alone.
+printf 'package safe\n\nz :: proc() -> int {\n\treturn one()\n}\n' > "$dir/safe/z.odin"
+chmod 444 "$dir/safe/z.odin"
+expect write-failure-summary "^rename: refused, nothing written$" sh -c "\"$OLS\" query rename \"$dir/safe/a.odin:9:1\" uno --apply 2>&1 || true"
+cmp -s "$dir/safe/a.odin" "$dir/a.orig" || { echo "FAIL write-failure rollback is not byte for byte"; exit 1; }
+rm -f "$dir/safe/z.odin"
 # The workspace filter skips hidden.odin, which still calls one(): the rename warns, and odin check rolls it back.
 printf 'package safe\n\nhidden :: proc() -> int {\n\treturn one()\n}\n' > "$dir/safe/hidden.odin"
 echo '{"workspace_exclude": ["safe/hidden.odin"]}' > "$dir/ols.json"
