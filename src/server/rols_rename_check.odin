@@ -126,19 +126,9 @@ rename_symbol_at :: proc(
 	qualifier: bool,
 	ok: bool,
 ) {
-	ast_context := make_ast_context(
-		document.ast,
-		document.imports,
-		document.package_name,
-		document.uri.uri,
-		document.fullpath,
-		context.temp_allocator,
-	)
-	position_context := get_document_position_context(document, position, .Hover) or_return
-	ast_context.position_hint = position_context.hint
-	ast_context.current_package = ast_context.document_package
-	get_globals(document.ast, &ast_context)
-	get_locals(&ast_context, &position_context)
+	ast_context: AstContext
+	position_context: DocumentPositionContext
+	ast_context_at(document, position, &ast_context, &position_context) or_return
 
 	symbol, flag = prepare_references(document, &ast_context, &position_context) or_return
 	old_name = get_target_name(&position_context, flag)
@@ -260,14 +250,24 @@ relative_dir :: proc(root, dir: string) -> (rel: string, inside: bool) {
 	return "", false
 }
 
-// The real path of dir with forward slashes, or dir cleaned when it does not exist.
+// The real path of dir with forward slashes. The part of dir that does not exist is joined to the real
+// path of its nearest existing ancestor, so a missing dir still compares with an existing root.
 canonical_dir :: proc(dir: string) -> string {
-	real, err := os.get_absolute_path(dir, context.temp_allocator)
-	if err != nil {
-		real = dir
+	slashed, _ := filepath.replace_separators(dir, '/', context.temp_allocator)
+	existing := path.clean(slashed, context.temp_allocator)
+	missing := ""
+	for {
+		if real, err := os.get_absolute_path(existing, context.temp_allocator); err == nil {
+			real_slashed, _ := filepath.replace_separators(real, '/', context.temp_allocator)
+			return path.join({real_slashed, missing}, context.temp_allocator)
+		}
+		parent := path.dir(existing, context.temp_allocator)
+		if parent == existing {
+			return path.join({existing, missing}, context.temp_allocator)
+		}
+		missing = path.join({path.base(existing), missing}, context.temp_allocator)
+		existing = parent
 	}
-	slashed, _ := filepath.replace_separators(real, '/', context.temp_allocator)
-	return path.clean(slashed, context.temp_allocator)
 }
 
 // Appends a cause for each declaration that already uses new_name in the scope that declares the target.
@@ -288,29 +288,57 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 
 	switch {
 	case target.flag == .Field:
-		if members, found := sibling_members(decl_document, decl_offset); found {
-			for ident in members {
-				if ident.name == new_name {
-					append(
-						out,
-						fmt.tprintf(
-							"`%s` is already a member of the same type at %s",
-							new_name,
-							ident_text(decl_document, ident),
-						),
-					)
-				}
-			}
+		members, owner, type_name, found := sibling_members(decl_document, decl_offset)
+		if !found {
+			return
 		}
-	case .Local in symbol.flags:
-		for ident in scope_declarations(decl_document, decl_offset) {
-			if ident.name == new_name && ident.pos.offset != decl_offset {
+		for ident in members {
+			if ident.name == new_name {
 				append(
 					out,
 					fmt.tprintf(
-						"`%s` is already declared in the same scope at %s",
+						"`%s` is already a member of the same type at %s",
 						new_name,
 						ident_text(decl_document, ident),
+					),
+				)
+			}
+		}
+		struct_type, is_struct := owner.derived.(^ast.Struct_Type)
+		if !is_struct {
+			return
+		}
+		for field in struct_type.fields.list {
+			if .Using not_in field.flags || len(field.names) == 0 {
+				continue
+			}
+			via := field.names[0].derived.(^ast.Ident) or_continue
+			if slice.contains(using_member_names(decl_document, field.type), new_name) {
+				append(
+					out,
+					fmt.tprintf(
+						"`%s` is already a member of the same type through `using %s` at %s",
+						new_name,
+						via.name,
+						ident_text(decl_document, via),
+					),
+				)
+			}
+		}
+		if type_name != nil {
+			check_embedders(out, target, decl_document, type_name, new_name)
+		}
+	case .Local in symbol.flags:
+		for declared in scope_declarations(decl_document, decl_offset) {
+			// A member that a `using` parameter brings in clashes with that parameter's own name too.
+			if declared.name == new_name && (declared.through_using || declared.ident.pos.offset != decl_offset) {
+				append(
+					out,
+					fmt.tprintf(
+						"`%s` is already declared in the same scope%s at %s",
+						new_name,
+						fmt.tprintf(" through `using %s`", declared.ident.name) if declared.through_using else "",
+						ident_text(decl_document, declared.ident),
 					),
 				)
 			}
@@ -340,6 +368,102 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 	}
 }
 
+// Appends a cause for each struct with a `using` field of the type named type_name, and each procedure
+// with a `using` parameter of it, where new_name already names another member or declaration. Only
+// direct users of the type are checked, not the types that embed those in turn.
+@(private = "file")
+check_embedders :: proc(
+	out: ^[dynamic]string,
+	target: ^Rename_Target,
+	document: ^Document,
+	type_name: ^ast.Ident,
+	new_name: string,
+) {
+	at := common.get_token_range(type_name^, document.ast.src)
+	type_symbol, resolved := resolve_name_at(document, at.start, type_name.pos.offset, type_name.name)
+	if !resolved {
+		return
+	}
+	ast_context := globals_context(document)
+	locations, _ := find_symbol_references(
+		document,
+		&ast_context,
+		type_symbol,
+		.Identifier,
+		target_name = type_name.name,
+		files = target.h.files,
+	)
+
+	for location in locations {
+		site := hierarchy_document(&target.h, location.uri)
+		if site == nil {
+			continue
+		}
+		offset := common.get_absolute_position(location.range.start, site.text[:site.used_text]) or_continue
+		chain := nodes_at(site.ast.decls[:], offset)
+		for node_at, i in chain {
+			field := node_at.node.derived.(^ast.Field) or_continue
+			if .Using not_in field.flags || len(field.names) == 0 || i < 2 {
+				continue
+			}
+			used := using_type_ident(field.type)
+			if used == nil || used.pos.offset != offset {
+				continue
+			}
+			via := field.names[0].derived.(^ast.Ident) or_continue
+			// A field sits in a Field_List of a struct, or of the Proc_Type of a Proc_Lit.
+			#partial switch owner in chain[i - 2].node.derived {
+			case ^ast.Struct_Type:
+				clashes := make([dynamic]^ast.Ident, context.temp_allocator)
+				// The embedding field's own name counts; the members it brings in are the old ones.
+				for other in owner.fields.list {
+					for name in other.names {
+						ident := name.derived.(^ast.Ident) or_continue
+						if ident.name == new_name {
+							append(&clashes, ident)
+						}
+					}
+					if other != field && .Using in other.flags && len(other.names) > 0 {
+						other_via := other.names[0].derived.(^ast.Ident) or_continue
+						if slice.contains(using_member_names(site, other.type), new_name) {
+							append(&clashes, other_via)
+						}
+					}
+				}
+				for ident in clashes {
+					append(
+						out,
+						fmt.tprintf(
+							"`%s` is already a member of a type that embeds this one through `using %s` at %s",
+							new_name,
+							via.name,
+							ident_text(site, ident),
+						),
+					)
+				}
+			case ^ast.Proc_Type:
+				if i < 3 {
+					continue
+				}
+				lit := chain[i - 3].node.derived.(^ast.Proc_Lit) or_continue
+				for declared in proc_scope(site, lit) {
+					if declared.name == new_name && !(declared.through_using && declared.ident == via) {
+						append(
+							out,
+							fmt.tprintf(
+								"`%s` is already declared in the scope of `using %s` at %s",
+								new_name,
+								via.name,
+								ident_text(site, declared.ident),
+							),
+						)
+					}
+				}
+			}
+		}
+	}
+}
+
 // Whether offset lies inside a file-scope `when` statement.
 @(private = "file")
 in_when :: proc(file: ast.File, offset: int) -> bool {
@@ -363,16 +487,7 @@ check_captures :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name: 
 	document := target.document
 	local := .Local in symbol.flags
 
-	ast_context := make_ast_context(
-		document.ast,
-		document.imports,
-		document.package_name,
-		document.uri.uri,
-		document.fullpath,
-		context.temp_allocator,
-	)
-	get_globals(document.ast, &ast_context)
-	ast_context.current_package = ast_context.document_package
+	ast_context := globals_context(document)
 	locations, _ := find_symbol_references(
 		document,
 		&ast_context,
@@ -404,8 +519,15 @@ check_captures :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name: 
 			// A later local is the inner one, and get_local prefers it.
 			captured = .Local in other.flags && range_after(other.range, symbol.range)
 		} else {
-			// A global of the same package is a collision, already reported.
-			captured = .Local in other.flags || other.type == .Package || other.pkg != symbol.pkg
+			// A global of the same package is a collision, already reported, unless it is private to another
+			// file: Odin accepts that declaration, but it captures the references in its file.
+			captured =
+				.Local in other.flags ||
+				other.type == .Package ||
+				other.pkg != symbol.pkg ||
+				(!strings.equal_fold(other.uri, symbol.uri) &&
+						strings.equal_fold(other.uri, location.uri) &&
+						file_private_global(site, new_name))
 		}
 		if captured {
 			append(
@@ -438,6 +560,10 @@ check_captures :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name: 
 			continue
 		}
 		at := common.get_token_range(ident^, document.ast.src)
+		// A declaration, such as a member of a procedure-local type keyed by its own name, is no use.
+		if other.range == at && strings.equal_fold(other.uri, document.uri.uri) {
+			continue
+		}
 		visible := resolve_name_at(document, at.start, ident.pos.offset, target.old_name) or_continue
 		if same_symbol(visible, symbol) {
 			append(
@@ -453,6 +579,17 @@ check_captures :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name: 
 	}
 }
 
+// Whether document declares name at file scope as `@(private="file")` or under `#+private file`.
+@(private = "file")
+file_private_global :: proc(document: ^Document, name: string) -> bool {
+	for global in collect_globals(document.ast) {
+		if global.name == name && global.private == .File {
+			return true
+		}
+	}
+	return false
+}
+
 // What name resolves to at position in document, with the locals visible there.
 @(private)
 resolve_name_at :: proc(
@@ -464,19 +601,9 @@ resolve_name_at :: proc(
 	symbol: Symbol,
 	ok: bool,
 ) {
-	ast_context := make_ast_context(
-		document.ast,
-		document.imports,
-		document.package_name,
-		document.uri.uri,
-		document.fullpath,
-		context.temp_allocator,
-	)
-	position_context := get_document_position_context(document, position, .Hover) or_return
-	ast_context.position_hint = position_context.hint
-	ast_context.current_package = ast_context.document_package
-	get_globals(document.ast, &ast_context)
-	get_locals(&ast_context, &position_context)
+	ast_context: AstContext
+	position_context: DocumentPositionContext
+	ast_context_at(document, position, &ast_context, &position_context) or_return
 
 	ident: ast.Ident
 	ident.name = name
@@ -485,6 +612,99 @@ resolve_name_at :: proc(
 		offset = offset,
 	}
 	return resolve_location_identifier(&ast_context, ident)
+}
+
+// The resolution environment of document with its globals and no locals.
+@(private = "file")
+globals_context :: proc(document: ^Document) -> AstContext {
+	ast_context := make_ast_context(
+		document.ast,
+		document.imports,
+		document.package_name,
+		document.uri.uri,
+		document.fullpath,
+		context.temp_allocator,
+	)
+	get_globals(document.ast, &ast_context)
+	ast_context.current_package = ast_context.document_package
+	return ast_context
+}
+
+// The resolution environment at position in document, with the globals and the locals visible there.
+@(private = "file")
+ast_context_at :: proc(
+	document: ^Document,
+	position: common.Position,
+	ast_context: ^AstContext,
+	position_context: ^DocumentPositionContext,
+) -> bool {
+	ast_context^ = globals_context(document)
+	position_context^ = get_document_position_context(document, position, .Hover) or_return
+	ast_context.position_hint = position_context.hint
+	get_locals(ast_context, position_context)
+	return true
+}
+
+// The member names that a `using` of type_expr brings into scope, with the members of its own `using`
+// fields; empty when type_expr does not resolve to a struct or bit_field.
+@(private = "file")
+using_member_names :: proc(document: ^Document, type_expr: ^ast.Expr) -> []string {
+	expr := using_type_expr(type_expr)
+	if expr == nil {
+		return {}
+	}
+	ast_context: AstContext
+	position_context: DocumentPositionContext
+	if !ast_context_at(
+		document,
+		common.get_token_range(expr^, document.ast.src).start,
+		&ast_context,
+		&position_context,
+	) {
+		return {}
+	}
+	symbol, ok := resolve_type_expression(&ast_context, expr)
+	if !ok {
+		return {}
+	}
+	#partial switch v in symbol.value {
+	case SymbolStructValue:
+		return v.names
+	case SymbolBitFieldValue:
+		return v.names
+	}
+	return {}
+}
+
+// The type of a `using` field without its parentheses and pointer, as expand_usings reads it.
+@(private = "file")
+using_type_expr :: proc(type_expr: ^ast.Expr) -> ^ast.Expr {
+	if type_expr == nil {
+		return nil
+	}
+	#partial switch e in type_expr.derived {
+	case ^ast.Paren_Expr:
+		return using_type_expr(e.expr)
+	case ^ast.Pointer_Type:
+		return using_type_expr(e.elem)
+	}
+	return type_expr
+}
+
+// The identifier that names the type of a `using` field: `T`, `^T`, `(T)` or `pkg.T`.
+@(private = "file")
+using_type_ident :: proc(type_expr: ^ast.Expr) -> ^ast.Ident {
+	expr := using_type_expr(type_expr)
+	if expr == nil {
+		return nil
+	}
+	#partial switch e in expr.derived {
+	case ^ast.Ident:
+		return e
+	case ^ast.Selector_Expr:
+		return e.field
+	}
+	return nil
 }
 
 // Whether the identifier at offset follows a `.`, as the field of a package qualifier does; the `..`
@@ -525,12 +745,29 @@ ident_text :: proc(document: ^Document, ident: ^ast.Ident) -> string {
 	return fmt.tprintf("%s:%d:%d", document.fullpath, ident.pos.line, ident.pos.column)
 }
 
-// The members of the struct, enum or bit_field type that declares the member named at offset.
+// The members of the struct, enum or bit_field type that declares the member named at offset, that type,
+// and the name it is declared with, nil for an anonymous type.
 @(private = "file")
-sibling_members :: proc(document: ^Document, offset: int) -> (members: []^ast.Ident, found: bool) {
+sibling_members :: proc(
+	document: ^Document,
+	offset: int,
+) -> (
+	members: []^ast.Ident,
+	owner: ^ast.Node,
+	type_name: ^ast.Ident,
+	found: bool,
+) {
 	for at in nodes_at(document.ast.decls[:], offset) {
 		list: []^ast.Ident
 		#partial switch n in at.node.derived {
+		case ^ast.Value_Decl:
+			type_name = nil
+			if len(n.names) == 1 {
+				type_name, _ = n.names[0].derived.(^ast.Ident)
+			}
+			continue
+		case ^ast.Distinct_Type:
+			continue
 		case ^ast.Struct_Type:
 			list, _ = type_members(n)
 		case ^ast.Enum_Type:
@@ -540,33 +777,65 @@ sibling_members :: proc(document: ^Document, offset: int) -> (members: []^ast.Id
 		}
 		for ident in list {
 			if ident.pos.offset == offset {
-				return list, true
+				return list, at.node, type_name, true
 			}
 		}
+		// Only the value of the declaration itself is named by it.
+		type_name = nil
 	}
-	return {}, false
+	return {}, nil, nil, false
+}
+
+// A name declared in a scope. ident is its declaration, or the `using` parameter that brings it into
+// scope when through_using is set.
+@(private = "file")
+Scope_Name :: struct {
+	name:          string,
+	ident:         ^ast.Ident,
+	through_using: bool,
 }
 
 // The names declared directly in the innermost scope around offset: a block with the parameters of its
-// procedure, a procedure's parameters and body, or a statement's loop values and init declaration.
+// procedure, a procedure's parameters and body, a case clause, a type switch, or a statement's loop
+// values and init declaration. A `when` body is no scope of its own.
 @(private = "file")
-scope_declarations :: proc(document: ^Document, offset: int) -> []^ast.Ident {
-	names := make([dynamic]^ast.Ident, context.temp_allocator)
+scope_declarations :: proc(document: ^Document, offset: int) -> []Scope_Name {
+	names := make([dynamic]Scope_Name, context.temp_allocator)
 	chain := nodes_at(document.ast.decls[:], offset)
-	#reverse for at in chain {
+	#reverse for at, i in chain {
 		#partial switch n in at.node.derived {
 		case ^ast.Block_Stmt:
-			collect_stmts(&names, n.stmts)
 			if at.parent != nil {
+				if _, in_when := at.parent.derived.(^ast.When_Stmt); in_when {
+					continue
+				}
 				if lit, is_lit := at.parent.derived.(^ast.Proc_Lit); is_lit && lit.body == n {
-					collect_params(&names, lit)
+					return proc_scope(document, lit)
+				}
+			}
+			collect_stmts(&names, n.stmts)
+			return names[:]
+		case ^ast.Proc_Lit:
+			return proc_scope(document, n)
+		case ^ast.Case_Clause:
+			collect_stmts(&names, n.body)
+			// The variable of a type switch is declared in each clause: switch, its body, the clause.
+			if i >= 2 {
+				if switch_stmt, is_type_switch := chain[i - 2].node.derived.(^ast.Type_Switch_Stmt); is_type_switch {
+					collect_switch_variable(&names, switch_stmt)
 				}
 			}
 			return names[:]
-		case ^ast.Proc_Lit:
-			collect_params(&names, n)
-			if body, is_block := n.body.derived.(^ast.Block_Stmt); n.body != nil && is_block {
-				collect_stmts(&names, body.stmts)
+		case ^ast.Type_Switch_Stmt:
+			collect_switch_variable(&names, n)
+			if n.body != nil {
+				if body, is_block := n.body.derived.(^ast.Block_Stmt); is_block {
+					for stmt in body.stmts {
+						if clause, is_clause := stmt.derived.(^ast.Case_Clause); is_clause {
+							collect_stmts(&names, clause.body)
+						}
+					}
+				}
 			}
 			return names[:]
 		case ^ast.Range_Stmt:
@@ -585,33 +854,77 @@ scope_declarations :: proc(document: ^Document, offset: int) -> []^ast.Ident {
 	}
 	return names[:]
 
-	collect_stmts :: proc(names: ^[dynamic]^ast.Ident, stmts: []^ast.Stmt) {
-		for stmt in stmts {
-			if stmt == nil {
-				continue
-			}
-			if decl, ok := stmt.derived.(^ast.Value_Decl); ok {
-				collect_exprs(names, decl.names)
-			}
-		}
-	}
-	collect_params :: proc(names: ^[dynamic]^ast.Ident, lit: ^ast.Proc_Lit) {
-		if lit.type == nil {
+	collect_switch_variable :: proc(names: ^[dynamic]Scope_Name, switch_stmt: ^ast.Type_Switch_Stmt) {
+		if switch_stmt.tag == nil {
 			return
 		}
+		if tag, is_assign := switch_stmt.tag.derived.(^ast.Assign_Stmt); is_assign {
+			collect_exprs(names, tag.lhs)
+		}
+	}
+}
+
+// The parameters, results and top-level body declarations of lit, with the members that its `using`
+// parameters bring into scope.
+@(private = "file")
+proc_scope :: proc(document: ^Document, lit: ^ast.Proc_Lit) -> []Scope_Name {
+	names := make([dynamic]Scope_Name, context.temp_allocator)
+	if lit.type != nil {
 		for list in ([]^ast.Field_List{lit.type.params, lit.type.results}) {
-			if list != nil {
-				for field in list.list {
-					collect_exprs(names, field.names)
+			if list == nil {
+				continue
+			}
+			for field in list.list {
+				collect_exprs(&names, field.names)
+				if .Using not_in field.flags || len(field.names) == 0 {
+					continue
+				}
+				via := field.names[0].derived.(^ast.Ident) or_continue
+				for member in using_member_names(document, field.type) {
+					append(&names, Scope_Name{member, via, true})
 				}
 			}
 		}
 	}
-	collect_exprs :: proc(names: ^[dynamic]^ast.Ident, exprs: []^ast.Expr) {
-		for expr in exprs {
-			if ident, ok := expr.derived.(^ast.Ident); ok {
-				append(names, ident)
+	if lit.body != nil {
+		if body, is_block := lit.body.derived.(^ast.Block_Stmt); is_block {
+			collect_stmts(&names, body.stmts)
+		}
+	}
+	return names[:]
+}
+
+// The names that stmts declare, with those in their `when` bodies.
+@(private = "file")
+collect_stmts :: proc(names: ^[dynamic]Scope_Name, stmts: []^ast.Stmt) {
+	for stmt in stmts {
+		if stmt == nil {
+			continue
+		}
+		#partial switch s in stmt.derived {
+		case ^ast.Value_Decl:
+			collect_exprs(names, s.names)
+		case ^ast.When_Stmt:
+			// The else of a `when` is a block or another `when`.
+			for branch in ([]^ast.Stmt{s.body, s.else_stmt}) {
+				if branch == nil {
+					continue
+				}
+				if block, is_block := branch.derived.(^ast.Block_Stmt); is_block {
+					collect_stmts(names, block.stmts)
+				} else {
+					collect_stmts(names, {branch})
+				}
 			}
+		}
+	}
+}
+
+@(private = "file")
+collect_exprs :: proc(names: ^[dynamic]Scope_Name, exprs: []^ast.Expr) {
+	for expr in exprs {
+		if ident, ok := expr.derived.(^ast.Ident); ok {
+			append(names, Scope_Name{ident.name, ident, false})
 		}
 	}
 }
