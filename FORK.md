@@ -91,11 +91,19 @@ Small fixes:
 - `src/server/inlay_hints.odin`: fork hint kinds, enclosing procedure tracking, and a resolve context built only when a kind needs it.
 - `src/server/check.odin`: never block the request thread, drain the pipe incrementally, reap killed processes, vet and style flags from the config, vet findings as warnings, and a `Syntax Error` that `-json-errors` types as a warning, such as a missing import path, as an error.
 - `src/server/documents.odin`: reject a change before touching the document, refresh lint diagnostics.
+- `src/server/position_context.odin`, `src/server/file_resolve.odin`: a call argument drops the enclosing comp literal, so a comp literal in the argument resolves against the parameter type.
+- `src/server/signature.odin`: inside a comp literal passed to a call, the comp literal signature comes before the procedure signature.
 
 Tests:
 
 - `tests/action_invert_if_test.odin`: the early-exit variant and the fork behaviour.
 - `tests/inlay_hints_test.odin`: the fork hint kinds.
+
+## Changed upstream defaults
+
+Set in `apply_default_config` in `src/server/requests.odin`, and in `misc/ols.schema.json` and README.md:
+
+- `enable_comp_lit_signature_help`: true, upstream false.
 
 ## Fork-only config keys
 

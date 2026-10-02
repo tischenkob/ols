@@ -1069,7 +1069,8 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_document_highlights = true
 	config.enable_completion_matching = true
 	config.enable_document_links = true
-	config.enable_comp_lit_signature_help = false
+	// rols: struct signature help inside comp literals is on by default
+	config.enable_comp_lit_signature_help = true
 	config.verbose = false
 	config.file_log = false
 	config.odin_command = ""
