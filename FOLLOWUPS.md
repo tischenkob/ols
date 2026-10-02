@@ -10,3 +10,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **Only direct embedders are checked.** `check_embedders` checks structs with a `using` field of the renamed field's type. It does not check structs that embed those structs in turn.
 - **`using` statements are not checked.** A `using x` statement inside a procedure body brings members into scope, and neither the collision scan nor the capture scan covers it.
 - **Field renames cost a workspace scan.** Every rename of a field in a named struct runs `find_symbol_references` on the owner type across the workspace, plus one type resolution for each `using` field found.
+
+## Unwrap code action (`src/server/rols_action_unwrap.odin`)
+
+- **"Remove redundant else" still has the old unsafe checks.** `add_remove_else` checks only the `if` itself, as the `redundant-else` simplify rule did before `3d6c7ced`. On `if a { return } else if b { return } else { x = 1 }`, the action on the inner `if` moves `x = 1` after the whole chain. On `if a { return 1 } else { return 2 }` followed by `return 0`, it leaves code after a return. It also accepts a labeled `if`, a `when` body, and an else that redeclares a name from earlier in the block. The guards in `simplify_redundant_else` in `src/server/rols_simplify.odin` cover these cases.
