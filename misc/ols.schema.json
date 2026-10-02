@@ -138,7 +138,7 @@
 		"enable_comp_lit_signature_help": {
 			"type": "boolean",
 			"description": "Provide signature help for comp lits such as when instantiating structs. Will not display correctly on some editors such as vscode.",
-			"default": false
+			"default": true
 		},
 		"enable_comp_lit_signature_help_use_docs": {
 			"type": "boolean",

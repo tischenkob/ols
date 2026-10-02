@@ -136,6 +136,12 @@ get_signature_information :: proc(
 					SignatureInformation{label = get_signature(symbol, allocator), documentation = write_markdown_doc(symbol, allocator)},
 				)
 			}
+			// rols: a comp literal inside the call is the innermost construct, so its signature goes first
+			if position_context.call != nil &&
+			   position_context.comp_lit != nil &&
+			   position_context.comp_lit.pos.offset > position_context.call.pos.offset {
+				inject_at(&signature_information, 0, pop(&signature_information))
+			}
 		}
 	}
 
