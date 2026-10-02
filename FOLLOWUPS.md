@@ -21,6 +21,11 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **`workspace_relative` states its inside-the-root test twice.** The raw comparison and the symlink-resolved comparison each repeat `err == nil && !strings.has_prefix(rel, "..")`. One loop over the two pairs of root and file would state the test once. The prefix test also misreads a file named `..x.odin` at the root as outside it.
 - **The `.Refused` summary in `finish` can be shorter.** Two one-line appends and one `tprintf` with "nothing written" as the fallback for an empty list would replace the outer `if`/`else`, about 8 lines fewer.
 
+## Result-union action (`src/server/rols_action_result_union.odin`)
+
+- **Rewriting the result list drops comments and joins lines.** `named_results_edit` writes out the whole list when it names unnamed results or splits a shared last field. Comments inside the list are lost, and a multi-line list ends up on one line. The named-results action avoids this by editing only the names (`db49088f`).
+- **A comment before the first result breaks the edit.** `result_list_range` in `src/server/rols_action_named_results.odin` steps back over whitespace only, so it never reaches `(` after a comment such as `-> (\n\t// first\n\tint, Error)`. The replaced range then starts at the first type, and the edit leaves an extra `(`. This comes from reading the code. No test reproduces it yet.
+
 ## `do` bodies (`src/server/rols_edit.odin` `block_inner_text`)
 
 - **The identical-branches lint flags `do` branches that differ.** For a `do` body, `open` is the statement start and `close` is its end, so `block_inner_text` returns the statement without its first character. `lint_identical_branches` in `src/server/rols_lint.odin` does not check `uses_do`, so `if c do foo()` followed by `else do goo()` compares `oo()` with `oo()` and reports `identical-branches` on code that passes `odin check`.
