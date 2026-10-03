@@ -69,6 +69,8 @@ lint_naming :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnos
 	case ^ast.Struct_Type:
 		if n.fields == nil do return
 		for field in n.fields.list {
+			// A tag string such as `json:"fooBar"` ties the field name to an external format.
+			if field.tag.text != "" do continue
 			for name in field.names {
 				ident := name.derived.(^ast.Ident) or_continue
 				check_name(ctx, diags, ident, "field", .Snake)

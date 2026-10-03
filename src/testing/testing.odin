@@ -1331,7 +1331,8 @@ LintExpect :: struct {
 	code: string,
 }
 
-expect_lint_diagnostics :: proc(t: ^testing.T, src: ^Source, expected: []LintExpect) {
+// `messages`, when given, are the exact messages of the diagnostics in order.
+expect_lint_diagnostics :: proc(t: ^testing.T, src: ^Source, expected: []LintExpect, messages: []string = nil) {
 	spall.trace(#procedure)
 
 	setup(src)
@@ -1351,6 +1352,16 @@ expect_lint_diagnostics :: proc(t: ^testing.T, src: ^Source, expected: []LintExp
 	for i in 0 ..< min(len(expected), len(diagnostics)) {
 		got := LintExpect{diagnostics[i].range.start.line, diagnostics[i].code}
 		testing.expectf(t, expected[i] == got, "\n[%d]: Expected %v but received %v", i, expected[i], got)
+		if i < len(messages) {
+			testing.expectf(
+				t,
+				messages[i] == diagnostics[i].message,
+				"\n[%d]: Expected message %q but received %q",
+				i,
+				messages[i],
+				diagnostics[i].message,
+			)
+		}
 	}
 }
 

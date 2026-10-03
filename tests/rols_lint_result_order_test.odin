@@ -15,7 +15,7 @@ Parse_Error :: enum {
 
 Status :: enum {
 	None,
-	Busy,
+	Failed,
 }
 
 Value :: union {
@@ -143,4 +143,43 @@ make_shape :: proc() -> (s: Shape, changed: bool) { return 1, true }
 	}
 
 	test.expect_lint_diagnostics(t, &source, {})
+}
+
+@(test)
+error_not_last_needs_an_error_like_enum :: proc(t: ^testing.T) {
+	// Corpus: an enum with a `None` member is not an error unless its name or another member says so.
+	source := test.Source {
+		main = `package test
+
+Kind :: enum {
+	None,
+	Box,
+}
+
+Open_Error :: enum {
+	None,
+	Bad,
+}
+
+Outcome :: enum {
+	None,
+	Invalid_Input,
+}
+
+value :: proc() -> (Kind, int) {
+	return .Box, 0
+}
+
+by_name :: proc() -> (Open_Error, int) {
+	return .Bad, 0
+}
+
+by_member :: proc() -> (Outcome, int) {
+	return .Invalid_Input, 0
+}
+`,
+		config = {enable_lint_result_order = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{21, "error-not-last"}, {25, "error-not-last"}})
 }

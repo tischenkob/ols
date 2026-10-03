@@ -69,7 +69,7 @@ These findings have no harness test, because they live in the CLI or the compile
 - **`checker_args` containing `-no-entry-point` drops every compiler error.** `check.odin` always adds `-no-entry-point` or `-file`, odin rejects the duplicate flag, the JSON parse fails, and `ols query check` exits 0. Repro: `ols.json` `{"checker_args": "-no-entry-point"}` and `f :: proc() { x: int = "s"; _ = x }`. odin-godot's checked-in `ols.json` has this setting.
 - **The default `-vet-style` hides type errors and blinds the `--apply` gate.** A struct field list without a trailing comma (`a, b: int` on its own line) becomes a Syntax Error that stops checking. In Skald, a vendored file does this, so the gate saw the same error before and after an edit and wrote code that plain `odin check` rejects (`modernize` with a `slice.fill` on a fixed array, and "Unwrap block" leaving unreachable code). The gate should check without the style vets, or with the user's own flags. Upstream ols itself reports these Syntax Errors with the default config.
 - **The gate rolls back safe edits when Odin reports pre-existing errors nondeterministically.** Two sources were seen. A package over Odin's error limit prints a different subset of errors on each run, because procedures are checked in parallel. A directory with two package names reports "Different package name" against whichever file Odin parses first. Repro: one safe `if (x > 0)` fix plus 60 procedures that each call an undeclared name; `ols query modernize --apply` exited 4, 4, 4, 0, 0 over five runs.
-- **`-vet-unused-variables` findings show as `error`** while the other vet flags show as `warning`. `vet_messages` in `check.odin` lists only the shadowing and cast messages.
+- **`-vet-unused-variables` findings still show as `error`** while the other vet flags show as `warning`. Odin prints the same text, `declared but not used`, without a vet flag for `if c { x := 1 }`, which is a compile error, and the JSON output cannot tell the two apart. `map_diagnostic_severity` in `check.odin` therefore keeps the message as an error. An AST check of the position could tell them apart.
 
 ### CLI
 
@@ -91,12 +91,8 @@ These findings have no harness test, because they live in the CLI or the compile
 
 ### Lint heuristics and noise
 
-- **`error-not-last` fires on any enum with a `None` member.** That shape is also common for non-error enums such as `Kind :: enum { None, Box }`.
-- **`lock-by-value` fires on `curr_state: Atomic_Mutex_State`** in `core/sync/primitives_atomic.odin`, an enum. It did not reproduce outside `core:sync`.
-- **`unused-parameter` fires on procedures whose signature a callback type fixes.** Most hits in Skald, tina and examples are handlers passed as values, or per-platform implementations.
-- **`float-equality` fires on comparisons with a literal `0` or `1`.** These are 118 of 145 Skald hits and bury the real ones.
-- **`naming` fires on C bindings and on LSP protocol structs** whose names must stay camelCase. This accounts for most naming hits in ols and karl2d.
-- **`ignored-result` prints an absolute package path** for a type from a package that the file does not import, and prints `(Error)` without the `os.` qualifier.
+- **`unused-parameter` misses a callback type that another file fixes.** The lint skips a procedure that its own file uses as a value (an argument, an assignment, a composite literal element), and a literal passed to a call, stored in a composite literal or assigned. A handler registered from a second file of the package still reports. Checking that needs a scan of the package's open or indexed files for each hit. A sweep of ols and karl2d went from 159 hits to 71; the rest are mostly per-platform implementations that a struct of procedures in another file selects.
+- **`naming` still fires on C names that carry no marker.** The lint skips `foreign` blocks, `@(link_name)`, `@(export)` and tagged struct fields. LSP protocol structs in ols (`workspaceFolders`, `rootUri`, 116 field hits) have no tag or attribute, and karl2d's `platform_bindings` load their C functions with `dlopen` instead of `foreign`, so 193 karl2d hits and 175 ols hits remain. A marker for these would need a new attribute or comment convention, so no rule was added.
 
 ### Edits
 

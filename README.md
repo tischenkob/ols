@@ -259,17 +259,17 @@ Options:
 
 - `enable_lint_simplify`: Mark code that has a shorter equivalent (array literal with identical elements, `x == true`, `if c { return true } else { return false }`, redundant parentheses, `s[0:len(s)]`, C-style counting loops, nested ifs, manual `or_else`/`or_return`/`or_break`/`or_continue` patterns) as unnecessary and offer the rewrite as a quick fix. Defaults to true.
 
-- `enable_lint_float_equality`: Report `==` and `!=` comparisons on floats. Defaults to true.
+- `enable_lint_float_equality`: Report `==` and `!=` comparisons on floats. A comparison with the literal `0`, `0.0`, `1` or `1.0` is not reported. Defaults to true.
 
 - `enable_lint_printf`: Check `fmt` and `log` format strings: unknown verbs, argument count, argument type, and format directives passed to the non-formatting `print` procedures. Defaults to true.
 
 - `enable_lint_ignored_result`: Warn when a call statement discards a `bool`, union or error result that is not marked `#optional_ok` or `#optional_allocator_error`. Defaults to true.
 
-- `enable_lint_unused_parameter`: Mark procedure parameters that are never used in the body as unnecessary. Defaults to true.
+- `enable_lint_unused_parameter`: Mark procedure parameters that are never used in the body as unnecessary. A procedure that its own file uses as a value (an argument, an assignment, a composite literal element or a parameter default) is skipped, and so is a procedure literal passed to a call, stored in a composite literal, assigned, or declared with an explicit type. Defaults to true.
 
 - `enable_lint_unused_variable`: Mark local variables and constants that are declared but never used as unnecessary. Defaults to true.
 
-- `enable_lint_naming`: Report names that do not follow Odin conventions: snake_case procedures and variables, Ada_Case types and enum members, SCREAMING_SNAKE_CASE constants. Constants inside a procedure are not checked. Defaults to true.
+- `enable_lint_naming`: Report names that do not follow Odin conventions: snake_case procedures and variables, Ada_Case types and enum members, SCREAMING_SNAKE_CASE constants. Constants inside a procedure, declarations in `foreign` blocks and with `@(link_name)` or `@(export)`, and struct fields with a tag string are not checked. Defaults to true.
 
 - `enable_lint_bool_logic`: Report boolean and comparison mistakes: identical operands, conditions that are always true or false, and `if` or `switch` branches that repeat an earlier one. Defaults to true.
 
@@ -281,7 +281,7 @@ Options:
 
 - `enable_lint_allocator`: Report a value allocated with an explicit allocator and then freed with the context allocator, and `make([dynamic]T, n)` whose elements `append` adds after. Defaults to true.
 
-- `enable_lint_sync`: Report synchronisation mistakes: a lock released on the next line, a deferred lock, an atomic result assigned back to its own target, a lock passed or copied by value, and cleanup deferred before the error is checked. Defaults to true.
+- `enable_lint_sync`: Report synchronisation mistakes: a lock released on the next line, a deferred lock, an atomic result assigned back to its own target, a lock struct passed or copied by value, and cleanup deferred before the error is checked. Defaults to true.
 
 - `enable_lint_deprecated`: Report uses of a declaration marked with the `@(deprecated)` attribute. Defaults to true.
 
@@ -299,7 +299,7 @@ Options:
 
 - `enable_lint_invisible_characters`: Report a string literal containing a literal zero-width, bidirectional or control character. Defaults to true.
 
-- `enable_lint_result_order`: Report a procedure whose error-like result is followed by another result, so `or_return` cannot be used. A `bool` counts as an error result only when unnamed or named `ok`. Defaults to true.
+- `enable_lint_result_order`: Report a procedure whose error-like result is followed by another result, so `or_return` cannot be used. A `bool` counts as an error result only when unnamed or named `ok`. An enum with a `None` member counts as an error only when its name contains `Err` or another member name contains `err`, `fail`, `invalid` or `bad`. Defaults to true.
 
 - `enable_lint_switch`: Report a `#partial` switch that already lists every case, and a `break` at the end of a case. Defaults to true.
 

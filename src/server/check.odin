@@ -476,7 +476,6 @@ start_check_process :: proc(
 }
 
 // rols: vet findings report as warnings, and syntax errors as errors whatever their type
-@(private = "file")
 map_diagnostic_severity :: proc(type: string, message: string) -> DiagnosticSeverity {
 	// -json-errors types some syntax errors as warnings, such as an import path that does not exist.
 	if strings.has_prefix(message, "Syntax Error") {
@@ -486,7 +485,9 @@ map_diagnostic_severity :: proc(type: string, message: string) -> DiagnosticSeve
 		return .Warning
 	}
 
-	// The vet flags are ours, not the user's build, so their errors show as warnings.
+	// The shadowing and cast vet flags are ours, not the user's build, so their errors show as warnings. The
+	// "declared but not used" message of -vet-unused-variables stays an error: odin prints the same text, without
+	// a vet flag, for `if c { x := 1 }`, which is a compile error, and the JSON cannot tell the two apart.
 	vet_messages := [?]string{"shadows declaration", "Unneeded cast", "Unneeded transmute"}
 	for m in vet_messages {
 		if strings.contains(message, m) {
