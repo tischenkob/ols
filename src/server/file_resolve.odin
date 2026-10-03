@@ -65,6 +65,10 @@ resolve_entire_file_internal :: proc(
 		return symbols, true
 	}
 
+	// rols: cached symbols keep pointers into temp memory (pkg paths, docs, synthesized nodes), so
+	// allocate it from the cache arena. Otherwise the cache reads freed memory after the request.
+	context.temp_allocator = allocator
+
 	cancelled := false
 	ast_context := make_ast_context(
 		document.ast,
@@ -99,6 +103,8 @@ resolve_entire_file_internal :: proc(
 			cancelled = &cancelled,
 		)
 		if cancelled {
+			// rols: release the partly filled cache arena
+			invalidate_document_symbol_cache(document)
 			return nil, false
 		}
 		clear(&ast_context.locals)
@@ -412,9 +418,12 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 			resolve_node(n.value, data)
 		}
 	case ^ast.Proc_Lit:
-		local_scope(data, n.body)
+		// rols: store the parameters before the body locals, which resolve call values such as `x := make([]int, m)`
+		local_scope(data, nil)
 
 		get_locals_proc_param_and_results(data.ast_context.file, n^, data.ast_context, data.position_context)
+
+		local_scope(data, n.body)
 
 		resolve_node(n.type, data)
 
