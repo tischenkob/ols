@@ -407,13 +407,12 @@ get_hover_information :: proc(
 						&ast_context,
 						lookup(ident.name, selector.pkg, ast_context.fullpath),
 					); ok {
+						// rols: a variable of the imported package keeps that package and shows its type
 						build_documentation(&ast_context, &resolved, false)
-						resolved.name = ident.name
-
 						if resolved.type == .Variable {
-							resolved.pkg = ast_context.document_package
+							construct_ident_symbol_info(&resolved, ident.name, selector.pkg)
 						}
-
+						resolved.name = ident.name
 
 						hover.contents = write_hover_content(&ast_context, resolved)
 						return hover, true, true

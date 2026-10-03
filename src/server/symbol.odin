@@ -1159,7 +1159,8 @@ construct_ident_symbol_info :: proc(symbol: ^Symbol, ident: string, document_pkg
 
 	// If the pkg + name is the same as the type pkg + name, we use the underlying type instead
 	// This is used for things like anonymous structs
-	if symbol.name == symbol.type_name && symbol.pkg == symbol.type_pkg {
+	// rols: a type without a package, like a poly parameter, is the symbol itself when the names match
+	if symbol.name == symbol.type_name && (symbol.pkg == symbol.type_pkg || symbol.type_pkg == "") {
 		symbol.type_name = ""
 		symbol.type_pkg = ""
 	}

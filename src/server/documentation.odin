@@ -980,7 +980,8 @@ write_symbol_type_information :: proc(sb: ^strings.Builder, ast_context: ^AstCon
 
 	append_type_pkg := false
 	pkg_name := get_pkg_name(ast_context, symbol.type_pkg)
-	if pkg_name != "" && pkg_name != "$builtin" {
+	// rols: a type without a package, like a poly parameter, takes no qualifier
+	if symbol.type_pkg != "" && pkg_name != "" && pkg_name != "$builtin" {
 		if _, ok := keywords_docs[symbol.type_name]; !ok {
 			append_type_pkg = true
 		}

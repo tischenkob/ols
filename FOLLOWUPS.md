@@ -4,7 +4,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## Corpus validation (`docs/corpus-validation.md`)
 
-- **A sweep over seven open-source Odin projects and Odin's core found bugs that are not fixed yet.** `docs/corpus-validation.md` lists them. 42 have a failing test in `tests/rols_*`, so `./build.sh test` reports 42 failures until they are fixed. Three odinfmt snapshot cases named `rols_*` fail in `tools/odinfmt/tests.sh`. The doc's 33 follow-ups have no harness test and each names a repro. `docs/corpus/triage/` holds the reduced source of every confirmed case, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
+- **A sweep over seven open-source Odin projects and Odin's core found bugs that are not fixed yet.** `docs/corpus-validation.md` lists them. 31 have a failing test in `tests/rols_*`, so `./build.sh test` reports 31 failures until they are fixed. Three odinfmt snapshot cases named `rols_*` fail in `tools/odinfmt/tests.sh`. The doc's 30 follow-ups have no harness test and each names a repro. `docs/corpus/triage/` holds the reduced source of every confirmed case, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
 - **Rerun the sweep after the fixes land.** Follow "Rerunning the sweep" in the doc: run `tools/corpus_smoke.sh`, then the manual checks it lists. Remove fixed items from the doc and this entry when nothing is left.
 
 ## Safe-rename check (`src/server/rols_rename_check.odin`)
@@ -14,6 +14,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **Only direct embedders are checked.** `check_embedders` checks structs with a `using` field of the renamed field's type. It does not check structs that embed those structs in turn.
 - **`using` statements are not checked.** A `using x` statement inside a procedure body brings members into scope, and neither the collision scan nor the capture scan covers it.
 - **Field renames cost a workspace scan.** Every rename of a field in a named struct runs `find_symbol_references` on the owner type across the workspace, plus one type resolution for each `using` field found.
+- **Implementation requests on a procedure run a workspace reference scan.** `proc_group_locations` in `src/server/rols_implementation.odin` calls `find_symbol_references` to find the groups that list the procedure, and then loops over `top_level_value_decls` of the file for each reference. A procedure with many references in a large workspace makes the request slow.
 
 ## Unwrap code action (`src/server/rols_action_unwrap.odin`)
 
@@ -61,6 +62,12 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **A failed overload resolution is cached for the rest of the file.** `resolve_function_overload` stores an empty result in `ast_context.call_expr_recursion_cache` before it expands the call arguments, and a failure leaves it there. Every later resolution of the same call returns that failure. The parameter-length `make` hang was one trigger and is fixed at its cause (parameters are now stored before body locals). Another failing argument still poisons the call.
 - **The whole-file resolve now allocates its temp memory from the document cache arena.** This keeps the cached symbols valid after the request frees temp memory. It also retains the resolve scratch until the document is reparsed or caches are invalidated. Measured `symbol_cache_arena.total_used` after `resolve_entire_file`: 23.9 MB without the swap and 29.1 MB with it for a 100 KB file (+5.2 MB, +22%), and 57.7 MB and 70.5 MB for a 250 KB file (+12.9 MB, +22%). A targeted copy of the escaping data (`pkg` strings, docs, synthesized nodes such as `wrap_pointer`) would remove the extra share. It needs an audit of every default `context.temp_allocator` that a cached symbol can point to.
 - **Inlay hints on a very large file are slow.** Over stdio, one inlayHint request took about 1 s on a 100 KB synthetic file, about 3 s on 250 KB, and did not answer within 15 s on 2 MB. The memory is about 520 MB and 790 MB for the first two. The growth was not profiled. Repro: repeat `p :: proc(m: int, s: ^S) -> int { c := one(); d := make([]u8, m) ... }` with unique names.
+
+## Overload resolution and hover (`src/server/analysis.odin`, `src/server/hover.odin`)
+
+- **Equal overload scores pick the first member.** `ab(T1, nil)` with `a :: proc($tag: Tag, p: []u8)` and `b :: proc($tag: Tag, p: ^int)` scores both members -2, so hover takes `a`. This is right when the results agree, as in `hover_overload_with_poly_constant_param`, and wrong when they differ.
+- **The layout offset of a promoted field resolves the `using` type in the hover's package.** `promoted_field_offset` in `src/server/rols_layout.odin` calls `resolve_type_expression` on the `using` field's type without switching to the package that declares it. A `using` field of a type from another package may not resolve, and then the hover shows no offset.
+- **`comp_lit_inside_call` compares source offsets.** `src/server/rols_resolve.odin` decides that an implicit selector belongs to a comp literal when the literal starts after the call. Only `references_enum_in_comp_lit_argument` covers it, with a typed literal as the first argument.
 
 ## Build tags and `when` (`src/server/build.odin`, `src/server/when.odin`)
 

@@ -340,6 +340,10 @@ untyped_map: [SymbolUntypedValueType][]string = {
 // NOTE: This function is not commutative
 are_symbol_untyped_basic_same_typed :: proc(a, b: Symbol) -> (bool, bool) {
 	if untyped, ok := a.value.(SymbolUntypedValue); ok {
+		// rols: a pointer to an untyped value is never the same type as a value
+		if a.pointers != b.pointers {
+			return false, true
+		}
 		if basic, ok := b.value.(SymbolBasicValue); ok {
 			names := untyped_map[untyped.type]
 			for name in names {
@@ -859,7 +863,8 @@ expand_call_args :: proc(ast_context: ^AstContext, call: ^ast.Call_Expr) -> ([]C
 		if symbol, ok := resolve_call_arg_type_expression(ast_context, call_arg.value_expr); ok {
 			call_arg.symbol = symbol
 			call_arg.has_symbol = true
-			call_arg.is_constant = symbol.type == .Constant && !(.Mutable in symbol.flags)
+			// rols: a constant of a type, like `T :: Tag(0x40)`, is flagged .Variable and keeps the type's symbol type
+			call_arg.is_constant = (symbol.type == .Constant || .Variable in symbol.flags) && !(.Mutable in symbol.flags)
 			if _, ok := symbol.value.(SymbolPolyTypeValue); ok {
 				call_arg.is_poly_type = true
 				append(results, call_arg)
@@ -875,8 +880,16 @@ expand_call_args :: proc(ast_context: ^AstContext, call: ^ast.Call_Expr) -> ([]C
 							expr = arg.default_value
 						}
 
-						if !append_arg(ast_context, expr, results, used_named) {
+						// rols: the results are not source arguments, so the named phase does not apply.
+						// A named argument is one value and keeps its name on the first result.
+						results_named := false
+						first := len(results)
+						if !append_arg(ast_context, expr, results, &results_named) {
 							return false
+						}
+						if call_arg.named {
+							results[first].named, results[first].name = true, call_arg.name
+							break
 						}
 					}
 					return true
@@ -1309,7 +1322,9 @@ resolve_function_overload :: proc(ast_context: ^AstContext, group: ^ast.Proc_Gro
 						}
 					}
 
-					if untyped, is_untyped := call_arg.symbol.value.(SymbolUntypedValue); is_untyped {
+					// rols: the literal rules do not cover a pointer to an untyped value, like `&v` for `v := 1`
+					if untyped, is_untyped := call_arg.symbol.value.(SymbolUntypedValue);
+					   is_untyped && call_arg.symbol.pointers == 0 && arg_symbol.pointers == 0 {
 						literal_score, compatible, handled := untyped_basic_match_score(untyped, arg_symbol)
 						if handled {
 							if !compatible {
@@ -2961,8 +2976,15 @@ resolve_local_identifier :: proc(
 	if .Variable in local.flags {
 		symbol.flags |= {.Variable}
 	}
+	// rols: only a poly parameter itself is a poly type, not a local that its value resolves through
 	if .PolyType in local.flags {
 		symbol.flags |= {.PolyType}
+		if is_typeid_local(local^) {
+			symbol.name = node.name
+			symbol.pkg = ""
+		}
+	} else {
+		symbol.flags -= {.PolyType}
 	}
 
 	symbol.flags |= {.Local}
@@ -3427,7 +3449,8 @@ resolve_implicit_selector :: proc(
 		}
 	}
 
-	if position_context.call != nil {
+	// rols: a comp literal inside the call takes its types from the literal, not from the parameter
+	if position_context.call != nil && !comp_lit_inside_call(position_context) {
 		if call, ok := position_context.call.derived.(^ast.Call_Expr); ok {
 			parameter_index, parameter_ok := find_position_in_call_param(position_context, call^)
 			old := ast_context.resolve_specific_overload
@@ -3438,11 +3461,12 @@ resolve_implicit_selector :: proc(
 			if symbol, ok := resolve_type_expression(ast_context, call.expr); ok && parameter_ok {
 				#partial switch v in symbol.value {
 				case SymbolProcedureValue:
-					if len(v.arg_types) <= parameter_index {
+					// rols: a named argument binds by name, a positional one by index
+					arg, arg_ok := get_call_arg_field(v, call^, parameter_index)
+					if !arg_ok {
 						return {}, false
 					}
 
-					arg := v.arg_types[parameter_index]
 					type := arg.type
 					if type == nil {
 						type = arg.default_value
@@ -3793,6 +3817,10 @@ resolve_location_identifier :: proc(ast_context: ^AstContext, node: ast.Ident) -
 	spall.trace(#procedure, node.name)
 
 	if local, ok := get_local(ast_context^, node); ok {
+		// rols: a field that `using` brings into scope belongs to its struct
+		if field, ok := resolve_location_using_field(ast_context, local); ok {
+			return field, true
+		}
 		symbol.range = common.get_token_range(local.lhs, ast_context.file.src)
 		uri := common.create_uri(local.lhs.pos.file, ast_context.allocator)
 		symbol.pkg = ast_context.document_package
@@ -4121,7 +4149,11 @@ resolve_symbol_selector :: proc(
 	case SymbolStructValue:
 		for name, i in v.names {
 			if strings.compare(name, field) == 0 {
-				if v.from_usings[i] != -1 || symbol_struct_value_has_objc_ivar(v, i) {
+				// rols: a field is in the file of its type, which differs from the symbol's for an alias like `V :: S{}`.
+				// An instantiated generic copies the call site's type node, so it is left out.
+				if v.from_usings[i] != -1 ||
+				   symbol_struct_value_has_objc_ivar(v, i) ||
+				   (v.poly == nil && v.types[i].pos.file != "") {
 					symbol.uri = common.create_uri(v.types[i].pos.file, context.temp_allocator).uri
 				}
 				symbol.range = v.ranges[i]

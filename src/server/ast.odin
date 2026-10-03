@@ -705,6 +705,8 @@ get_comment :: proc(comment: ^ast.Comment_Group, allocator := context.allocator)
 			text := token.text[COMMENT_DELIMITER_LENGTH:]
 			append(&lines, text)
 
+		// rols: a shebang line is no documentation
+		case "#!":
 		case:
 			log.error("unsupported comment delimiter")
 		}
