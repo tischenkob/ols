@@ -29,6 +29,11 @@ convert_os_string: map[string]string = {
 	"orca"         = "Orca",
 }
 
+// rols: get_globals sets this while it collects a document's globals, so that a condition like `!pkg.FLAG` can read
+// the constant from an imported package. It is nil otherwise and only valid during that call.
+@(private = "file", thread_local)
+when_ast_context: ^AstContext
+
 // Profile defines seed for when-condition evaluation.
 make_when_expr_map :: proc() -> map[string]When_Expr {
 	when_expr_map := make(map[string]When_Expr, context.temp_allocator)
@@ -183,7 +188,27 @@ resolve_when_expr :: proc(
 		case ^ast.Ident:
 			return resolve_when_ident(when_expr_map, odin_expr.name)
 		case ^ast.Basic_Lit:
+			// rols: a string literal compares by its text, not by its quotes.
+			if odin_expr.tok.kind == .String {
+				text, _, _ := strconv.unquote_string(odin_expr.tok.text, context.temp_allocator)
+				return text, true
+			}
 			return resolve_when_ident(when_expr_map, odin_expr.tok.text)
+		case ^ast.Call_Expr:
+			// rols: only `#config` calls fold.
+			return resolve_config_directive(when_expr_map, odin_expr, common.config.profile.defines)
+		case ^ast.Selector_Expr:
+			// rols: `pkg.NAME` reads an immutable constant of an imported package.
+			ctx := when_ast_context
+			pkg_ident, is_ident := odin_expr.expr.derived.(^ast.Ident)
+			if ctx == nil || !is_ident do return {}, false
+			for imp in ctx.imports {
+				if imp.base != pkg_ident.name do continue
+				symbol, found := lookup(odin_expr.field.name, imp.name, ctx.fullpath)
+				if !found || .Mutable in symbol.flags do return {}, false
+				generic := symbol.value.(SymbolGenericValue) or_return
+				return resolve_when_expr(make_when_expr_map(), generic.expr)
+			}
 		case ^ast.Implicit_Selector_Expr:
 			return odin_expr.field.name, true
 		case ^ast.Unary_Expr:
@@ -205,7 +230,23 @@ resolve_when_expr :: proc(
 			lhs_string, lhs_is_string := lhs.(string)
 			rhs_string, rhs_is_string := rhs.(string)
 
-			if lhs_is_string && rhs_is_string {
+			if lhs_is_int && rhs_is_int {
+				// rols: integer comparisons, like `when LEVEL >= 2`.
+				#partial switch odin_expr.op.kind {
+				case .Cmp_Eq:
+					return lhs_int == rhs_int, true
+				case .Not_Eq:
+					return lhs_int != rhs_int, true
+				case .Lt:
+					return lhs_int < rhs_int, true
+				case .Lt_Eq:
+					return lhs_int <= rhs_int, true
+				case .Gt:
+					return lhs_int > rhs_int, true
+				case .Gt_Eq:
+					return lhs_int >= rhs_int, true
+				}
+			} else if lhs_is_string && rhs_is_string {
 				#partial switch odin_expr.op.kind {
 				case .Cmp_Eq:
 					return lhs_string == rhs_string, true
@@ -218,6 +259,11 @@ resolve_when_expr :: proc(
 					return lhs_bool && rhs_bool, true
 				case .Cmp_Or:
 					return lhs_bool || rhs_bool, true
+				// rols: `when FLAG == false`.
+				case .Cmp_Eq:
+					return lhs_bool == rhs_bool, true
+				case .Not_Eq:
+					return lhs_bool != rhs_bool, true
 				}
 			}
 
@@ -241,4 +287,44 @@ resolve_when_condition :: proc(condition: ^ast.Expr, when_expr_map: map[string]W
 	}
 
 	return false
+}
+
+// rols: collects a document's globals with imported-package constants visible to `when` conditions.
+collect_document_globals :: proc(ast_context: ^AstContext, file: ast.File) -> []GlobalExpr {
+	when_ast_context = ast_context
+	defer when_ast_context = nil
+	return collect_globals(file, open_file = true)
+}
+
+// rols: the block of a `when` statement that the host builds, with imported constants visible to the condition.
+active_when_block :: proc(
+	ast_context: ^AstContext,
+	stmt: ^ast.When_Stmt,
+	consts: map[string]When_Expr,
+) -> (
+	^ast.Block_Stmt,
+	bool,
+) {
+	when_ast_context = ast_context
+	defer when_ast_context = nil
+	return get_when_block_stmt(stmt, consts)
+}
+
+// rols: `#config(NAME, default)` reads the define NAME, then the default.
+resolve_config_directive :: proc(
+	when_expr_map: map[string]When_Expr,
+	call: ^ast.Call_Expr,
+	defines: map[string]string,
+) -> (
+	When_Expr,
+	bool,
+) {
+	directive, is_directive := call.expr.derived.(^ast.Basic_Directive)
+	if !is_directive || directive.name != "config" || len(call.args) != 2 do return {}, false
+	if name, is_ident := call.args[0].derived.(^ast.Ident); is_ident {
+		if value, defined := defines[name.name]; defined {
+			return resolve_when_ident(when_expr_map, value)
+		}
+	}
+	return resolve_when_expr(when_expr_map, call.args[1])
 }

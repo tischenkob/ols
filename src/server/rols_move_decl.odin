@@ -143,6 +143,14 @@ move_edit :: proc(move: Move, target_uri: string, files: []Package_File) -> (Wor
 		return {}, "the target must be in the directory of the declaration", false
 	}
 
+	// rols: a declaration keeps its meaning only in a file that builds on the same platforms.
+	if package_file_exists(target_path, files) {
+		h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
+		if target := hierarchy_document(&h, target_uri); target != nil && build_constraints_differ(document, target) {
+			return {}, fmt.tprintf("%s has different build constraints", path.base(target_path)), false
+		}
+	}
+
 	changes := make(Changes, context.temp_allocator)
 	append_edit(&changes, document, move.del_start, move.del_end, "")
 	imports := make([]string, len(move.imports), context.temp_allocator)
@@ -154,6 +162,25 @@ move_edit :: proc(move: Move, target_uri: string, files: []Package_File) -> (Wor
 		return {}, fmt.tprintf("%s cannot be read or belongs to another package", target_path), false
 	}
 	return edit, "", true
+}
+
+// Whether two files differ in `#+build` lines, `#+build ignore` or the OS and architecture suffix of their names.
+@(private = "file")
+build_constraints_differ :: proc(a, b: ^Document) -> bool {
+	tags_a := parser.parse_file_tags(a.ast, context.temp_allocator)
+	tags_b := parser.parse_file_tags(b.ast, context.temp_allocator)
+	if tags_a.ignore != tags_b.ignore || !slice.equal(tags_a.build, tags_b.build) {
+		return true
+	}
+	if len(tags_a.build_project_name) != len(tags_b.build_project_name) {
+		return true
+	}
+	for group, i in tags_a.build_project_name {
+		if !slice.equal(group, tags_b.build_project_name[i]) do return true
+	}
+	target_a, hidden_a := file_name_target(filepath.base(a.fullpath))
+	target_b, hidden_b := file_name_target(filepath.base(b.fullpath))
+	return hidden_a != hidden_b || target_a.os != target_b.os || target_a.arch != target_b.arch
 }
 
 // Appends text to target_uri, a file of package pkg_name, inserting after its package line the

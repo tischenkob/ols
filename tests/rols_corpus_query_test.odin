@@ -1,5 +1,9 @@
+#+feature dynamic-literals
+
 package tests
 
+import "core:odin/ast"
+import "core:odin/parser"
 import "core:testing"
 
 import "src:common"
@@ -17,12 +21,20 @@ document_symbol_names :: proc(symbols: []server.DocumentSymbol) -> []string {
 // Corpus: reduced, see docs/corpus-validation.md.
 @(test)
 skip_file_keeps_bsd_files_on_darwin :: proc(t: ^testing.T) {
-	// The server always sets the profile os to the host, darwin here, before it indexes.
-	previous := common.config.profile.os
-	common.config.profile.os = "darwin"
-	defer common.config.profile.os = previous
+	testing.expectf(t, !server.skip_file("a_bsd.odin"), "odin builds *_bsd.odin on every host, but skip_file rejects it")
+}
 
-	testing.expectf(t, !server.skip_file("a_bsd.odin"), "odin builds *_bsd.odin on darwin, but skip_file rejects it")
+@(test)
+skip_file_follows_odin_suffix_rules :: proc(t: ^testing.T) {
+	// The process-global config is shared by parallel tests, so this runs on the host it expects.
+	when ODIN_OS == .Darwin && ODIN_ARCH == .arm64 {
+		for name in ([]string{"a.odin", "a_unix.odin", "a_darwin.odin", "a_arm64.odin", "a_darwin_arm64.odin", "a_arm64_darwin.odin"}) {
+			testing.expectf(t, !server.skip_file(name), "%s is built on darwin arm64", name)
+		}
+		for name in ([]string{"a_linux.odin", "a_amd64.odin", "a_darwin_amd64.odin", "a_linux_arm64.odin", ".a.odin"}) {
+			testing.expectf(t, server.skip_file(name), "%s is not built on darwin arm64", name)
+		}
+	}
 }
 
 // Corpus: reduced, see docs/corpus-validation.md.
@@ -32,7 +44,7 @@ document_symbols_list_build_excluded_file :: proc(t: ^testing.T) {
 		main = `#+build windows
 package test
 
-foo :: proc() {}
+fo{*}o :: proc() {}
 `,
 	}
 	test.with_document(t, &source, proc(t: ^testing.T, src: ^test.Source, _: common.Range) {
@@ -49,7 +61,7 @@ document_symbols_list_when_false_comparison :: proc(t: ^testing.T) {
 
 FLAG :: false
 when FLAG == false {
-	a :: proc() {}
+	a{*} :: proc() {}
 }
 `,
 	}
@@ -67,7 +79,7 @@ document_symbols_config_is_constant :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
 
-FLAG :: #config(FLAG, false)
+FL{*}AG :: #config(FLAG, false)
 `,
 	}
 	test.with_document(t, &source, proc(t: ^testing.T, src: ^test.Source, _: common.Range) {
@@ -380,4 +392,69 @@ cfg: Config
 `}},
 	}
 	test.expect_hover(t, &source, "a.cfg: a.Config")
+}
+
+// Corpus: tina src/wall_clock_darwin.odin, reduced, see docs/corpus-validation.md.
+@(test)
+document_symbols_list_when_not_imported_flag :: proc(t: ^testing.T) {
+	source := test.Source {
+		main        = `package test
+
+import "core:cfg"
+
+when !cfg.FLAG {
+	a{*} :: proc() {}
+}
+`,
+		packages    = {{pkg = "cfg", source = "package cfg\n\nFLAG :: #config(FLAG, false)\n"}},
+		collections = {"core" = "test"},
+	}
+	test.with_document(t, &source, proc(t: ^testing.T, src: ^test.Source, _: common.Range) {
+		names := document_symbol_names(server.get_document_symbols(src.document))
+		found := false
+		for name in names do found ||= name == "a"
+		testing.expectf(t, found, "\nExpected `a` among %v", names)
+	})
+}
+
+// Corpus: core/net socket_linux.odin saved on darwin, see docs/corpus-validation.md.
+@(test)
+index_file_skips_file_for_other_platform :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+h{*} :: proc() {}
+`,
+	}
+	test.with_document(t, &source, proc(t: ^testing.T, src: ^test.Source, _: common.Range) {
+		server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+		// `_orca` is excluded on every host the tests run on.
+		uri := common.create_uri("test/x_orca.odin", context.temp_allocator)
+		server.index_file(uri, "package test\n\nonly_there :: proc() {}\n")
+
+		for _, pkg in server.indexer.index.collection.packages {
+			for name, symbol in pkg.symbols {
+				testing.expectf(t, symbol.uri != uri.uri, "the excluded file indexed %s", name)
+			}
+		}
+	})
+}
+
+@(test)
+config_directive_reads_define_before_default :: proc(t: ^testing.T) {
+	file := ast.File {
+		fullpath = "x.odin",
+		src      = "package x\nFLAG :: #config(FLAG, false)\n",
+	}
+	p := parser.default_parser()
+	context.allocator = context.temp_allocator
+	if !testing.expect(t, parser.parse_file(&p, &file)) do return
+	decl := file.decls[0].derived.(^ast.Value_Decl)
+	call := decl.values[0].derived.(^ast.Call_Expr)
+
+	value, ok := server.resolve_config_directive({}, call, {})
+	testing.expect(t, ok && value == false, "the default applies without a define")
+	defines := map[string]string{"FLAG" = "true"}
+	value, ok = server.resolve_config_directive({}, call, defines)
+	testing.expect(t, ok && value == true, "the define wins over the default")
 }

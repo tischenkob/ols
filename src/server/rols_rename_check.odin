@@ -582,7 +582,7 @@ check_captures :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name: 
 // Whether document declares name at file scope as `@(private="file")` or under `#+private file`.
 @(private = "file")
 file_private_global :: proc(document: ^Document, name: string) -> bool {
-	for global in collect_globals(document.ast) {
+	for global in collect_globals(document.ast, open_file = true) {
 		if global.name == name && global.private == .File {
 			return true
 		}

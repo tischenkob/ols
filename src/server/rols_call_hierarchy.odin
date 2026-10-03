@@ -86,6 +86,10 @@ incoming_calls :: proc(item: CallHierarchyItem, files: []Package_File = {}) -> [
 			continue
 		}
 		from := decl_item(caller, decl)
+		// rols: another declaration of the same name, like a bodyless one in a `#+build ignore` file, is no call.
+		if from.selectionRange == location.range {
+			continue
+		}
 		key := common.Location{from.uri, from.selectionRange}
 		i, seen := index[key]
 		if !seen {

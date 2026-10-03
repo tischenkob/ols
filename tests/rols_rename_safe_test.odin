@@ -827,8 +827,8 @@ main :: proc() {
 	)
 }
 
-// Locals resolve only in the active branch of a `when`, and ODIN_DEBUG is false, so each target is in
-// the else branch.
+// A cursor resolves the locals of the `when` branch that holds it, and each target here is in the else
+// branch, which the host builds because ODIN_DEBUG is false.
 @(test)
 rename_safe_refuses_collision_in_when_body :: proc(t: ^testing.T) {
 	inside := test.Source {
@@ -1050,4 +1050,47 @@ symbol_path_refusals :: proc(t: ^testing.T) {
 			reason,
 		)
 	}
+}
+
+@(test)
+rename_local_in_inactive_when_branch :: proc(t: ^testing.T) {
+	// FOLLOWUPS "Safe-rename check": get_locals took only the active branch.
+	source := test.Source {
+		main = `package test
+
+DEBUG :: true
+
+f :: proc() -> int {
+	when !DEBUG {
+		va{*}lue := 1
+		return value
+	} else {
+		return 2
+	}
+}
+`,
+	}
+	test.expect_rename(
+		t,
+		&source,
+		"count",
+		{
+			{
+				"main.odin",
+				`package test
+
+DEBUG :: true
+
+f :: proc() -> int {
+	when !DEBUG {
+		count := 1
+		return count
+	} else {
+		return 2
+	}
+}
+`,
+			},
+		},
+	)
 }

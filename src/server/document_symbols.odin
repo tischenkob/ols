@@ -110,7 +110,8 @@ get_document_symbols :: proc(document: ^Document) -> []DocumentSymbol {
 				}
 			}
 		case:
-			symbol.kind = .Variable
+			// rols: `X :: 1` and `X :: #config(X, false)` are constants, not variables.
+			symbol.kind = .Variable if .Mutable in global.flags else .Constant
 		}
 
 		append(&symbols, symbol)

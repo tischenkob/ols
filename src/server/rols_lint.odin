@@ -2,6 +2,8 @@ package server
 
 import "core:fmt"
 import "core:odin/ast"
+import "core:odin/parser"
+import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 
@@ -93,8 +95,28 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 
 @(private = "file")
 Walker :: struct {
-	ctx:   LintContext,
-	diags: [dynamic]Diagnostic,
+	ctx:         LintContext,
+	diags:       [dynamic]Diagnostic,
+	// rols: resolution-dependent lints skip code in `when` branches that the host does not build.
+	ast_context: AstContext,
+	when_consts: map[string]When_Expr,
+	inactive:    int,
+}
+
+@(private = "file")
+walk_when_branches :: proc(visitor: ^ast.Visitor, w: ^Walker, stmt: ^ast.When_Stmt) {
+	active, _ := active_when_block(&w.ast_context, stmt, w.when_consts)
+	for branch: ^ast.Stmt = stmt; branch != nil; {
+		when_branch, is_when := branch.derived.(^ast.When_Stmt)
+		body := when_branch.body if is_when else branch
+		if is_when do ast.walk(visitor, when_branch.cond)
+		block, is_block := body.derived.(^ast.Block_Stmt)
+		is_active := is_block && block == active
+		if !is_active do w.inactive += 1
+		ast.walk(visitor, body)
+		if !is_active do w.inactive -= 1
+		branch = when_branch.else_stmt if is_when else nil
+	}
 }
 
 // One AST walk; every lint sees every node and checks its own config key.
@@ -110,13 +132,40 @@ walk_lints :: proc(document: ^Document, config: ^common.Config) -> Walker {
 		},
 		diags = make([dynamic]Diagnostic, context.temp_allocator),
 	}
+	// rols: nothing in a `#+build ignore` file is built, so nothing in it is linted. A file the host does not build
+	// is treated like an inactive branch, since its calls resolve to the host's declarations.
+	tags := parser.parse_file_tags(document.ast, context.temp_allocator)
+	if tags.ignore {
+		return w
+	}
+	if !should_collect_file(tags) || skip_file(filepath.base(document.fullpath)) {
+		w.inactive = 1
+	}
+	w.ast_context = make_ast_context(
+		document.ast,
+		document.imports,
+		document.package_name,
+		document.uri.uri,
+		document.fullpath,
+		context.temp_allocator,
+	)
+	get_globals(document.ast, &w.ast_context)
+	w.when_consts = make_when_expr_map()
+	register_when_consts_from_globals(&w.when_consts, w.ast_context.globals)
 	visitor := ast.Visitor {
 		data = &w,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
 			if node == nil do return nil
 			w := (^Walker)(visitor.data)
 			for lint in lints {
+				// rols: these lints report errors from resolved declarations, which may belong to another platform.
+				if w.inactive > 0 && (lint == lint_calls || lint == lint_struct_literal) do continue
 				lint(&w.ctx, node, &w.diags)
+			}
+			// rols: track which branches of a `when` the host builds.
+			if when_stmt, is_when := node.derived.(^ast.When_Stmt); is_when {
+				walk_when_branches(visitor, w, when_stmt)
+				return nil
 			}
 			return visitor
 		},
@@ -133,6 +182,9 @@ lint_fixes :: proc(document: ^Document, config: ^common.Config) -> []Lint_Fix {
 
 lint_document :: proc(document: ^Document, config: ^common.Config) -> []Diagnostic {
 	w := walk_lints(document, config)
+	if parser.parse_file_tags(document.ast, context.temp_allocator).ignore {
+		return w.diags[:]
+	}
 	if config.enable_lint_simplify {
 		for s in simplifications(document) {
 			append(

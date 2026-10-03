@@ -326,3 +326,18 @@ _Private_Type :: struct {}
 
 	test.expect_lint_diagnostics(t, &source, {})
 }
+
+@(test)
+naming_skips_build_ignore_file :: proc(t: ^testing.T) {
+	// Corpus: odin-lang/examples bodyless declarations, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `#+build ignore
+package test
+
+badName :: proc(x: int)
+`,
+		config = {enable_lint_naming = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}

@@ -4976,7 +4976,8 @@ make_symbol_bit_field_from_ast :: proc(
 }
 
 get_globals :: proc(file: ast.File, ast_context: ^AstContext) {
-	exprs := collect_globals(file)
+	// rols: the open document's own declarations stay visible when its build tags exclude the host.
+	exprs := collect_document_globals(ast_context, file)
 
 	for expr in exprs {
 		ast_context.globals[expr.name] = expr
