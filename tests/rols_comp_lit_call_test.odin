@@ -147,3 +147,58 @@ reference_named_arg_after_comp_lit_arg :: proc(t: ^testing.T) {
 		},
 	)
 }
+
+@(test)
+reference_named_arg_after_nested_call_argument :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+		E :: enum {
+			A,
+			B,
+		}
+		g :: proc(i: int) -> int { return i }
+		f :: proc(i: int, {*}e: E) {}
+		main :: proc() {
+			f(g(1), e = .B)
+		}
+		`,
+	}
+
+	test.expect_reference_locations(
+		t,
+		&source,
+		{
+			{range = {start = {line = 6, character = 20}, end = {line = 6, character = 21}}},
+			{range = {start = {line = 8, character = 11}, end = {line = 8, character = 12}}},
+		},
+	)
+}
+
+@(test)
+reference_enum_member_after_selector_call_argument :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+		E :: enum {
+			A,
+			{*}B,
+		}
+		S :: struct {
+			m: proc(s: ^S, i: int) -> int,
+		}
+		f :: proc(i: int, e: E) {}
+		main :: proc() {
+			s: S
+			f(s->m(1), .B)
+		}
+		`,
+	}
+
+	test.expect_reference_locations(
+		t,
+		&source,
+		{
+			{range = {start = {line = 3, character = 3}, end = {line = 3, character = 4}}},
+			{range = {start = {line = 11, character = 15}, end = {line = 11, character = 16}}},
+		},
+	)
+}

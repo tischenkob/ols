@@ -320,6 +320,9 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 		data.position_context.field = n.call
 		data.position_context.selector_expr = node
 
+		// rols: restore the call after the selector call, a stale one leaks to later nodes
+		old_position_call := data.position_context.call
+		defer data.position_context.call = old_position_call
 		if _, ok := n.call.derived.(^ast.Call_Expr); ok {
 			data.position_context.call = n.call
 		}
@@ -525,18 +528,19 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 	case ^ast.Paren_Expr:
 		resolve_node(n.expr, data)
 	case ^ast.Call_Expr:
-		old_call := data.ast_context.call
+		// rols: each call restores its own previous value, so a nested call keeps the outer call for later arguments
+		old_ast_call, old_position_call := data.ast_context.call, data.position_context.call
 
 		data.position_context.call = n
 		data.ast_context.call = n
 
 		defer {
-			data.position_context.call = old_call
+			data.position_context.call = old_position_call
 		}
 
 		resolve_node(n.expr, data)
 
-		data.ast_context.call = old_call
+		data.ast_context.call = old_ast_call
 
 		for arg in n.args {
 			data.position_context.position = arg.pos.offset

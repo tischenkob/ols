@@ -243,7 +243,7 @@ send :: proc{send_raw, send_typed}
 	test.expect_hover(t, &source, "lib.send_typed :: proc(x: ^$T)")
 }
 
-// Corpus: reduced, see docs/corpus-validation.md.
+// Corpus: reduced.
 @(test)
 references_enum_after_call_argument :: proc(t: ^testing.T) {
 	source := test.Source {
