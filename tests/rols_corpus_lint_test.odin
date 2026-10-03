@@ -97,3 +97,58 @@ f :: proc() -> bool { return g() == true }
 
 	test.expect_lint_diagnostics(t, &source, {})
 }
+
+@(test)
+ignored_result_reports_status_results_still :: proc(t: ^testing.T) {
+	// The proc-type, generic and deferred exemptions must leave real status results flagged.
+	source := test.Source {
+		main = `package test
+
+Error :: enum { None, Bad }
+ErrorProc :: proc()
+status :: proc() -> bool { return true }
+fail :: proc() -> Error { return .None }
+first :: proc(x: $T) -> (T, bool) { return x, true }
+cleanup :: proc() {}
+@(deferred_none=cleanup)
+guard :: proc() -> bool { return true }
+finish :: proc(ok: bool) {}
+@(deferred_out=finish)
+guard_out :: proc() -> bool { return true }
+f :: proc() {
+	status()
+	fail()
+	first(1)
+	guard()
+	guard_out()
+}
+`,
+		config = {enable_lint_ignored_result = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{14, "ignored-result"}, {15, "ignored-result"}, {16, "ignored-result"}, {18, "ignored-result"}})
+}
+
+@(test)
+bool_compare_reports_plain_bool :: proc(t: ^testing.T) {
+	// Only a boolean type other than bool keeps its comparison.
+	source := test.Source {
+		main = `package test
+
+B :: distinct b32
+C :: distinct bool
+g :: proc() -> bool { return true }
+h :: proc() -> B { return true }
+f :: proc(x: bool, y: B, z: C) -> bool {
+	_ = h() == true
+	_ = y == true
+	_ = z == true
+	_ = x == true
+	return g() == true
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{10, "bool-compare"}, {11, "bool-compare"}})
+}

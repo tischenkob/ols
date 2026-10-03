@@ -391,8 +391,12 @@ append_insert :: proc(ctx: ^ActionContext, at: int, title, kind, text: string) {
 	append(ctx.actions, make_code_action(ctx, title, kind, edits))
 }
 
-// Source between the braces, without the newline after `{` and trailing whitespace.
+// Source between the braces, without the newline after `{` and trailing whitespace. A `do` body
+// has no braces: its open and close tokens are the statement itself, so it is the statement text.
 block_inner_text :: proc(src: string, block: ^ast.Block_Stmt) -> string {
+	if block.uses_do && len(block.stmts) == 1 {
+		return node_text(src, block.stmts[0])
+	}
 	return strings.trim_left(strings.trim_right_space(src[block.open.offset + 1:block.close.offset]), "\r\n")
 }
 

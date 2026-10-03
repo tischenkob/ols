@@ -23,8 +23,8 @@ lint_no_op :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnost
 		no_op_empty_body(ctx, n.body, diags)
 		no_op_empty_body(ctx, n.else_stmt, diags)
 	case ^ast.For_Stmt:
-		// `for {}` is a spin loop, not an empty body.
-		if n.init != nil || n.cond != nil || n.post != nil {
+		// `for {}` is a spin loop, and `for step() {}` does its work in the condition.
+		if (n.init != nil || n.cond != nil || n.post != nil) && (n.cond == nil || !calls_procedure(ctx, n.cond)) {
 			no_op_empty_body(ctx, n.body, diags)
 		}
 	case ^ast.Range_Stmt:
@@ -220,6 +220,48 @@ is_address_of :: proc(expr: ^ast.Expr) -> bool {
 is_nil :: proc(expr: ^ast.Expr) -> bool {
 	ident, is_ident := expr.derived.(^ast.Ident)
 	return is_ident && ident.name == "nil"
+}
+
+// A procedure call other than a pure builtin such as `len(path)`, which cannot do the loop's work.
+// A conversion like `int(x)` is no call. A callee that does not resolve counts as one.
+@(private = "file")
+calls_procedure :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> bool {
+	Data :: struct {
+		ctx:   ^LintContext,
+		found: bool,
+	}
+	data := Data{ctx = ctx}
+	visitor := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil do return nil
+			data := (^Data)(visitor.data)
+			#partial switch call in node.derived {
+			case ^ast.Selector_Call_Expr:
+				data.found = true
+				return nil
+			case ^ast.Call_Expr:
+				if ident, is_ident := call.expr.derived.(^ast.Ident); is_ident {
+					switch ident.name {
+					case "len", "cap", "size_of", "align_of", "type_of", "min", "max", "abs":
+						return visitor
+					}
+				}
+				if resolved, ok := lint_symbols(data.ctx)[uintptr(call.expr)]; ok && !resolved.is_unresolved {
+					#partial switch _ in resolved.symbol.value {
+					case SymbolProcedureValue, SymbolProcedureGroupValue:
+					case:
+						return visitor
+					}
+				}
+				data.found = true
+				return nil
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, expr)
+	return data.found
 }
 
 @(private = "file")

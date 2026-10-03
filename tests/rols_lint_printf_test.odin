@@ -333,3 +333,43 @@ f :: proc() -> string { return fmt.aprintf("%- *[1]s|", "ab", 6) }
 
 	test.expect_lint_diagnostics(t, &source, {})
 }
+
+@(test)
+printf_arity_counts_multi_value_call_results :: proc(t: ^testing.T) {
+	// The expansion must not hide a real shortfall or a real extra argument.
+	source := test.Source {
+		main = `package test
+
+import "fmt"
+two :: proc() -> (f32, int) { return 1, 2 }
+f :: proc() {
+	fmt.printfln("%v %v %v", two())
+	fmt.printfln("%v", two())
+}
+`,
+		packages = corpus_fmt,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{5, "printf-arity"}, {6, "printf-arity"}})
+}
+
+@(test)
+printf_arity_star_with_explicit_index_still_counts :: proc(t: ^testing.T) {
+	// `*[1]` reads argument 1 and `s` the first unused one, so two arguments are needed.
+	source := test.Source {
+		main = `package test
+
+import "fmt"
+f :: proc() {
+	_ = fmt.aprintf("%*[1]s", "ab")
+	_ = fmt.aprintf("%*[1]s", "ab", 6, 7)
+	_ = fmt.aprintf("%*[1]s", "ab", 6)
+}
+`,
+		packages = corpus_fmt,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{4, "printf-arity"}})
+}

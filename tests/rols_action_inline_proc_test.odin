@@ -126,6 +126,28 @@ main :: proc() {
 }
 
 @(test)
+action_inline_proc_do_body :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+log :: proc(msg: string) do print(msg)
+
+main :: proc() {
+	lo{*}g("hi")
+}
+`, `package test
+
+log :: proc(msg: string) do print(msg)
+
+main :: proc() {
+	{
+		msg: string = "hi"
+		print(msg)
+	}
+}
+`)
+}
+
+@(test)
 action_inline_proc_statement_same_name :: proc(t: ^testing.T) {
 	expect_inline_proc(t, `package test
 
