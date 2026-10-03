@@ -21,7 +21,7 @@ odin-godot's own generated bindings could not be produced, because its generator
 
 ## Bugs with a failing test
 
-Each bug below has a test that fails today and passes once the bug is fixed. The reduced source of each case is in the test itself. At the time of writing, the 51 tests that `./build.sh test` reports as failing are exactly the tests below. The tests assume a darwin host, where the corpus ran: the build-tag cases use `linux` and `windows` files as the excluded platforms.
+Each bug below has a test that fails today and passes once the bug is fixed. The reduced source of each case is in the test itself. At the time of writing, the 42 tests that `./build.sh test` reports as failing are exactly the tests below. The tests assume a darwin host, where the corpus ran: the build-tag cases use `linux` and `windows` files as the excluded platforms.
 
 ### False lints
 
@@ -44,8 +44,6 @@ Each bug below has a test that fails today and passes once the bug is fixed. The
 | `ignored_result_skips_deferred_guard` | `rols_corpus_lint_test.odin` | `sync.mutex_guard`, a `@(deferred_in)` guard used as a statement |
 | `empty_body_allows_call_in_loop_condition` | `rols_lint_no_op_test.odin` | `for step() {}` |
 | `bool_compare_keeps_distinct_bool` | `rols_corpus_lint_test.odin` | dropping `== true` on a `distinct b32` result breaks a `bool` return |
-| `unknown_field_uses_matching_when_branch` | `rols_lint_comp_lit_test.odin` | unknown-field, an error, picks the `else` branch of a `when` type |
-| `argument_count_uses_same_platform_declaration` | `rols_lint_calls_test.odin` | argument-count, an error, resolves to another platform's declaration. The open file's own globals are not collected because its `#+build` tag excludes the host, the root cause of `document_symbols_list_build_excluded_file` too. karl2d's `#+private file` backends and 145 errors in `core:net` and `core:nbio` come from it |
 
 The `delete_key` and `mutex_guard` tests stub those procedures, because the harness has no runtime or `core:sync`. A fix that keys on the package path instead of the signature or the attribute leaves them failing.
 
@@ -55,15 +53,9 @@ All are in `tests/rols_corpus_query_test.odin`.
 
 | Test | Bug |
 |---|---|
-| `skip_file_keeps_bsd_files_on_darwin` | `skip_file` drops `*_bsd.odin` on darwin, where odin builds it, so its declarations are invisible |
-| `document_symbols_list_build_excluded_file` | the outline of a file excluded by `#+build` is empty; same root cause as `argument_count_uses_same_platform_declaration` |
-| `document_symbols_list_when_false_comparison` | the outline drops a declaration in the active branch of `when FLAG == false` |
-| `document_symbols_config_is_constant` | `FLAG :: #config(FLAG, false)` is listed as a Variable |
-| `definition_follows_true_string_when_branch` | definition picks the `else` branch of `when E_NAME == "gl"` |
 | `definition_of_field_through_const_alias` | definition through `qq :: V` returns another file with the field's range |
 | `implementation_of_group_member_is_group` | implementation on a group member returns the member, not the group |
 | `hover_promoted_field_offset_is_zero` | a field promoted through `using` shows offset 16 instead of 0 |
-| `incoming_calls_skip_build_ignore_file` | a bodyless declaration in a `#+build ignore` file counts as a caller |
 | `hover_poly_call_inside_poly_proc` | `x := conv(p, A)` inside a procedure with `$A: typeid` hovers as `$x: typeid` |
 | `hover_overload_with_poly_constant_param` | no hover for a call to a group whose members take `$tag: Tag` |
 | `hover_overload_picks_matching_member` | hover on a group call shows the first member, not the one the call selects |
@@ -90,7 +82,6 @@ All are in `tests/rols_corpus_query_test.odin`.
 | `add_ok_result_not_offered_with_or_return_on_unnamed_results` | `rols_action_add_ok_result_test.odin` | `or_return` needs named results once there are two |
 | `generate_test_enum_result_uses_typed_zero_value` | `rols_generate_test_test.odin` | `expect_value(t, result, {})` does not compile for an enum |
 | `action_add_explicit_type_slice_of_field` | `rols_action_add_explicit_type_test.odin` | `r := s.arr[:2]` becomes `r: arr = …` |
-| `move_decl_action_skips_file_with_other_build_tag` | `rols_move_decl_test.odin` | "Move to c.odin" is offered for a `#+build linux` file |
 | `rename_package_rewrites_bare_package_name` | `rols_rename_package_test.odin` | `_ :: old` is not rewritten |
 
 Some edit tests assert one of two acceptable fixes, and a comment in each says which. The comment tests assert "no fix". `add_ok_result_updates_callers` asserts that callers are updated. A fix that refuses the action instead must switch the assertion.
@@ -114,7 +105,6 @@ These findings have no harness test, because they live in the CLI or the compile
 ### Hangs and crashes not reduced
 
 - **A code action on a 1.8 MB generated file segfaults** when the package also contains odin-godot's `libgd/classdb/bind.odin`. The setup is in the sweep's scratch copy of `libgd/classdb`, with `bind.gen.odin` repeated 12 times. Possibly fixed by the default-parameter fix; not rechecked.
-- **The outline of a file whose declarations sit under `when !pkg.FLAG`, with `FLAG` a `#config` constant from another package, is empty.** Seen in tina's `wall_clock_darwin.odin`. Recheck it once `document_symbols_list_when_false_comparison` passes.
 
 ### Compile gate and checker
 
@@ -151,7 +141,6 @@ These findings have no harness test, because they live in the CLI or the compile
 - **`float-equality` fires on comparisons with a literal `0` or `1`.** These are 118 of 145 Skald hits and bury the real ones.
 - **`naming` fires on C bindings and on LSP protocol structs** whose names must stay camelCase. This accounts for most naming hits in ols and karl2d.
 - **`ignored-result` prints an absolute package path** for a type from a package that the file does not import, and prints `(Error)` without the `os.` qualifier.
-- **Lints run in `#+build ignore` files.** karl2d's API doc file gets naming hits on its bodyless declarations.
 
 ### Edits
 

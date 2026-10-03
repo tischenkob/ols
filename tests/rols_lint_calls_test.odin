@@ -147,3 +147,22 @@ setname :: proc(name: cstring) {}
 
 	test.expect_lint_diagnostics(t, &source, {})
 }
+
+@(test)
+argument_count_skips_file_the_host_does_not_build :: proc(t: ^testing.T) {
+	// Corpus: core/net socket_linux.odin:163 on darwin, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `#+build linux
+package test
+
+f :: proc() { h(1) }
+`,
+		files = {
+			{name = "b.odin", source = "#+build linux\npackage test\n\nh :: proc(x: int) {}\n"},
+			{name = "a.odin", source = "#+build darwin\npackage test\n\nh :: proc() {}\n"},
+		},
+		config = {enable_lint_call_arity = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}

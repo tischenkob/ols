@@ -336,3 +336,16 @@ use :: proc() {
 `, {{"c.odin", "#+build linux\npackage test\n"}})
 	test.expect_action_missing(t, &source, "Move to c.odin")
 }
+
+@(test)
+move_decl_action_skips_file_with_other_platform_suffix :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+hel{*}per :: proc() {}
+
+use :: proc() {
+	helper()
+}
+`, {{"b_darwin.odin", "package test\n"}})
+	test.expect_action_missing(t, &source, "Move to b_darwin.odin")
+}

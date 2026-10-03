@@ -18,21 +18,6 @@ import "core:time"
 import "src:common"
 import "src:spall"
 
-platform_os: map[string]struct{} = {
-	"windows" = {},
-	"linux"   = {},
-	"js"      = {},
-	"freebsd" = {},
-	"darwin"  = {},
-	"wasm32"  = {},
-	"openbsd" = {},
-	"wasi"    = {},
-	"wasm"    = {},
-	"netbsd"  = {},
-	"freebsd" = {},
-}
-
-
 os_enum_to_string: [runtime.Odin_OS_Type]string = {
 	.Windows      = "windows",
 	.Darwin       = "darwin",
@@ -79,44 +64,45 @@ os_string_to_enum: map[string]runtime.Odin_OS_Type = {
 	"unknown"      = .Unknown,
 }
 
-@(private = "file")
-is_bsd_variant :: proc(name: string) -> bool {
-	return(
-		common.config.profile.os == os_enum_to_string[.FreeBSD] ||
-		common.config.profile.os == os_enum_to_string[.OpenBSD] ||
-		common.config.profile.os == os_enum_to_string[.NetBSD] \
-	)
+// rols: the platform odin builds for, from the profile and falling back to the host.
+host_target :: proc() -> parser.Build_Target {
+	arch := common.config.profile.arch
+	return {
+		os = os_string_to_enum[common.config.profile.os] or_else ODIN_OS,
+		arch = parser.get_build_arch_from_string(arch) if arch != "" else ODIN_ARCH,
+	}
 }
 
-@(private = "file")
-is_unix_variant :: proc(name: string) -> bool {
-	return(
-		common.config.profile.os == os_enum_to_string[.Linux] ||
-		common.config.profile.os == os_enum_to_string[.Darwin] \
-	)
+// rols: the OS and architecture a file name asks for, `.Unknown` for none, like is_excluded_target_filename in odin's
+// build_settings.cpp. Only these names count: `_unix` and `_bsd` are ordinary names that odin always builds.
+file_name_target :: proc(filename: string) -> (target: parser.Build_Target, hidden: bool) {
+	name := filename
+	if dot := strings.last_index(name, "."); dot >= 0 do name = name[:dot]
+	if strings.has_prefix(name, ".") do return {}, true
+
+	last := strings.last_index(name, "_")
+	if last < 0 do return
+	str1 := name[last + 1:]
+	str2 := name[:last]
+	str2 = str2[strings.last_index(str2, "_") + 1:]
+
+	os1, _ := parser.get_build_os_from_string(str1)
+	os2, _ := parser.get_build_os_from_string(str2)
+	arch1 := parser.get_build_arch_from_string(str1)
+	arch2 := parser.get_build_arch_from_string(str2)
+
+	if os1 != .Unknown {
+		target.os, target.arch = os1, arch2
+	} else if arch1 != .Unknown {
+		target.os, target.arch = os2, arch1
+	}
+	return
 }
 
 skip_file :: proc(filename: string) -> bool {
-	last_underscore_index := strings.last_index(filename, "_")
-	last_dot_index := strings.last_index(filename, ".")
-
-	if last_underscore_index + 1 < last_dot_index {
-		name_between := filename[last_underscore_index + 1:last_dot_index]
-
-		if name_between == "unix" {
-			return !is_unix_variant(name_between)
-		}
-
-		if name_between == "bsd" {
-			return !is_bsd_variant(name_between)
-		}
-
-		if _, ok := platform_os[name_between]; ok {
-			return name_between != common.config.profile.os
-		}
-	}
-
-	return false
+	target, hidden := file_name_target(filename)
+	host := host_target()
+	return hidden || (target.os != .Unknown && target.os != host.os) || (target.arch != .Unknown && target.arch != host.arch)
 }
 
 // Finds all packages under the provided path by walking the file system
@@ -162,35 +148,8 @@ append_packages :: proc(
 }
 
 should_collect_file :: proc(file_tags: parser.File_Tags) -> bool {
-	if file_tags.ignore {
-		return false
-	}
-
-	if len(file_tags.build) > 0 {
-		when_expr_map := make(map[string]When_Expr, context.temp_allocator)
-
-		for key, value in common.config.profile.defines {
-			when_expr_map[key] = resolve_when_ident(when_expr_map, value) or_continue
-		}
-
-		if when_expr, ok := resolve_when_ident(when_expr_map, "ODIN_OS"); ok {
-			if s, ok := when_expr.(string); ok {
-				if used_os, ok := os_string_to_enum[when_expr.(string)]; ok {
-					found := false
-					for tag in file_tags.build {
-						if used_os in tag.os {
-							found = true
-							break
-						}
-					}
-					if !found {
-						return false
-					}
-				}
-			}
-		}
-	}
-	return true
+	// rols: match os and arch groups like odin does, including multiple `#+build` lines and negations.
+	return parser.match_build_tags(file_tags, host_target())
 }
 
 try_build_package :: proc(pkg_name: string) {

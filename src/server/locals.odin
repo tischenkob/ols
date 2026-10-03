@@ -572,7 +572,9 @@ get_locals_stmt :: proc(
 	case ^ast.When_Stmt:
 		when_expr_map := make_when_expr_map()
 		register_when_consts_from_globals(&when_expr_map, ast_context.globals)
-		if stmt, ok := get_when_block_stmt(v, when_expr_map); ok {
+		// rols: a cursor in an inactive branch sees that branch's locals.
+		offset := document_position.nested_position if ast_context.non_mutable_only else document_position.position
+		if stmt, ok := when_block_at(ast_context, v, when_expr_map, offset); ok {
 			get_locals_block_stmt(file, stmt, ast_context, document_position, true)
 		}
 	case ^ast.Case_Clause:

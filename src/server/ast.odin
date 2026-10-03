@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:mem"
 import "core:odin/ast"
 import "core:odin/parser"
+import "core:path/filepath"
 import path "core:path/slashpath"
 import "core:strings"
 import "core:log"
@@ -590,12 +591,13 @@ collect_when_body :: proc(
 	}
 }
 
-collect_globals :: proc(file: ast.File) -> []GlobalExpr {
+// rols: `open_file` collects a document's own declarations even when its name or build tags exclude the host.
+collect_globals :: proc(file: ast.File, open_file := false) -> []GlobalExpr {
 
 	spall.trace(#procedure, file.fullpath)
 
 	file_tags := parser.parse_file_tags(file, context.temp_allocator)
-	if !should_collect_file(file_tags) {
+	if !open_file && (skip_file(filepath.base(file.fullpath)) || !should_collect_file(file_tags)) {
 		return {}
 	}
 
