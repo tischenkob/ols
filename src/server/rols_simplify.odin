@@ -3,6 +3,7 @@ package server
 import "core:fmt"
 import "core:odin/ast"
 import "core:odin/tokenizer"
+import "core:slice"
 import "core:strings"
 
 Simplification :: struct {
@@ -66,17 +67,19 @@ simplify_rule_count :: proc() -> int {
 	return len(rules)
 }
 
-// Every rule is syntactic; none resolves a symbol. Results are in walk order.
+// Every rule is syntactic; none resolves a symbol, except that bool-compare is skipped on a non-bool operand. Results are in walk order.
 simplifications :: proc(document: ^Document) -> []Simplification {
 	Walker :: struct {
-		src:   string,
-		stack: [dynamic]^ast.Node,
-		out:   [dynamic]Simplification,
+		document: ^Document,
+		src:      string,
+		stack:    [dynamic]^ast.Node,
+		out:      [dynamic]Simplification,
 	}
 	w := Walker {
-		src   = document.ast.src,
-		stack = make([dynamic]^ast.Node, context.temp_allocator),
-		out   = make([dynamic]Simplification, context.temp_allocator),
+		document = document,
+		src      = document.ast.src,
+		stack    = make([dynamic]^ast.Node, context.temp_allocator),
+		out      = make([dynamic]Simplification, context.temp_allocator),
 	}
 	visitor := ast.Visitor {
 		data = &w,
@@ -87,6 +90,8 @@ simplifications :: proc(document: ^Document) -> []Simplification {
 				return nil
 			}
 			for rule in rules {
+				// rols: dropping `== true` must not change the type of the expression.
+				if rule == simplify_bool_compare && compares_non_bool(w.document, node) do continue
 				rule(w.src, node, w.stack[:], &w.out)
 			}
 			append(&w.stack, node)
@@ -350,6 +355,42 @@ simplify_bool_compare :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out:
 	title := value ? "Remove comparison with true" : "Remove comparison with false"
 	text := value == (bin.op.kind == .Cmp_Eq) ? node_text(src, other) : negated(src, other)
 	append(out, Simplification{bin.pos.offset, bin.end.offset, "bool-compare", title, text})
+}
+
+// `x == true` where x has a boolean type other than bool: without the comparison the result
+// is a b32 or a distinct bool, which a bool context rejects.
+@(private = "file")
+compares_non_bool :: proc(document: ^Document, node: ^ast.Node) -> bool {
+	bin := node.derived.(^ast.Binary_Expr) or_return
+	if bin.op.kind != .Cmp_Eq && bin.op.kind != .Not_Eq do return false
+	other := bin.right
+	if _, is_bool := bool_lit(bin.left); !is_bool {
+		other = bin.left
+		if _, is_bool = bool_lit(bin.right); !is_bool do return false
+	}
+	other = ast.unparen_expr(other)
+
+	symbol: Symbol
+	#partial switch e in other.derived {
+	case ^ast.Ident, ^ast.Selector_Expr:
+		resolved := resolve_entire_file(document)[uintptr(other)] or_return
+		if resolved.is_unresolved do return false
+		symbol = resolved.symbol^
+	case ^ast.Call_Expr:
+		resolved := resolve_entire_file(document)[uintptr(e.expr)] or_return
+		if resolved.is_unresolved do return false
+		callee := resolved.symbol.value.(SymbolProcedureValue) or_return
+		// The instantiated result is what the call site sees.
+		if len(callee.return_types) != 1 || len(callee.return_types[0].names) > 1 do return false
+		symbol = resolve_type_in_package(document, resolved.symbol.pkg, callee.return_types[0].type) or_return
+	case:
+		return false
+	}
+
+	if symbol.pointers > 0 do return false
+	basic, is_basic := symbol.value.(SymbolBasicValue)
+	if !is_basic || basic.ident == nil || !slice.contains(untyped_map[.Bool], basic.ident.name) do return false
+	return basic.ident.name != "bool" || .Distinct in symbol.flags
 }
 
 @(private = "file")

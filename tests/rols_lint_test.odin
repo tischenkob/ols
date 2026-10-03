@@ -647,3 +647,23 @@ grouped :: proc {
 	// of a proc group is checked on its own.
 	test.expect_lint_diagnostics(t, &source, {{22, "unused-parameter"}, {27, "unused-parameter"}})
 }
+
+@(test)
+lint_identical_branches_do_bodies :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+foo :: proc() {}
+goo :: proc() {}
+f :: proc(c: bool) {
+	if c do foo()
+	else do goo()
+	if c do foo()
+	else do foo()
+}
+`,
+		config = {enable_lint_identical_branches = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{7, "identical-branches"}})
+}

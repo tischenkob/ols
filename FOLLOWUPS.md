@@ -4,7 +4,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## Corpus validation (`docs/corpus-validation.md`)
 
-- **A sweep over seven open-source Odin projects and Odin's core found bugs that are not fixed yet.** `docs/corpus-validation.md` lists them. 21 have a failing test in `tests/rols_*`, so `./build.sh test` reports 21 failures until they are fixed. Three odinfmt snapshot cases named `rols_*` fail in `tools/odinfmt/tests.sh`. The doc's 30 follow-ups have no harness test and each names a repro. `docs/corpus/triage/` holds the reduced source of every confirmed case, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
+- **A sweep over seven open-source Odin projects and Odin's core found bugs that are not fixed yet.** `docs/corpus-validation.md` lists them. 14 have a failing test in `tests/rols_*`, so `./build.sh test` reports 14 failures until they are fixed. Three odinfmt snapshot cases named `rols_*` fail in `tools/odinfmt/tests.sh`. The doc's 30 follow-ups have no harness test and each names a repro. `docs/corpus/triage/` holds the reduced source of every confirmed case, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
 - **Rerun the sweep after the fixes land.** Follow "Rerunning the sweep" in the doc: run `tools/corpus_smoke.sh`, then the manual checks it lists. Remove fixed items from the doc and this entry when nothing is left.
 
 ## Lints (`src/server/rols_lint*.odin`)
@@ -12,6 +12,13 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **Dead-store silences an assignment followed by a bare `return` for every local, and ignores deferred closures.** `dead_store` cannot tell a named result from a plain pre-declared local, so `x = 1; if c { return }; x = 2` stays silent for a plain local `x`. A `defer` closure that reads a named result is not seen.
 - **A bare-bool or numeric constant is not named-checked.** `is_enabled :: true` is classified as an alias, so no naming rule applies. `count :: 5` still must be SCREAMING_SNAKE_CASE.
 - **Allocator mismatch recognises `make([dynamic]T, …)` and `make(map[K]V, …)` only by the written type.** `Array :: [dynamic]int` followed by `make(Array, …)` is still recorded as a plain allocation.
+- **The ignored-result proc-type check and `compares_non_bool` build a fresh `AstContext` per hit.** `names_proc_type` in `src/server/rols_lint.odin` runs only for `Err`-named results, and `compares_non_bool` in `src/server/rols_simplify.odin` for comparisons with `true` or `false`. `LintContext` could carry the walker's context instead.
+- **`bool-compare` keeps the comparison for every non-`bool` boolean operand.** `compares_non_bool` in `src/server/rols_simplify.odin` also keeps `if b32_value == true`, where dropping it is harmless. It judges identifiers, selectors and single-result calls only.
+- **`empty-body` still reports a scan loop whose work sits in the post statement.** `for ; i < len(path) - 1 && path[i] != '/'; i += 1 {}` in `core/os/path_linux.odin:29` is reported. Only a procedure call in the condition is exempt.
+- **The printf multi-value expansion resolves plain procedures only.** `expanded_arg_count` in `src/server/rols_lint_printf.odin` counts one argument for a call through a procedure group or an unresolved callee.
+- **ignored-result no longer flags a declared poly result.** Judging `orig_return_types` means `proc(x: $T, $E: typeid) -> (T, E)` instantiated with an `Error` is not reported.
+- **printf type checks stop at the first multi-value call.** `lint_printf` skips every argument from `spread_at` on. Mapping each format index to its expanded result would keep later arguments checked.
+- **printf misses a surplus after `*[n]`, and over-counts `{:*d}`.** `aprintf("%*[1]s", "ab", 6, 7)` is silent, but core:fmt reports `%!(EXTRA 7)`: any index below the argument count that is not in `used` is extra. `{:*d}` reads the same argument for `*` and the value in core:fmt, while the lint asks for two.
 
 ## Safe-rename check (`src/server/rols_rename_check.odin`)
 
@@ -46,10 +53,6 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **An importer with no file for the host target may refuse the edit.** If `#+build` tags or name suffixes exclude every file of an importer directory, `odin check` there may fail without JSON, and `record_check_run` in `src/server/rols_check_run.odin` would then refuse the whole edit. This comes from reading the code. A smoke case with an importer guarded by `#+build windows` would settle it.
 - **The importer smoke case asserts only the exit code.** The `imp/` case in `tools/cli_smoke.sh` checks exit 4 and the restored file. It does not assert the `rolled back, … 2 packages checked` summary, and no `--json` case shows the warning in `reasons` or the count in `summary`.
 - **`new_errors` repeats its matching loop.** Both passes take errors from a count map in the same way. One helper that returns the unmatched errors would state the loop once, about 8 lines fewer.
-
-## `do` bodies (`src/server/rols_edit.odin` `block_inner_text`)
-
-- **The identical-branches lint flags `do` branches that differ.** For a `do` body, `open` is the statement start and `close` is its end, so `block_inner_text` returns the statement without its first character. `lint_identical_branches` in `src/server/rols_lint.odin` does not check `uses_do`, so `if c do foo()` followed by `else do goo()` compares `oo()` with `oo()` and reports `identical-branches` on code that passes `odin check`.
 
 ## Large-file performance (stage S15)
 

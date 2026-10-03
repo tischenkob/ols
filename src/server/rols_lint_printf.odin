@@ -42,29 +42,31 @@ lint_printf :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnos
 	}
 
 	format := parse_format(text)
+	// A call with several results passes them all; later indexes no longer line up with args.
+	arg_count, spread_at := expanded_arg_count(ctx, args)
 
 	for bad in format.unknown {
 		message := bad == 0 ? "unknown format verb '%'" : fmt.tprintf("unknown format verb '%%%r'", bad)
 		append(diags, printf_diagnostic(ctx, lit, "printf-verb", message))
 	}
 
-	if format.needed > len(args) {
+	if format.needed > arg_count {
 		append(
 			diags,
 			printf_diagnostic(
 				ctx,
 				lit,
 				"printf-arity",
-				fmt.tprintf("format needs %d arguments, call has %d", format.needed, len(args)),
+				fmt.tprintf("format needs %d arguments, call has %d", format.needed, arg_count),
 			),
 		)
-	} else if !format.positional && format.needed < len(args) {
-		extra := len(args) - format.needed
+	} else if !format.positional && format.needed < arg_count {
+		extra := arg_count - format.needed
 		append(
 			diags,
 			printf_diagnostic(
 				ctx,
-				args[format.needed],
+				args[min(format.needed, spread_at)],
 				"printf-arity",
 				fmt.tprintf("call has %d extra argument%s", extra, extra == 1 ? "" : "s"),
 			),
@@ -72,7 +74,7 @@ lint_printf :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnos
 	}
 
 	for use in format.uses {
-		if use.arg >= len(args) do continue
+		if use.arg >= spread_at do continue
 		kind := arg_kind(ctx, args[use.arg])
 		if !verb_rejects(use.verb, kind) do continue
 		append(
@@ -85,6 +87,27 @@ lint_printf :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnos
 			),
 		)
 	}
+}
+
+// The number of arguments the call passes, counting every result of a multi-value call,
+// and the index of the first such call (len(args) when there is none).
+@(private = "file")
+expanded_arg_count :: proc(ctx: ^LintContext, args: []^ast.Expr) -> (count, first_spread: int) {
+	first_spread = len(args)
+	for arg, i in args {
+		results := 1
+		if call, is_call := arg.derived.(^ast.Call_Expr); is_call {
+			if resolved, ok := lint_symbols(ctx)[uintptr(call.expr)]; ok && !resolved.is_unresolved {
+				if value, is_proc := resolved.symbol.value.(SymbolProcedureValue); is_proc && len(value.return_types) > 0 {
+					results = 0
+					for field in value.return_types do results += max(len(field.names), 1)
+				}
+			}
+		}
+		if results > 1 do first_spread = min(first_spread, i)
+		count += results
+	}
+	return
 }
 
 @(private = "file")
@@ -214,6 +237,7 @@ Format :: struct {
 	unknown:    [dynamic]rune, // 0 stands for a trailing '%'
 	needed:     int, // one past the highest argument index the format reads
 	positional: bool,
+	used:       bit_set[0 ..< 64], // arguments read so far; 64 is core:fmt's MAX_CHECKED_ARGS
 }
 
 // Mirrors the scanner of core:fmt's wprintf: %% and {{ }} are literals, %[flags][width][.prec][n]verb
@@ -222,7 +246,6 @@ Format :: struct {
 parse_format :: proc(f: string) -> (format: Format) {
 	format.uses = make([dynamic]Format_Use, context.temp_allocator)
 	format.unknown = make([dynamic]rune, context.temp_allocator)
-	next := 0
 
 	i := 0
 	for i < len(f) {
@@ -253,7 +276,7 @@ parse_format :: proc(f: string) -> (format: Format) {
 			verb := 'v'
 			if i < len(f) && f[i] == ':' {
 				i += 1
-				parse_options(f, &i, &format, &next)
+				parse_options(f, &i, &format)
 				if i >= len(f) || f[i] == '}' do continue
 				w: int
 				verb, w = utf8.decode_rune_in_string(f[i:])
@@ -261,7 +284,7 @@ parse_format :: proc(f: string) -> (format: Format) {
 			}
 			if i >= len(f) || f[i] != '}' do continue
 			i += 1
-			consume_verb(&format, &next, explicit, verb)
+			consume_verb(&format, explicit, verb)
 			continue
 		}
 
@@ -270,7 +293,7 @@ parse_format :: proc(f: string) -> (format: Format) {
 			continue
 		}
 
-		parse_options(f, &i, &format, &next)
+		parse_options(f, &i, &format)
 
 		explicit := -1
 		if i < len(f) && f[i] == '[' {
@@ -283,31 +306,31 @@ parse_format :: proc(f: string) -> (format: Format) {
 		}
 		verb, w := utf8.decode_rune_in_string(f[i:])
 		i += w
-		consume_verb(&format, &next, explicit, verb)
+		consume_verb(&format, explicit, verb)
 	}
 	return
 }
 
 // Flags, width and precision; a `*` there reads its value from an argument.
 @(private = "file")
-parse_options :: proc(f: string, i: ^int, format: ^Format, next: ^int) {
+parse_options :: proc(f: string, i: ^int, format: ^Format) {
 	for i^ < len(f) && strings.index_byte("+- #0", f[i^]) >= 0 do i^ += 1
-	parse_star_or_int(f, i, format, next)
+	parse_star_or_int(f, i, format)
 	if i^ < len(f) && f[i^] == '.' {
 		i^ += 1
-		parse_star_or_int(f, i, format, next)
+		parse_star_or_int(f, i, format)
 	}
 }
 
 @(private = "file")
-parse_star_or_int :: proc(f: string, i: ^int, format: ^Format, next: ^int) {
+parse_star_or_int :: proc(f: string, i: ^int, format: ^Format) {
 	if i^ < len(f) && f[i^] == '*' {
 		i^ += 1
 		explicit := -1
 		if i^ < len(f) && f[i^] == '[' {
 			explicit = parse_index(f, i)
 		}
-		consume(format, next, explicit)
+		consume(format, explicit)
 		return
 	}
 	for i^ < len(f) && f[i^] >= '0' && f[i^] <= '9' do i^ += 1
@@ -337,24 +360,27 @@ parse_digits :: proc(f: string, i: ^int) -> int {
 }
 
 @(private = "file")
-consume :: proc(format: ^Format, next: ^int, explicit: int) -> int {
-	arg := next^
+consume :: proc(format: ^Format, explicit: int) -> int {
+	// core:fmt takes the lowest argument that no earlier verb or `[n]` used.
+	arg := explicit
 	if explicit >= 0 {
-		arg = explicit
 		format.positional = true
+	} else {
+		arg = 0
+		for arg < 64 && (arg in format.used) do arg += 1
 	}
-	next^ = arg + 1
+	if arg < 64 do format.used += {arg}
 	format.needed = max(format.needed, arg + 1)
 	return arg
 }
 
 @(private = "file")
-consume_verb :: proc(format: ^Format, next: ^int, explicit: int, verb: rune) {
+consume_verb :: proc(format: ^Format, explicit: int, verb: rune) {
 	if !strings.contains_rune(VERBS, verb) {
 		append(&format.unknown, verb)
 		return
 	}
-	append(&format.uses, Format_Use{consume(format, next, explicit), verb})
+	append(&format.uses, Format_Use{consume(format, explicit), verb})
 }
 
 @(private = "file")

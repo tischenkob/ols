@@ -481,7 +481,15 @@ lint_ignored_result :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 	// testing.expect* return bool only for chaining.
 	if strings.has_suffix(resolved.symbol.pkg, "/testing") do return
 
+	// A guard that `@(deferred_in)` or `@(deferred_none)` pairs with a cleanup call is used for the call it
+	// queues. `deferred_out` and `deferred_in_out` pass the result to the cleanup, so it is still a result.
+	for name in attribute_names(value.attributes) {
+		if name == "deferred_in" || name == "deferred_none" do return
+	}
+
+	// Judge the declared types: a generic instantiation turns `$V` into `bool`, which is not a status.
 	results := value.return_types
+	if len(value.orig_return_types) == len(results) do results = value.orig_return_types
 	// Either tag makes only the last result optional.
 	if len(results) > 0 &&
 	   len(results[len(results) - 1].names) <= 1 &&
@@ -491,6 +499,7 @@ lint_ignored_result :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 
 	for field in results {
 		name := must_handle_type_name(field.type) or_continue
+		if names_proc_type(ctx, resolved.symbol.pkg, field.type) do continue
 		append(
 			diags,
 			Diagnostic {
@@ -502,6 +511,37 @@ lint_ignored_result :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 		)
 		return
 	}
+}
+
+// A type named like an error that is a procedure type, such as a callback `ErrorProc`, holds no error.
+@(private = "file")
+names_proc_type :: proc(ctx: ^LintContext, pkg: string, type: ^ast.Expr) -> bool {
+	#partial switch t in type.derived {
+	case ^ast.Ident:
+		if t.name == "bool" do return false
+	case ^ast.Selector_Expr:
+	case:
+		return false
+	}
+	symbol := resolve_type_in_package(ctx.document, pkg, type) or_return
+	_, is_proc := symbol.value.(SymbolProcedureValue)
+	return is_proc
+}
+
+// Resolves a type written in package `pkg`, which may be another package than the document's.
+@(private = "package")
+resolve_type_in_package :: proc(document: ^Document, pkg: string, type: ^ast.Expr) -> (Symbol, bool) {
+	ast_context := make_ast_context(
+		document.ast,
+		document.imports,
+		document.package_name,
+		document.uri.uri,
+		document.fullpath,
+		context.temp_allocator,
+	)
+	get_globals(document.ast, &ast_context)
+	set_ast_package_set_scoped(&ast_context, pkg)
+	return resolve_type_expression(&ast_context, type)
 }
 
 // bool, unions and anything named like an error must be handled by the caller,

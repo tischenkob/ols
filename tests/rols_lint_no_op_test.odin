@@ -298,3 +298,23 @@ f :: proc() {
 
 	test.expect_lint_diagnostics(t, &source, {})
 }
+
+@(test)
+empty_body_reports_loop_without_call_in_condition :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+step :: proc() -> bool { return false }
+f :: proc(x: bool, s: string, n: f32) {
+	for x {}
+	for step() {}
+	for ; x; {}
+	for i := 0; i < len(s); i += 1 {}
+	for int(n) > 0 {}
+}
+`,
+		config = {enable_lint_no_op = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{4, "empty-body"}, {6, "empty-body"}, {7, "empty-body"}, {8, "empty-body"}})
+}

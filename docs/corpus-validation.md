@@ -21,21 +21,7 @@ odin-godot's own generated bindings could not be produced, because its generator
 
 ## Bugs with a failing test
 
-Each bug below has a test that fails today and passes once the bug is fixed. The reduced source of each case is in the test itself. At the time of writing, the 21 tests that `./build.sh test` reports as failing are exactly the tests below. The tests assume a darwin host, where the corpus ran: the build-tag cases use `linux` and `windows` files as the excluded platforms.
-
-### False lints
-
-| Test | File | Bug |
-|---|---|---|
-| `printf_arity_expands_multi_value_call` | `rols_lint_printf_test.odin` | a call with two results counts as one argument |
-| `printf_arity_star_with_explicit_index` | `rols_lint_printf_test.odin` | `%*[1]s` reuses an argument by index |
-| `ignored_result_skips_error_named_proc_type` | `rols_corpus_lint_test.odin` | a result whose proc type name contains "Error" |
-| `ignored_result_skips_delete_key` | `rols_corpus_lint_test.odin` | `delete_key` returns the removed entry, not a status |
-| `ignored_result_skips_deferred_guard` | `rols_corpus_lint_test.odin` | `sync.mutex_guard`, a `@(deferred_in)` guard used as a statement |
-| `empty_body_allows_call_in_loop_condition` | `rols_lint_no_op_test.odin` | `for step() {}` |
-| `bool_compare_keeps_distinct_bool` | `rols_corpus_lint_test.odin` | dropping `== true` on a `distinct b32` result breaks a `bool` return |
-
-The `delete_key` and `mutex_guard` tests stub those procedures, because the harness has no runtime or `core:sync`. A fix that keys on the package path instead of the signature or the attribute leaves them failing.
+Each bug below has a test that fails today and passes once the bug is fixed. The reduced source of each case is in the test itself. At the time of writing, the 14 tests that `./build.sh test` reports as failing are exactly the tests below. The tests assume a darwin host, where the corpus ran: the build-tag cases use `linux` and `windows` files as the excluded platforms.
 
 ### Edits
 
