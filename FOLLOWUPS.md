@@ -9,11 +9,9 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## Safe-rename check (`src/server/rols_rename_check.odin`)
 
-- **A field rename can capture a name inside a `using` procedure.** Given `limit :: 10` and `f :: proc(using foo: Foo) -> int { return limit }`, renaming `Foo.x` to `limit` passes the check. After the rename, `limit` in `f` means the field. `check_captures` returns early for `.Field` targets.
-- **Nested blocks of a `using` procedure are not checked.** The reverse check in `check_embedders` compares the new field name only with the top-level scope of a procedure with a `using` parameter. A local of that name in a nested block is missed.
-- **Only direct embedders are checked.** `check_embedders` checks structs with a `using` field of the renamed field's type. It does not check structs that embed those structs in turn.
-- **`using` statements are not checked.** A `using x` statement inside a procedure body brings members into scope, and neither the collision scan nor the capture scan covers it.
-- **Field renames cost a workspace scan.** Every rename of a field in a named struct runs `find_symbol_references` on the owner type across the workspace, plus one type resolution for each `using` field found.
+- **Field renames still read every workspace file.** `check_embedders` passes `require_text = "using"` to `find_symbol_references`, so a file is parsed only when it mentions both the owner type and `using`. The search still reads every file to test that. On 200 files that mention the type, the dry-run `ols query rename` of a field took 0.50 s before and 0.33 s after. A cached word index of the workspace would remove the reads.
+- **`using` statements are found only in files that name a carrying type and contain `using`.** `check_using_statements` reads the documents `check_embedders` collects. A `using x` where `x` gets its type from a call, in a file that never names the type, is not checked.
+- **Field captures skip uses that already resolve to a field, and alias embedders are missed.** `field_captures` skips a use of the new name that resolves to a `.Field`. Given `proc(using bar: Bar)` with `Bar.limit`, and then `{ using foo; _ = limit }` in its body, renaming `Foo.x` to `limit` misses the capture. `Alias :: Foo` with `using a: Alias` is not followed as an embedder; this predates S5.
 - **Implementation requests on a procedure run a workspace reference scan.** `proc_group_locations` in `src/server/rols_implementation.odin` calls `find_symbol_references` to find the groups that list the procedure, and then loops over `top_level_value_decls` of the file for each reference. A procedure with many references in a large workspace makes the request slow.
 
 ## Unwrap code action (`src/server/rols_action_unwrap.odin`)

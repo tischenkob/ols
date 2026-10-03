@@ -1164,3 +1164,356 @@ f :: proc() -> int {
 		},
 	)
 }
+
+@(test)
+rename_safe_refuses_field_capture_in_using_param_proc :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature using-stmt
+package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+limit :: 10
+
+f :: proc(using foo: ^Foo) -> int {
+	return limit
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"limit",
+		{"at test/main.odin:11:9 `limit` refers to `limit` declared at test/main.odin:8, but after the rename it would mean the field through `using foo`"},
+	)
+}
+
+@(test)
+rename_safe_allows_field_rename_in_using_param_proc :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature using-stmt
+package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+limit :: 10
+
+f :: proc(using foo: Foo) -> int {
+	if true {
+		z := x
+		_ = z
+	}
+	return limit + x
+}
+`,
+	}
+	test.expect_rename(
+		t,
+		&source,
+		"width",
+		{
+			{
+				"main.odin",
+				`#+feature using-stmt
+package test
+
+Foo :: struct {
+	width: int,
+}
+
+limit :: 10
+
+f :: proc(using foo: Foo) -> int {
+	if true {
+		z := width
+		_ = z
+	}
+	return limit + width
+}
+`,
+			},
+		},
+	)
+}
+
+@(test)
+rename_safe_refuses_field_collision_in_nested_block_of_using_param_proc :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature using-stmt
+package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+f :: proc(using foo: Foo) {
+	if true {
+		y := 1
+		_ = y
+	}
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"y",
+		{"`y` is already declared in the scope of `using foo` at test/main.odin:10:3"},
+	)
+}
+
+@(test)
+rename_safe_allows_field_rename_to_name_used_in_nested_proc_literal :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature using-stmt
+package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+limit :: 10
+
+f :: proc(using foo: Foo) -> int {
+	g := proc() -> int {
+		return limit
+	}
+	return g() + x
+}
+`,
+	}
+	test.expect_rename(
+		t,
+		&source,
+		"limit",
+		{
+			{
+				"main.odin",
+				`#+feature using-stmt
+package test
+
+Foo :: struct {
+	limit: int,
+}
+
+limit :: 10
+
+f :: proc(using foo: Foo) -> int {
+	g := proc() -> int {
+		return limit
+	}
+	return g() + limit
+}
+`,
+			},
+		},
+	)
+}
+
+@(test)
+rename_safe_refuses_collision_in_transitive_embedder :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Base :: struct {
+	y{*}: int,
+}
+
+Mid :: struct {
+	using b: Base,
+}
+
+Top :: struct {
+	using m: Mid,
+	x: int,
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"x",
+		{"`x` is already a member of a type that embeds this one through `using m` at test/main.odin:13:2"},
+	)
+}
+
+@(test)
+rename_safe_refuses_collision_in_using_param_of_transitive_embedder :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature using-stmt
+package test
+
+Base :: struct {
+	y{*}: int,
+}
+
+Mid :: struct {
+	using b: Base,
+}
+
+f :: proc(using m: Mid) {
+	x := 1
+	_ = x
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"x",
+		{"`x` is already declared in the scope of `using m` at test/main.odin:13:2"},
+	)
+}
+
+@(test)
+rename_safe_allows_field_rename_through_transitive_embedder :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Base :: struct {
+	y{*}: int,
+}
+
+Mid :: struct {
+	using b: Base,
+}
+
+Top :: struct {
+	using m: Mid,
+	x: int,
+}
+`,
+	}
+	test.expect_rename(
+		t,
+		&source,
+		"z",
+		{
+			{
+				"main.odin",
+				`package test
+
+Base :: struct {
+	z: int,
+}
+
+Mid :: struct {
+	using b: Base,
+}
+
+Top :: struct {
+	using m: Mid,
+	x: int,
+}
+`,
+			},
+		},
+	)
+}
+
+@(test)
+rename_safe_refuses_field_collision_with_using_statement :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature using-stmt
+package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+f :: proc(foo: Foo) {
+	using foo
+	y := 1
+	_ = y
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"y",
+		{"`y` is already declared in the scope of `using foo` at test/main.odin:10:2"},
+	)
+}
+
+@(test)
+rename_safe_refuses_field_capture_by_using_statement :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature using-stmt
+package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+limit :: 10
+
+f :: proc(foo: ^Foo) -> int {
+	using foo
+	return limit
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"limit",
+		{"at test/main.odin:12:9 `limit` refers to `limit` declared at test/main.odin:8, but after the rename it would mean the field through `using foo`"},
+	)
+}
+
+@(test)
+rename_safe_allows_field_rename_with_unrelated_using_statement :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature using-stmt
+package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+limit :: 10
+
+f :: proc(foo: Foo) -> int {
+	y := 1
+	{
+		using foo
+		_ = x
+	}
+	return limit + y
+}
+`,
+	}
+	test.expect_rename(
+		t,
+		&source,
+		"width",
+		{
+			{
+				"main.odin",
+				`#+feature using-stmt
+package test
+
+Foo :: struct {
+	width: int,
+}
+
+limit :: 10
+
+f :: proc(foo: Foo) -> int {
+	y := 1
+	{
+		using foo
+		_ = width
+	}
+	return limit + y
+}
+`,
+			},
+		},
+	)
+}
