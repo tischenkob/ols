@@ -437,3 +437,26 @@ main :: proc() {
 		{"inc("},
 	)
 }
+
+// Hangs today; gated by ROLS_HANG_TESTS (rols_corpus_inlay_test.odin).
+
+when ROLS_HANG_TESTS {
+	// Corpus: karl2d tests/coordinate_system/render_texture_flip_test.odin:75, see docs/corpus-validation.md.
+	@(test)
+	action_inline_proc_offered_on_call_omitting_default_param :: proc(t: ^testing.T) {
+		source := test.Source {
+			main = `package test
+
+f :: proc(got: int, d := 0) {
+	_ = got
+}
+
+g :: proc() {
+	{*}f(1)
+}
+`,
+			config = {enable_code_action_inline_proc = true},
+		}
+		test.expect_action(t, &source, {INLINE_PROC_ACTION})
+	}
+}

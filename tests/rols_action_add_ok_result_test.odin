@@ -290,3 +290,51 @@ f :: proc() -> (int, bool, bool) {
 }
 `)
 }
+
+// Corpus: tina src/api.odin:218, see docs/corpus-validation.md.
+@(test)
+add_ok_result_updates_callers :: proc(t: ^testing.T) {
+	// Withholding the action while callers exist would also be correct; then assert expect_no_add_ok_result.
+	expect_add_ok_result(t, `package test
+
+get{*} :: proc(x: int) -> int {
+	return x
+}
+
+use :: proc() {
+	v := get(1)
+	_ = v
+}
+`, `package test
+
+get :: proc(x: int) -> (int, bool) {
+	return x, true
+}
+
+use :: proc() {
+	v, _ := get(1)
+	_ = v
+}
+`)
+}
+
+// Corpus: reduced (odin-http review), see docs/corpus-validation.md.
+@(test)
+add_ok_result_not_offered_with_or_return_on_unnamed_results :: proc(t: ^testing.T) {
+	expect_no_add_ok_result(t, `package test
+
+Err :: enum {
+	None,
+	Bad,
+}
+
+g :: proc(x: int) -> Err {
+	return .None
+}
+
+h{*} :: proc(x: int) -> Err {
+	g(x) or_return
+	return .None
+}
+`)
+}

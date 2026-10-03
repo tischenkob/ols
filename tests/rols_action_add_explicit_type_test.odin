@@ -407,3 +407,29 @@ main :: proc() {
 
 	test.expect_action_missing(t, &source, ADD_EXPLICIT_TYPE_ACTION)
 }
+
+// Corpus: reduced (odin-http review), see docs/corpus-validation.md.
+@(test)
+action_add_explicit_type_slice_of_field :: proc(t: ^testing.T) {
+	expect_add_explicit_type(t, `package test
+
+S :: struct {
+	arr: [4]int,
+}
+
+f :: proc(s: ^S) {
+	r{*} := s.arr[:2]
+	_ = r
+}
+`, `package test
+
+S :: struct {
+	arr: [4]int,
+}
+
+f :: proc(s: ^S) {
+	r: []int = s.arr[:2]
+	_ = r
+}
+`)
+}

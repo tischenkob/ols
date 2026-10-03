@@ -437,3 +437,34 @@ rename_package_warns_on_unresolved_qualifier :: proc(t: ^testing.T) {
 		{"test/old/b.odin:5:6: cannot resolve `old.X`, so the rename does not change it"},
 	)
 }
+
+// Corpus: reduced (odin-http review), see docs/corpus-validation.md.
+@(test)
+rename_package_rewrites_bare_package_name :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "shared:old"
+
+_ :: old
+`,
+		packages = old_package(),
+		collections = {"shared" = "test"},
+	}
+	test.expect_rename_package(
+		t,
+		&source,
+		"old",
+		"fresh",
+		{
+			{"main.odin", `package test
+
+import "shared:fresh"
+
+_ :: fresh
+`},
+			{"fresh/a.odin", "package fresh\n\nX :: 1\n\nS :: struct {\n\told: int,\n}\n"},
+			{"fresh/a_test.odin", "package fresh_test\n\nT :: 2\n"},
+		},
+	)
+}

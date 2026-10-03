@@ -1,0 +1,17 @@
+package p
+
+Cell :: enum {
+	Empty,
+	Moving,
+}
+
+f :: proc(r: int) -> [4][4]Cell {
+	incoming_piece: [4][4]Cell
+	switch r {
+	case 0:
+		incoming_piece[1][1] = .Moving; incoming_piece[2][1] = .Moving
+		incoming_piece[1][2] = .Moving
+		incoming_piece[2][2] = .Moving //Cube
+	}
+	return incoming_piece
+}

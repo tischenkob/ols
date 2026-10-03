@@ -197,3 +197,30 @@ when ODIN_OS == .Linux {
 `)
 	test.expect_action(t, &source, {})
 }
+
+// Corpus: karl2d karl2d.odin:7488, see docs/corpus-validation.md.
+@(test)
+generate_test_enum_result_uses_typed_zero_value :: proc(t: ^testing.T) {
+	source := generate_source(`package test
+
+E :: enum {
+	A,
+	B,
+}
+
+f{*} :: proc() -> E {
+	return .A
+}
+`)
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Generate test for f",
+		{
+			{
+				"main_test.odin",
+				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tresult := f()\n\ttesting.expect_value(t, result, E{})\n}\n",
+			},
+		},
+	)
+}

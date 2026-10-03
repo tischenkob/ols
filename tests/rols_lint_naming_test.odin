@@ -298,3 +298,31 @@ badName :: proc() {}
 `}},
 	)
 }
+
+@(test)
+naming_accepts_bool_constant :: proc(t: ^testing.T) {
+	// Corpus: tina src/io_backend_bsd.odin:81, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `package test
+
+is_enabled :: true
+`,
+		config = {enable_lint_naming = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
+
+@(test)
+naming_accepts_leading_underscore_type :: proc(t: ^testing.T) {
+	// Corpus: tina _Platform_State, reduced, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `package test
+
+_Private_Type :: struct {}
+`,
+		config = {enable_lint_naming = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}

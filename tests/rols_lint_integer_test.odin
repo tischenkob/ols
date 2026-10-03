@@ -196,3 +196,14 @@ main :: proc(a, b: f32) {
 
 	expect_lint_cases(t, cases, {enable_lint_integer_range = true})
 }
+
+@(test)
+unsigned_compare_accepts_u64_literal_above_i64_max :: proc(t: ^testing.T) {
+	// Corpus: tina src/extensions/http/server/parser.odin:930, see docs/corpus-validation.md.
+	source := source(`package test
+
+f :: proc(x: u64) -> bool { return x == 9_999_999_999_999_999_999 }
+`)
+
+	test.expect_lint_diagnostics(t, &source, {})
+}

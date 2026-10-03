@@ -126,3 +126,24 @@ main :: proc() {
 
 	expect_lint_cases(t, cases, {enable_lint_call_arity = true})
 }
+
+@(test)
+argument_count_uses_same_platform_declaration :: proc(t: ^testing.T) {
+	// Corpus: tina src/sys_thread_linux.odin:88, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `#+build linux
+package test
+
+setname :: proc(id: u64, name: cstring) {}
+f :: proc() { setname(0, "x") }
+`,
+		files = {{name = "a.odin", source = `#+build darwin
+package test
+
+setname :: proc(name: cstring) {}
+`}},
+		config = {enable_lint_call_arity = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}

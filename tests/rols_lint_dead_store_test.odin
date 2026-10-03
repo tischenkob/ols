@@ -152,3 +152,69 @@ through_pointer :: proc(ps: []^Point) {
 	// An index in the assigned chain and an element that is itself a pointer both write through.
 	test.expect_lint_diagnostics(t, &source, {{32, "dead-store"}})
 }
+
+@(test)
+dead_store_ignores_package_global :: proc(t: ^testing.T) {
+	// Corpus: tina src/turn_frame_helper_for_test.odin:104, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `package test
+
+g: int
+read_g :: proc() -> int { return g }
+f :: proc() -> int {
+	prev := g
+	g = 1
+	x := read_g()
+	g = prev
+	return x
+}
+`,
+		config = {enable_lint_dead_store = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
+
+@(test)
+dead_store_ignores_named_result_read_by_bare_return :: proc(t: ^testing.T) {
+	// Corpus: odin-godot godin/build_options.odin:17, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `package test
+
+parse :: proc(x: int) -> (ok: bool) {
+	ok = false
+	if x > 0 {
+		return
+	}
+	ok = true
+	return
+}
+`,
+		config = {enable_lint_dead_store = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
+
+@(test)
+dead_store_ignores_pointer_escaped_into_struct :: proc(t: ^testing.T) {
+	// Corpus: Skald scroll_test.odin:45, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `package test
+
+Holder :: struct { p: ^int }
+read :: proc(h: ^Holder) -> int { return h.p^ }
+f :: proc() -> int {
+	x: int
+	h := Holder{p = &x}
+	x = 5
+	a := read(&h)
+	x = 6
+	return a + read(&h)
+}
+`,
+		config = {enable_lint_dead_store = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}

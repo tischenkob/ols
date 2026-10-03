@@ -2,6 +2,11 @@
 
 Known gaps and out-of-scope issues found during fork work. Each entry names where the issue is and a case that shows it. Remove an entry when its fix lands.
 
+## Corpus validation (`docs/corpus-validation.md`)
+
+- **A sweep over seven open-source Odin projects and Odin's core found bugs that are not fixed yet.** `docs/corpus-validation.md` lists them. 52 have a failing test in `tests/rols_*`, so `./build.sh test` reports 52 failures until they are fixed. Four more tests hang today and run only with `-define:ROLS_HANG_TESTS=true`: three inlay-hint hangs and one code-action hang on calls of procedures with a default parameter. Three odinfmt snapshot cases named `rols_*` fail in `tools/odinfmt/tests.sh`. The doc's 37 follow-ups have no harness test and each names a repro. `docs/corpus/triage/` holds the reduced source of every confirmed case, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
+- **Rerun the sweep after the fixes land.** Follow "Rerunning the sweep" in the doc: run `tools/corpus_smoke.sh`, then the manual checks it lists. Remove fixed items from the doc and this entry when nothing is left.
+
 ## Safe-rename check (`src/server/rols_rename_check.odin`)
 
 - **Rename is skipped in inactive `when` branches.** `get_locals` in `src/server/locals.odin` takes only the `when` branch it evaluates as active. A local declared in an inactive branch has no symbol, so `ols query rename` on it reports "no symbol to rename at the position".

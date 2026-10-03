@@ -285,3 +285,23 @@ f :: proc(m: map[string][dynamic]int, sl: map[string][]int, fa: map[string][2]in
 		{{10, "range-map-lookup"}, {13, "range-map-lookup"}, {16, "range-map-lookup"}},
 	)
 }
+
+@(test)
+range_off_by_one_ignores_slice_end :: proc(t: ^testing.T) {
+	// Corpus: Skald wrap_test.odin:395, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `package test
+
+prefixes :: proc(s: string) -> int {
+	n := 0
+	for b in 0 ..= len(s) {
+		n += len(s[:b])
+	}
+	return n
+}
+`,
+		config = {enable_lint_loops = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
