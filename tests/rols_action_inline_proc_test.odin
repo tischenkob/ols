@@ -259,10 +259,35 @@ main :: proc() {
 }
 
 @(test)
-action_inline_proc_refused_omitted_default :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+action_inline_proc_expression_with_omitted_literal_default :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
 
 add :: proc(a: int, b: int = 2) -> int {
+	return a + b
+}
+
+main :: proc() {
+	y := ad{*}d(1)
+}
+`, `package test
+
+add :: proc(a: int, b: int = 2) -> int {
+	return a + b
+}
+
+main :: proc() {
+	y := 1 + 2
+}
+`)
+}
+
+@(test)
+action_inline_proc_refused_omitted_non_literal_default :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+base :: 2
+
+add :: proc(a: int, b: int = base) -> int {
 	return a + b
 }
 
@@ -438,14 +463,11 @@ main :: proc() {
 	)
 }
 
-// Hangs today; gated by ROLS_HANG_TESTS (rols_corpus_inlay_test.odin).
-
-when ROLS_HANG_TESTS {
-	// Corpus: karl2d tests/coordinate_system/render_texture_flip_test.odin:75, see docs/corpus-validation.md.
-	@(test)
-	action_inline_proc_offered_on_call_omitting_default_param :: proc(t: ^testing.T) {
-		source := test.Source {
-			main = `package test
+// Corpus: karl2d tests/coordinate_system/render_texture_flip_test.odin:75.
+@(test)
+action_inline_proc_offered_on_call_omitting_default_param :: proc(t: ^testing.T) {
+	source := test.Source {
+		main   = `package test
 
 f :: proc(got: int, d := 0) {
 	_ = got
@@ -455,8 +477,148 @@ g :: proc() {
 	{*}f(1)
 }
 `,
-			config = {enable_code_action_inline_proc = true},
-		}
-		test.expect_action(t, &source, {INLINE_PROC_ACTION})
+		config = {enable_code_action_inline_proc = true},
 	}
+	test.expect_action(t, &source, {INLINE_PROC_ACTION})
+}
+
+@(test)
+action_inline_proc_call_giving_every_arg_of_proc_with_default :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+f :: proc(got: int, d := 0) {
+	_ = got + d
+}
+
+g :: proc() {
+	{*}f(1, 2)
+}
+`, `package test
+
+f :: proc(got: int, d := 0) {
+	_ = got + d
+}
+
+g :: proc() {
+	{
+		got: int = 1
+		d := 2
+		_ = got + d
+	}
+}
+`)
+}
+
+@(test)
+action_inline_proc_used_literal_default_becomes_local :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+f :: proc(got: int, d := 0) {
+	_ = got + d
+}
+
+g :: proc() {
+	{*}f(1)
+}
+`, `package test
+
+f :: proc(got: int, d := 0) {
+	_ = got + d
+}
+
+g :: proc() {
+	{
+		got: int = 1
+		d := 0
+		_ = got + d
+	}
+}
+`)
+}
+
+@(test)
+action_inline_proc_refused_when_used_default_is_caller_location :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+f :: proc(got: int, loc := #caller_location) {
+	_ = got
+	_ = loc
+}
+
+g :: proc() {
+	{*}f(1)
+}
+`)
+}
+
+@(test)
+action_inline_proc_offered_when_unused_default_is_caller_location :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+f :: proc(got: int, loc := #caller_location) {
+	_ = got
+}
+
+g :: proc() {
+	{*}f(1)
+}
+`, `package test
+
+f :: proc(got: int, loc := #caller_location) {
+	_ = got
+}
+
+g :: proc() {
+	{
+		got: int = 1
+		_ = got
+	}
+}
+`)
+}
+
+@(test)
+action_inline_proc_expression_literal_default_keeps_parameter_type :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+half :: proc(d: f32 = 2) -> f32 {
+	return 1 / d
+}
+
+main :: proc() {
+	y := ha{*}lf()
+}
+`, `package test
+
+half :: proc(d: f32 = 2) -> f32 {
+	return 1 / d
+}
+
+main :: proc() {
+	y := 1 / f32(2)
+}
+`)
+}
+
+@(test)
+action_inline_proc_expression_literal_argument_keeps_parameter_type :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+next :: proc(d: u8) -> u8 {
+	return d + 1
+}
+
+main :: proc() {
+	y := ne{*}xt(255)
+}
+`, `package test
+
+next :: proc(d: u8) -> u8 {
+	return d + 1
+}
+
+main :: proc() {
+	y := u8(255) + 1
+}
+`)
 }

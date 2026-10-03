@@ -7,9 +7,39 @@ import "core:odin/parser"
 import "core:strings"
 
 Param :: struct {
-	name: string,
-	type: string, // in the callee's source
-	arg:  ^ast.Expr,
+	name:      string,
+	type:      string, // in the callee's source, empty when the parameter is `d := 0`
+	arg:       ^ast.Expr,
+	defaulted: bool, // the call omits the argument and `arg` is the default, in the callee's source
+}
+
+// An omitted default that the body reads must be a literal: other defaults mean something else at the call site.
+default_blocks_inline :: proc(param: Param) -> bool {
+	if !param.defaulted {
+		return false
+	}
+	_, is_lit := param.arg.derived.(^ast.Basic_Lit)
+	return !is_lit
+}
+
+// A literal takes the parameter's type: `1 / d` with `d: f32 = 2` must not become `1 / 2`.
+// A literal that already has the parameter's type by default stays bare.
+typed_arg_text :: proc(param: Param, text: string) -> string {
+	lit, is_lit := param.arg.derived.(^ast.Basic_Lit)
+	if !is_lit || param.type == "" {
+		return text
+	}
+	#partial switch lit.tok.kind {
+	case .Integer:
+		if param.type == "int" {return text}
+	case .Float:
+		if param.type == "f64" {return text}
+	case .String:
+		if param.type == "string" {return text}
+	case .Rune:
+		if param.type == "rune" {return text}
+	}
+	return strings.concatenate({param.type, "(", text, ")"}, context.temp_allocator)
 }
 
 @(private = "package")
@@ -77,23 +107,32 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 			if field.flags & {.Using, .Ellipsis, .C_Vararg} != {} {
 				return
 			}
-			if _, variadic := field.type.derived.(^ast.Ellipsis); variadic {
-				return
+			if field.type != nil {
+				if _, variadic := field.type.derived.(^ast.Ellipsis); variadic {
+					return
+				}
 			}
 			for name in field.names {
 				ident := name.derived.(^ast.Ident) or_else nil
 				if ident == nil {
 					return
 				}
-				append(&params, Param{ident.name, node_text(callee_src, field.type), nil})
+				type_text := node_text(callee_src, field.type) if field.type != nil else ""
+				append(&params, Param{name = ident.name, type = type_text, arg = field.default_value})
 			}
 		}
 	}
-	if len(params) != len(call.args) {
+	if len(call.args) > len(params) {
 		return
 	}
 	for &param, i in params {
-		param.arg = call.args[i]
+		if i < len(call.args) {
+			param.arg = call.args[i]
+		} else if param.arg == nil {
+			return
+		} else {
+			param.defaulted = true
+		}
 	}
 
 	if stmt, is_stmt := parent.derived.(^ast.Expr_Stmt); is_stmt {
@@ -144,8 +183,12 @@ inline_expression :: proc(
 				return
 			}
 		}
+		if default_blocks_inline(params[i]) {
+			return
+		}
 		counts[i] += 1
-		text := node_text(src, params[i].arg)
+		text := node_text(callee_src if params[i].defaulted else src, params[i].arg)
+		text = typed_arg_text(params[i], text)
 		if !is_atom(params[i].arg) {
 			text = strings.concatenate({"(", text, ")"}, context.temp_allocator)
 		}
@@ -206,7 +249,10 @@ inline_statement :: proc(
 	sb := strings.builder_make(context.temp_allocator)
 	strings.write_string(&sb, "{\n")
 	for param, i in params {
-		arg := node_text(src, param.arg)
+		arg := node_text(callee_src if param.defaulted else src, param.arg)
+		if used[i] && default_blocks_inline(param) {
+			return
+		}
 		if !used[i] {
 			if has_side_effect(param.arg) {
 				return
@@ -224,9 +270,13 @@ inline_statement :: proc(
 		}
 		strings.write_string(&sb, inner)
 		strings.write_string(&sb, param.name)
-		strings.write_string(&sb, ": ")
-		strings.write_string(&sb, param.type)
-		strings.write_string(&sb, " = ")
+		if param.type == "" {
+			strings.write_string(&sb, " := ")
+		} else {
+			strings.write_string(&sb, ": ")
+			strings.write_string(&sb, param.type)
+			strings.write_string(&sb, " = ")
+		}
 		strings.write_string(&sb, arg)
 		strings.write_byte(&sb, '\n')
 	}

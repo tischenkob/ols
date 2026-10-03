@@ -4,11 +4,6 @@ import "core:testing"
 
 import test "src:testing"
 
-// Gates tests that crash or hang the runner (the runner cannot stop a crashed thread).
-// Run them with: ./build.sh single_test NAME -define:ROLS_HANG_TESTS=true
-ROLS_HANG_TESTS :: #config(ROLS_HANG_TESTS, false)
-
-
 // Corpus: reduced, see docs/corpus-validation.md.
 @(test)
 inlay_unresolved_call_has_no_type :: proc(t: ^testing.T) {

@@ -21,9 +21,7 @@ odin-godot's own generated bindings could not be produced, because its generator
 
 ## Bugs with a failing test
 
-Each bug below has a test that fails today and passes once the bug is fixed. The reduced source of each case is in the test itself. At the time of writing, the 52 tests that `./build.sh test` reports as failing are exactly the tests below that are not gated. The tests assume a darwin host, where the corpus ran: the build-tag cases use `linux` and `windows` files as the excluded platforms.
-
-One test hangs today, and the Odin test runner cannot stop a busy thread, so it is gated behind `ROLS_HANG_TESTS` (declared in `tests/rols_corpus_inlay_test.odin`). Run it with `./build.sh single_test NAME -define:ROLS_HANG_TESTS=true`.
+Each bug below has a test that fails today and passes once the bug is fixed. The reduced source of each case is in the test itself. At the time of writing, the 51 tests that `./build.sh test` reports as failing are exactly the tests below. The tests assume a darwin host, where the corpus ran: the build-tag cases use `linux` and `windows` files as the excluded platforms.
 
 ### False lints
 
@@ -69,7 +67,6 @@ All are in `tests/rols_corpus_query_test.odin`.
 | `hover_poly_call_inside_poly_proc` | `x := conv(p, A)` inside a procedure with `$A: typeid` hovers as `$x: typeid` |
 | `hover_overload_with_poly_constant_param` | no hover for a call to a group whose members take `$tag: Tag` |
 | `hover_overload_picks_matching_member` | hover on a group call shows the first member, not the one the call selects |
-| `references_enum_after_call_argument` | `f(g("x"), .Y)` is missed |
 | `references_enum_named_argument_after_variadic` | `row(1, 2, align = .Center)` is missed when `row` starts with `..int` |
 | `references_enum_in_comp_lit_argument` | `take(Item{kind = .B})` is missed |
 | `references_imported_global_with_field` | `a.cfg.x = 1` is missed, so a rename of `cfg` rolls back |
@@ -95,7 +92,6 @@ All are in `tests/rols_corpus_query_test.odin`.
 | `action_add_explicit_type_slice_of_field` | `rols_action_add_explicit_type_test.odin` | `r := s.arr[:2]` becomes `r: arr = …` |
 | `move_decl_action_skips_file_with_other_build_tag` | `rols_move_decl_test.odin` | "Move to c.odin" is offered for a `#+build linux` file |
 | `rename_package_rewrites_bare_package_name` | `rols_rename_package_test.odin` | `_ :: old` is not rewritten |
-| `action_inline_proc_offered_on_call_omitting_default_param` (gated) | `rols_action_inline_proc_test.odin` | code actions never return on a call of a procedure with a default parameter; every editor cursor move hits this |
 
 Some edit tests assert one of two acceptable fixes, and a comment in each says which. The comment tests assert "no fix". `add_ok_result_updates_callers` asserts that callers are updated. A fix that refuses the action instead must switch the assertion.
 
@@ -117,8 +113,8 @@ These findings have no harness test, because they live in the CLI or the compile
 
 ### Hangs and crashes not reduced
 
+- **A code action on a 1.8 MB generated file segfaults** when the package also contains odin-godot's `libgd/classdb/bind.odin`. The setup is in the sweep's scratch copy of `libgd/classdb`, with `bind.gen.odin` repeated 12 times. Possibly fixed by the default-parameter fix; not rechecked.
 - **The outline of a file whose declarations sit under `when !pkg.FLAG`, with `FLAG` a `#config` constant from another package, is empty.** Seen in tina's `wall_clock_darwin.odin`. Recheck it once `document_symbols_list_when_false_comparison` passes.
-- **A code action on a 1.8 MB generated file segfaults** when the package also contains odin-godot's `libgd/classdb/bind.odin`. The setup is in the sweep's scratch copy of `libgd/classdb`, with `bind.gen.odin` repeated 12 times. It may share a root with the default-parameter code-action hang.
 
 ### Compile gate and checker
 
@@ -159,7 +155,7 @@ These findings have no harness test, because they live in the CLI or the compile
 
 ### Edits
 
-- **"Inline procedure call" inlines a body that calls a `@(private="file")` procedure into another file**, and the result does not compile. Repro: `a.odin` has `@(private = "file") norm :: proc(v: int) -> int` and `draw :: proc(x, y: int) { _ = norm(x); _ = y }`, and `b.odin` calls `draw(1, 2)`. Run `ols query actions b.odin:4:2`. The harness cannot show it: `find_proc_lit` in `rols_action_inline_proc.odin` builds its `Call_Hierarchy` with no files, so a callee in another file is read from disk, and the harness's in-memory files are never seen. Passing `ctx.files` there would make the case testable.
+- **"Inline procedure call" inlines a body that calls a `@(private="file")` procedure into another file**, and the result does not compile. Repro: `a.odin` has `@(private = "file") norm :: proc(v: int) -> int` and `draw :: proc(x, y: int) { _ = norm(x); _ = y }`, and `b.odin` calls `draw(1, 2)`. Run `ols query actions b.odin:4:2`. The harness cannot show it: `find_proc_lit` in `rols_action_inline_proc.odin` builds its `Call_Hierarchy` with no files, so a callee in another file is read from disk, and the harness's in-memory files are never seen. Passing `ctx.files` there would make the case testable. The same gap applies to types: a typed local or a `T(lit)` cast copies the parameter's type text from the callee file, so a package-qualified type such as `time.Duration` needs an import the caller file may lack.
 - **"Invert if" on an `if` without `else` leaves an empty then-branch** (`if !c {} else {…}`). It compiles but is not a useful rewrite.
 - **Duplicate action titles** such as "Use compound assignment" and "Merge nested if" make `--apply TITLE` ambiguous. "Add doc comment" also writes `// name ` with a trailing space.
 - **`redundant-parens` on a multi-line condition** leaves the opening brace on its own line, or an empty line before `}`. The result compiles.
@@ -181,7 +177,7 @@ The lints found real bugs in the projects. They are listed here so that a rerun 
 
 Run the sweep again after the bugs above are fixed.
 
-1. Run `./build.sh test`. Every test listed under "Bugs with a failing test" must pass. Run any test that is gated behind `ROLS_HANG_TESTS` with the command given next to it.
+1. Run `./build.sh test`. Every test listed under "Bugs with a failing test" must pass.
 2. Run `tools/corpus_smoke.sh`, and `tools/corpus_smoke.sh --lsp` for the stdio pass. The script clones the corpus at the pinned commits into `${ROLS_CORPUS_DIR:-$HOME/.cache/rols-corpus}`. It runs the baseline `odin check`, `check`, `lint`, `symbols`, `modernize --apply` with a plain `odin check` afterwards, and the formatter round trip. It exits 1 and prints one `FAIL` line per problem. A run on the pinned commits should end with no `FAIL` lines.
 3. Repeat the manual checks that the script does not automate, on two or three projects:
    - Rename a package proc, a struct field used through `using`, an enum member used inside call arguments, and a local, each with `--apply`.

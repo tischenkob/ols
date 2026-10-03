@@ -2381,3 +2381,13 @@ run :: proc() -> (a: int = 1, err: os.Error) {
 `,
 	)
 }
+
+@(test)
+result_union_ignores_result_with_default_and_no_type :: proc(t: ^testing.T) {
+	expect_no_result_union(t, `package test
+
+run :: proc() -> (x := 1) {
+	re{*}turn 2
+}
+`)
+}
