@@ -502,3 +502,36 @@ f :: proc(xs: []int) {
 `,
 	)
 }
+
+// Corpus: Skald examples/13_stopwatch/main.odin:79, see docs/corpus-validation.md.
+@(test)
+invert_if_one_line_body_indents_with_tabs :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+label :: proc(running: bool) -> string {
+	l := "Start"
+	{*}if running { l = "Pause" }
+	return l
+}
+`,
+		config = {enable_code_action_invert_if = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		INVERT_IF_ACTION,
+		`package test
+
+label :: proc(running: bool) -> string {
+	l := "Start"
+	if !running {
+	} else {
+		l = "Pause"
+	}
+	return l
+}
+`,
+	)
+}

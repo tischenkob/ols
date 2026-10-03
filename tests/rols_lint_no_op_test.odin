@@ -281,3 +281,20 @@ f :: proc(xs: ^[dynamic]int) {
 `,
 	)
 }
+
+@(test)
+empty_body_allows_call_in_loop_condition :: proc(t: ^testing.T) {
+	// Corpus: karl2d examples/cursors/cursors.odin:18, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `package test
+
+step :: proc() -> bool { return false }
+f :: proc() {
+	for step() {}
+}
+`,
+		config = {enable_lint_no_op = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}

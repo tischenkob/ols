@@ -292,3 +292,44 @@ main :: proc(n: int, s: string) {
 
 	expect_lint_cases(t, cases, {enable_lint_printf = true}, packages)
 }
+
+@(private = "file")
+corpus_fmt := []test.Package {
+	{pkg = "fmt", source = `package fmt
+printfln :: proc(f: string, args: ..any) {}
+aprintf :: proc(f: string, args: ..any) -> string { return f }
+`},
+}
+
+@(test)
+printf_arity_expands_multi_value_call :: proc(t: ^testing.T) {
+	// Corpus: odin-lang/examples simd/basic-sum/main.odin:189, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `package test
+
+import "fmt"
+two :: proc() -> (f32, int) { return 1, 2 }
+f :: proc() { fmt.printfln("%v %v", two()) }
+`,
+		packages = corpus_fmt,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
+
+@(test)
+printf_arity_star_with_explicit_index :: proc(t: ^testing.T) {
+	// Corpus: core/testing/runner.odin:440, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `package test
+
+import "fmt"
+f :: proc() -> string { return fmt.aprintf("%- *[1]s|", "ab", 6) }
+`,
+		packages = corpus_fmt,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}

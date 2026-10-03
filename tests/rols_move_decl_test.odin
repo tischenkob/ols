@@ -322,3 +322,17 @@ first :: proc() {}
 	}
 	test.expect_move_declaration(t, &back, "main.odin", {{"b.odin", B}, {"main.odin", MAIN}})
 }
+
+// Corpus: karl2d karl2d.odin:7488, see docs/corpus-validation.md.
+@(test)
+move_decl_action_skips_file_with_other_build_tag :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+hel{*}per :: proc() {}
+
+use :: proc() {
+	helper()
+}
+`, {{"c.odin", "#+build linux\npackage test\n"}})
+	test.expect_action_missing(t, &source, "Move to c.odin")
+}

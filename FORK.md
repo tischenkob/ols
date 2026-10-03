@@ -13,7 +13,10 @@
 ## Fork-only non-Odin files
 
 - `install.sh`
+- `docs/corpus-validation.md`: the corpus sweep, its failing tests, follow-ups and rerun steps
+- `docs/corpus/`: the sweep reports, the triage list with one reduced repro per case, and the triage runners
 - `tools/cli_smoke.sh`
+- `tools/corpus_smoke.sh`
 - `tools/invert_if_smoke.sh`
 - `tools/save_imports_smoke.py`
 - `misc/claude-plugin/`: `.claude-plugin/plugin.json`, `.lsp.json`, `skills/ols/SKILL.md`

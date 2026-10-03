@@ -593,3 +593,40 @@ main :: proc() {
 
 	test.expect_action_missing(t, &source, UNWRAP_ACTION)
 }
+
+// Corpus: tina src/extensions/http/server/body.odin:841, see docs/corpus-validation.md.
+@(test)
+action_unwrap_not_offered_on_range_loop_using_its_variable :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(buf: []int) {
+	{*}for i in 0 ..< len(buf) {
+		buf[i] = i
+	}
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_missing(t, &source, UNWRAP_ACTION)
+}
+
+// Corpus: Skald examples/13_stopwatch/main.odin:37, see docs/corpus-validation.md.
+@(test)
+action_unwrap_not_offered_when_body_returns_before_statements :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(running: bool) -> int {
+	{*}if running {
+		return 1
+	}
+	return 2
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_missing(t, &source, UNWRAP_ACTION)
+}

@@ -283,3 +283,28 @@ f :: proc() {
 
 	expect_fix_twice(t, cases, {enable_lint_allocator = true})
 }
+
+@(test)
+allocator_mismatch_skips_dynamic_array_and_map :: proc(t: ^testing.T) {
+	// Corpus: Skald bidi/resolve.odin and karl2d font_cache:153, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `package test
+
+f :: proc() -> int {
+	a := make([dynamic]int, 0, 8, context.temp_allocator)
+	defer delete(a)
+	m := make(map[int]int, context.temp_allocator)
+	defer delete(m)
+	s := make([]int, 4, context.temp_allocator)
+	defer delete(s)
+	append(&a, 1)
+	m[1] = 1
+	return len(a) + len(m) + len(s)
+}
+`,
+		config = {enable_lint_allocator = true},
+	}
+
+	// A slice does not store its allocator, so only `delete(s)` frees with the wrong one.
+	test.expect_lint_diagnostics(t, &source, {{8, "allocator-mismatch"}})
+}

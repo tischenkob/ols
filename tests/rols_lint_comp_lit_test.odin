@@ -188,3 +188,25 @@ Point :: struct {
 `}},
 	)
 }
+
+@(test)
+unknown_field_uses_matching_when_branch :: proc(t: ^testing.T) {
+	// Corpus: tina src/simulated_test_determinism.odin:182, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `package test
+
+FLAG :: #config(FLAG, false)
+when FLAG {
+	Cfg :: struct { rate: int }
+} else {
+	Cfg :: struct {}
+}
+when FLAG {
+	use :: proc() -> Cfg { return Cfg{rate = 1} }
+}
+`,
+		config = {enable_lint_struct_literal = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}

@@ -469,3 +469,230 @@ loops :: proc(xs: []int) -> int {
 `,
 	)
 }
+
+// Corpus: tina src/extensions/http/server/body.odin:841, see docs/corpus-validation.md.
+@(test)
+modernize_fill_slices_fixed_array :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+E :: enum {
+	A,
+	B,
+}
+
+f :: proc() -> [8]u8 {
+	buf: [8]u8
+	for i in 0 ..< len(buf) {
+		buf[i] = 'a'
+	}
+	return buf
+}
+
+g :: proc() -> [E]int {
+	offs: [E]int
+	for &d in offs {
+		d = -1
+	}
+	return offs
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	// An enumerated array cannot be sliced, so its loop stays.
+	test.expect_modernized(
+		t,
+		&src,
+		{},
+		`package test
+
+import "core:slice"
+
+E :: enum {
+	A,
+	B,
+}
+
+f :: proc() -> [8]u8 {
+	buf: [8]u8
+	slice.fill(buf[:], 'a')
+	return buf
+}
+
+g :: proc() -> [E]int {
+	offs: [E]int
+	for &d in offs {
+		d = -1
+	}
+	return offs
+}
+`,
+	)
+}
+
+// Corpus: reduced (tina review), see docs/corpus-validation.md.
+@(test)
+modernize_fill_skips_value_using_index :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+idx :: proc(s: []int) {
+	for i in 0 ..< len(s) {
+		s[i] = i
+	}
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_modernized(
+		t,
+		&src,
+		{},
+		`package test
+
+idx :: proc(s: []int) {
+	for i in 0 ..< len(s) {
+		s[i] = i
+	}
+}
+`,
+	)
+}
+
+// Corpus: Skald examples/40_threads/main.odin:72, see docs/corpus-validation.md.
+@(test)
+modernize_sum_skips_interval_range :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+total :: proc() -> int {
+	t := 0
+	for i in 1 ..= 10 {
+		t += i
+	}
+	return t
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_modernized(
+		t,
+		&src,
+		{},
+		`package test
+
+total :: proc() -> int {
+	t := 0
+	for i in 1 ..= 10 {
+		t += i
+	}
+	return t
+}
+`,
+	)
+}
+
+// Corpus: reduced (ols review), see docs/corpus-validation.md.
+@(test)
+modernize_redundant_parens_keeps_comment :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+f :: proc(k: string) -> bool {
+	return (
+		// first
+		k != "a" &&
+		k != "b")
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	// Keeping the comment inside a rewritten return would also be correct; then update the expected text.
+	test.expect_modernized(
+		t,
+		&src,
+		{"redundant-parens"},
+		`package test
+
+f :: proc(k: string) -> bool {
+	return (
+		// first
+		k != "a" &&
+		k != "b")
+}
+`,
+	)
+}
+
+// Corpus: Skald runa itemize (GB999 comment), see docs/corpus-validation.md.
+@(test)
+modernize_bool_return_keeps_comment :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+f :: proc(a, b: int) -> bool {
+	if a == b {
+		return false
+	}
+
+	// Rule 999: default is to break.
+	return true
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	// Keeping the comment above a rewritten return would also be correct; then update the expected text.
+	test.expect_modernized(
+		t,
+		&src,
+		{"bool-return"},
+		`package test
+
+f :: proc(a, b: int) -> bool {
+	if a == b {
+		return false
+	}
+
+	// Rule 999: default is to break.
+	return true
+}
+`,
+	)
+}
+
+// Corpus: tina scripts/check_test_hygiene.odin:1112, see docs/corpus-validation.md.
+@(test)
+modernize_nested_if_one_line_body_indents_with_tabs :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+f :: proc(a, b: bool) -> int {
+	if a {
+		if b { return 1 }
+	}
+	return 0
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_modernized(
+		t,
+		&src,
+		{"nested-if"},
+		`package test
+
+f :: proc(a, b: bool) -> int {
+	if a && b {
+		return 1
+	}
+	return 0
+}
+`,
+	)
+}

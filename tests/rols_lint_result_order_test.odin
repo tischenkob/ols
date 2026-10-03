@@ -129,3 +129,18 @@ Handler :: struct {
 
 	expect_lint_cases(t, cases, {enable_lint_result_order = true})
 }
+
+@(test)
+error_not_last_ignores_value_union :: proc(t: ^testing.T) {
+	// Corpus: Skald view.odin, reduced, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `package test
+
+Shape :: union { int, f32 }
+make_shape :: proc() -> (s: Shape, changed: bool) { return 1, true }
+`,
+		config = {enable_lint_result_order = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
