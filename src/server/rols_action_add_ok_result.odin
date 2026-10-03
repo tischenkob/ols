@@ -141,6 +141,7 @@ add_add_ok_result_action :: proc(ctx: ^ActionContext) {
 }
 
 // Returns of this procedure, skipping those of nested procedure literals.
+@(private = "package")
 body_returns :: proc(body: ^ast.Stmt) -> []^ast.Return_Stmt {
 	found := make([dynamic]^ast.Return_Stmt, context.temp_allocator)
 	visitor := ast.Visitor {

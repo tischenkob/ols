@@ -4,8 +4,14 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## Corpus validation (`docs/corpus-validation.md`)
 
-- **A sweep over seven open-source Odin projects and Odin's core found bugs that are not fixed yet.** `docs/corpus-validation.md` lists them. 31 have a failing test in `tests/rols_*`, so `./build.sh test` reports 31 failures until they are fixed. Three odinfmt snapshot cases named `rols_*` fail in `tools/odinfmt/tests.sh`. The doc's 30 follow-ups have no harness test and each names a repro. `docs/corpus/triage/` holds the reduced source of every confirmed case, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
+- **A sweep over seven open-source Odin projects and Odin's core found bugs that are not fixed yet.** `docs/corpus-validation.md` lists them. 21 have a failing test in `tests/rols_*`, so `./build.sh test` reports 21 failures until they are fixed. Three odinfmt snapshot cases named `rols_*` fail in `tools/odinfmt/tests.sh`. The doc's 30 follow-ups have no harness test and each names a repro. `docs/corpus/triage/` holds the reduced source of every confirmed case, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
 - **Rerun the sweep after the fixes land.** Follow "Rerunning the sweep" in the doc: run `tools/corpus_smoke.sh`, then the manual checks it lists. Remove fixed items from the doc and this entry when nothing is left.
+
+## Lints (`src/server/rols_lint*.odin`)
+
+- **Dead-store silences an assignment followed by a bare `return` for every local, and ignores deferred closures.** `dead_store` cannot tell a named result from a plain pre-declared local, so `x = 1; if c { return }; x = 2` stays silent for a plain local `x`. A `defer` closure that reads a named result is not seen.
+- **A bare-bool or numeric constant is not named-checked.** `is_enabled :: true` is classified as an alias, so no naming rule applies. `count :: 5` still must be SCREAMING_SNAKE_CASE.
+- **Allocator mismatch recognises `make([dynamic]T, …)` and `make(map[K]V, …)` only by the written type.** `Array :: [dynamic]int` followed by `make(Array, …)` is still recorded as a plain allocation.
 
 ## Safe-rename check (`src/server/rols_rename_check.odin`)
 

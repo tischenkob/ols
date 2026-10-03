@@ -446,6 +446,8 @@ is_float_operand :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> bool {
 		return e.tok.kind == .Float
 	case ^ast.Ident, ^ast.Selector_Expr:
 		resolved := lint_symbols(ctx)[uintptr(expr)] or_return
+		// `T == f32` in a `when` compares types, and a type name resolves to the keyword.
+		if resolved.symbol.type == .Keyword do return false
 		#partial switch v in resolved.symbol.value {
 		case SymbolBasicValue:
 			return slice.contains(untyped_map[.Float], v.ident.name)

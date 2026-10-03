@@ -49,7 +49,10 @@ int_literal :: proc(expr: ^ast.Expr) -> (value: int, ok: bool) {
 	}
 	lit := expr.derived.(^ast.Basic_Lit) or_return
 	if lit.tok.kind != .Integer do return
-	value = strconv.parse_int(lit.tok.text) or_return
+	// parse_int wraps a literal above the i64 maximum into a negative value.
+	wide := strconv.parse_i128(lit.tok.text) or_return
+	if wide > i128(max(int)) do return
+	value = int(wide)
 	return negative ? -value : value, true
 }
 
