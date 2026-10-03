@@ -282,6 +282,8 @@ find_symbol_references :: proc(
 	include_declaration := true,
 	target_name := "",
 	files: []Package_File = {},
+	// rols: a file must contain this text too, else the search skips it without parsing
+	require_text := "",
 ) -> (
 	[]common.Location,
 	bool,
@@ -356,6 +358,10 @@ find_symbol_references :: proc(
 		}
 
 		if target_name != "" && !strings.contains(text, target_name) {
+			continue
+		}
+		// rols: skip a file without require_text
+		if !strings.contains(text, require_text) {
 			continue
 		}
 

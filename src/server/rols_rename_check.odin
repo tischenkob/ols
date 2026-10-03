@@ -326,7 +326,15 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 			}
 		}
 		if type_name != nil {
-			check_embedders(out, target, decl_document, type_name, new_name)
+			scan := Embed_Scan {
+				out      = out,
+				new_name = new_name,
+				types    = make([dynamic]Symbol, context.temp_allocator),
+				sites    = make([dynamic]^Document, context.temp_allocator),
+				resolved = make(map[^Document]SymbolAndNodeMap, context.temp_allocator),
+			}
+			check_embedders(&scan, target, decl_document, type_name)
+			check_using_statements(&scan)
 		}
 	case .Local in symbol.flags:
 		for declared in scope_declarations(decl_document, decl_offset) {
@@ -368,22 +376,45 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 	}
 }
 
-// Appends a cause for each struct with a `using` field of the type named type_name, and each procedure
-// with a `using` parameter of it, where new_name already names another member or declaration. Only
-// direct users of the type are checked, not the types that embed those in turn.
+// What the check of a field rename learns about the types that carry the field through `using`.
 @(private = "file")
-check_embedders :: proc(
-	out: ^[dynamic]string,
-	target: ^Rename_Target,
-	document: ^Document,
-	type_name: ^ast.Ident,
+Embed_Scan :: struct {
+	out:      ^[dynamic]string,
 	new_name: string,
-) {
+	site:     ^Document, // the document under walk by check_using_statements
+	types:    [dynamic]Symbol, // the owner type and every type that embeds it, directly or not
+	sites:    [dynamic]^Document, // the documents that name one of them and contain `using` anywhere
+	resolved: map[^Document]SymbolAndNodeMap, // the new name resolved in each site
+}
+
+// Appends a cause for each struct that embeds the type named type_name through `using`, directly or through
+// other structs, and each procedure with a `using` parameter of such a type, where scan.new_name already
+// names another member or declaration, or a name in the scope that the field would then capture. Only the
+// files that name a type and contain the text `using` anywhere are searched.
+@(private = "file")
+check_embedders :: proc(scan: ^Embed_Scan, target: ^Rename_Target, document: ^Document, type_name: ^ast.Ident) {
+	out, new_name := scan.out, scan.new_name
 	at := common.get_token_range(type_name^, document.ast.src)
 	type_symbol, resolved := resolve_name_at(document, at.start, type_name.pos.offset, type_name.name)
 	if !resolved {
 		return
 	}
+	// The type itself, as the type of a value resolves, not the identifier that declares it.
+	ast_context_value: AstContext
+	position_context: DocumentPositionContext
+	if !ast_context_at(document, at.start, &ast_context_value, &position_context) {
+		return
+	}
+	value, value_ok := resolve_type_expression(&ast_context_value, type_name)
+	if !value_ok {
+		return
+	}
+	for seen in scan.types {
+		if same_symbol(seen, value) {
+			return
+		}
+	}
+	append(&scan.types, value)
 	ast_context := globals_context(document)
 	locations, _ := find_symbol_references(
 		document,
@@ -392,12 +423,16 @@ check_embedders :: proc(
 		.Identifier,
 		target_name = type_name.name,
 		files = target.h.files,
+		require_text = "using",
 	)
 
 	for location in locations {
 		site := hierarchy_document(&target.h, location.uri)
 		if site == nil {
 			continue
+		}
+		if !slice.contains(scan.sites[:], site) {
+			append(&scan.sites, site)
 		}
 		offset := common.get_absolute_position(location.range.start, site.text[:site.used_text]) or_continue
 		chain := nodes_at(site.ast.decls[:], offset)
@@ -441,12 +476,28 @@ check_embedders :: proc(
 						),
 					)
 				}
+				// The embedding struct carries the field on to the structs that embed it.
+				if i >= 3 {
+					decl, is_decl := chain[i - 3].node.derived.(^ast.Value_Decl)
+					if is_decl && len(decl.names) == 1 {
+						if name, is_ident := decl.names[0].derived.(^ast.Ident); is_ident {
+							check_embedders(scan, target, site, name)
+						}
+					}
+				}
 			case ^ast.Proc_Type:
 				if i < 3 {
 					continue
 				}
 				lit := chain[i - 3].node.derived.(^ast.Proc_Lit) or_continue
-				for declared in proc_scope(site, lit) {
+				names := make([dynamic]Scope_Name, context.temp_allocator)
+				append(&names, ..proc_scope(site, lit))
+				for nested in nested_declarations({lit.body}) {
+					if !slice.contains(names[:], nested) {
+						append(&names, nested)
+					}
+				}
+				for declared in names {
 					if declared.name == new_name && !(declared.through_using && declared.ident == via) {
 						append(
 							out,
@@ -459,9 +510,178 @@ check_embedders :: proc(
 						)
 					}
 				}
+				if lit.body != nil {
+					field_captures(
+						scan,
+						site,
+						via.name,
+						{lit.body.pos.offset, lit.body.end.offset},
+						{lit.pos.offset, lit.end.offset},
+					)
+				}
 			}
 		}
 	}
+}
+
+// Appends a cause for each `using` statement, in the documents of scan, of a value whose type carries the
+// renamed field, where new_name is declared in the statement's scope or used there for something else.
+@(private = "file")
+check_using_statements :: proc(scan: ^Embed_Scan) {
+	for site in scan.sites {
+		scan.site = site
+		visitor := ast.Visitor {
+			data  = scan,
+			visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+				if node == nil do return nil
+				scan := (^Embed_Scan)(visitor.data)
+				#partial switch n in node.derived {
+				case ^ast.Block_Stmt:
+					check_using_in_block(scan, n.stmts, {n.pos.offset, n.end.offset})
+				case ^ast.Case_Clause:
+					check_using_in_block(scan, n.body, {n.pos.offset, n.end.offset})
+				}
+				return visitor
+			},
+		}
+		for decl in site.ast.decls {
+			ast.walk(&visitor, decl)
+		}
+	}
+}
+
+// The `using` statements among stmts, the statements of a block that spans the offsets of block.
+@(private = "file")
+check_using_in_block :: proc(scan: ^Embed_Scan, stmts: []^ast.Stmt, block: [2]int) {
+	for stmt, i in stmts {
+		if stmt == nil do continue
+		using_stmt := stmt.derived.(^ast.Using_Stmt) or_continue
+		for expr in using_stmt.list {
+			if !carries_field(scan, expr) {
+				continue
+			}
+			via := scan.site.ast.src[expr.pos.offset:expr.end.offset]
+			// The names of the block, and those of the blocks after the statement.
+			names := make([dynamic]Scope_Name, context.temp_allocator)
+			collect_stmts(&names, stmts[:i])
+			append(&names, ..nested_declarations(stmts[i + 1:]))
+			for declared in names {
+				if declared.name == scan.new_name {
+					append(
+						scan.out,
+						fmt.tprintf(
+							"`%s` is already declared in the scope of `using %s` at %s",
+							scan.new_name,
+							via,
+							ident_text(scan.site, declared.ident),
+						),
+					)
+				}
+			}
+			field_captures(scan, scan.site, via, {using_stmt.end.offset, block[1]}, block)
+		}
+	}
+}
+
+// Whether the value of expr has a type that carries the renamed field.
+@(private = "file")
+carries_field :: proc(scan: ^Embed_Scan, expr: ^ast.Expr) -> bool {
+	ast_context: AstContext
+	position_context: DocumentPositionContext
+	at := common.get_token_range(expr^, scan.site.ast.src).start
+	ast_context_at(scan.site, at, &ast_context, &position_context) or_return
+	symbol := resolve_type_expression(&ast_context, expr) or_return
+	for type in scan.types {
+		if same_symbol(type, symbol) {
+			return true
+		}
+	}
+	return false
+}
+
+// Appends a cause for each use of new_name in the offsets of uses that means a declaration outside the
+// offsets of scope, since the field that `using via` brings in would capture it after the rename.
+@(private = "file")
+field_captures :: proc(scan: ^Embed_Scan, site: ^Document, via: string, uses, scope: [2]int) {
+	out, new_name := scan.out, scan.new_name
+	hits, cached := scan.resolved[site]
+	if !cached {
+		hits = resolve_entire_file_for_references(site, context.temp_allocator, .Identifier, new_name)
+		scan.resolved[site] = hits
+	}
+	text := site.text[:site.used_text]
+	for key, hit in hits {
+		// A selector field, composite-literal key or named argument is keyed by its parent node.
+		if key != uintptr(hit.node) {
+			continue
+		}
+		ident := hit.node.derived.(^ast.Ident) or_continue
+		if ident.name != new_name || ident.pos.offset < uses[0] || ident.pos.offset >= uses[1] {
+			continue
+		}
+		// A procedure literal inside the scope cannot see the `using` value.
+		nested := false
+		for chain_at in nodes_at(site.ast.decls[:], ident.pos.offset) {
+			lit, is_lit := chain_at.node.derived.(^ast.Proc_Lit)
+			nested ||= is_lit && lit.pos.offset >= uses[0]
+		}
+		if nested {
+			continue
+		}
+		other := hit.symbol^
+		at := common.get_token_range(ident^, site.ast.src)
+		if other.type == .Field || (other.range == at && strings.equal_fold(other.uri, site.uri.uri)) {
+			continue
+		}
+		// A declaration inside the scope shadows the field, which the collision check reports.
+		if strings.equal_fold(other.uri, site.uri.uri) {
+			start, ok := common.get_absolute_position(other.range.start, text)
+			if ok && scope[0] <= start && start < scope[1] {
+				continue
+			}
+		}
+		append(
+			out,
+			fmt.tprintf(
+				"at %s `%s` refers to %s, but after the rename it would mean the field through `using %s`",
+				location_text(common.Location{uri = site.uri.uri, range = at}, site),
+				new_name,
+				describe(other, new_name),
+				via,
+			),
+		)
+	}
+}
+
+// The names that stmts declare at any depth: declarations, loop values and type switch variables, but
+// not the names inside a procedure literal, which has a scope of its own.
+@(private = "file")
+nested_declarations :: proc(stmts: []^ast.Stmt) -> []Scope_Name {
+	names := make([dynamic]Scope_Name, context.temp_allocator)
+	visitor := ast.Visitor {
+		data  = &names,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil do return nil
+			names := (^[dynamic]Scope_Name)(visitor.data)
+			#partial switch n in node.derived {
+			case ^ast.Proc_Lit:
+				return nil
+			case ^ast.Value_Decl:
+				collect_exprs(names, n.names)
+			case ^ast.Range_Stmt:
+				collect_exprs(names, n.vals)
+			case ^ast.Type_Switch_Stmt:
+				collect_switch_variable(names, n)
+			}
+			return visitor
+		},
+	}
+	for stmt in stmts {
+		if stmt != nil {
+			ast.walk(&visitor, stmt)
+		}
+	}
+	return names[:]
 }
 
 // Whether offset lies inside a file-scope `when` statement.
@@ -898,14 +1118,16 @@ scope_declarations :: proc(document: ^Document, offset: int) -> []Scope_Name {
 		}
 	}
 	return names[:]
+}
 
-	collect_switch_variable :: proc(names: ^[dynamic]Scope_Name, switch_stmt: ^ast.Type_Switch_Stmt) {
-		if switch_stmt.tag == nil {
-			return
-		}
-		if tag, is_assign := switch_stmt.tag.derived.(^ast.Assign_Stmt); is_assign {
-			collect_exprs(names, tag.lhs)
-		}
+// The variable of a type switch, which each clause declares.
+@(private = "file")
+collect_switch_variable :: proc(names: ^[dynamic]Scope_Name, switch_stmt: ^ast.Type_Switch_Stmt) {
+	if switch_stmt.tag == nil {
+		return
+	}
+	if tag, is_assign := switch_stmt.tag.derived.(^ast.Assign_Stmt); is_assign {
+		collect_exprs(names, tag.lhs)
 	}
 }
 
