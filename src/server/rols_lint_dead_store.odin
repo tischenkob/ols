@@ -72,11 +72,16 @@ store :: proc(stmt: ^ast.Stmt) -> (name: ^ast.Ident, values: []^ast.Expr, ok: bo
 dead_store :: proc(ctx: ^LintContext, stmts: []^ast.Stmt, from: int, name: ^ast.Ident, diags: ^[dynamic]Diagnostic) {
 	if name.name == "_" do return
 
+	// Only an assignment can store to a named result; a declaration or a parameter (from == -1) cannot.
+	assigns := false
+	if from >= 0 do _, assigns = stmts[from].derived.(^ast.Assign_Stmt)
+
 	for j in from + 1 ..< len(stmts) {
 		if next, values, ok := store(stmts[j]); ok && next.name == name.name {
 			for value in values {
 				if mentions(value, name.name) do return
 			}
+			if !is_local_store(ctx, next) || address_taken(ctx, name) do return
 			append(
 				diags,
 				Diagnostic {
@@ -89,7 +94,49 @@ dead_store :: proc(ctx: ^LintContext, stmts: []^ast.Stmt, from: int, name: ^ast.
 			return
 		}
 		if mentions(stmts[j], name.name) do return
+		// A bare `return` reads every named result.
+		if assigns do for ret in body_returns(stmts[j]) do if len(ret.results) == 0 do return
 	}
+}
+
+// Only a local can hold a dead store: a global is readable from any procedure. An identifier
+// that does not resolve is assumed to be a local, as before.
+@(private = "file")
+is_local_store :: proc(ctx: ^LintContext, ident: ^ast.Ident) -> bool {
+	resolved, ok := lint_symbols(ctx)[uintptr(ident)]
+	return !ok || resolved.is_unresolved || .Local in resolved.symbol.flags
+}
+
+// `&x`, `&x.f` or `&x[i]` in the declaration that holds `name`: the pointer can read x at any later
+// point. A local is only visible inside its top-level declaration, and the match is by name.
+@(private = "file")
+address_taken :: proc(ctx: ^LintContext, name: ^ast.Ident) -> bool {
+	for decl in ctx.document.ast.decls {
+		if name.pos.offset < decl.pos.offset || name.pos.offset >= decl.end.offset do continue
+		for use in collect_ident_uses(decl) {
+			if use.ident.name != name.name do continue
+			child: ^ast.Node = use.ident
+			#reverse for parent in use.parents {
+				#partial switch p in parent.derived {
+				case ^ast.Selector_Expr:
+					if cast(^ast.Node)p.expr != child do break
+					child = parent
+					continue
+				case ^ast.Index_Expr:
+					if cast(^ast.Node)p.expr != child do break
+					child = parent
+					continue
+				case ^ast.Paren_Expr:
+					child = parent
+					continue
+				case ^ast.Unary_Expr:
+					if p.op.kind == .And do return true
+				}
+				break
+			}
+		}
+	}
+	return false
 }
 
 // `x := arr[i]` or `x := arr[i].field`: a copy of an element, not a pointer into it.

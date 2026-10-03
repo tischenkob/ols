@@ -19,7 +19,7 @@ Status :: enum {
 }
 
 Value :: union {
-	int,
+	Parse_Error,
 	string,
 }
 

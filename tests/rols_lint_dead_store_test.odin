@@ -218,3 +218,42 @@ f :: proc() -> int {
 
 	test.expect_lint_diagnostics(t, &source, {})
 }
+
+@(test)
+dead_store_reported_after_early_return :: proc(t: ^testing.T) {
+	// A bare return reads only named results, and `&x` in another procedure is another variable.
+	source := test.Source {
+		main = `package test
+
+use :: proc(v: int) {}
+other :: proc() { x := 0; use((&x)^) }
+f :: proc(c: bool) {
+	x := 1
+	if c { return }
+	x = 2
+	use(x)
+}
+`,
+		config = {enable_lint_dead_store = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{5, "dead-store"}})
+}
+
+@(test)
+dead_store_reported_when_name_is_only_an_index :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(items: []int) -> int {
+	i := 1
+	i = 2
+	p := &items[i]
+	return p^
+}
+`,
+		config = {enable_lint_dead_store = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{3, "dead-store"}})
+}

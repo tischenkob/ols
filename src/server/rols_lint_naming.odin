@@ -124,6 +124,10 @@ decl_kind :: proc(ctx: ^LintContext, value: ^ast.Expr) -> Decl_Kind {
 		if decl_kind(ctx, v.expr) == .Type do return .Type
 		return .Constant
 	case ^ast.Ident, ^ast.Selector_Expr:
+		if ident, is_ident := value.derived.(^ast.Ident); is_ident && (ident.name == "true" || ident.name == "false") {
+			// A boolean flag is named like a variable, so neither type nor constant rules apply.
+			return .Alias
+		}
 		resolved, is_resolved := lint_symbols(ctx)[uintptr(value)]
 		if !is_resolved || resolved.symbol.value == nil do return .Alias
 		#partial switch resolved.symbol.type {
@@ -189,9 +193,10 @@ conforms :: proc(name: string, rule: Naming_Rule) -> bool {
 		}
 		return has_letter
 	case .Ada:
-		name := name
-		// `_1`, `_2`: a name cannot start with a digit, so the underscore is part of the first segment.
-		if len(name) >= 2 && name[0] == '_' && is_digit(name[1]) do name = name[1:]
+		// `_1`: a name cannot start with a digit. `_Private`: snake_case and SCREAMING_SNAKE_CASE accept
+		// the leading underscore, so this rule does too.
+		name := strings.trim_left(name, "_")
+		if name == "" do return true
 		for segment in strings.split(name, "_", context.temp_allocator) {
 			if len(segment) == 0 || !(is_upper(segment[0]) || is_digit(segment[0])) do return false
 		}

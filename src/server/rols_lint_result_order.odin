@@ -44,19 +44,30 @@ lint_result_order :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]D
 
 @(private = "file")
 is_error_like :: proc(ctx: ^LintContext, field: ^ast.Field) -> bool {
-	type := field.type
-	if _, is_union := type.derived.(^ast.Union_Type); is_union do return true
+	// A named `bool` result is a plain value unless it is the `ok` of an `x, ok` pair.
+	if final_name(field.type) == "bool" do return bool_is_error(field)
+	return is_error_type(ctx, field.type)
+}
+
+// A union is an error when it is `#shared_nil` or lists an error variant; `union { int, f32 }` is a value.
+@(private = "file")
+is_error_type :: proc(ctx: ^LintContext, type: ^ast.Expr) -> bool {
+	if union_type, is_union := type.derived.(^ast.Union_Type); is_union {
+		if union_type.kind == .shared_nil do return true
+		for variant in union_type.variants do if is_error_type(ctx, variant) do return true
+		return false
+	}
 
 	name := final_name(type)
-	// A named `bool` result is a plain value unless it is the `ok` of an `x, ok` pair.
-	if name == "bool" do return bool_is_error(field)
 	if strings.has_suffix(name, "Error") || strings.has_suffix(name, "Err") do return true
 
 	resolved, found := lint_symbols(ctx)[uintptr(type)]
 	if !found || resolved.is_unresolved || resolved.symbol == nil do return false
 	#partial switch v in resolved.symbol.value {
 	case SymbolUnionValue:
-		return true
+		if v.kind == .shared_nil do return true
+		for variant in v.types do if is_error_type(ctx, variant) do return true
+		return false
 	case SymbolEnumValue:
 		return slice.contains(v.names, "None")
 	}

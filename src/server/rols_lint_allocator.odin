@@ -45,6 +45,13 @@ allocator_mismatch :: proc(ctx: ^LintContext, uses: []IdentUse, diags: ^[dynamic
 		if call == nil do continue
 
 		if allocates(callee) {
+			// A dynamic array or a map stores its allocator, so `delete` frees with the right one.
+			if callee == "make" && len(call.args) > 0 {
+				#partial switch _ in call.args[0].derived {
+				case ^ast.Dynamic_Array_Type, ^ast.Map_Type:
+					continue
+				}
+			}
 			arg, has_allocator := allocator_arg(ctx.src, call)
 			if !has_allocator do continue
 			name, has_name := assigned_name(use.parents, call)

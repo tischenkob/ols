@@ -280,6 +280,8 @@ range_off_by_one :: proc(ctx: ^LintContext, n: ^ast.Range_Stmt, diags: ^[dynamic
 		return
 	}
 
+	if only_slice_bound(n) do return
+
 	append(
 		diags,
 		Diagnostic {
@@ -290,6 +292,24 @@ range_off_by_one :: proc(ctx: ^LintContext, n: ^ast.Range_Stmt, diags: ^[dynamic
 		},
 	)
 	append(&ctx.fixes, fix)
+}
+
+// `for b in 0 ..= len(s) { s[:b] }` visits every split point, and len(s) is a valid slice bound.
+@(private = "file")
+only_slice_bound :: proc(n: ^ast.Range_Stmt) -> bool {
+	if len(n.vals) == 0 || n.body == nil do return false
+	val := n.vals[0].derived.(^ast.Ident) or_else nil
+	if val == nil do return false
+
+	found := false
+	for use in collect_ident_uses(n.body) {
+		if use.ident.name != val.name do continue
+		if len(use.parents) == 0 do return false
+		slice_expr := use.parents[len(use.parents) - 1].derived.(^ast.Slice_Expr) or_else nil
+		if slice_expr == nil || (slice_expr.low != use.ident && slice_expr.high != use.ident) do return false
+		found = true
+	}
+	return found
 }
 
 // Evaluating the expression twice cannot change anything: no calls, no `or_return`, no dereference.

@@ -21,22 +21,12 @@ odin-godot's own generated bindings could not be produced, because its generator
 
 ## Bugs with a failing test
 
-Each bug below has a test that fails today and passes once the bug is fixed. The reduced source of each case is in the test itself. At the time of writing, the 31 tests that `./build.sh test` reports as failing are exactly the tests below. The tests assume a darwin host, where the corpus ran: the build-tag cases use `linux` and `windows` files as the excluded platforms.
+Each bug below has a test that fails today and passes once the bug is fixed. The reduced source of each case is in the test itself. At the time of writing, the 21 tests that `./build.sh test` reports as failing are exactly the tests below. The tests assume a darwin host, where the corpus ran: the build-tag cases use `linux` and `windows` files as the excluded platforms.
 
 ### False lints
 
 | Test | File | Bug |
 |---|---|---|
-| `dead_store_ignores_package_global` | `rols_lint_dead_store_test.odin` | dead-store on a package global that a called procedure reads |
-| `dead_store_ignores_named_result_read_by_bare_return` | `rols_lint_dead_store_test.odin` | dead-store on a named result that a later bare `return` returns |
-| `dead_store_ignores_pointer_escaped_into_struct` | `rols_lint_dead_store_test.odin` | dead-store on a local whose address is stored in a struct |
-| `unsigned_compare_accepts_u64_literal_above_i64_max` | `rols_lint_integer_test.odin` | a u64 literal above the i64 maximum is read as negative |
-| `naming_accepts_bool_constant` | `rols_lint_naming_test.odin` | `is_enabled :: true` is named as a type |
-| `naming_accepts_leading_underscore_type` | `rols_lint_naming_test.odin` | a leading `_` is accepted on procedures and constants but not on types |
-| `float_equality_ignores_type_comparison` | `rols_corpus_lint_test.odin` | float-equality on `when T == Float`, which compares types |
-| `allocator_mismatch_skips_dynamic_array_and_map` | `rols_lint_allocator_test.odin` | `delete` of a `[dynamic]` array or a map, which store their allocator |
-| `error_not_last_ignores_value_union` | `rols_lint_result_order_test.odin` | `union { int, f32 }` is treated as an error result |
-| `range_off_by_one_ignores_slice_end` | `rols_lint_loops_test.odin` | `for b in 0 ..= len(s)` used only as `s[:b]` |
 | `printf_arity_expands_multi_value_call` | `rols_lint_printf_test.odin` | a call with two results counts as one argument |
 | `printf_arity_star_with_explicit_index` | `rols_lint_printf_test.odin` | `%*[1]s` reuses an argument by index |
 | `ignored_result_skips_error_named_proc_type` | `rols_corpus_lint_test.odin` | a result whose proc type name contains "Error" |
