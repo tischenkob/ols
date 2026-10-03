@@ -341,3 +341,21 @@ badName :: proc(x: int)
 
 	test.expect_lint_diagnostics(t, &source, {})
 }
+
+@(test)
+lint_naming_skips_tagged_fields :: proc(t: ^testing.T) {
+	// Corpus: protocol structs whose camelCase names the wire format fixes through a tag.
+	source := test.Source {
+		main = `package test
+
+Message :: struct {
+	userId:   int "json:\"userId\"",
+	other_id: int,
+	otherId:  int,
+}
+`,
+		config = {enable_lint_naming = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{5, "naming"}})
+}

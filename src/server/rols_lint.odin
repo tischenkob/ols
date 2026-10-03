@@ -10,14 +10,16 @@ import "core:strings"
 import "src:common"
 
 LintContext :: struct {
-	document: ^Document,
-	config:   ^common.Config,
-	src:      string,
-	symbols:  Maybe(SymbolAndNodeMap),
-	// Nodes a lint excluded while visiting their parent: deferred statements and proc literals
-	// whose signature an attribute on the declaring Value_Decl fixes.
-	skip:     map[^ast.Node]struct{},
-	fixes:    [dynamic]Lint_Fix,
+	document:    ^Document,
+	config:      ^common.Config,
+	src:         string,
+	symbols:     Maybe(SymbolAndNodeMap),
+	// Names the file uses as values (see `value_names`), built on first use.
+	value_names: Maybe(map[string]struct{}),
+	// Nodes a lint excluded while visiting their parent: deferred statements, proc literals whose signature
+	// an attribute fixes, callback literals, and procedures the file uses as values.
+	skip:        map[^ast.Node]struct{},
+	fixes:       [dynamic]Lint_Fix,
 }
 
 // A single-edit fix for one diagnostic, offered as a quick fix at the cursor.
@@ -412,6 +414,8 @@ lint_float_equality :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 	binary, is_binary := node.derived.(^ast.Binary_Expr)
 	if !is_binary || (binary.op.kind != .Cmp_Eq && binary.op.kind != .Not_Eq) do return
 	if !is_float_operand(ctx, binary.left) && !is_float_operand(ctx, binary.right) do return
+	// Comparing with a literal zero or one is a sentinel or flag test, not an arithmetic result.
+	if is_zero_or_one_literal(binary.left) || is_zero_or_one_literal(binary.right) do return
 
 	append(
 		diags,
@@ -422,6 +426,12 @@ lint_float_equality :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 			message = "comparing floats with == is exact; consider an epsilon",
 		},
 	)
+}
+
+@(private = "file")
+is_zero_or_one_literal :: proc(expr: ^ast.Expr) -> bool {
+	lit, is_lit := ast.unparen_expr(expr).derived.(^ast.Basic_Lit)
+	return is_lit && slice.contains([]string{"0", "0.0", "1", "1.0"}, lit.tok.text)
 }
 
 // The resolved-symbol map only holds identifiers and selectors, so an indexed or called float
@@ -498,7 +508,7 @@ lint_ignored_result :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 	}
 
 	for field in results {
-		name := must_handle_type_name(field.type) or_continue
+		name := must_handle_type_name(ctx, resolved.symbol.pkg, field.type) or_continue
 		if names_proc_type(ctx, resolved.symbol.pkg, field.type) do continue
 		append(
 			diags,
@@ -546,17 +556,22 @@ resolve_type_in_package :: proc(document: ^Document, pkg: string, type: ^ast.Exp
 
 // bool, unions and anything named like an error must be handled by the caller,
 // except Allocator_Error, which delete/free/reserve callers ignore as a matter of course.
+// The name is written as this file would write it, where `pkg` is the package that declares the callee.
 @(private = "file")
-must_handle_type_name :: proc(type: ^ast.Expr) -> (string, bool) {
+must_handle_type_name :: proc(ctx: ^LintContext, pkg: string, type: ^ast.Expr) -> (string, bool) {
 	if type == nil do return "", false
 	#partial switch t in type.derived {
 	case ^ast.Ident:
 		if t.name == "Allocator_Error" do return "", false
-		if t.name == "bool" || strings.contains(t.name, "Err") do return t.name, true
+		if t.name == "bool" do return t.name, true
+		if strings.contains(t.name, "Err") do return qualified_type_name(ctx, pkg, t.name), true
 	case ^ast.Selector_Expr:
 		if t.field == nil || t.field.name == "Allocator_Error" || !strings.contains(t.field.name, "Err") do return "", false
-		if pkg, ok := t.expr.derived.(^ast.Ident); ok do return fmt.tprintf("%s.%s", pkg.name, t.field.name), true
-		return t.field.name, true
+		base, is_ident := t.expr.derived.(^ast.Ident)
+		if !is_ident do return t.field.name, true
+		// The indexer replaces the alias in the declaring file with that package's directory.
+		if strings.contains(base.name, "/") do return qualified_type_name(ctx, base.name, t.field.name), true
+		return fmt.tprintf("%s.%s", base.name, t.field.name), true
 	case ^ast.Union_Type:
 		return "union", true
 	case ^ast.Call_Expr:
@@ -564,6 +579,18 @@ must_handle_type_name :: proc(type: ^ast.Expr) -> (string, bool) {
 		if ident, is_ident := t.expr.derived.(^ast.Ident); is_ident && ident.name == "Maybe" do return "Maybe", true
 	}
 	return "", false
+}
+
+// `name` declared in the package in directory `dir`, as this file writes it: bare in its own package,
+// else with the import alias, else with the last segment of the directory.
+@(private = "file")
+qualified_type_name :: proc(ctx: ^LintContext, dir, name: string) -> string {
+	if dir == "" || dir == "$builtin" || dir == ctx.document.package_name do return name
+	for imp in ctx.document.imports {
+		if imp.name == dir do return fmt.tprintf("%s.%s", imp.base, name)
+	}
+	last_slash := strings.last_index_byte(dir, '/')
+	return fmt.tprintf("%s.%s", dir[last_slash + 1:], name)
 }
 
 @(private = "file")
@@ -579,7 +606,19 @@ lint_unused_parameter :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynam
 		if lit == nil do return
 		if has_fixed_signature_attribute(n.attributes[:]) {
 			ctx.skip[lit] = {}
+		} else if len(unused_params(lit)) > 0 && is_signature_fixed_by_use(ctx, n) {
+			ctx.skip[lit] = {}
 		}
+		return
+	case ^ast.Call_Expr:
+		// The callee's parameter type fixes the signature of a procedure literal argument.
+		for arg in n.args do skip_context_typed_proc(ctx, arg)
+		return
+	case ^ast.Comp_Lit:
+		for elem in n.elems do skip_context_typed_proc(ctx, elem)
+		return
+	case ^ast.Assign_Stmt:
+		for rhs in n.rhs do skip_context_typed_proc(ctx, rhs)
 		return
 	case ^ast.Proc_Lit:
 		lit = n
@@ -606,6 +645,73 @@ lint_unused_parameter :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynam
 			)
 		}
 	}
+}
+
+// A procedure literal passed as an argument, stored in a composite literal or assigned takes its signature
+// from the parameter, field or variable type.
+@(private = "file")
+skip_context_typed_proc :: proc(ctx: ^LintContext, expr: ^ast.Expr) {
+	expr := expr
+	if field_value, is_field_value := expr.derived.(^ast.Field_Value); is_field_value do expr = field_value.value
+	if lit, is_lit := expr.derived.(^ast.Proc_Lit); is_lit do ctx.skip[lit] = {}
+}
+
+// A declaration with an explicit type (`h: Handler = proc(…) {…}`) takes its signature from that type. A named
+// procedure that the same file uses as a value (an argument, an assignment, a composite literal element, a
+// parameter default) has its signature fixed by the proc type it is stored in. A use in another file is not seen.
+@(private = "file")
+is_signature_fixed_by_use :: proc(ctx: ^LintContext, decl: ^ast.Value_Decl) -> bool {
+	if decl.type != nil do return true
+	if decl.is_mutable || len(decl.names) != 1 do return false
+	name := decl.names[0].derived.(^ast.Ident) or_return
+	return name.name in value_names(ctx)
+}
+
+// Every name the file mentions as a value, found in one walk. A mention counts when it resolves to a procedure
+// or to nothing, so a same-named local variable does not hide an unused parameter.
+@(private = "file")
+value_names :: proc(ctx: ^LintContext) -> map[string]struct{} {
+	names, has_names := ctx.value_names.?
+	if has_names do return names
+
+	names = make(map[string]struct{}, context.temp_allocator)
+	symbols := lint_symbols(ctx)
+	for stmt in ctx.document.ast.decls {
+		for use in collect_ident_uses(stmt) {
+			if !is_value_use(use) do continue
+			if resolved, found := symbols[uintptr(use.ident)]; found && !resolved.is_unresolved {
+				#partial switch _ in resolved.symbol.value {
+				case SymbolProcedureValue, SymbolProcedureGroupValue:
+				case:
+					continue
+				}
+			}
+			names[use.ident.name] = {}
+		}
+	}
+	ctx.value_names = names
+	return names
+}
+
+// A mention that neither declares a name, calls it, nor names a field, parameter or group member.
+@(private = "file")
+is_value_use :: proc(use: IdentUse) -> bool {
+	if len(use.parents) == 0 do return false
+	#partial switch parent in use.parents[len(use.parents) - 1].derived {
+	case ^ast.Call_Expr:
+		return parent.expr != use.ident
+	case ^ast.Selector_Expr:
+		return parent.field != use.ident
+	case ^ast.Field_Value:
+		return parent.field != use.ident
+	case ^ast.Value_Decl:
+		return !slice.contains(parent.names, (^ast.Expr)(use.ident))
+	case ^ast.Field:
+		return parent.default_value == (^ast.Expr)(use.ident)
+	case ^ast.Proc_Group:
+		return false
+	}
+	return true
 }
 
 // `a, b: int` would need every name renamed to stay valid, so only a lone name gets a fix.

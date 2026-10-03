@@ -540,10 +540,10 @@ lint_float_equality_forms :: proc(t: ^testing.T) {
 PI :: 3.14
 
 f :: proc(a: f32, b: f64, x, y: int, eps: f32) -> bool {
-	r := a == 1.0
+	r := a == 1.5
 	r = b != b
 	r = abs(a - eps) == 0
-	r = a == 0
+	r = a == 0.25
 	r = x == 1
 	r = f32(x) == f32(y)
 	r = PI == 3.14
@@ -666,4 +666,198 @@ f :: proc(c: bool) {
 	}
 
 	test.expect_lint_diagnostics(t, &source, {{7, "identical-branches"}})
+}
+
+@(test)
+lint_float_equality_skips_zero_and_one :: proc(t: ^testing.T) {
+	// Corpus: Skald, 118 of 145 hits compared with a literal 0 or 1.
+	source := test.Source {
+		main = `package test
+
+f :: proc(a, b: f32) -> bool {
+	r := a == 0
+	r = a != 0.0
+	r = 1 == a
+	r = (1.0) == a
+	r = a == 2
+	r = a == 0.5
+	r = a == b
+	return r
+}
+`,
+		config = {enable_lint_float_equality = true},
+	}
+
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{7, "float-equality"}, {8, "float-equality"}, {9, "float-equality"}},
+	)
+}
+
+@(test)
+lint_unused_parameter_skips_callback_signatures :: proc(t: ^testing.T) {
+	// Corpus: handlers passed as values and per-platform implementations.
+	source := test.Source {
+		main = `package test
+
+Handler :: #type proc(x: int)
+
+Table :: struct {
+	run: Handler,
+}
+
+register :: proc(h: Handler) {
+	h(1)
+}
+
+passed :: proc(x: int) {
+	n := 1
+	_ = n
+}
+
+stored :: proc(x: int) {
+	n := 1
+	_ = n
+}
+
+assigned :: proc(x: int) {
+	n := 1
+	_ = n
+}
+
+only_called :: proc(x: int) {
+	n := 1
+	_ = n
+}
+
+main :: proc() {
+	register(passed)
+	t := Table{run = stored}
+	h: Handler
+	h = assigned
+	register(proc(x: int) {
+		n := 1
+		_ = n
+	})
+	typed: Handler = proc(x: int) {
+		n := 1
+		_ = n
+	}
+	only_called(1)
+	_, _ = t, h
+	_ = typed
+}
+`,
+		config = {enable_lint_unused_parameter = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{27, "unused-parameter"}})
+}
+
+@(test)
+lint_ignored_result_names_the_type_as_the_file_writes_it :: proc(t: ^testing.T) {
+	// Corpus: `(Error)` without its package, and an absolute package path for a package the file does not import.
+	packages := []test.Package {
+		{pkg = "io", source = `package io
+Error :: enum {
+	None,
+	Bad,
+}
+write :: proc() -> Error {
+	return .None
+}
+`},
+		{pkg = "other", source = `package other
+import "../io"
+get :: proc() -> io.Error {
+	return .None
+}
+`},
+	}
+	aliased := test.Source {
+		main = `package test
+
+import renamed "io"
+import "other"
+
+main :: proc() {
+	renamed.write()
+	other.get()
+}
+`,
+		packages = packages,
+		config = {enable_lint_ignored_result = true},
+	}
+	test.expect_lint_diagnostics(
+		t,
+		&aliased,
+		{{6, "ignored-result"}, {7, "ignored-result"}},
+		{"result of renamed.write is ignored (renamed.Error)", "result of other.get is ignored (renamed.Error)"},
+	)
+
+	not_imported := test.Source {
+		main = `package test
+
+import "other"
+
+main :: proc() {
+	other.get()
+}
+`,
+		packages = packages,
+		config = {enable_lint_ignored_result = true},
+	}
+	test.expect_lint_diagnostics(
+		t,
+		&not_imported,
+		{{5, "ignored-result"}},
+		{"result of other.get is ignored (io.Error)"},
+	)
+}
+
+@(test)
+lint_unused_parameter_value_use_follows_resolution :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Handler :: #type proc(x: int)
+
+count :: proc(x: int) {
+	n := 1
+	_ = n
+}
+
+other :: proc() {
+	count := 3
+	_ = count
+}
+
+fielded :: proc(x: int) {
+	n := 1
+	_ = n
+}
+
+P :: struct {
+	fielded: int,
+}
+
+p := P{}
+q := p.fielded
+
+default_cb :: proc(x: int) {
+	n := 1
+	_ = n
+}
+
+take :: proc(cb: Handler = default_cb) {
+	cb(1)
+}
+`,
+		config = {enable_lint_unused_parameter = true},
+	}
+
+	// A local variable named like the procedure and a field of that name do not count as uses. A parameter
+	// default does.
+	test.expect_lint_diagnostics(t, &source, {{4, "unused-parameter"}, {14, "unused-parameter"}})
 }

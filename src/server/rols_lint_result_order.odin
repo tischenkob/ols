@@ -69,7 +69,23 @@ is_error_type :: proc(ctx: ^LintContext, type: ^ast.Expr) -> bool {
 		for variant in v.types do if is_error_type(ctx, variant) do return true
 		return false
 	case SymbolEnumValue:
-		return slice.contains(v.names, "None")
+		return is_error_enum(resolved.symbol.name, v.names)
+	}
+	return false
+}
+
+// An enum is an error when it has a `None` member and either its name contains `Err`, or another
+// member name contains `err`, `fail`, `invalid` or `bad`. `Kind :: enum { None, Box }` is a value.
+@(private = "file")
+is_error_enum :: proc(name: string, members: []string) -> bool {
+	if !slice.contains(members, "None") do return false
+	if strings.contains(name, "Err") do return true
+	for member in members {
+		if member == "None" do continue
+		lower := strings.to_lower(member, context.temp_allocator)
+		for marker in ([?]string{"err", "fail", "invalid", "bad"}) {
+			if strings.contains(lower, marker) do return true
+		}
 	}
 	return false
 }

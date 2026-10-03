@@ -12,6 +12,11 @@ packages := []test.Package {
 Mutex :: struct {}
 RW_Mutex :: struct {}
 Atomic_Int :: struct {}
+Atomic_Mutex :: struct {}
+Atomic_Mutex_State :: enum {
+	Unlocked,
+	Locked,
+}
 mutex_lock :: proc(m: ^Mutex) {}
 mutex_unlock :: proc(m: ^Mutex) {}
 rw_mutex_shared_lock :: proc(m: ^RW_Mutex) {}
@@ -294,4 +299,21 @@ main :: proc() {
 	}
 
 	expect_lint_cases(t, cases, {enable_lint_sync = true}, packages)
+}
+
+@(test)
+lint_lock_by_value_ignores_atomic_enum :: proc(t: ^testing.T) {
+	// Corpus: core:sync `Atomic_Mutex_State` shares the `Atomic_` prefix of the lock structs but is an enum.
+	src := source(
+		`package test
+
+import "sync"
+
+by_state :: proc(state: sync.Atomic_Mutex_State) {}
+
+by_lock :: proc(m: sync.Atomic_Mutex) {}
+`,
+	)
+
+	test.expect_lint_diagnostics(t, &src, {{6, "lock-by-value"}})
 }

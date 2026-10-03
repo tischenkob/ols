@@ -160,6 +160,8 @@ atomic_self_assign :: proc(ctx: ^LintContext, assign: ^ast.Assign_Stmt, diags: ^
 @(private = "file")
 is_lock_type :: proc(sym: ^Symbol) -> bool {
 	if sym == nil || sym.pointers != 0 || !strings.has_suffix(sym.pkg, "/sync") do return false
+	// Only a struct holds a lock; `Atomic_Mutex_State` is an enum and shares the `Atomic_` prefix.
+	if _, is_struct := sym.value.(SymbolStructValue); !is_struct do return false
 	return slice.contains(LOCK_TYPES, sym.name) || strings.has_prefix(sym.name, "Atomic_")
 }
 
