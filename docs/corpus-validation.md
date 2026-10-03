@@ -23,7 +23,7 @@ odin-godot's own generated bindings could not be produced, because its generator
 
 Each bug below has a test that fails today and passes once the bug is fixed. The reduced source of each case is in the test itself. At the time of writing, the 52 tests that `./build.sh test` reports as failing are exactly the tests below that are not gated. The tests assume a darwin host, where the corpus ran: the build-tag cases use `linux` and `windows` files as the excluded platforms.
 
-Four tests hang today, and the Odin test runner cannot stop a busy thread, so they are gated behind `ROLS_HANG_TESTS` (declared in `tests/rols_corpus_inlay_test.odin`). Run one with `./build.sh single_test NAME -define:ROLS_HANG_TESTS=true`.
+One test hangs today, and the Odin test runner cannot stop a busy thread, so it is gated behind `ROLS_HANG_TESTS` (declared in `tests/rols_corpus_inlay_test.odin`). Run it with `./build.sh single_test NAME -define:ROLS_HANG_TESTS=true`.
 
 ### False lints
 
@@ -76,16 +76,6 @@ All are in `tests/rols_corpus_query_test.odin`.
 | `references_field_through_using_param` | a bare `id` under `proc(using w: ^W)` is missed, so a field rename rolls back |
 | `hover_imported_struct_global` | `a.cfg` hovers as `<importer>.cfg: struct {…}` instead of `a.cfg: a.Config` |
 
-### Inlay hints (gated)
-
-All are in `tests/rols_corpus_inlay_test.odin`. The unresolved-call case hangs in `add_variable_type_hints` (`src/server/inlay_hints.odin`), which dereferences `resolved.symbol` when the callee is not in the symbol map; the other two likely share that path. In an editor this hangs or segfaults the server on about a fifth of the corpus files, and every later request waits behind it.
-
-| Test | Source |
-|---|---|
-| `inlay_unresolved_call_has_no_type` | `x := undefined_proc(1)`, the normal state while typing |
-| `inlay_paren_cast_type` | `x := (^int)(p)` |
-| `inlay_make_with_param_length` | `x := make([]int, m)` with `m` a parameter. The test stubs `make` as a group shaped like the runtime's, because the harness has no runtime. A plain non-group stub does not hang |
-
 ### Edits
 
 | Test | File | Bug |
@@ -127,8 +117,6 @@ These findings have no harness test, because they live in the CLI or the compile
 
 ### Hangs and crashes not reduced
 
-- **Range-type inlay hints hang on a large file.** With `enable_inlay_hints_variable_types` off, an inlayHint request on `core/rexcode/ir/spirv/builders_gen.odin` never answers. Turning `enable_inlay_hints_range_types` off fixes it. The trigger depends on how much code precedes one range loop, and the time grows superlinearly with the number of procedures in a synthetic file.
-- **Inlay type labels for a call result are NUL bytes over LSP**, as in `c := one()` with `one :: proc() -> int`, or `a := make([]u8, 4)`. For `c := one()` the harness returns the correct `: int`, because the request loop frees temp memory before the response is written and the harness does not. The label may point into freed memory, which could also explain the segfaults seen after the hangs. Repro: open the file over stdio and request inlayHint.
 - **The outline of a file whose declarations sit under `when !pkg.FLAG`, with `FLAG` a `#config` constant from another package, is empty.** Seen in tina's `wall_clock_darwin.odin`. Recheck it once `document_symbols_list_when_false_comparison` passes.
 - **A code action on a 1.8 MB generated file segfaults** when the package also contains odin-godot's `libgd/classdb/bind.odin`. The setup is in the sweep's scratch copy of `libgd/classdb`, with `bind.gen.odin` repeated 12 times. It may share a root with the default-parameter code-action hang.
 

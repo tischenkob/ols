@@ -66,12 +66,14 @@ document_get_new_symbol_cache_arena :: proc() -> ^virtual.Arena {
 	return arena
 }
 
-@(private = "file")
+// rols: package visible so a cancelled whole-file resolve can release its arena
 invalidate_document_symbol_cache :: proc(document: ^Document) {
 	if document.symbol_cache_arena != nil {
 		virtual.arena_free_all(document.symbol_cache_arena)
 	}
 	document.symbols = nil
+	// rols: the index may still hold a package name from the freed arena
+	clear_index_cache()
 }
 
 invalidate_document_symbol_caches :: proc() {

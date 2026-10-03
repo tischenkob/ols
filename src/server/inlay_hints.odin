@@ -71,7 +71,8 @@ get_inlay_hints :: proc(
 			}
 
 			margin := 20 // skip nodes outside the range
-			if data.range.start.line - margin > node.end.line &&
+			// rols: the skip needs || (was &&, which never fired)
+			if data.range.start.line - margin > node.end.line ||
 			   data.range.end.line   + margin < node.pos.line {
 				return nil
 			}
@@ -426,8 +427,9 @@ get_inlay_hints :: proc(
 			callee_ok: bool
 			if call, is_call := decl.values[0].derived.(^ast.Call_Expr); is_call {
 				resolved: SymbolAndNode
+				// rols: the callee may be missing from the map (unresolved ident, paren expr)
 				resolved, callee_ok = data.symbols[uintptr(call.expr)]
-				callee = resolved.symbol^
+				if callee_ok do callee = resolved.symbol^
 			}
 			if value_states_type(decl.values[0], callee, callee_ok) do return
 		}
