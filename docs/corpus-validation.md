@@ -21,7 +21,7 @@ odin-godot's own generated bindings could not be produced, because its generator
 
 ## Bugs with a failing test
 
-Each bug below has a test that fails today and passes once the bug is fixed. The reduced source of each case is in the test itself. At the time of writing, the 42 tests that `./build.sh test` reports as failing are exactly the tests below. The tests assume a darwin host, where the corpus ran: the build-tag cases use `linux` and `windows` files as the excluded platforms.
+Each bug below has a test that fails today and passes once the bug is fixed. The reduced source of each case is in the test itself. At the time of writing, the 31 tests that `./build.sh test` reports as failing are exactly the tests below. The tests assume a darwin host, where the corpus ran: the build-tag cases use `linux` and `windows` files as the excluded platforms.
 
 ### False lints
 
@@ -46,24 +46,6 @@ Each bug below has a test that fails today and passes once the bug is fixed. The
 | `bool_compare_keeps_distinct_bool` | `rols_corpus_lint_test.odin` | dropping `== true` on a `distinct b32` result breaks a `bool` return |
 
 The `delete_key` and `mutex_guard` tests stub those procedures, because the harness has no runtime or `core:sync`. A fix that keys on the package path instead of the signature or the attribute leaves them failing.
-
-### Query results
-
-All are in `tests/rols_corpus_query_test.odin`.
-
-| Test | Bug |
-|---|---|
-| `definition_of_field_through_const_alias` | definition through `qq :: V` returns another file with the field's range |
-| `implementation_of_group_member_is_group` | implementation on a group member returns the member, not the group |
-| `hover_promoted_field_offset_is_zero` | a field promoted through `using` shows offset 16 instead of 0 |
-| `hover_poly_call_inside_poly_proc` | `x := conv(p, A)` inside a procedure with `$A: typeid` hovers as `$x: typeid` |
-| `hover_overload_with_poly_constant_param` | no hover for a call to a group whose members take `$tag: Tag` |
-| `hover_overload_picks_matching_member` | hover on a group call shows the first member, not the one the call selects |
-| `references_enum_named_argument_after_variadic` | `row(1, 2, align = .Center)` is missed when `row` starts with `..int` |
-| `references_enum_in_comp_lit_argument` | `take(Item{kind = .B})` is missed |
-| `references_imported_global_with_field` | `a.cfg.x = 1` is missed, so a rename of `cfg` rolls back |
-| `references_field_through_using_param` | a bare `id` under `proc(using w: ^W)` is missed, so a field rename rolls back |
-| `hover_imported_struct_global` | `a.cfg` hovers as `<importer>.cfg: struct {…}` instead of `a.cfg: a.Config` |
 
 ### Edits
 
@@ -123,8 +105,6 @@ These findings have no harness test, because they live in the CLI or the compile
 - **`tests` lists tests from `#+build ignore` files but drops `_windows.odin` files.**
 - **A symbol path cannot name the package in the cwd.** `.Name` and `./Name` are refused.
 - **`find` omits `@(private)`, `#+private` and other-platform declarations**, which hides most of karl2d's backend code.
-- **A shebang line logs `[ERROR] unsupported comment delimiter`** on every query that touches the package.
-- **A generic call with a named argument whose value is a call logs `[ERROR] … append_arg()`** to stderr, although the code is valid and the results are correct.
 - **`reorder-params` refusals list six possible reasons at once**, and the README does not list them.
 
 ### Performance
@@ -150,7 +130,6 @@ These findings have no harness test, because they live in the CLI or the compile
 - **`redundant-parens` on a multi-line condition** leaves the opening brace on its own line, or an empty line before `}`. The result compiles.
 - **The odinfmt snapshot suite ignores failures in subdirectories.** `snapshot_directory` in `tools/odinfmt/snapshot/snapshot.odin` drops the result of its recursive call, so `tools/odinfmt/tests.sh` exits 0 after a mismatch in a subdirectory. A mismatch also leaves `.snapshots/*_failed` files that git does not ignore.
 - **The harness's `expect_*` procs leak their message builders when an assertion fails**, so a failing test also reports memory leaks under `ODIN_TEST_FAIL_ON_BAD_MEMORY`.
-- **The doc comment on `get_implementation_locations` says it returns "the procedure itself"** for a group member, against the README. Update it with the fix for `implementation_of_group_member_is_group`.
 - **The upstream ols test suite hung for more than 20 minutes** on the tree that `modernize --apply` rewrote. This was not investigated.
 
 ## Findings in the corpus itself

@@ -626,6 +626,76 @@ f :: proc(using foo: Foo) -> int {
 }
 
 @(test)
+rename_safe_refuses_capture_by_later_using_statement :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature using-stmt
+package test
+
+W :: struct {
+	id: int,
+}
+
+f :: proc(w: W) -> int {
+	x{*} := 1
+	{
+		using w
+		return x
+	}
+}
+`,
+	}
+	test.expect_rename_refused(t, &source, "id", {"`id` already refers to"})
+}
+
+@(test)
+rename_safe_allows_name_of_later_inner_using_statement :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature using-stmt
+package test
+
+W :: struct {
+	id: int,
+}
+
+f :: proc(w: W) -> int {
+	x{*} := 1
+	_ = x
+	{
+		using w
+		return id
+	}
+}
+`,
+	}
+	test.expect_rename(
+		t,
+		&source,
+		"id",
+		{
+			{
+				"main.odin",
+				`#+feature using-stmt
+package test
+
+W :: struct {
+	id: int,
+}
+
+f :: proc(w: W) -> int {
+	id := 1
+	_ = id
+	{
+		using w
+		return id
+	}
+}
+`,
+			},
+		},
+	)
+}
+
+@(test)
 rename_safe_refuses_capture_by_file_private_global :: proc(t: ^testing.T) {
 	source := test.Source {
 		main  = `package test

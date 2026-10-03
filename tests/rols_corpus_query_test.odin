@@ -252,7 +252,7 @@ send :: proc{send_raw, send_typed}
 			},
 		},
 	}
-	test.expect_hover(t, &source, "lib.send_typed :: proc(x: ^$T)")
+	test.expect_hover(t, &source, "lib.send :: proc(x: ^$T)")
 }
 
 // Corpus: reduced.
@@ -392,6 +392,118 @@ cfg: Config
 `}},
 	}
 	test.expect_hover(t, &source, "a.cfg: a.Config")
+}
+
+// Corpus: Skald, see docs/corpus-validation.md. A logged error fails the test.
+@(test)
+hover_generic_call_with_named_argument_call_value :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Ctx :: struct($M: typeid) { m: M }
+g :: proc(a: string) -> int { return len(a) }
+button :: proc(ctx: ^Ctx($M), on_click: M, id := 0) -> int { return id }
+f :: proc(ctx: ^Ctx(int)) -> int {
+	r{*} := button(ctx, 1, id = g("x"))
+	return r
+}
+`,
+	}
+	test.expect_hover(t, &source, "test.r: int")
+}
+
+// Corpus: reduced, see docs/corpus-validation.md. A logged error fails the test.
+@(test)
+indexing_a_file_with_shebang_line_logs_no_error :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#!/usr/bin/env odin
+package test
+
+f{*} :: proc() {}
+`,
+	}
+	test.with_document(t, &source, proc(t: ^testing.T, src: ^test.Source, _: common.Range) {
+		server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+	})
+}
+
+// Review of the const alias fix: an instantiated generic keeps the call site's type node for a bare `T` field.
+@(test)
+definition_of_field_of_generic_struct_in_other_file :: proc(t: ^testing.T) {
+	source := test.Source {
+		main  = `package test
+
+use :: proc(v: Vec(f32)) { _ = v.x{*} }
+`,
+		files = {{"a.odin", `package test
+
+Vec :: struct($T: typeid) {
+	x: T,
+}
+`}},
+	}
+	test.expect_definition_locations(
+		t,
+		&source,
+		{{uri = "file://test/a.odin", range = {start = {line = 3, character = 1}, end = {line = 3, character = 2}}}},
+	)
+}
+
+// Review of the comp literal fix: the literal inside the call is the innermost one, an outer literal is not.
+@(test)
+references_enum_in_comp_lit_inside_comp_lit_argument :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Kind :: enum { A, B{*} }
+Item :: struct { kind: Kind }
+Outer :: struct { n: Kind }
+take :: proc(it: Item) -> Kind { return it.kind }
+main :: proc() {
+	_ = Outer{n = take(Item{kind = .B})}
+}
+`,
+	}
+	test.expect_reference_locations(
+		t,
+		&source,
+		{
+			{range = {start = {line = 2, character = 18}, end = {line = 2, character = 19}}},
+			{range = {start = {line = 7, character = 33}, end = {line = 7, character = 34}}},
+		},
+	)
+}
+
+// Review of the poly name fix: a value parameter keeps its type, only a typeid parameter names a type.
+@(test)
+hover_local_from_poly_value_param_shows_its_type :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc($N: int) {
+	y{*} := N
+	_ = y
+}
+`,
+	}
+	test.expect_hover(t, &source, "test.y: int")
+}
+
+// Review of the pointer guard: a literal does not match a pointer parameter.
+@(test)
+hover_overload_literal_skips_pointer_parameter :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+by_ptr :: proc(x: ^int) {}
+by_val :: proc(x: int) {}
+g :: proc{by_ptr, by_val}
+main :: proc() {
+	g{*}(1)
+}
+`,
+	}
+	test.expect_hover(t, &source, "test.g :: proc(x: int)")
 }
 
 // Corpus: tina src/wall_clock_darwin.odin, reduced, see docs/corpus-validation.md.

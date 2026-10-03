@@ -516,13 +516,24 @@ check_captures :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name: 
 		}
 		captured: bool
 		if local {
-			// A later local is the inner one, and get_local prefers it.
-			captured = .Local in other.flags && range_after(other.range, symbol.range)
+			// A later local is the inner one, and get_local prefers it. A name from `using` counts as a local
+			// declared at its `using`.
+			other_range, other_local := other.range, .Local in other.flags
+			using_range, is_using := common.Range{}, false
+			if other.type == .Field {
+				using_range, is_using = using_range_at(site, location.range.start, offset, new_name)
+			}
+			if is_using {
+				other_range, other_local = using_range, true
+			}
+			captured = other_local && range_after(other_range, symbol.range)
 		} else {
 			// A global of the same package is a collision, already reported, unless it is private to another
 			// file: Odin accepts that declaration, but it captures the references in its file.
+			// A field that `using` brings into scope captures like a local.
 			captured =
 				.Local in other.flags ||
+				other.type == .Field ||
 				other.type == .Package ||
 				other.pkg != symbol.pkg ||
 				(!strings.equal_fold(other.uri, symbol.uri) &&
@@ -556,10 +567,18 @@ check_captures :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name: 
 			continue
 		}
 		other := hit.symbol^
-		if .Local in other.flags && !range_after(symbol.range, other.range) {
+		at := common.get_token_range(ident^, document.ast.src)
+		other_range, other_local := other.range, .Local in other.flags
+		using_range, is_using := common.Range{}, false
+		if other.type == .Field {
+			using_range, is_using = using_range_at(document, at.start, ident.pos.offset, new_name)
+		}
+		if is_using {
+			other_range, other_local = using_range, true
+		}
+		if other_local && !range_after(symbol.range, other_range) {
 			continue
 		}
-		at := common.get_token_range(ident^, document.ast.src)
 		// A declaration, such as a member of a procedure-local type keyed by its own name, is no use.
 		if other.range == at && strings.equal_fold(other.uri, document.uri.uri) {
 			continue
@@ -590,6 +609,32 @@ file_private_global :: proc(document: ^Document, name: string) -> bool {
 	return false
 }
 
+// The range of the `using` expression that brings name into scope at position, when one does.
+@(private = "file")
+using_range_at :: proc(
+	document: ^Document,
+	position: common.Position,
+	offset: int,
+	name: string,
+) -> (
+	range: common.Range,
+	ok: bool,
+) {
+	ast_context: AstContext
+	position_context: DocumentPositionContext
+	ast_context_at(document, position, &ast_context, &position_context) or_return
+
+	ident: ast.Ident
+	ident.name = name
+	ident.pos = {
+		file   = document.ast.fullpath,
+		offset = offset,
+	}
+	local := get_local(ast_context, ident) or_return
+	is_using_local(local) or_return
+	return common.get_token_range(local.lhs, document.ast.src), true
+}
+
 // What name resolves to at position in document, with the locals visible there.
 @(private)
 resolve_name_at :: proc(
@@ -615,7 +660,7 @@ resolve_name_at :: proc(
 }
 
 // The resolution environment of document with its globals and no locals.
-@(private = "file")
+@(private = "package")
 globals_context :: proc(document: ^Document) -> AstContext {
 	ast_context := make_ast_context(
 		document.ast,
