@@ -613,4 +613,25 @@ for run in 1 2 3 4 5; do
 	expect_exit 0 "gate-stable-over-the-error-limit-$run" "$OLS" query modernize "$dir/many" --apply
 done
 rm -rf "$dir/many" "$dir/many.orig"
+# A missing trailing comma is a Syntax Error under -vet-style and hides every type error of the package,
+# so the check reruns without the style flags and keeps the comma as a warning.
+mkdir "$dir/sty"
+printf 'package sty\n\nS :: struct {\n\ta: int,\n}\n\nf :: proc() {\n\ts := S{\n\t\ta = 1\n\t}\n\tx: int = "s"\n\t_, _ = s, x\n}\n' > "$dir/sty/s.odin"
+expect style-syntax-error-is-a-warning "s.odin:9:7: warning: Syntax Error: Expected a comma" "$OLS" query check "$dir/sty"
+expect style-rerun-reports-the-type-error "s.odin:11:11: error: Cannot convert" "$OLS" query check "$dir/sty"
+rm -rf "$dir/sty"
+# A quoted checker_args value keeps its space.
+mkdir -p "$dir/sp/my lib/lib" "$dir/sp/use"
+printf 'package lib\n\nV :: 3\n' > "$dir/sp/my lib/lib/l.odin"
+printf 'package use\n\nimport "x:lib"\n\nf :: proc() -> int {\n\treturn lib.V\n}\n' > "$dir/sp/use/u.odin"
+echo '{"checker_args": "-collection:x=\"'"$dir"'/sp/my lib\""}' > "$dir/ols.json"
+out="$("$OLS" query check "$dir/sp/use" 2>&1 || true)"
+if grep -q "error" <<<"$out"; then
+	echo "FAIL checker-args-quoted-space:" >&2
+	echo "$out" >&2
+	exit 1
+fi
+echo "ok checker-args-quoted-space"
+rm -rf "$dir/sp"
+echo '{}' > "$dir/ols.json"
 echo "all ok"

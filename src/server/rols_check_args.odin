@@ -46,13 +46,47 @@ check_command :: proc(check_path: string, collections: []string, config: ^common
 	return dedupe_flags(cmd[:])
 }
 
-// The checker_args words. Quoted values are not supported: the split is on spaces.
+// The checker_args words. Whitespace separates words. A double or single quote opens a group only at the
+// start of a word or right after `=` or `:`, and only when a closing quote of the same kind follows. Quotes
+// around text with whitespace are removed. Quotes around text without whitespace stay, as the plain split
+// on spaces left them: odin reads `-define:NAME="text"` as a value with the quotes in it and strips the
+// single quotes of `-define:NAME='text'` itself. Every other quote, such as the apostrophe of
+// `-define:MSG=it's`, and every backslash is an ordinary character, so a string without a group splits
+// exactly on whitespace.
 split_checker_args :: proc(checker_args: string) -> []string {
 	words := make([dynamic]string, context.temp_allocator)
-	for word in strings.split(checker_args, " ", context.temp_allocator) {
-		if word != "" {
-			append(&words, word)
+	word := strings.builder_make(context.temp_allocator)
+	in_word := false
+	for i := 0; i < len(checker_args); i += 1 {
+		c := checker_args[i]
+		if c == '"' || c == '\'' {
+			opens := !in_word || checker_args[i - 1] == '=' || checker_args[i - 1] == ':'
+			rest := checker_args[i + 1:]
+			if end := strings.index_byte(rest, c); opens && end >= 0 {
+				in_word = true
+				if strings.index_any(rest[:end], " \t\r\n") >= 0 {
+					strings.write_string(&word, rest[:end])
+				} else {
+					strings.write_string(&word, checker_args[i:i + end + 2])
+				}
+				i += end + 1
+				continue
+			}
 		}
+		switch c {
+		case ' ', '\t', '\n', '\r':
+			if in_word {
+				append(&words, strings.to_string(word))
+				word = strings.builder_make(context.temp_allocator)
+				in_word = false
+			}
+		case:
+			strings.write_byte(&word, c)
+			in_word = true
+		}
+	}
+	if in_word {
+		append(&words, strings.to_string(word))
 	}
 	return words[:]
 }

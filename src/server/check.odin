@@ -199,6 +199,12 @@ CheckProcess :: struct {
 	reader:   ^os.File,
 	finished: bool,
 	buffer:   [dynamic]u8,
+	// rols: the style rerun: the check path, whether the command has style flags, whether this is the
+	// rerun without them, and the errors of the first run that the rerun merges with
+	path:     string,
+	style:    bool,
+	rerun:    bool,
+	first:    Json_Errors,
 }
 
 // rols: timeout, the budget of the whole run, is scaled by the CLI compile gate
@@ -232,8 +238,25 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, t
 	next_index := 0
 	running_count := 0
 	start := time.now()
+	// rols: a Syntax Error of a style flag stops checking, so the package runs again without the flags,
+	// and the budget doubles once for all reruns. parsed counts the outputs that unmarshalled.
+	pending_reruns := make([dynamic]CheckProcess, context.temp_allocator)
+	parsed := 0
+	budget := timeout
 
-	for running_count > 0 || next_index < len(paths) {
+	for running_count > 0 || next_index < len(paths) || len(pending_reruns) > 0 {
+		for first in pending_reruns {
+			p, ok := start_check_process(first.path, collections[:], config, true)
+			if ok {
+				p.first = first.first
+				append(&processes, p)
+				running_count += 1
+				budget = 2 * timeout
+			} else {
+				append(&errors, first.first)
+			}
+		}
+		clear(&pending_reruns)
 		for running_count < max_concurrent_checks && next_index < len(paths) {
 			p, ok := start_check_process(paths[next_index], collections[:], config)
 			next_index += 1
@@ -245,7 +268,7 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, t
 		}
 
 		// rols: the caller's budget
-		if time.since(start) > timeout {
+		if time.since(start) > budget {
 			log.error("`odin check` timed out")
 			for &p in processes {
 				if !p.finished {
@@ -315,9 +338,25 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, t
 					context.temp_allocator,
 				); res != nil {
 					log.errorf("Failed to unmarshal check results: %v, %v", res, string(p.buffer[:]))
+					// rols: a rerun that cannot be read leaves the first run
+					if p.rerun {
+						append(&errors, p.first)
+					}
+					continue
+				}
+				parsed += 1
+				// rols: the rerun merges with the first run, a Syntax Error of a style check starts the rerun
+				if p.rerun {
+					json_errors = merge_style_rerun(p.first, json_errors)
+				} else if p.style && has_stopping_error(json_errors) {
+					append(&pending_reruns, CheckProcess{path = p.path, first = json_errors})
 					continue
 				}
 				append(&errors, json_errors)
+			} else if p.rerun {
+				// rols: a rerun that exits with 0 and prints nothing found no error, and one that fails left
+				// the first run
+				append(&errors, merge_style_rerun(p.first, {}) if state.exit_code == 0 else p.first)
 			}
 		}
 
@@ -326,8 +365,15 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, t
 		}
 	}
 
+	// rols: a rerun that the timeout cut short leaves the first run
+	for p in processes {
+		if p.rerun && !p.finished {
+			append(&errors, p.first)
+		}
+	}
+
 	// rols: record whether every package check ran to a parsed result
-	record_check_run(len(paths), processes[:], len(errors))
+	record_check_run(len(paths), processes[:], parsed)
 
 	for p in processes {
 		os.close(p.reader)
@@ -403,12 +449,19 @@ start_check_process :: proc(
 	check_path: string,
 	collections: []string,
 	config: ^common.Config,
+	// rols: the rerun leaves out the style flags
+	rerun := false,
 ) -> (
 	CheckProcess,
 	bool,
 ) {
 	// rols: the command line comes from check_command, which drops repeated flags
 	cmd := check_command(check_path, collections, config)
+	// rols: the style flags that turn a style slip into a Syntax Error
+	style := style_flags_on(cmd)
+	if rerun {
+		cmd = without_style_flags(cmd)
+	}
 
 	// rols: spawn lock from pipe creation until the deferred close of the write end
 	common.process_spawn_lock()
@@ -435,7 +488,8 @@ start_check_process :: proc(
 	}
 
 	buffer := make([dynamic]u8, 0, mem.Kilobyte * 200, context.temp_allocator)
-	return CheckProcess{process = p, reader = r, buffer = buffer}, true
+	// rols: the style rerun fields
+	return CheckProcess{process = p, reader = r, buffer = buffer, path = check_path, style = style, rerun = rerun}, true
 }
 
 // rols: vet findings report as warnings, and syntax errors as errors whatever their type

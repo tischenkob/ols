@@ -210,7 +210,7 @@ Options:
 
 - `odin_root_override`: Allows you to specify a custom `ODIN_ROOT` that `ols` will use to look for `odin` core libraries when implementing custom runtimes.
 
-- `checker_args`: Pass custom arguments to `odin check`, split on spaces. Odin rejects a repeated flag, so a flag here replaces the same flag that rols adds itself: `-no-entry-point`, `-json-errors`, a `-vet-*` flag that its `enable_checker_vet_*` key turns on, and a `-collection:NAME=` or `-define:NAME=` of the same NAME. `-custom-attribute` and `-sanitize` may repeat in Odin, so they are never dropped.
+- `checker_args`: Pass custom arguments to `odin check`, split like a shell does for the simple cases: whitespace separates arguments, a double or single quote at the start of an argument or right after `=` or `:` groups the text up to its closing quote. Quotes around text with whitespace are removed (`-collection:x="/my path"`), while quotes around text without whitespace stay as written (`-define:NAME="text"` reaches odin with its quotes, as before). Any other quote, such as the apostrophe in `-define:MSG=it's`, and every backslash is an ordinary character, so a string without such a group splits as before. Tabs and line breaks separate arguments too. A backslash is an ordinary character, so a Windows path such as `C:\libs\x` keeps it. An unterminated quote keeps the rest of the text in its argument. Odin rejects a repeated flag, so a flag here replaces the same flag that rols adds itself: `-no-entry-point`, `-json-errors`, a `-vet-*` flag that its `enable_checker_vet_*` key turns on, and a `-collection:NAME=` or `-define:NAME=` of the same NAME. `-custom-attribute` and `-sanitize` may repeat in Odin, so they are never dropped.
 
 - `enable_checker_vet_shadowing`: Pass `-vet-shadowing` to `odin check` and report shadowed declarations as warnings. Defaults to true.
 
@@ -220,7 +220,7 @@ Options:
 
 - `enable_checker_vet_cast`: Pass `-vet-cast` to `odin check`. Report casts and transmutes to a type the value already has. Defaults to true.
 
-- `enable_checker_vet_style`: Pass `-vet-style` to `odin check`. Report style violations, such as a missing trailing comma before a closing brace on its own line. Defaults to true.
+- `enable_checker_vet_style`: Pass `-vet-style` to `odin check`. Report style violations, such as a missing trailing comma before a closing brace on its own line. Defaults to true. Odin reports such a violation as a Syntax Error that stops checking the package, and so do `-vet-semicolon` and `-strict-style`. Odin reports a `-vet-tabs` finding on its own as well. When a check with any of these flags reports a Syntax Error or a `-vet-tabs` finding, rols runs the package a second time without those flags. The errors of the first run that the second run does not report show as warnings, and the rest of the diagnostics come from the second run, so a type error shows next to a missing trailing comma. The second run happens only after such an error. It doubles the time limit of the whole check from 20 to 40 seconds, shared by all second runs. The `ols query` commands with `--apply` check without these flags, but a style flag in `checker_args` stays and can start the second run.
 
 - `enable_checker_vet_semicolon`: Pass `-vet-semicolon` to `odin check`. Report unneeded semicolons. Defaults to true.
 
