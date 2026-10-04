@@ -184,7 +184,7 @@ run_edit :: proc(
 }
 
 // Warns once per directory that already has `odin check` errors: a parse error stops the check there, and
-// Odin stops reporting at its error limit, so new errors can hide behind them.
+// a -max-error-count in checker_args stops the reporting, so new errors can hide behind them.
 @(private = "file")
 warn_existing_errors :: proc(reasons: ^[dynamic]string, errors: []Check_Error) {
 	dirs := make([dynamic]string, context.temp_allocator)
@@ -199,7 +199,7 @@ warn_existing_errors :: proc(reasons: ^[dynamic]string, errors: []Check_Error) {
 		warn(
 			reasons,
 			fmt.tprintf(
-				"odin check already reports errors in %s; a parse error or Odin's error limit there can hide new errors, so the gate cannot see them",
+				"odin check already reports errors in %s; a parse error or a -max-error-count in checker_args there can hide new errors, so the gate cannot see them",
 				workspace_relative(dir),
 			),
 		)
@@ -524,10 +524,11 @@ checkable_paths :: proc(dirs: []string) -> []string {
 @(private = "file")
 check_errors :: proc(paths: []string) -> (errors: []Check_Error, reason: string, ok: bool) {
 	config := &common.config
-	// The gate checks the touched packages, whatever the profile names, and needs the diagnostics stored.
-	checker_path, enable_diagnostics := config.profile.checker_path, config.enable_diagnostics
-	config.profile.checker_path, config.enable_diagnostics = nil, true
-	defer config.profile.checker_path, config.enable_diagnostics = checker_path, enable_diagnostics
+	// The gate checks the touched packages, whatever the profile names, needs the diagnostics stored, and
+	// leaves out the vet and style flags, whose Syntax Errors stop the check and blind the gate.
+	saved := config^
+	config^ = server.gate_config(saved)
+	defer config^ = saved
 
 	server.check_run = {}
 	server.check(.Saved, paths, config)
@@ -553,20 +554,19 @@ check_errors :: proc(paths: []string) -> (errors: []Check_Error, reason: string,
 	return found[:], "", true
 }
 
-// The errors of after that before does not have, keyed by the first line of the message and counting
+// The errors of after that before does not have, keyed by error_key and counting
 // repeats: a second copy of an existing error is new. With names, the old and new name of a rename, a
 // before error left unmatched also matches with the old name replaced as a whole word, so an existing
 // error that names the renamed symbol is not new. The unchanged key is tried first, so an error about
 // another symbol of the same name still matches.
-@(private = "file")
 new_errors :: proc(before, after: []Check_Error, names: [2]string = {}) -> []Check_Error {
 	counts := make(map[string]int, context.temp_allocator)
 	for e in before {
-		counts[strings.truncate_to_byte(e.message, '\n')] += 1
+		counts[error_key(e.message)] += 1
 	}
 	unmatched := make([dynamic]Check_Error, context.temp_allocator)
 	for e in after {
-		key := strings.truncate_to_byte(e.message, '\n')
+		key := error_key(e.message)
 		if counts[key] > 0 {
 			counts[key] -= 1
 		} else {
@@ -584,7 +584,7 @@ new_errors :: proc(before, after: []Check_Error, names: [2]string = {}) -> []Che
 	}
 	fresh := make([dynamic]Check_Error, context.temp_allocator)
 	for e in unmatched {
-		key := strings.truncate_to_byte(e.message, '\n')
+		key := error_key(e.message)
 		if renamed[key] > 0 {
 			renamed[key] -= 1
 		} else {
@@ -592,6 +592,18 @@ new_errors :: proc(before, after: []Check_Error, names: [2]string = {}) -> []Che
 		}
 	}
 	return fresh[:]
+}
+
+// The first line of an error message. odin names the files of a directory with two package names in the
+// order it parses them, so "Different package name, expected 'a', got 'b'" swaps its names between
+// runs and keys as one error.
+@(private = "file")
+error_key :: proc(message: string) -> string {
+	line := strings.truncate_to_byte(message, '\n')
+	if strings.has_prefix(line, "Different package name") {
+		return "Different package name"
+	}
+	return line
 }
 
 // prefix/PATH with PATH relative to the workspace root, or prefix followed by the absolute path outside it.

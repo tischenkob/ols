@@ -222,6 +222,8 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config) {
 	processes := make([dynamic]CheckProcess, 0, len(paths), context.temp_allocator)
 
 	errors := make([dynamic]Json_Errors, 0, len(paths), context.temp_allocator)
+	// rols: the source of a file decides the severity of an unused variable
+	hard_unused := make(Hard_Unused_Cache, context.temp_allocator)
 
 	next_index := 0
 	running_count := 0
@@ -376,8 +378,8 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config) {
 				uri.uri,
 				Diagnostic {
 					code = "checker",
-					// rols: the message decides whether a vet error is a warning
-					severity = map_diagnostic_severity(error.type, message),
+					// rols: the message and the source decide whether a vet error is a warning
+					severity = check_error_severity(error, message, &hard_unused),
 					range = {
 						// odin will sometimes report errors on column 0, so we ensure we don't provide a negative column/line to the client
 						start = {character = max(error.pos.column - 1, 0), line = max(error.pos.line - 1, 0)},
@@ -400,52 +402,8 @@ start_check_process :: proc(
 	CheckProcess,
 	bool,
 ) {
-	command: string
-
-	if config.odin_command != "" {
-		command = config.odin_command
-	} else {
-		command = "odin"
-	}
-
-	entry_point_opt := filepath.ext(check_path) == ".odin" ? "-file" : "-no-entry-point"
-	cmd := make([dynamic]string, context.temp_allocator)
-	append(&cmd, command, "check", check_path)
-	for c in collections {
-		append(&cmd, c)
-	}
-	for k, v in config.profile.defines {
-		append(&cmd, fmt.tprintf("-define:%s=%s", k, v))
-	}
-	append(&cmd, entry_point_opt, "-json-errors")
-	// rols: vet and style flags from the config
-	if config.enable_checker_vet_shadowing {
-		append(&cmd, "-vet-shadowing")
-	}
-	if config.enable_checker_vet_unused_variables {
-		append(&cmd, "-vet-unused-variables")
-	}
-	if config.enable_checker_vet_cast {
-		append(&cmd, "-vet-cast")
-	}
-	if config.enable_checker_vet_style {
-		append(&cmd, "-vet-style")
-	}
-	if config.enable_checker_vet_semicolon {
-		append(&cmd, "-vet-semicolon")
-	}
-	if config.enable_checker_vet_tabs {
-		append(&cmd, "-vet-tabs")
-	}
-	if config.enable_checker_strict_style {
-		append(&cmd, "-strict-style")
-	}
-	args, _ := strings.split(config.checker_args, " ", context.temp_allocator)
-	for arg in args {
-		if arg != "" {
-			append(&cmd, arg)
-		}
-	}
+	// rols: the command line comes from check_command, which drops repeated flags
+	cmd := check_command(check_path, collections, config)
 
 	// rols: spawn lock from pipe creation until the deferred close of the write end
 	common.process_spawn_lock()
@@ -459,7 +417,7 @@ start_check_process :: proc(
 	defer os.close(w)
 
 	desc := os.Process_Desc {
-		command = cmd[:],
+		command = cmd,
 		stdout  = w,
 		stderr  = w,
 	}
@@ -486,8 +444,8 @@ map_diagnostic_severity :: proc(type: string, message: string) -> DiagnosticSeve
 	}
 
 	// The shadowing and cast vet flags are ours, not the user's build, so their errors show as warnings. The
-	// "declared but not used" message of -vet-unused-variables stays an error: odin prints the same text, without
-	// a vet flag, for `if c { x := 1 }`, which is a compile error, and the JSON cannot tell the two apart.
+	// "declared but not used" message stays an error here: odin prints the same text, without a vet flag, for
+	// `if c { x := 1 }`, which is a compile error. check_error_severity reads the source to tell them apart.
 	vet_messages := [?]string{"shadows declaration", "Unneeded cast", "Unneeded transmute"}
 	for m in vet_messages {
 		if strings.contains(message, m) {

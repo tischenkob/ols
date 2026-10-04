@@ -43,13 +43,6 @@ These findings have no harness test, because they live in the CLI or the compile
 
 - **A code action on a 1.8 MB generated file segfaults** when the package also contains odin-godot's `libgd/classdb/bind.odin`. The setup is in the sweep's scratch copy of `libgd/classdb`, with `bind.gen.odin` repeated 12 times. Possibly fixed by the default-parameter fix; not rechecked.
 
-### Compile gate and checker
-
-- **`checker_args` containing `-no-entry-point` drops every compiler error.** `check.odin` always adds `-no-entry-point` or `-file`, odin rejects the duplicate flag, the JSON parse fails, and `ols query check` exits 0. Repro: `ols.json` `{"checker_args": "-no-entry-point"}` and `f :: proc() { x: int = "s"; _ = x }`. odin-godot's checked-in `ols.json` has this setting.
-- **The default `-vet-style` hides type errors and blinds the `--apply` gate.** A struct field list without a trailing comma (`a, b: int` on its own line) becomes a Syntax Error that stops checking. In Skald, a vendored file does this, so the gate saw the same error before and after an edit and wrote code that plain `odin check` rejects (`modernize` with a `slice.fill` on a fixed array, and "Unwrap block" leaving unreachable code). The gate should check without the style vets, or with the user's own flags. Upstream ols itself reports these Syntax Errors with the default config.
-- **The gate rolls back safe edits when Odin reports pre-existing errors nondeterministically.** Two sources were seen. A package over Odin's error limit prints a different subset of errors on each run, because procedures are checked in parallel. A directory with two package names reports "Different package name" against whichever file Odin parses first. Repro: one safe `if (x > 0)` fix plus 60 procedures that each call an undeclared name; `ols query modernize --apply` exited 4, 4, 4, 0, 0 over five runs.
-- **`-vet-unused-variables` findings still show as `error`** while the other vet flags show as `warning`. Odin prints the same text, `declared but not used`, without a vet flag for `if c { x := 1 }`, which is a compile error, and the JSON output cannot tell the two apart. `map_diagnostic_severity` in `check.odin` therefore keeps the message as an error. An AST check of the position could tell them apart.
-
 ### CLI
 
 - **A relative `--root` limits workspace searches to the current file.** `refs`, `callers`, `find` and `rename` with `--root .` miss other files, and a rename then rolls back. An absolute root, or no `--root`, works. Repro: `a.odin` declares and uses `helper`, `b.odin` also calls it, then run `ols query refs a.odin:3:1 --root .`.
