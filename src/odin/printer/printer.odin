@@ -43,6 +43,8 @@ Disabled_Info :: struct {
 	// Where `text` starts in the source. A suppressed declaration can begin earlier than this,
 	// since its attributes sit above the directive, so visit_disabled emits those separately.
 	begin:      int,
+	// rols: where the disable comment sits
+	comment_offset: int,
 }
 
 Trailing_Comment_Record :: struct {
@@ -244,7 +246,8 @@ build_disabled_lines_info :: proc(p: ^Printer) {
 				empty = true
 				disable_position = comment.pos
 			} else if found_disable && action == "enable" {
-				begin := disable_position.offset - (comment.pos.column - 1)
+				// rols: the region starts at the disable comment's line, not at the enable comment's column
+				begin := disable_position.offset - (disable_position.column - 1)
 				end := comment.pos.offset + len(comment.text)
 
 				disabled_info := Disabled_Info {
@@ -253,6 +256,8 @@ build_disabled_lines_info :: proc(p: ^Printer) {
 					text       = p.src[begin:end],
 					empty      = empty,
 					begin      = begin,
+					// rols: remember where the disable comment sits
+					comment_offset = disable_position.offset,
 				}
 
 				for line in disable_position.line ..= comment.pos.line {

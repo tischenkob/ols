@@ -294,20 +294,29 @@ Tuple :: struct {
 
 list_fits: [dynamic]Tuple
 
-fits :: proc(width: int, list: ^[dynamic]Tuple) -> bool {
+// rols: `rest` is the caller's pending stack, read from its top without a copy, so a fit check costs its width
+fits :: proc(width: int, list: ^[dynamic]Tuple, rest: []Tuple) -> bool {
 	assert(list != nil)
+
+	rest_index := len(rest)
 
 	start_width := width
 	width := width
 
-	if len(list) == 0 {
+	if len(list) == 0 && rest_index == 0 {
 		return true
 	} else if width <= 0 {
 		return false
 	}
 
-	for len(list) != 0 {
-		data: Tuple = pop(list)
+	for len(list) != 0 || rest_index > 0 {
+		data: Tuple
+		if len(list) != 0 {
+			data = pop(list)
+		} else {
+			rest_index -= 1
+			data = rest[rest_index]
+		}
 
 		if width <= 0 {
 			return false
@@ -398,7 +407,8 @@ fits :: proc(width: int, list: ^[dynamic]Tuple) -> bool {
 				list,
 				Tuple {
 					indentation = data.indentation,
-					mode = (v.mode == .Break ? .Break : data.mode),
+					// rols: a Fit group measures with its breaks as spaces
+					mode = (v.mode == .Break || v.mode == .Fit ? v.mode : data.mode),
 					document = v.document,
 					alignment = data.alignment,
 				},
@@ -601,11 +611,8 @@ format :: proc(width: int, list: ^[dynamic]Tuple, builder: ^strings.Builder, p: 
 				break
 			}
 
+			// rols: list_fits holds only the group; fits reads the pending stack through `rest` (the call below)
 			clear(&list_fits)
-
-			for element in list {
-				append(&list_fits, element)
-			}
 
 			append(
 				&list_fits,
@@ -624,7 +631,7 @@ format :: proc(width: int, list: ^[dynamic]Tuple, builder: ^strings.Builder, p: 
 						alignment = data.alignment,
 					},
 				)
-			} else if fits(width - consumed, &list_fits) && v.mode != .Break && v.mode != .Fit {
+			} else if fits(width - consumed, &list_fits, list[:]) && v.mode != .Break && v.mode != .Fit {
 				append(
 					list,
 					Tuple {

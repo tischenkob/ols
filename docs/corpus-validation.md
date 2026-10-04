@@ -1,6 +1,6 @@
 # Corpus validation
 
-rols was run over seven open-source Odin projects and the Odin standard library on 2026-10-02, at rols `2c89a95a` with Odin `dev-2026-09:a2fb372b7` on macOS arm64. The sweep looked for crashes, hangs, edits that break `odin check`, false lints and wrong query results. This file records the corpus, the bugs that became failing tests (the edit bugs are fixed, the formatter cases remain), the follow-ups that did not, and how to repeat the sweep once the fixes land.
+rols was run over seven open-source Odin projects and the Odin standard library on 2026-10-02, at rols `2c89a95a` with Odin `dev-2026-09:a2fb372b7` on macOS arm64. The sweep looked for crashes, hangs, edits that break `odin check`, false lints and wrong query results. This file records the corpus, the follow-ups that did not become harness tests (every bug that did is fixed), and how to repeat the sweep.
 
 ## Corpus
 
@@ -19,25 +19,16 @@ The sweep's raw material is in `docs/corpus/`. `findings-A.md` to `findings-D.md
 
 odin-godot's own generated bindings could not be produced, because its generator no longer compiles with Odin `dev-2026-09`. The sweep used a synthetic 1.8 MB file instead.
 
-## Bugs with a failing test
-
-Each bug below has a snapshot case that fails today and passes once the bug is fixed. The reduced source of each case is in the case itself. Every bug that had a harness test is fixed: `./build.sh test` reports no failures. The tests assume a darwin host, where the corpus ran: the build-tag cases use `linux` and `windows` files as the excluded platforms.
-
-### Formatter
-
-These are snapshot cases in `tools/odinfmt/tests`, run by `tools/odinfmt/tests.sh`. The suite stops at the first failing file, so fix them in this order to see each one fail.
-
-| Case | Bug |
-|---|---|
-| `rols_disable_region_no_stray_line.odin` | a stray line holding one byte (`t`) appears above an `//odinfmt:disable` region, and the file no longer compiles |
-| `rols_idempotent_comp_lit_comment.odin` | `x = T{a = {9, 9}} // c` is expanded with `} \t// c`, and a second pass changes it again |
-| `rols_idempotent_semicolon_line.odin` | a long line of `;`-separated statements is split again on the second pass |
-
-Each snapshot holds the second-pass layout. A fix that reaches a different fixed point needs a new snapshot.
-
 ## Follow-ups
 
 These findings have no harness test, because they live in the CLI or the compile gate, depend on timing, or were not reduced. Each item names a repro.
+
+### Formatter
+
+- **`fits` measures a later statement under the enclosing group's break mode.** A group nested in the rest of the document inherits `Break`, so the first `break_with("", true)` inside it (an index expression, for example) ends the measure early. That made a `;`-joined line fit when it did not. The fix keeps the last one-line statement of a `;` chain in one piece (`enforce_fit`), and a `Fit` group now measures with its breaks as spaces. A middle statement is still measured the old way. Other callers of `fits` do too, and treating nested rest groups as flat changes `tests/calls.odin`, so it needs its own review.
+- **A `;`-joined statement after the first line of a block is never wrapped, and a split one is not stable.** The group that holds the `; ` break is skipped when the parent mode is flat and no newline was just emitted. Repro: in a `case` body, `x := 1` followed by `a := 1; long_call(…)` wider than the width stays on one line, and a first-statement `a := 1; long_call(…); b := 2` prints the call wrapped on `a := 1; long_call(`, and the second pass splits it at the `;` with the call on one over-width line. The third pass wraps the arguments again, and the output keeps alternating. The base formatter behaves the same, and `rols_semicolon_line_middle_over_width.odin` holds the stable layout.
+- **A disabled struct field still starts its region at the line start.** `visit_struct_field_list` emits `info.text` without the comment-offset rule that `visit_disabled` has, so a multi-line field that ends on a trailing `// odinfmt:disable` line prints its end twice.
+- **Other `visit_begin_brace` callers key the Indent comment option on the line only.** The comp lit and matrix comp lit cases are fixed. Repro to check: `s := struct{a: int}{} // c`, and the same with a trailing comment after the closing brace of an enum, union or block that opens on that line.
 
 ### Hangs and crashes not reduced
 
@@ -45,7 +36,6 @@ These findings have no harness test, because they live in the CLI or the compile
 
 ### Performance
 
-- **The formatter is quadratic in the number of elements of one composite literal.** 16,000 elements take 0.95 s and 32,000 take 3.8 s. Formatting `core/rexcode/isa/ppc/tablegen/generated/decode_tables.odin` (950 KB) takes 11 to 13 s.
 - **documentSymbol and code actions are slow on 2 MB files.** On `core/rexcode/isa/ppc/mnemonic_builders.odin`, documentSymbol takes 20 s and each code action 8 s, even where no action applies.
 - **`ols query symbols FILE` indexes the whole package** before it outlines one file. A 55 KB file with one symbol takes 2.7 s.
 
@@ -57,7 +47,6 @@ These findings have no harness test, because they live in the CLI or the compile
 ### Edits
 
 - **"Invert if" on an `if` without `else` leaves an empty then-branch** (`if !c {} else {…}`). This is upstream OLS's tested behavior (`action_invert_if_simple_edit`), kept for compatibility.
-- **The odinfmt snapshot suite ignores failures in subdirectories.** `snapshot_directory` in `tools/odinfmt/snapshot/snapshot.odin` drops the result of its recursive call, so `tools/odinfmt/tests.sh` exits 0 after a mismatch in a subdirectory. A mismatch also leaves `.snapshots/*_failed` files that git does not ignore.
 - **The harness's `expect_*` procs leak their message builders when an assertion fails**, so a failing test also reports memory leaks under `ODIN_TEST_FAIL_ON_BAD_MEMORY`.
 - **The upstream ols test suite hung for more than 20 minutes** on the tree that `modernize --apply` rewrote. This was not investigated.
 
@@ -72,9 +61,9 @@ The lints found real bugs in the projects. They are listed here so that a rerun 
 
 ## Rerunning the sweep
 
-Run the sweep again after the bugs above are fixed.
+Run the sweep again after the follow-ups above are settled.
 
-1. Run `./build.sh test`, which must report no failures, and `tools/odinfmt/tests.sh`, where every case listed under "Bugs with a failing test" must pass.
+1. Run `./build.sh test` and `tools/odinfmt/tests.sh`, which must both report no failures.
 2. Run `tools/corpus_smoke.sh`, and `tools/corpus_smoke.sh --lsp` for the stdio pass. The script clones the corpus at the pinned commits into `${ROLS_CORPUS_DIR:-$HOME/.cache/rols-corpus}`. It runs the baseline `odin check`, `check`, `lint`, `symbols`, `modernize --apply` with a plain `odin check` afterwards, and the formatter round trip. It exits 1 and prints one `FAIL` line per problem. A run on the pinned commits should end with no `FAIL` lines.
 3. Repeat the manual checks that the script does not automate, on two or three projects:
    - Rename a package proc, a struct field used through `using`, an enum member used inside call arguments, and a local, each with `--apply`.
