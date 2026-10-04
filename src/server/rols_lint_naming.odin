@@ -139,9 +139,28 @@ decl_kind :: proc(ctx: ^LintContext, value: ^ast.Expr) -> Decl_Kind {
 			return .Constant
 		}
 		if .Variable in resolved.symbol.flags do return .Constant
+		// rols: the resolver drops .Variable from a symbol whose value is an identifier, so `pf :: PLATFORM`
+		// with `PLATFORM :: IMPL` (a value) reads as a type. Follow the alias chain to its source.
+		if aliases_value(ctx, resolved.symbol.value_expr) do return .Constant
 		return .Type
 	}
 	return .Constant
+}
+
+// Whether expr names, through a chain of identifiers declared in this file, a symbol flagged .Variable.
+@(private = "file")
+aliases_value :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> bool {
+	expr := expr
+	for _ in 0 ..< 8 {
+		if expr == nil do return false
+		ident, is_ident := expr.derived.(^ast.Ident)
+		if !is_ident do return false
+		resolved, ok := lint_symbols(ctx)[uintptr(ident)]
+		if !ok || resolved.symbol == nil do return false
+		if .Variable in resolved.symbol.flags do return true
+		expr = resolved.symbol.value_expr
+	}
+	return false
 }
 
 // `Small_Array(16, Item)` instantiates a polymorphic type, so its literal argument is not a cast.

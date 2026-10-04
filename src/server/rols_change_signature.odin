@@ -46,7 +46,9 @@ signature_problem :: proc(decl: ^ast.Value_Decl, lit: ^ast.Proc_Lit) -> string {
 	if lit.body == nil {
 		return "the procedure has no body"
 	}
-	if lit.type == nil || lit.type.generic || len(lit.where_clauses) > 0 {
+	// rols: `generic` misses a poly type nested in a parameter type such as `^Ctx($Msg)`, because core:odin/parser
+	// `is_expr_generic` has no Call_Expr case.
+	if lit.type == nil || lit.type.generic || len(lit.where_clauses) > 0 || expr_contains_poly(lit.type) {
 		return "the procedure is polymorphic or has a where clause"
 	}
 	if has_fixed_signature_attribute(decl.attributes[:]) {

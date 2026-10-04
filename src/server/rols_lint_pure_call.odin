@@ -2,6 +2,7 @@ package server
 
 import "core:fmt"
 import "core:odin/ast"
+import "core:slice"
 import "core:strings"
 
 import "src:common"
@@ -24,6 +25,8 @@ PURE_PACKAGES := []string {
 @(private = "file")
 MUTATING_PREFIXES := []string {
 	"builder_",
+	"buffer_", // bytes.Buffer: buffer_write*, buffer_read*, buffer_truncate, buffer_grow, ...
+	"reader_", // bytes.Reader, strings.Reader: reader_read*, reader_seek, ...
 	"write_",
 	"sort",
 	"reverse",
@@ -43,6 +46,20 @@ MUTATING_PREFIXES := []string {
 	"ordered_remove",
 	"remove",
 	"insert",
+}
+
+// Procedures under a mutating prefix that only inspect their argument.
+@(private = "file")
+ACCESSOR_NAMES := []string {
+	"buffer_to_bytes",
+	"buffer_to_string",
+	"buffer_is_empty",
+	"buffer_length",
+	"buffer_capacity",
+	"reader_length",
+	"reader_size",
+	"buffer_to_stream",
+	"reader_to_stream",
 }
 
 lint_pure_call :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnostic) {
@@ -71,7 +88,8 @@ lint_pure_call :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diag
 	if !is_proc || len(value.return_types) == 0 do return
 
 	for prefix in MUTATING_PREFIXES {
-		if strings.has_prefix(resolved.symbol.name, prefix) do return
+		name := resolved.symbol.name
+		if strings.has_prefix(name, prefix) && !slice.contains(ACCESSOR_NAMES, name) do return
 	}
 
 	// A pointer argument is the procedure's output.

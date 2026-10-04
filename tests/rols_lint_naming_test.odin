@@ -359,3 +359,31 @@ Message :: struct {
 
 	test.expect_lint_diagnostics(t, &source, {{5, "naming"}})
 }
+
+@(test)
+lint_naming_constant_alias_of_value :: proc(t: ^testing.T) {
+	// Corpus: a `when` that picks a platform struct constant, see docs/corpus-validation.md.
+	source := test.Source {
+		main = `package test
+
+Iface :: struct {
+	f: proc() -> int,
+}
+
+IMPL_A :: Iface{f = nil}
+IMPL_B :: Iface{f = nil}
+
+when ODIN_OS == .Windows {
+	PLATFORM :: IMPL_A
+} else {
+	PLATFORM :: IMPL_B
+}
+
+pf :: PLATFORM
+Alias :: Iface
+`,
+		config = {enable_lint_naming = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{15, "naming"}}, {"constant names are SCREAMING_SNAKE_CASE: pf"})
+}
