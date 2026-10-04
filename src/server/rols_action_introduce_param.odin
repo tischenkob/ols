@@ -70,7 +70,7 @@ add_introduce_param_action :: proc(ctx: ^ActionContext) {
 		}
 		// Untyped literals print as their default types only when marked mutable.
 		symbol.flags += {.Mutable}
-		type, type_ok = symbol_type_text(ctx.ast_context, symbol, name)
+		type, type_ok = symbol_type_text(ctx.ast_context, symbol, name, require_import = true)
 		if !type_ok {
 			return
 		}
@@ -126,5 +126,5 @@ argument_param_type :: proc(ctx: ^ActionContext, expr: ^ast.Expr, parent: ^ast.N
 	if !param_ok {
 		return "", false
 	}
-	return symbol_type_text(ctx.ast_context, param, "")
+	return symbol_type_text(ctx.ast_context, param, "", require_import = true)
 }

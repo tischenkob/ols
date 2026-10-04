@@ -1,3 +1,5 @@
+#+feature dynamic-literals
+
 package tests
 
 import "core:strings"
@@ -684,6 +686,68 @@ f :: proc(xs: []int) {
 
 f :: proc(xs: []int) {
 	for i := 0; i < len(xs); i += 1 {
+		g(i)
+	}
+}
+`)
+}
+
+// Corpus: manual check, repro3. The bound's type is c.int and the file does not import core:c.
+@(test)
+expand_range_refused_when_bound_type_package_not_imported :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "other"
+
+f :: proc() {
+	n := other.count()
+	for i {*}in 0..<n {
+		g(i)
+	}
+}
+`,
+		packages = {
+			{pkg = "other", source = "package other\n\nimport \"core:c\"\n\ncount :: proc() -> c.int {\n\treturn 4\n}\n"},
+			{pkg = "c", source = "package c\n\nint :: i32\n"},
+		},
+		collections = {"core" = "test"},
+		config = {enable_code_action_expand = true},
+	}
+	test.expect_action_missing(t, &source, C_STYLE_FOR)
+}
+
+// The counter is declared with the alias that the file binds the package under.
+@(test)
+expand_range_writes_alias_of_aliased_import :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "other"
+import cc "core:c"
+
+f :: proc() {
+	n := other.count()
+	for i {*}in 0..<n {
+		g(i)
+	}
+}
+`,
+		packages = {
+			{pkg = "other", source = "package other\n\nimport \"core:c\"\n\ncount :: proc() -> c.int {\n\treturn 4\n}\n"},
+			{pkg = "c", source = "package c\n\nint :: i32\n"},
+		},
+		collections = {"core" = "test"},
+		config = {enable_code_action_expand = true},
+	}
+	test.expect_action_applied(t, &source, C_STYLE_FOR, `package test
+
+import "other"
+import cc "core:c"
+
+f :: proc() {
+	n := other.count()
+	for i: cc.int = 0; i < n; i += 1 {
 		g(i)
 	}
 }

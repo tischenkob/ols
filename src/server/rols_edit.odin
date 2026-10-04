@@ -230,16 +230,30 @@ local_type_text :: proc(ctx: ^ActionContext, ident: ^ast.Ident) -> (string, bool
 	if !ok {
 		return "", false
 	}
-	return symbol_type_text(ctx.ast_context, symbol, ident.name)
+	return symbol_type_text(ctx.ast_context, symbol, ident.name, require_import = true)
 }
 
 // Named types print by name, with the package alias when foreign. Anonymous aggregates and
-// untyped constants have no name to write.
-symbol_type_text :: proc(ast_context: ^AstContext, symbol: Symbol, name: string) -> (string, bool) {
+// untyped constants have no name to write. With require_import, a type of a package that the file
+// does not import has no name either: use it where the text is written as code and no import is added.
+symbol_type_text :: proc(
+	ast_context: ^AstContext,
+	symbol: Symbol,
+	name: string,
+	require_import := false,
+) -> (
+	string,
+	bool,
+) {
 	symbol := symbol
 	_, is_untyped := symbol.value.(SymbolUntypedValue)
 	if is_untyped && .Mutable not_in symbol.flags {
 		return "", false
+	}
+	// A variable's own symbol, as a poly call result is, can carry the package of its type argument. It is
+	// still anonymous, and must not turn the variable name into a type name.
+	if name != "" && symbol.name == name && (symbol.type == .Variable || symbol.type == .Constant) {
+		symbol.pkg = ast_context.document_package
 	}
 	construct_ident_symbol_info(&symbol, name, ast_context.document_package)
 	// An untyped value copied from another variable carries that variable's name, not a type.
@@ -258,6 +272,9 @@ symbol_type_text :: proc(ast_context: ^AstContext, symbol: Symbol, name: string)
 		   symbol.type_pkg != ast_context.document_package &&
 		   !builtin_without_decl(symbol.type_name, symbol.type_pkg) {
 			pkg_name := get_pkg_name(ast_context, symbol.type_pkg)
+			if require_import && symbol.type_pkg != "$builtin" && !pkg_imported(ast_context, symbol.type_pkg) {
+				return "", false
+			}
 			if pkg_name != "" && pkg_name != "$builtin" {
 				strings.write_string(&text, pkg_name)
 				strings.write_byte(&text, '.')
@@ -279,6 +296,16 @@ symbol_type_text :: proc(ast_context: ^AstContext, symbol: Symbol, name: string)
 		return "", false
 	}
 	return result, true
+}
+
+// Whether the current file imports the package, under any name.
+pkg_imported :: proc(ast_context: ^AstContext, pkg: string) -> bool {
+	for imp in ast_context.imports {
+		if imp.name == pkg {
+			return true
+		}
+	}
+	return false
 }
 
 // Initializers that already name their type, so an explicit type would repeat it. callee is

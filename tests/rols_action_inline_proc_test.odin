@@ -784,3 +784,22 @@ main :: proc() {
 }
 `)
 }
+
+// Corpus: manual check, repro3. The body redeclares a parameter, which clashes with the local that binds the argument.
+@(test)
+action_inline_proc_refused_body_shadows_parameter :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+Vec :: [2]f32
+
+emit :: proc(v: Vec, uv: Vec) {
+	v := v
+	v.x += 1
+	_ = uv
+}
+
+g :: proc(vs: [2]Vec) {
+	em{*}it(vs[0], {0, 0})
+}
+`)
+}

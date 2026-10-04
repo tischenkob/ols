@@ -1,3 +1,5 @@
+#+feature dynamic-literals
+
 package tests
 
 import "core:testing"
@@ -75,6 +77,29 @@ inlay_constant_values :: proc(t: ^testing.T) {
 		`,
 		packages = {},
 		config = {enable_inlay_hints_constant_values = true},
+	}
+
+	test.expect_inlay_hints(t, &source)
+}
+
+// The hint is display text, so it may name a package the file does not import.
+@(test)
+inlay_variable_type_of_unimported_package :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+		import "other"
+
+		main :: proc() {
+			n[[: c.int]] := other.count()
+		}
+		`,
+		packages = {
+			{pkg = "other", source = "package other\n\nimport \"core:c\"\n\ncount :: proc() -> c.int {\n\treturn 4\n}\n"},
+			{pkg = "c", source = "package c\n\nint :: i32\n"},
+		},
+		collections = {"core" = "test"},
+		config = {enable_inlay_hints_variable_types = true},
 	}
 
 	test.expect_inlay_hints(t, &source)
