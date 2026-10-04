@@ -19,6 +19,10 @@ Hard_Unused :: struct {
 // declaration of an `if`, `else`, `for` body, and a -vet-unused-variables finding anywhere else, so the
 // source decides. A file that cannot be read or parsed keeps the error.
 check_error_severity :: proc(error: Json_Error, message: string, cache: ^Hard_Unused_Cache) -> DiagnosticSeverity {
+	// A style Syntax Error of the first run that the rerun without the style flags did not report.
+	if error.type == STYLE_ERROR_TYPE {
+		return .Warning
+	}
 	severity := map_diagnostic_severity(error.type, message)
 	if severity != .Error || !strings.has_suffix(message, UNUSED_SUFFIX) {
 		return severity

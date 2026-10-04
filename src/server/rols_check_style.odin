@@ -1,0 +1,82 @@
+package server
+
+import "core:slice"
+import "core:strings"
+
+// The `type` that merge_style_rerun gives to a style Syntax Error that the rerun did not report. The
+// severity of this type is a warning.
+STYLE_ERROR_TYPE :: "style"
+
+// The flags that turn a style slip into a Syntax Error, which stops checking.
+@(private = "file")
+STYLE_FLAGS := [?]string{"-vet-style", "-vet-semicolon", "-vet-tabs", "-strict-style"}
+
+// Whether cmd, an `odin check` command line, has a flag that turns a style slip into a Syntax Error.
+style_flags_on :: proc(cmd: []string) -> bool {
+	for arg in cmd {
+		if slice.contains(STYLE_FLAGS[:], arg) {
+			return true
+		}
+	}
+	return false
+}
+
+// cmd without the style flags.
+without_style_flags :: proc(cmd: []string) -> []string {
+	out := make([dynamic]string, 0, len(cmd), context.temp_allocator)
+	for arg in cmd {
+		if !slice.contains(STYLE_FLAGS[:], arg) {
+			append(&out, arg)
+		}
+	}
+	return out[:]
+}
+
+// Whether odin reported an error that stops checking: a Syntax Error, or the -vet-tabs finding, which odin
+// reports alone as well.
+has_stopping_error :: proc(result: Json_Errors) -> bool {
+	for error in result.errors {
+		if is_stopping_error(error) {
+			return true
+		}
+	}
+	return false
+}
+
+@(private = "file")
+is_stopping_error :: proc(error: Json_Error) -> bool {
+	return(
+		len(error.msgs) > 0 &&
+		(strings.has_prefix(error.msgs[0], "Syntax Error") || strings.has_prefix(error.msgs[0], "With '-vet-tabs'")) \
+	)
+}
+
+// The errors of a package after the check reran without the style flags. An error of the first run that the
+// rerun did not report came from a style flag: it stays, as a warning (type STYLE_ERROR_TYPE),
+// beside the errors of the rerun, which has the type errors that the style Syntax Error hid.
+merge_style_rerun :: proc(first, rerun: Json_Errors) -> Json_Errors {
+	merged := make([dynamic]Json_Error, 0, len(first.errors) + len(rerun.errors), context.temp_allocator)
+	append(&merged, ..rerun.errors)
+	for error in first.errors {
+		if reported_in(rerun.errors, error) {
+			continue
+		}
+		style := error
+		style.type = STYLE_ERROR_TYPE
+		append(&merged, style)
+	}
+	return {error_count = len(merged), errors = merged[:]}
+}
+
+@(private = "file")
+reported_in :: proc(errors: []Json_Error, error: Json_Error) -> bool {
+	for other in errors {
+		if other.pos.file == error.pos.file &&
+		   other.pos.line == error.pos.line &&
+		   other.pos.column == error.pos.column &&
+		   slice.equal(other.msgs, error.msgs) {
+			return true
+		}
+	}
+	return false
+}

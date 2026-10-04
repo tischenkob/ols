@@ -114,3 +114,41 @@ check_command_keeps_repeatable_flags :: proc(t: ^testing.T) {
 	testing.expect_value(t, slice.count(cmd, "-sanitize:address"), 1)
 	testing.expect_value(t, slice.count(cmd, "-sanitize:memory"), 1)
 }
+
+@(test)
+split_checker_args_groups_quoted_values :: proc(t: ^testing.T) {
+	words := server.split_checker_args(`-a  -collection:x="/my path"  '-b c' -d="e f"g -w=C:\libs\x -h\ i "it's a b"`)
+	want := []string{"-a", "-collection:x=/my path", "-b c", "-d=e fg", `-w=C:\libs\x`, `-h\`, "i", "it's a b"}
+	testing.expect(t, slice.equal(words, want), "split into the wrong words")
+}
+
+@(test)
+split_checker_args_splits_on_whitespace_without_a_closed_group :: proc(t: ^testing.T) {
+	words := server.split_checker_args(`-a -collection:x="/my path -b`)
+	testing.expect(t, slice.equal(words, []string{"-a", `-collection:x="/my`, "path", "-b"}))
+	words = server.split_checker_args(`-a 'b c`)
+	testing.expect(t, slice.equal(words, []string{"-a", "'b", "c"}))
+	words = server.split_checker_args("-define:MSG=it's -vet")
+	testing.expect(t, slice.equal(words, []string{"-define:MSG=it's", "-vet"}))
+	words = server.split_checker_args("-define:A=it's -define:B=can't")
+	testing.expect(t, slice.equal(words, []string{"-define:A=it's", "-define:B=can't"}))
+	words = server.split_checker_args("-a\t-b\n-c")
+	testing.expect(t, slice.equal(words, []string{"-a", "-b", "-c"}))
+	testing.expect_value(t, len(server.split_checker_args("  \t ")), 0)
+}
+
+@(test)
+check_command_passes_a_quoted_collection_path_as_one_argument :: proc(t: ^testing.T) {
+	config := common.Config {
+		checker_args = `-collection:x="/my path"`,
+	}
+	cmd := server.check_command("pkg/", nil, &config)
+	testing.expect_value(t, slice.count(cmd, "-collection:x=/my path"), 1)
+}
+
+@(test)
+split_checker_args_keeps_quotes_without_whitespace :: proc(t: ^testing.T) {
+	words := server.split_checker_args(`-define:T="hello" -define:U='x' "" -define:V="a b"`)
+	want := []string{`-define:T="hello"`, `-define:U='x'`, `""`, "-define:V=a b"}
+	testing.expect(t, slice.equal(words, want), "quotes around text without whitespace must stay")
+}

@@ -33,7 +33,11 @@ record_check_run :: proc(path_count: int, processes: []CheckProcess, parsed: int
 		ran = true,
 	}
 	with_output := 0
+	started := 0
 	for p in processes {
+		if !p.rerun {
+			started += 1
+		}
 		if !p.finished {
 			check_run.failure = "`odin check` timed out"
 			return
@@ -49,7 +53,7 @@ record_check_run :: proc(path_count: int, processes: []CheckProcess, parsed: int
 			}
 		}
 	}
-	if len(processes) < path_count {
+	if started < path_count {
 		check_run.failure = "`odin check` could not start; is odin on PATH or odin_command set?"
 	} else if parsed < with_output {
 		check_run.failure = "`odin check` printed output that is not its JSON error list"
