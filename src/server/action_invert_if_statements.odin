@@ -131,7 +131,7 @@ add_early_exit_action :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt, body: 
 		strings.write_byte(&sb, '\n')
 		// A `do` body has no brace to slice from and holds only the exit, so nothing precedes it.
 		if !body.uses_do {
-			body_text = strings.trim_left(strings.trim_right_space(src[body.open.offset + 1:last.pos.offset]), "\r\n")
+			body_text = trim_block_text(src[body.open.offset + 1:last.pos.offset])
 		}
 		// Nothing follows the new if when the old body was only the exit, so the exit is dead.
 		if len(body_text) > 0 && !is_bare_exit(following[len(following) - 1], exit) {

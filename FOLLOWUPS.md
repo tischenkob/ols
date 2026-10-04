@@ -4,8 +4,13 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## Corpus validation (`docs/corpus-validation.md`)
 
-- **A sweep over seven open-source Odin projects and Odin's core found bugs that are not fixed yet.** `docs/corpus-validation.md` lists them. 14 have a failing test in `tests/rols_*`, so `./build.sh test` reports 14 failures until they are fixed. Three odinfmt snapshot cases named `rols_*` fail in `tools/odinfmt/tests.sh`. The doc's 26 follow-ups have no harness test and each names a repro. `docs/corpus/triage/` holds the reduced source of every confirmed case, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
+- **A sweep over seven open-source Odin projects and Odin's core found bugs that are not fixed yet.** `docs/corpus-validation.md` lists them. 7 have a failing test in `tests/rols_*`, so `./build.sh test` reports 7 failures until they are fixed. Three odinfmt snapshot cases named `rols_*` fail in `tools/odinfmt/tests.sh`. The doc's 23 follow-ups have no harness test and each names a repro. `docs/corpus/triage/` holds the reduced source of every confirmed case, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
 - **Rerun the sweep after the fixes land.** Follow "Rerunning the sweep" in the doc: run `tools/corpus_smoke.sh`, then the manual checks it lists. Remove fixed items from the doc and this entry when nothing is left.
+
+## Edits (stage S9)
+
+- **Only the simplify and use-stdlib rules skip a range that holds a comment.** `lint_fixes`, `migration_fixes` and the recipe fixes in `rols_modernize.odin` still replace their range without looking for comments, so a comment inside can be deleted. `comments_overlapping` in `rols_action_comment.odin` is the shared check.
+- **A type-switch binding is probably not refused by `slice_arg_text`.** In `switch v in u { case [3]int: … }` the value `v` is likely not addressable without `&`, but the check does not look for it. Unverified.
 
 ## Lints (`src/server/rols_lint*.odin`)
 
@@ -31,7 +36,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## Unwrap code action (`src/server/rols_action_unwrap.odin`)
 
-- **"Remove redundant else" still has the old unsafe checks.** `add_remove_else` checks only the `if` itself, as the `redundant-else` simplify rule did before `3d6c7ced`. On `if a { return } else if b { return } else { x = 1 }`, the action on the inner `if` moves `x = 1` after the whole chain. On `if a { return 1 } else { return 2 }` followed by `return 0`, it leaves code after a return. It also accepts a labeled `if`, a `when` body, and an else that redeclares a name from earlier in the block. The guards in `simplify_redundant_else` in `src/server/rols_simplify.odin` cover these cases.
+- **"Remove redundant else" still has the old unsafe checks.** `add_remove_else` checks only the `if` itself, as the `redundant-else` simplify rule did before `3d6c7ced`. On `if a { return } else if b { return } else { x = 1 }`, the action on the inner `if` moves `x = 1` after the whole chain. On `if a { return 1 } else { return 2 }` followed by `return 0`, it leaves code after a return. It also accepts a labeled `if`, a `when` body, and an else that redeclares a name from earlier in the block. The guards in `simplify_redundant_else` in `src/server/rols_simplify.odin` cover these cases. Its "Remove redundant else" also deletes a comment in `} /* c */ else {`; stage S10 is to reuse the simplify guards there.
 
 ## CLI refactor output (`src/cli/rols_cli.odin`, `src/cli/rols_apply.odin`)
 

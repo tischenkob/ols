@@ -143,6 +143,9 @@ get_code_actions :: proc(
 		action_proc(&action_ctx)
 	}
 
+	// rols: `ols query actions --apply TITLE` picks by title, so equal titles get the code they change.
+	make_titles_distinct(document, &actions)
+
 	return actions[:], true
 }
 

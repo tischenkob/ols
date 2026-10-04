@@ -677,3 +677,24 @@ main :: proc() -> int {
 
 	test.expect_lint_diagnostics(t, &src, {})
 }
+
+@(test)
+use_stdlib_action_not_offered_over_comment :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+main :: proc(s: []int, x: int) -> bool {
+	{*}for e in s {
+		// look
+		if e == x {
+			return true
+		}
+	}
+	return false
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_action_missing(t, &src, "Replace with slice.contains")
+}

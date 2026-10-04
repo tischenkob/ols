@@ -35,7 +35,7 @@ add_doc_comment :: proc(ctx: ^ActionContext) {
 		start,
 		"Add doc comment",
 		"refactor.rewrite",
-		fmt.tprintf("%s// %s \n", get_line_indentation(src, start), node_text(src, decl.names[0])),
+		fmt.tprintf("%s// %s\n", get_line_indentation(src, start), node_text(src, decl.names[0])),
 	)
 }
 
