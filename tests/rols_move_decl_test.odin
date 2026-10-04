@@ -157,6 +157,8 @@ when ODIN_OS == .Linux {
 	test.expect_move_declaration(t, &source, "b.odin", {})
 }
 
+// Corpus: karl2d karl2d.odin:377 on the S17 rerun, see docs/corpus-validation.md.
+// The cause check fails until the refusal names the file-private symbol; it prints an empty name now.
 @(test)
 move_decl_refused_when_using_file_private_symbol :: proc(t: ^testing.T) {
 	source := move_source(`package test
@@ -168,7 +170,7 @@ us{*}er :: proc() {
 	helper()
 }
 `, {{"b.odin", "package test\n"}})
-	test.expect_move_declaration(t, &source, "b.odin", {})
+	test.expect_move_declaration(t, &source, "b.odin", {}, "helper")
 }
 
 @(test)

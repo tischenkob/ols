@@ -596,3 +596,24 @@ a: [1]int = {{*}1}
 	}
 	test.expect_action_missing(t, &source, "Use scalar for array literal")
 }
+
+// Corpus: tina src/shard.odin:318 and :2497 on the S17 rerun, see docs/corpus-validation.md.
+// This test fails until the C-style loop declares the counter with the range's type.
+@(test)
+expand_range_keeps_non_int_bound_type :: proc(t: ^testing.T) {
+	expect_expand(t, C_STYLE_FOR, `package test
+
+f :: proc(n: u32) {
+	for i {*}in 0..<n {
+		g(i)
+	}
+}
+`, `package test
+
+f :: proc(n: u32) {
+	for i: u32 = 0; i < n; i += 1 {
+		g(i)
+	}
+}
+`)
+}

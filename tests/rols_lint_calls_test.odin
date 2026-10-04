@@ -166,3 +166,42 @@ f :: proc() { h(1) }
 
 	test.expect_lint_diagnostics(t, &source, {})
 }
+
+@(test)
+argument_count_expands_multi_value_call_argument :: proc(t: ^testing.T) {
+	// Corpus: core io/multi.odin:16 and os/file_util.odin:66 on the S17 rerun, see docs/corpus-validation.md.
+	// Odin expands a call that returns several values into that many arguments. This test fails until the lint does.
+	cases := []Lint_Case {
+		{
+			"a call that returns two values fills two parameters",
+			`package test
+
+pair :: proc() -> (int, bool) { return 1, true }
+
+take :: proc(n: int, ok: bool) -> int { return n }
+
+main :: proc() {
+	_ = take(pair())
+}
+`,
+			{},
+		},
+		{
+			"a multi-value call followed by more arguments",
+			`package test
+
+pair :: proc() -> (int, bool) { return 1, true }
+
+take :: proc(n: int, ok: bool, out: ^int) -> bool { return ok }
+
+main :: proc() {
+	x: int
+	_ = take(pair(), &x)
+}
+`,
+			{},
+		},
+	}
+
+	expect_lint_cases(t, cases, {enable_lint_call_arity = true})
+}

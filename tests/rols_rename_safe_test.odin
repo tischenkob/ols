@@ -101,6 +101,58 @@ main :: proc() {
 	)
 }
 
+// Corpus: karl2d karl2d.odin:5723 and five example files on the S17 rerun, see docs/corpus-validation.md.
+// This test fails until a rename reaches an enum member that sits in the argument of a call inside a binary expression.
+@(test)
+rename_safe_enum_member_in_call_inside_binary_expression :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Button :: enum {
+	Le{*}ft,
+	Right,
+}
+
+down :: proc(b: Button) -> bool {
+	return b == .Left
+}
+
+f :: proc(in_rect: bool) -> bool {
+	a := in_rect && down(.Left)
+	b := down(.Left) || down(.Right)
+	return a && b
+}
+`,
+	}
+	test.expect_rename(
+		t,
+		&source,
+		"Primary",
+		{
+			{
+				"main.odin",
+				`package test
+
+Button :: enum {
+	Primary,
+	Right,
+}
+
+down :: proc(b: Button) -> bool {
+	return b == .Primary
+}
+
+f :: proc(in_rect: bool) -> bool {
+	a := in_rect && down(.Primary)
+	b := down(.Primary) || down(.Right)
+	return a && b
+}
+`,
+			},
+		},
+	)
+}
+
 // A collection outside core:, vendor: and base: may hold workspace code, so its symbols rename.
 @(test)
 rename_safe_cross_package_proc :: proc(t: ^testing.T) {
