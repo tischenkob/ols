@@ -528,8 +528,45 @@ expect_exit 4 importer-check-failed "$OLS" query attr add "$dir/imp/lib.L" priva
 cmp -s "$dir/imp/lib/lib.odin" "$dir/lib.orig" || { echo "FAIL importer rollback is not byte for byte"; exit 1; }
 echo "ok importer rollback"
 expect importer-error "^error: .*use.odin:6:6: 'L' is not exported by 'lib'" sh -c "\"$OLS\" query attr add \"$dir/imp/lib.L\" private --apply 2>&1 || true"
+expect importer-rolled-back "^attr add: 1 edit in 1 file rolled back, odin check reports new errors, 2 packages checked$" sh -c "\"$OLS\" query attr add \"$dir/imp/lib.L\" private --apply 2>&1 || true"
+# --json keeps the summary count and the warning in reasons; the apply here is rolled back.
+printf 'package use\n\nimport "../lib"\n\nmain :: proc() {\n\t_ = lib.L()\n}\n\nbad: int = "s"\n' > "$dir/imp/use/use.odin"
+expect importer-json-summary '"summary": "attr add: 1 edit in 1 file rolled back, odin check reports new errors, 2 packages checked"' sh -c "\"$OLS\" query attr add \"$dir/imp/lib.L\" private --apply --json || true"
+expect importer-json-warning '"odin check already reports errors in imp/use;' sh -c "\"$OLS\" query attr add \"$dir/imp/lib.L\" private --apply --json || true"
+printf 'package use\n\nimport "../lib"\n\nmain :: proc() {\n\t_ = lib.L()\n}\n' > "$dir/imp/use/use.odin"
 expect importer-checked "^attr add: 1 edit in 1 file written, 2 packages checked$" "$OLS" query attr add "$dir/imp/lib.L" cold --apply
 rm -rf "$dir/imp" "$dir/lib.orig"
+# The gate follows importers of importers: a imports b, b re-exports c.f, and require_results on c.f
+# breaks the call in a only.
+mkdir -p "$dir/tr/a" "$dir/tr/b" "$dir/tr/c"
+printf 'package c\n\nf :: proc() -> int {\n\treturn 1\n}\n' > "$dir/tr/c/c.odin"
+printf 'package b\n\nimport "../c"\n\nf :: c.f\n' > "$dir/tr/b/b.odin"
+printf 'package a\n\nimport "../b"\n\nmain :: proc() {\n\tb.f()\n}\n' > "$dir/tr/a/a.odin"
+cp "$dir/tr/c/c.odin" "$dir/tr.orig"
+expect_exit 4 transitive-importer-rolled-back "$OLS" query attr add "$dir/tr/c.f" require_results --apply
+cmp -s "$dir/tr/c/c.odin" "$dir/tr.orig" || { echo "FAIL transitive rollback is not byte for byte"; exit 1; }
+expect transitive-importer-error "^error: .*a.odin:6:2: 'b.f' requires that its results must be handled" sh -c "\"$OLS\" query attr add \"$dir/tr/c.f\" require_results --apply 2>&1 || true"
+rm -rf "$dir/tr" "$dir/tr.orig"
+# A touched file that the host does not build is checked for a target it builds on: require_results on
+# W breaks the discarded call in the same windows-only file. An importer that has no file for the host is
+# checked on the host without a refusal, and for windows through its own file.
+if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
+	mkdir -p "$dir/tg/plat" "$dir/tg/use"
+	printf 'package plat\n\nimport "core:sys/windows"\n\nW :: proc() -> int {\n\treturn 1\n}\n\nuse_w :: proc() {\n\t_ = windows.GetLastError()\n\tW()\n}\n' > "$dir/tg/plat/plat_windows.odin"
+	cp "$dir/tg/plat/plat_windows.odin" "$dir/tg.orig"
+	expect_exit 4 other-target-rolled-back "$OLS" query attr add "$dir/tg/plat/plat_windows.odin:5:1" require_results --apply
+	cmp -s "$dir/tg/plat/plat_windows.odin" "$dir/tg.orig" || { echo "FAIL target rollback is not byte for byte"; exit 1; }
+	echo '{"checker_targets": ["linux_amd64"]}' > "$dir/ols.json"
+	expect_exit 4 explicit-target-adds-to-the-needed-ones "$OLS" query attr add "$dir/tg/plat/plat_windows.odin:5:1" require_results --apply
+	echo '{}' > "$dir/ols.json"
+	rm -rf "$dir/tg" "$dir/tg.orig"
+	mkdir -p "$dir/ig/lib" "$dir/ig/use"
+	printf 'package lib\n\nL :: proc() -> int {\n\treturn 1\n}\n' > "$dir/ig/lib/lib.odin"
+	printf '#+build windows\npackage use\n\nimport "../lib"\n\nmain :: proc() {\n\t_ = lib.L()\n}\n' > "$dir/ig/use/use_win.odin"
+	expect importer-without-a-host-file-is-checked "^attr add: 1 edit in 1 file written, 2 packages checked$" "$OLS" query attr add "$dir/ig/lib.L" cold --apply
+	expect_exit 4 importer-without-a-host-file-rolled-back "$OLS" query attr add "$dir/ig/lib.L" private --apply
+	rm -rf "$dir/ig"
+fi
 mkdir "$dir/pre"
 printf 'package pre\n\nx: int = "s"\n\nhelper :: proc() -> int {\n\treturn 1\n}\n' > "$dir/pre/pre.odin"
 expect_exit 0 existing-errors-exit "$OLS" query rename "$dir/pre.helper" helper2 --apply

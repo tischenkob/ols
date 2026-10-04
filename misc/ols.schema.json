@@ -630,6 +630,13 @@
 			"description": "Expand the selection outwards through the syntax tree.",
 			"default": true
 		},
+		"checker_targets": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			},
+			"description": "Odin targets that the compile gate of `ols query ... --apply` always checks besides the current one and the targets the touched files need, such as `windows_amd64`, or a bare OS name for its default architecture."
+		},
 		"checker_skip_packages": {
 			"type": "array",
 			"items": {

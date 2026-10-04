@@ -35,6 +35,9 @@ Json_Errors :: struct {
 	errors:      []Json_Error,
 }
 
+// rols: the default wall-clock budget of one `check`, shared by all its packages
+CHECK_TIMEOUT :: 20 * time.Second
+
 Check_Mode :: enum {
 	Saved,
 	Workspace,
@@ -198,7 +201,8 @@ CheckProcess :: struct {
 	buffer:   [dynamic]u8,
 }
 
-check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config) {
+// rols: timeout, the budget of the whole run, is scaled by the CLI compile gate
+check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, timeout := CHECK_TIMEOUT) {
 	paths := resolve_check_paths(mode, check_paths, config)
 
 	if len(paths) == 0 {
@@ -240,7 +244,8 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config) {
 			running_count += 1
 		}
 
-		if time.since(start) > 20 * time.Second {
+		// rols: the caller's budget
+		if time.since(start) > timeout {
 			log.error("`odin check` timed out")
 			for &p in processes {
 				if !p.finished {

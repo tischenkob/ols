@@ -55,20 +55,11 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## CLI compile gate (`src/cli/rols_apply.odin` `run_edit`)
 
-- **Only direct importers are checked.** `importer_dirs` in `src/server/rols_rename_package.odin` returns the packages that import a touched package. Given `a` imports `b` and `b` imports `c`, an edit in `c` checks `b` and not `a`. `odin check` on `b` does not check `a`, so a break that reaches `a` through a type that `b` re-exports passes the gate.
-- **Only the host build target is checked.** `odin check` runs once with the current target. A file with `#+build windows` or a `_js.odin` suffix is not compiled on another host, so an edit that breaks it passes the gate. There is no multi-target check.
-- **The 20 s timeout is shared, not scaled.** `server.check` gives every package one wall-clock budget. An edit to a package with many importers can time out and be refused with exit 1 although each package alone checks in time.
-- **The name rewrite can match an error about another symbol.** After a rename, `new_errors` rewrites the old name to the new name in the leftover before errors. An existing error about an unrelated identifier with the old name then cancels a new error with the same text about the new name. This happens only after the unchanged key fails to match.
-- **`scan_import_dirs` leaks one string per relative import.** `path.dir(file)` in `src/server/rols_rename_package.odin` uses `context.allocator`, and `importer_dirs` calls the scan for every workspace file. Pass `context.temp_allocator`.
-- **`importer_dirs` repeats work on large workspaces.** It calls `canonical_dir(dir)` once per file of a directory that does not import a target, because `seen` is set only on a match. It also tests each import with `slice.contains(targets, …)`. A map of canonical dirs and a map of targets remove both costs, which matter for a whole-workspace `modernize --apply`.
-- **An importer with no file for the host target may refuse the edit.** If `#+build` tags or name suffixes exclude every file of an importer directory, `odin check` there may fail without JSON, and `record_check_run` in `src/server/rols_check_run.odin` would then refuse the whole edit. This comes from reading the code. A smoke case with an importer guarded by `#+build windows` would settle it.
-- **The importer smoke case asserts only the exit code.** The `imp/` case in `tools/cli_smoke.sh` checks exit 4 and the restored file. It does not assert the `rolled back, … 2 packages checked` summary, and no `--json` case shows the warning in `reasons` or the count in `summary`.
+- **The gate checks only the targets that touched files and target-less importer directories need.** A sibling file that the host excludes, such as `lib_windows.odin` next to an edited `lib.odin`, and the excluded files of an importer directory that also has a host file are not checked on their targets. A break there passes the gate unless `checker_targets` names the target.
+- **Every extra target checks every package.** `gate_targets` in `src/cli/rols_gate.odin` returns one list, so a `_windows.odin` edit in a workspace with many importers runs all packages again for `windows_amd64`. Checking only the importers of the packages that need the target would cost less.
+- **The rename rewrite uses lines, not columns.** `on_edited_line` in `src/cli/rols_gate.odin` lets a before error on a line the rename edits match the renamed form. An unrelated error on the same line still can. An error whose position is on another line of a multi-line call is not rewritten.
 - **`checker_args` is split on spaces**, so a quoted value with a space, such as `-collection:x="/my path"`, breaks. `split_checker_args` in `src/server/rols_check_args.odin` is the one place to fix; `test_command` shares it.
-- **`checker_targets` is parsed but nothing reads it.** `OlsConfig` and `common.Config` carry the key, and no check path uses it.
 - **The LSP still shows the style vet Syntax Errors that stop checking.** The `--apply` gate now checks without `-vet-style` and the other vets, but the live diagnostics keep them (default on), so a missing trailing comma hides every type error of the package until it is fixed. The fix is to run a second check without the vets, or to map the vet Syntax Errors to warnings and rerun without them.
-- **`-max-error-count:100000` in the gate costs time on a broken package.** Odin used to stop at 36 errors. With a package of thousands of errors, the check before and after the write both run to the end, which counts against the 20 s timeout and refuses the edit as timed out.
-- **A `Different package name` error is keyed without its package names.** `error_key` in `src/cli/rols_apply.odin` counts them as one error kind, so a rename that moves a file into a third package name hides behind an existing mismatch of the same count.
-- **`new_errors` repeats its matching loop.** Both passes take errors from a count map in the same way. One helper that returns the unmatched errors would state the loop once, about 8 lines fewer.
 
 ## Large-file performance (stage S15)
 
@@ -78,6 +69,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 ## Test harness (`build.sh`)
 
 - **A test hung instead of failing on a reversed slice.** Before c5c8fa27, `./build.sh single_test invert_if_early_exit_do_body` spun at 100% CPU for 10 minutes until it was killed. The test build keeps bounds checks on, so the slice `src[p+1:p]` should have panicked at once. The cause is unknown.
+- **`for x in m[k]` over a map index loops forever when `k` is missing (Odin dev-2026-09).** It may explain the unexplained hang above, if that test ranged over a map index. Repro: `m := make(map[string][dynamic]string); for d in m["x"] { _ = d }` in a `main` hangs, and `l := m["x"]; for d in l {}` ends. `importer_dirs` hit it (a map of `[dynamic]string`); the same range over a map of slices (`on_edited_line`) did not hang in a test, but is written with a local variable too. A grep for `in [a-z_.]*\[` over map indexes would find other cases.
 
 ## Whole-file resolve (`src/server/file_resolve.odin`)
 
