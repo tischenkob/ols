@@ -252,7 +252,11 @@ symbol_type_text :: proc(ast_context: ^AstContext, symbol: Symbol, name: string)
 		for _ in 0 ..< symbol.pointers {
 			strings.write_byte(&text, '^')
 		}
-		if symbol.type_pkg != "" && symbol.type_pkg != ast_context.document_package {
+		// A builtin result of a package's proc carries that package, but it is never written qualified.
+		// An alias that the package declares under a builtin name, such as c.int, is.
+		if symbol.type_pkg != "" &&
+		   symbol.type_pkg != ast_context.document_package &&
+		   !builtin_without_decl(symbol.type_name, symbol.type_pkg) {
 			pkg_name := get_pkg_name(ast_context, symbol.type_pkg)
 			if pkg_name != "" && pkg_name != "$builtin" {
 				strings.write_string(&text, pkg_name)
@@ -915,4 +919,13 @@ make_titles_distinct :: proc(document: ^Document, actions: ^[dynamic]CodeAction)
 		seen[action.title] += 1
 		action.title = fmt.aprintf("%s #%d", action.title, seen[action.title], allocator = context.temp_allocator)
 	}
+}
+
+// A builtin type name that the package does not declare itself.
+builtin_without_decl :: proc(name, pkg: string) -> bool {
+	if !is_builtin_type_name(name) {
+		return false
+	}
+	_, declared := memory_index_lookup(&indexer.index, name, pkg)
+	return !declared
 }

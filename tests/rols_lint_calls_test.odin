@@ -170,7 +170,7 @@ f :: proc() { h(1) }
 @(test)
 argument_count_expands_multi_value_call_argument :: proc(t: ^testing.T) {
 	// Corpus: core io/multi.odin:16 and os/file_util.odin:66 on the S17 rerun, see docs/corpus-validation.md.
-	// Odin expands a call that returns several values into that many arguments. This test fails until the lint does.
+	// Odin expands a call that returns several values into that many arguments. The cases at the end keep real arity errors and an #optional_ok result as one argument.
 	cases := []Lint_Case {
 		{
 			"a call that returns two values fills two parameters",
@@ -197,6 +197,34 @@ take :: proc(n: int, ok: bool, out: ^int) -> bool { return ok }
 main :: proc() {
 	x: int
 	_ = take(pair(), &x)
+}
+`,
+			{},
+		},
+		{
+			"a multi-value call still leaves the call short or long",
+			`package test
+
+pair :: proc() -> (int, bool) { return 1, true }
+
+take :: proc(n: int, ok: bool) -> int { return n }
+
+main :: proc() {
+	_ = take(pair(), 1)
+}
+`,
+			{{7, "argument-count"}},
+		},
+		{
+			"an optional_ok result is one argument",
+			`package test
+
+maybe :: proc() -> (n: int, ok: bool) #optional_ok { return 1, true }
+
+take :: proc(n: int, m: int) -> int { return n }
+
+main :: proc() {
+	_ = take(maybe(), maybe())
 }
 `,
 			{},

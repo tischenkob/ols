@@ -298,7 +298,6 @@ S :: struct {
 }
 
 // Corpus: ols src/server/analysis.odin:4748 on the S17 rerun, see docs/corpus-validation.md.
-// This test fails until the action avoids the name of a local that the body declares; it shadows it now.
 @(test)
 named_results_avoids_local_name :: proc(t: ^testing.T) {
 	expect_named_results(t, `package test

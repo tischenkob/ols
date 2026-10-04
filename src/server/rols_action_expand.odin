@@ -274,11 +274,16 @@ add_c_style_for :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 			return
 		}
 		lo, hi := node_text(src, bounds.left), node_text(src, bounds.right)
+		// `i := 0` is an int, so a bound of another type needs the counter declared with it.
+		decl := " := "
+		if type_text, typed := range_type_text(ctx, bounds); typed && type_text != "int" {
+			decl = strings.concatenate({": ", type_text, " = "}, context.temp_allocator)
+		}
 		text := strings.concatenate(
 			{
 				"for ",
 				name.name,
-				" := ",
+				decl,
 				lo,
 				"; ",
 				name.name,
@@ -296,4 +301,19 @@ add_c_style_for :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 		append_replace_range(ctx, loop.for_pos.offset, loop.body.pos.offset, "Convert to C-style for", text)
 		return
 	}
+}
+
+// The written type of the range, which is that of its typed bound; false when both bounds are untyped constants.
+range_type_text :: proc(ctx: ^ActionContext, bounds: ^ast.Binary_Expr) -> (string, bool) {
+	pc := ctx.position_context^
+	pc.position = bounds.end.offset
+	pc.nested_position = bounds.end.offset
+	clear_locals(ctx.ast_context)
+	get_locals(ctx.ast_context, &pc)
+	ctx.ast_context.use_locals = true
+	symbol, ok := resolve_type_expression(ctx.ast_context, bounds)
+	if !ok {
+		return "", false
+	}
+	return symbol_type_text(ctx.ast_context, symbol, "")
 }
