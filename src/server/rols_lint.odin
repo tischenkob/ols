@@ -31,8 +31,24 @@ Lint_Fix :: struct {
 
 @(private = "package")
 is_top_level :: proc(ctx: ^LintContext, decl: ^ast.Value_Decl) -> bool {
-	for stmt in ctx.document.ast.decls do if declares(stmt, decl) do return true
-	return false
+	stmt := top_level_stmt_at(ctx.document.ast.decls[:], decl.pos.offset)
+	return stmt != nil && declares(stmt, decl)
+}
+
+// The first top-level statement that ends after `offset`. Statements are in source order, so a
+// per-node lint finds the one that holds a node without scanning the whole file.
+@(private = "package")
+top_level_stmt_at :: proc(decls: []^ast.Stmt, offset: int) -> ^ast.Stmt {
+	lo, hi := 0, len(decls)
+	for lo < hi {
+		mid := (lo + hi) / 2
+		if decls[mid].end.offset <= offset {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	return decls[lo] if lo < len(decls) else nil
 }
 
 // A file-scope `when` holds declarations that are still top level.

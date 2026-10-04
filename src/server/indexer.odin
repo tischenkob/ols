@@ -68,8 +68,8 @@ lookup :: proc(name: string, pkg: string, current_file: string, loc := #caller_l
 		return {}, false
 	}
 
-	current_pkg := get_package_from_filepath(current_file)
-	current_file_uri := common.create_uri(current_file, context.temp_allocator).uri
+	// rols: reuse the package and uri of the last file
+	current_pkg, current_file_uri := lookup_file_info(current_file)
 
 	if is_builtin_pkg(pkg) {
 		return lookup_builtin_symbol(name, current_pkg, current_file_uri)

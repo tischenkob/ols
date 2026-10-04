@@ -3,6 +3,7 @@ package tests
 import "core:testing"
 
 import "src:common"
+import "src:server"
 
 import test "src:testing"
 
@@ -130,4 +131,37 @@ main :: proc() {
 `,
 	}
 	test.expect_implementation_locations(t, &source, {{range = {start = {line = 1, character = 0}, end = {line = 1, character = 3}}}})
+}
+
+@(test)
+implementation_finds_group_in_another_file :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+foo :: proc(x: int) {}
+
+main :: proc() {
+	fo{*}o(1)
+}
+`,
+		files = {
+			{name = "caller.odin", source = "package test\n\nuse_foo :: proc() {\n\tfoo(2)\n}\n"},
+			{name = "group.odin", source = "package test\n\ng :: proc{foo}\n"},
+		},
+	}
+	test.expect_implementation_locations(
+		t,
+		&source,
+		{{range = {start = {line = 2, character = 0}, end = {line = 2, character = 1}}}},
+	)
+}
+
+@(test)
+mentions_proc_group_accepts_group_literals :: proc(t: ^testing.T) {
+	testing.expect(t, server.mentions_proc_group("g :: proc{a, b}"))
+	testing.expect(t, server.mentions_proc_group("g :: proc {a, b}"))
+	testing.expect(t, server.mentions_proc_group("f :: proc() {}\ng :: proc\n{a}"))
+	testing.expect(t, server.mentions_proc_group("g :: proc /* overloads */ {a, b}"))
+	testing.expect(t, server.mentions_proc_group("g :: proc // c\n{a, b}"))
+	testing.expect(t, !server.mentions_proc_group("f :: proc(x: int) {}\nh :: proc \"c\" () {}"))
+	testing.expect(t, !server.mentions_proc_group("no procedures here"))
 }

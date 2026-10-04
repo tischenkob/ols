@@ -284,6 +284,8 @@ find_symbol_references :: proc(
 	files: []Package_File = {},
 	// rols: a file must contain this text too, else the search skips it without parsing
 	require_text := "",
+	// rols: a file must hold a procedure group literal (`proc{`), else the search skips it without parsing
+	require_proc_group := false,
 ) -> (
 	[]common.Location,
 	bool,
@@ -362,6 +364,10 @@ find_symbol_references :: proc(
 		}
 		// rols: skip a file without require_text
 		if !strings.contains(text, require_text) {
+			continue
+		}
+		// rols: skip a file without a procedure group
+		if require_proc_group && !mentions_proc_group(text) {
 			continue
 		}
 

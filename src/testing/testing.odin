@@ -1794,6 +1794,9 @@ expect_implementation_locations :: proc(t: ^testing.T, src: ^Source, expected: [
 	setup(src)
 	defer teardown(src)
 
+	// Other files resolve names from the open document through the index.
+	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+
 	locations := server.get_implementation_locations(src.document, cursor, package_files(src))
 	for &location in locations do location.uri = ""
 

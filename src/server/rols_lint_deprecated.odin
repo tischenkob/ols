@@ -46,12 +46,11 @@ lint_deprecated :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Dia
 // Deprecation applies to package-level declarations, so the declaring name is a top-level one.
 @(private = "file")
 is_declaration_name :: proc(ctx: ^LintContext, ident: ^ast.Ident) -> bool {
-	for decl in ctx.document.ast.decls {
-		value_decl := decl.derived.(^ast.Value_Decl) or_else nil
-		if value_decl == nil do continue
-		for name in value_decl.names {
-			if (name.derived.(^ast.Ident) or_else nil) == ident do return true
-		}
+	stmt := top_level_stmt_at(ctx.document.ast.decls[:], ident.pos.offset)
+	value_decl := (stmt.derived.(^ast.Value_Decl) or_else nil) if stmt != nil else nil
+	if value_decl == nil do return false
+	for name in value_decl.names {
+		if (name.derived.(^ast.Ident) or_else nil) == ident do return true
 	}
 	return false
 }

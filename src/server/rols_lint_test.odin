@@ -88,8 +88,6 @@ takes_testing_t :: proc(ctx: ^LintContext, lit: ^ast.Proc_Lit) -> bool {
 
 @(private = "file")
 is_top_level :: proc(ctx: ^LintContext, decl: ^ast.Value_Decl) -> bool {
-	for stmt in ctx.document.ast.decls {
-		if (stmt.derived.(^ast.Value_Decl) or_else nil) == decl do return true
-	}
-	return false
+	stmt := top_level_stmt_at(ctx.document.ast.decls[:], decl.pos.offset)
+	return stmt != nil && (stmt.derived.(^ast.Value_Decl) or_else nil) == decl
 }

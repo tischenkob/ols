@@ -3,6 +3,7 @@ package server
 import "core:encoding/json"
 import "core:odin/ast"
 import "core:slice"
+import "core:strings"
 
 import "src:common"
 
@@ -91,6 +92,7 @@ proc_group_locations :: proc(
 		include_declaration = false,
 		target_name = name.name,
 		files = files,
+		require_proc_group = true,
 	)
 
 	groups := make([dynamic]common.Location, context.temp_allocator)
@@ -120,4 +122,30 @@ proc_group_locations :: proc(
 		}
 	}
 	return groups[:]
+}
+
+// Whether the text has `proc`, then blanks and comments, then `{`: the start of a group literal. It accepts more
+// than the parser does (a comment or string can match); it misses only a nested block comment between `proc` and `{`.
+mentions_proc_group :: proc(text: string) -> bool {
+	rest := text
+	for {
+		at := strings.index(rest, "proc")
+		if at < 0 do return false
+		rest = strings.trim_left_space(rest[at + len("proc"):])
+		for {
+			if strings.has_prefix(rest, "//") {
+				end := strings.index_byte(rest, '\n')
+				if end < 0 do return false
+				rest = rest[end:]
+			} else if strings.has_prefix(rest, "/*") {
+				end := strings.index(rest, "*/")
+				if end < 0 do return false
+				rest = rest[end + len("*/"):]
+			} else {
+				break
+			}
+			rest = strings.trim_left_space(rest)
+		}
+		if strings.has_prefix(rest, "{") do return true
+	}
 }

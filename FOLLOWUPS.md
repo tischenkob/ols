@@ -31,7 +31,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **Field renames still read every workspace file.** `check_embedders` passes `require_text = "using"` to `find_symbol_references`, so a file is parsed only when it mentions both the owner type and `using`. The search still reads every file to test that. On 200 files that mention the type, the dry-run `ols query rename` of a field took 0.50 s before and 0.33 s after. A cached word index of the workspace would remove the reads.
 - **`using` statements are found only in files that name a carrying type and contain `using`.** `check_using_statements` reads the documents `check_embedders` collects. A `using x` where `x` gets its type from a call, in a file that never names the type, is not checked.
 - **Field captures skip uses that already resolve to a field, and alias embedders are missed.** `field_captures` skips a use of the new name that resolves to a `.Field`. Given `proc(using bar: Bar)` with `Bar.limit`, and then `{ using foo; _ = limit }` in its body, renaming `Foo.x` to `limit` misses the capture. `Alias :: Foo` with `using a: Alias` is not followed as an embedder; this predates S5.
-- **Implementation requests on a procedure run a workspace reference scan.** `proc_group_locations` in `src/server/rols_implementation.odin` calls `find_symbol_references` to find the groups that list the procedure, and then loops over `top_level_value_decls` of the file for each reference. A procedure with many references in a large workspace makes the request slow.
+- **Implementation requests on a procedure still run a workspace reference scan.** `proc_group_locations` in `src/server/rols_implementation.odin` calls `find_symbol_references`, which now skips a file that has no `proc` followed by `{` (`require_proc_group`), but still parses every other file that names the procedure. The measured gain was not taken on a large workspace.
 
 ## Edits (stage S10)
 
@@ -65,8 +65,10 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## Large-file performance (stage S15)
 
-- **Code actions recompute `lint_fixes`, `simplifications` and `stdlib_matches` on every request.** None is cached on the document, so a request on a 1.8 MB file repeats the whole-file work.
-- **`bound_by_type_switch` is expensive on a large file.** The cost was observed but not profiled.
+- **Opening a 2 MB file still takes 1.3 to 2.4 s.** On `core/rexcode/isa/ppc/mnemonic_builders.odin` (13,308 declarations), `didOpen` spends about 0.3 s parsing and about 2 s in `resolve_entire_file` for the lints. The stacks show no single hot spot: `clone_node`, `resolve_function_overload`, `create_uri` and `store_local` each hold a few percent. A request on that file after the open takes 0.2 s or less (codeAction 1.5 s total, documentSymbol about 1.6 to 2.1 s, inlayHint 1.8 s).
+- **The whole-file resolve rebuilds an enum symbol for every use of the enum.** `make_symbol_enum_from_ast` walks every member (`get_enum_field_name_range_value`, `get_field_docs_and_comments`) on each use of an enum such as `Mnemonic`, so `didOpen` of the 55 KB `ppc/mnemonics.odin` takes about 3 s (sampled stacks: `make_symbol_enum_from_ast` under `resolve_selector_expression`). `ols query symbols` no longer pays this, since it opens the file without lints. A cache keyed by the enum node would have to live in the document cache arena.
+- **Code actions still recompute `lint_fixes`, `simplifications` and `stdlib_matches` per request.** After the quadratic lint scans went, a code action on the 2 MB file costs 0.2 s or less beyond the open, so no cache was added. Revisit if a file with many more lint hits shows up.
+- **`find` parses every workspace file once per call.** `find_symbols` in `src/server/rols_find.odin` took 0.22 to 0.27 s over this repository's 300 files. A text prefilter would have to follow the fuzzy matcher, so none was added.
 
 ## Test harness (`build.sh`)
 
@@ -78,7 +80,6 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **Other `position_context` fields persist across nodes in the whole-file walker.** `parent_binary`, `index` (with `previous_index`) and `field_value` are set while walking one node and never restored, so a later sibling can read a stale value. They were not audited.
 - **A failed overload resolution is cached for the rest of the file.** `resolve_function_overload` stores an empty result in `ast_context.call_expr_recursion_cache` before it expands the call arguments, and a failure leaves it there. Every later resolution of the same call returns that failure. The parameter-length `make` hang was one trigger and is fixed at its cause (parameters are now stored before body locals). Another failing argument still poisons the call.
 - **The whole-file resolve now allocates its temp memory from the document cache arena.** This keeps the cached symbols valid after the request frees temp memory. It also retains the resolve scratch until the document is reparsed or caches are invalidated. Measured `symbol_cache_arena.total_used` after `resolve_entire_file`: 23.9 MB without the swap and 29.1 MB with it for a 100 KB file (+5.2 MB, +22%), and 57.7 MB and 70.5 MB for a 250 KB file (+12.9 MB, +22%). A targeted copy of the escaping data (`pkg` strings, docs, synthesized nodes such as `wrap_pointer`) would remove the extra share. It needs an audit of every default `context.temp_allocator` that a cached symbol can point to.
-- **Inlay hints on a very large file are slow.** Over stdio, one inlayHint request took about 1 s on a 100 KB synthetic file, about 3 s on 250 KB, and did not answer within 15 s on 2 MB. The memory is about 520 MB and 790 MB for the first two. The growth was not profiled. Repro: repeat `p :: proc(m: int, s: ^S) -> int { c := one(); d := make([]u8, m) ... }` with unique names.
 
 ## Overload resolution and hover (`src/server/analysis.odin`, `src/server/hover.odin`)
 
