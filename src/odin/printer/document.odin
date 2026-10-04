@@ -444,13 +444,21 @@ flush_line_suffix :: proc(
 		return
 	}
 
+	// rols: a comment queued without a space before it still must not touch the code
+	column := code_column
+	if n := len(builder.buf); n > 0 && builder.buf[n - 1] != ' ' && builder.buf[n - 1] != '\t' && builder.buf[n - 1] != '\n' {
+		strings.write_string(builder, " ")
+		column += 1
+	}
+
 	// Record trailing comments for the alignment post-pass, keyed on the comment's own line.
 	if alignable {
 		append(
 			&p.trailing_comments,
 			Trailing_Comment_Record {
 				offset = len(builder.buf),
-				code_column = code_column,
+				// rols: the column includes the inserted space
+				code_column = column,
 				indentation = p.line_indentation,
 				line_index = p.render_line,
 			},
