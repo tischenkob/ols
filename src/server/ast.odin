@@ -1529,6 +1529,10 @@ get_file_comment :: proc(
 	// TODO: linear scan might be a bit slow for files with lots of comments?
 	for i := start_index; i < len(file.comments); i += 1 {
 		c := file.comments[i]
+		// rols: comments are sorted by position, so no later group can start on this line
+		if c.pos.line > line {
+			break
+		}
 		if c.pos.line == line {
 			for item, j in c.list {
 				comment := new_type(ast.Comment_Group, item.pos, parser.end_pos(item), allocator)
@@ -1541,7 +1545,8 @@ get_file_comment :: proc(
 			}
 		}
 	}
-	return nil, -1
+	// rols: a miss returns the position before the search start, so the next search resumes there
+	return nil, start_index - 1
 }
 
 // Retrieves the comment group that ends on the specified line of the file
@@ -1558,6 +1563,10 @@ get_file_doc :: proc(
 ) {
 	for i := start_index; i < len(file.comments); i += 1 {
 		c := file.comments[i]
+		// rols: comments are sorted by position, so no later group can end on this line
+		if c.end.line > end_line {
+			break
+		}
 		if c.end.line == end_line {
 			docs := new_type(ast.Comment_Group, c.pos, c.end, allocator)
 			if start_line != -1 {
@@ -1572,7 +1581,8 @@ get_file_doc :: proc(
 			return docs, i
 		}
 	}
-	return nil, -1
+	// rols: a miss returns the position before the search start, so the next search resumes there
+	return nil, start_index - 1
 }
 
 // Returns the docs and comments for a list of field types

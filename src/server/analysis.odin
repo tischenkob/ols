@@ -56,6 +56,8 @@ AstContext :: struct {
 	resolve_specific_overload: bool,
 	call_expr_recursion_cache: map[rawptr]SymbolResult,
 	show_layout:               bool,
+	// rols: the member tables of enums built so far, keyed by the enum node
+	enum_value_cache:          map[^ast.Enum_Type]SymbolEnumValue,
 }
 
 SymbolResult :: struct {
@@ -4868,6 +4870,16 @@ make_symbol_enum_from_ast :: proc(
 	}
 
 
+	// rols: a whole-file resolve builds the same enum once per use, which is quadratic for a large enum
+	cache_key, can_cache := v.node.derived.(^ast.Enum_Type)
+	if ast_context.enum_value_cache == nil {
+		ast_context.enum_value_cache = make(map[^ast.Enum_Type]SymbolEnumValue, 0, ast_context.allocator)
+	}
+	if cached, ok := ast_context.enum_value_cache[cache_key]; ok {
+		symbol.value = cached
+		return symbol
+	}
+
 	names := make([dynamic]string, ast_context.allocator)
 	ranges := make([dynamic]common.Range, ast_context.allocator)
 	values := make([dynamic]^ast.Expr, ast_context.allocator)
@@ -4890,6 +4902,9 @@ make_symbol_enum_from_ast :: proc(
 		docs      = docs[:],
 		comments  = comments[:],
 	}
+
+	// rols: remember the member table for the next use of this enum
+	if can_cache do ast_context.enum_value_cache[cache_key] = symbol.value.(SymbolEnumValue)
 
 	return symbol
 }
