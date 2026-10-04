@@ -65,6 +65,7 @@ CLI:
 - `src/main.odin`: `ols query` dispatch and the reused logger.
 - `src/server/rename.odin`: `get_rename` takes the files that stand in for the workspace walk, for the tests.
 - `src/server/references.odin`: `resolve_references` passes those files on.
+- `src/server/check.odin`: `start_check_process` takes its command line from `check_command` in `src/server/rols_check_args.odin`, which drops repeated flags (checker_args wins), and `check` passes each error through `check_error_severity` in `src/server/rols_check_severity.odin`, which parses the file to tell the hard `declared but not used` error from the `-vet-unused-variables` warning. `gate_config` in the args file is what the compile gate of `ols query --apply` checks with: no vet flags, `-max-error-count:100000`. `test_command` in `src/server/rols_tests.odin` drops repeated flags the same way. README "Command line queries" lists the contract, including the exit `1` of `ols query check` for a check that did not run.
 - `src/server/check.odin`: notes each process's exit status and records whether every package check ran to a parsed result, so the refactor compile gate of `ols query` can tell no errors from a check that did not run.
 
 CI:
@@ -92,7 +93,7 @@ Small fixes:
 - `src/server/diagnostics.odin`: fork producers, a file-private mutex, and the merge that runs under the lock.
 - `src/server/hover.odin`: struct layout and field offsets.
 - `src/server/inlay_hints.odin`: fork hint kinds, enclosing procedure tracking, and a resolve context built only when a kind needs it.
-- `src/server/check.odin`: never block the request thread, drain the pipe incrementally, reap killed processes, vet and style flags from the config, vet findings as warnings, and a `Syntax Error` that `-json-errors` types as a warning, such as a missing import path, as an error.
+- `src/server/check.odin`: never block the request thread, drain the pipe incrementally, reap killed processes, vet findings as warnings, and a `Syntax Error` that `-json-errors` types as a warning, such as a missing import path, as an error.
 - `src/server/documents.odin`: reject a change before touching the document, refresh lint diagnostics.
 - `src/server/position_context.odin`, `src/server/file_resolve.odin`: a call argument drops the enclosing comp literal, so a comp literal in the argument resolves against the parameter type.
 - `src/server/signature.odin`: inside a comp literal passed to a call, the comp literal signature comes before the procedure signature.

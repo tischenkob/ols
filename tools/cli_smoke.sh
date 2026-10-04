@@ -546,4 +546,34 @@ printf 'package user\n\nimport "../rpold"\n\nmain :: proc() {\n\ts: string = rpo
 expect_exit 0 existing-error-package-renamed "$OLS" query rename-package "$dir/rp/rpold" rpnew --apply
 [[ -d "$dir/rp/rpnew" ]] && grep -q "s: string = rpnew.P()" "$dir/rp/user/u.odin" || { echo "FAIL existing-error-package-renamed text"; exit 1; }
 rm -rf "$dir/rp"
+# Compile gate and checker command line. A repeated flag in checker_args no longer blanks the diagnostics,
+# a check that cannot run exits 1, the gate checks without the style vets, and the gate asks odin for
+# every error, so the set does not change between runs.
+mkdir "$dir/dupe"
+printf 'package dupe\n\nf :: proc() {\n\tx: int = "s"\n\t_ = x\n}\n' > "$dir/dupe/d.odin"
+echo '{"checker_args": "-no-entry-point"}' > "$dir/ols.json"
+expect dupe-flag-reports-the-error "d.odin:4:11: error: Cannot convert" "$OLS" query check "$dir/dupe"
+echo '{"checker_skip_packages": ["'"$dir/dupe"'"]}' > "$dir/ols.json"
+expect_exit 0 check-skipped-package "$OLS" query check "$dir/dupe"
+echo '{"odin_command": "/nonexistent/odin"}' > "$dir/ols.json"
+expect_exit 1 check-without-odin "$OLS" query check "$dir/dupe"
+expect check-without-odin-message "^error: \`odin check\` could not start" sh -c "\"$OLS\" query check \"$dir/dupe\" 2>&1 || true"
+echo '{}' > "$dir/ols.json"
+rm -rf "$dir/dupe"
+mkdir -p "$dir/vs/lib" "$dir/vs/use"
+printf 'package lib\n\nT :: struct {\n\ta, b: int\n}\n\nL :: proc() -> int {\n\treturn 1\n}\n' > "$dir/vs/lib/lib.odin"
+printf 'package use\n\nimport "../lib"\n\nmain :: proc() {\n\t_ = lib.L()\n}\n' > "$dir/vs/use/use.odin"
+expect_exit 4 gate-sees-past-a-style-syntax-error "$OLS" query attr add "$dir/vs/lib.L" private --apply
+rm -rf "$dir/vs"
+mkdir "$dir/many"
+{
+	printf 'package many\n\nf :: proc(x: int) {\n\tif (x > 0) {}\n}\n'
+	for i in $(seq 1 60); do printf 'g_%d :: proc() { missing_%d() }\n' "$i" "$i"; done
+} > "$dir/many/many.odin"
+cp "$dir/many/many.odin" "$dir/many.orig"
+for run in 1 2 3 4 5; do
+	cp "$dir/many.orig" "$dir/many/many.odin"
+	expect_exit 0 "gate-stable-over-the-error-limit-$run" "$OLS" query modernize "$dir/many" --apply
+done
+rm -rf "$dir/many" "$dir/many.orig"
 echo "all ok"

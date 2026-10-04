@@ -52,9 +52,7 @@ test_command :: proc(dir: string, names: string, config: ^common.Config) -> []st
 	for k, v in config.profile.defines {
 		append(&cmd, strings.concatenate({"-define:", k, "=", v}, context.temp_allocator))
 	}
-	for arg in strings.split(config.checker_args, " ", context.temp_allocator) {
-		if arg != "" do append(&cmd, arg)
-	}
+	append(&cmd, ..split_checker_args(config.checker_args))
 	append(&cmd, "-define:ODIN_TEST_FANCY=false")
 	// odin test writes the binary into the cwd otherwise.
 	if tmp, err := os.temp_directory(context.temp_allocator); err == nil {
@@ -63,5 +61,6 @@ test_command :: proc(dir: string, names: string, config: ^common.Config) -> []st
 	if names != "" {
 		append(&cmd, strings.concatenate({"-define:ODIN_TEST_NAMES=", names}, context.temp_allocator))
 	}
-	return cmd[:]
+	// odin rejects a repeated flag; the last copy wins, so our -out and -define flags beat checker_args.
+	return dedupe_flags(cmd[:])
 }

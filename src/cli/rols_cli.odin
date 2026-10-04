@@ -592,7 +592,13 @@ to_position :: proc(line_col: [2]int, text: []u8) -> (common.Position, string, b
 check :: proc(dir: string) -> int {
 	// resolve_check_paths checks the directory of each path, and a trailing slash keeps DIR itself.
 	check_path := dir if !os.is_directory(dir) else strings.concatenate({dir, "/"}, context.temp_allocator)
+	server.check_run = {}
 	server.check(.Saved, {check_path}, &common.config)
+	// No package to check (checker_skip_packages) is not a failure; a check that did not run to JSON is.
+	if server.check_run.failure != "" {
+		fmt.eprintfln("error: %s", server.check_run.failure)
+		return 1
+	}
 
 	entries := make([dynamic]Entry, context.temp_allocator)
 	for uri, diagnostics in server.get_merged_diagnostics() {

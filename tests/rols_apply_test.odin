@@ -271,3 +271,31 @@ apply_replace_word_in_check_message :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, server.replace_word("unchanged", "", "x"), "unchanged")
 }
+
+@(test)
+apply_new_errors_ignores_which_subset_odin_reports :: proc(t: ^testing.T) {
+	before := []cli.Check_Error {
+		{"a.odin", 3, 1, "Undeclared name: one"},
+		{"a.odin", 4, 1, "Undeclared name: two"},
+	}
+	after := []cli.Check_Error {
+		{"a.odin", 4, 1, "Undeclared name: two"},
+		{"a.odin", 9, 1, "Undeclared name: one"},
+	}
+	testing.expect_value(t, len(cli.new_errors(before, after)), 0)
+	// A second copy of an error is new, and so is an error that was not there.
+	repeated := []cli.Check_Error{after[0], after[0]}
+	testing.expect_value(t, len(cli.new_errors(before, repeated)), 1)
+	fresh := cli.new_errors(before, {{"a.odin", 5, 1, "Cannot assign value 'x' of type 'int' to 'string'"}})
+	testing.expect_value(t, len(fresh), 1)
+}
+
+@(test)
+apply_new_errors_matches_swapped_package_names :: proc(t: ^testing.T) {
+	before := []cli.Check_Error{{"d/b.odin", 1, 9, "Different package name, expected 'a', got 'b'\n"}}
+	after := []cli.Check_Error{{"d/a.odin", 1, 9, "Different package name, expected 'b', got 'a'"}}
+	testing.expect_value(t, len(cli.new_errors(before, after)), 0)
+	// A second mismatch is a new error.
+	two := []cli.Check_Error{after[0], after[0]}
+	testing.expect_value(t, len(cli.new_errors(before, two)), 1)
+}
