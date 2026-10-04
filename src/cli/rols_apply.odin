@@ -121,9 +121,12 @@ run_edit :: proc(
 	check := check
 	// The packages are checked at their old paths before the write and at their new paths after it.
 	dirs := package_dirs(changed, renames)
+	targets: []string
 	if check {
-		// An edit can break a package that imports a touched one without touching it.
-		dirs = slice.concatenate([][]string{dirs, server.importer_dirs(dirs, &common.config)}, context.temp_allocator)
+		// An edit can break a package that imports a touched one, directly or not, without touching it.
+		importers := server.importer_dirs(dirs, &common.config)
+		dirs = slice.concatenate([][]string{dirs, importers}, context.temp_allocator)
+		targets = gate_targets(changed, importers, &reasons)
 	}
 	moved_dirs := make([]string, len(dirs), context.temp_allocator)
 	for dir, i in dirs {
@@ -140,7 +143,7 @@ run_edit :: proc(
 			)
 			check = false
 		} else {
-			before, reason, ok = check_errors(paths)
+			before, reason, ok = check_errors(paths, targets)
 			if !ok {
 				append(&reasons, reason)
 				return finish(name, .Refused, edit, {}, reasons[:])
@@ -168,12 +171,13 @@ run_edit :: proc(
 	}
 
 	if check {
-		after, after_reason, after_ok := check_errors(checkable_paths(moved_dirs))
+		after, after_reason, after_ok := check_errors(checkable_paths(moved_dirs), targets)
 		if !after_ok {
 			append(&reasons, fmt.tprintf("%s after writing", after_reason))
 			return roll_back(name, .Refused, edit, changed, renames, &reasons, plan.edits)
 		}
-		if fresh := new_errors(before, after, names); len(fresh) > 0 {
+		if fresh := new_errors(before, after, names, edited_lines(edit) if names[0] != "" else nil);
+		   len(fresh) > 0 {
 			for e in fresh {
 				append(&reasons, fmt.tprintf("%s:%d:%d: %s", e.file, e.line, e.column, e.message))
 			}
@@ -207,7 +211,6 @@ warn_existing_errors :: proc(reasons: ^[dynamic]string, errors: []Check_Error) {
 }
 
 // Prints warning on stderr in text mode, or keeps it in reasons for JSON.
-@(private = "file")
 warn :: proc(reasons: ^[dynamic]string, warning: string) {
 	if json_output {
 		append(reasons, warning)
@@ -520,18 +523,38 @@ checkable_paths :: proc(dirs: []string) -> []string {
 	return paths[:]
 }
 
-// The `odin check` errors of paths. Fails when a check could not run to a parsed result.
+// The `odin check` errors of paths for each of targets, joined: each is a `-target:` value of odin, or empty
+// for the current one. Fails when a check could not run to a parsed result, naming its target.
+check_errors :: proc(paths: []string, targets: []string) -> (errors: []Check_Error, reason: string, ok: bool) {
+	all := make([dynamic]Check_Error, context.temp_allocator)
+	for target in targets {
+		found, failure, ran := check_errors_for(paths, target)
+		if !ran {
+			return {}, failure if target == "" else fmt.tprintf("%s (target %s)", failure, target), false
+		}
+		append(&all, ..found)
+	}
+	return all[:], "", true
+}
+
+// The `odin check` errors of paths for target, `-target:` of odin or empty for the current one. Fails when
+// a check could not run to a parsed result.
 @(private = "file")
-check_errors :: proc(paths: []string) -> (errors: []Check_Error, reason: string, ok: bool) {
+check_errors_for :: proc(paths: []string, target: string) -> (errors: []Check_Error, reason: string, ok: bool) {
 	config := &common.config
 	// The gate checks the touched packages, whatever the profile names, needs the diagnostics stored, and
 	// leaves out the vet and style flags, whose Syntax Errors stop the check and blind the gate.
 	saved := config^
 	config^ = server.gate_config(saved)
 	defer config^ = saved
+	if target != "" {
+		// A later flag wins over one in checker_args.
+		config.checker_args = strings.concatenate({config.checker_args, " -target:", target}, context.temp_allocator)
+	}
 
 	server.check_run = {}
-	server.check(.Saved, paths, config)
+	// 20 s per batch of core-count packages, capped at GATE_TIMEOUT_CAP.
+	server.check(.Saved, paths, config, server.gate_check_timeout(len(paths), os.get_processor_core_count()))
 	if !server.check_run.ran {
 		return {}, "`odin check` did not run", false
 	}
@@ -557,15 +580,39 @@ check_errors :: proc(paths: []string) -> (errors: []Check_Error, reason: string,
 // The errors of after that before does not have, keyed by error_key and counting
 // repeats: a second copy of an existing error is new. With names, the old and new name of a rename, a
 // before error left unmatched also matches with the old name replaced as a whole word, so an existing
-// error that names the renamed symbol is not new. The unchanged key is tried first, so an error about
-// another symbol of the same name still matches.
-new_errors :: proc(before, after: []Check_Error, names: [2]string = {}) -> []Check_Error {
+// error that names the renamed symbol is not new. Only a before error on a line that edited holds an
+// edit of can match this way, so an error about another symbol that has the old name stays as it is. The
+// unchanged key is tried first.
+new_errors :: proc(before, after: []Check_Error, names: [2]string = {}, edited: Edited_Lines = nil) -> []Check_Error {
 	counts := make(map[string]int, context.temp_allocator)
 	for e in before {
 		counts[error_key(e.message)] += 1
 	}
+	unmatched := take_unmatched(&counts, after)
+	if names[0] == "" || len(unmatched) == 0 {
+		return unmatched
+	}
+	eligible := make(map[string]int, context.temp_allocator)
+	for e in before {
+		if on_edited_line(edited, e) {
+			eligible[error_key(e.message)] += 1
+		}
+	}
+	renamed := make(map[string]int, context.temp_allocator)
+	for key, count in eligible {
+		// Eligible errors that the first pass already matched are not left over.
+		if left := min(count, counts[key]); left > 0 {
+			renamed[error_key(server.replace_word(key, names[0], names[1]))] += left
+		}
+	}
+	return take_unmatched(&renamed, unmatched)
+}
+
+// The errors that counts has no copy of, in order. Each match uses up one count.
+@(private = "file")
+take_unmatched :: proc(counts: ^map[string]int, errors: []Check_Error) -> []Check_Error {
 	unmatched := make([dynamic]Check_Error, context.temp_allocator)
-	for e in after {
+	for e in errors {
 		key := error_key(e.message)
 		if counts[key] > 0 {
 			counts[key] -= 1
@@ -573,35 +620,25 @@ new_errors :: proc(before, after: []Check_Error, names: [2]string = {}) -> []Che
 			append(&unmatched, e)
 		}
 	}
-	if names[0] == "" || len(unmatched) == 0 {
-		return unmatched[:]
-	}
-	renamed := make(map[string]int, context.temp_allocator)
-	for key, count in counts {
-		if count > 0 {
-			renamed[server.replace_word(key, names[0], names[1])] += count
-		}
-	}
-	fresh := make([dynamic]Check_Error, context.temp_allocator)
-	for e in unmatched {
-		key := error_key(e.message)
-		if renamed[key] > 0 {
-			renamed[key] -= 1
-		} else {
-			append(&fresh, e)
-		}
-	}
-	return fresh[:]
+	return unmatched[:]
 }
 
 // The first line of an error message. odin names the files of a directory with two package names in the
 // order it parses them, so "Different package name, expected 'a', got 'b'" swaps its names between
-// runs and keys as one error.
+// runs. Its key holds the two names sorted: the swap keys the same, and a third name keys differently.
 @(private = "file")
 error_key :: proc(message: string) -> string {
 	line := strings.truncate_to_byte(message, '\n')
 	if strings.has_prefix(line, "Different package name") {
-		return "Different package name"
+		quoted := strings.split(line, "'", context.temp_allocator)
+		if len(quoted) < 4 {
+			return "Different package name"
+		}
+		first, second := quoted[1], quoted[3]
+		if second < first {
+			first, second = second, first
+		}
+		return fmt.tprintf("Different package name '%s' '%s'", first, second)
 	}
 	return line
 }

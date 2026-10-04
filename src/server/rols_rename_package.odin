@@ -107,13 +107,15 @@ rename_package :: proc(
 		if is_source(sources, file.fullpath) {
 			continue
 		}
+		data: []byte
+		defer delete(data)
 		text := file.text
 		if text == "" {
-			data, err := os.read_entire_file(file.fullpath, context.temp_allocator)
+			read, err := os.read_entire_file(file.fullpath, context.allocator)
 			if err != nil {
 				continue
 			}
-			text = string(data)
+			data, text = read, string(read)
 		}
 		if !contains_word(text, old_name) && !imports_into(&r, file.fullpath, text) {
 			continue
@@ -313,7 +315,7 @@ split_import_path :: proc(
 		root := config.collections[body[:i]] or_return
 		return body[:i + 1], body[i + 1:], root, true
 	}
-	return "", body, path.dir(file), true
+	return "", body, path.dir(file, context.temp_allocator), true
 }
 
 // Whether an import of text, the source of file, resolves into the package directory with symlinks
@@ -361,37 +363,64 @@ scan_import_dirs :: proc(config: ^common.Config, file, text: string, skip_librar
 	return dirs[:]
 }
 
-// The directories of the workspace files outside dirs that import a package in dirs directly. An edit of
-// dirs can break these importers without touching them. The walk applies the workspace filter.
-importer_dirs :: proc(dirs: []string, config: ^common.Config) -> []string {
-	targets := make([dynamic]string, context.temp_allocator)
+// The directories of the workspace files outside dirs that import a package in dirs, directly or through
+// other importers. An edit of dirs can break these importers without touching them: a type that b
+// re-exports from c reaches a, which imports b. One scan reads each file once; the walk applies the
+// workspace filter. files, when given, replaces the walk, and a file with empty text is read from disk.
+importer_dirs :: proc(dirs: []string, config: ^common.Config, files: []Package_File = {}) -> []string {
+	targets := make(map[string]bool, context.temp_allocator)
 	for dir in dirs {
-		append(&targets, canonical_dir(dir))
+		targets[canonical_dir(dir)] = true
 	}
-	importers := make([dynamic]string, context.temp_allocator)
-	seen := make(map[string]bool, context.temp_allocator)
-	for file in workspace_odin_files("", {}) {
+	// Canonical imported directory to the directories of the files that import it.
+	importers_of := make(map[string][dynamic]string, context.temp_allocator)
+	canonical := make(map[string]string, context.temp_allocator)
+	for file in workspace_odin_files("", files) {
 		dir := path.dir(file.fullpath, context.temp_allocator)
-		if seen[dir] {
-			continue
+		if dir not_in canonical {
+			canonical[dir] = canonical_dir(dir)
 		}
-		if slice.contains(targets[:], canonical_dir(dir)) {
-			seen[dir] = true
-			continue
-		}
-		data, err := os.read_entire_file(file.fullpath, context.allocator)
-		if err != nil {
-			continue
-		}
+		data: []byte
 		defer delete(data)
-		for imported in scan_import_dirs(config, file.fullpath, string(data)) {
-			if slice.contains(targets[:], imported) {
+		text := file.text
+		if text == "" {
+			read, err := os.read_entire_file(file.fullpath, context.allocator)
+			if err != nil {
+				continue
+			}
+			data, text = read, string(read)
+		}
+		for imported in scan_import_dirs(config, file.fullpath, text) {
+			list, found := importers_of[imported]
+			if !found {
+				list = make([dynamic]string, context.temp_allocator)
+			}
+			append(&list, dir)
+			importers_of[imported] = list
+		}
+	}
+	// Walk from the targets to their importers, then to theirs. visited makes a cycle end.
+	importers := make([dynamic]string, context.temp_allocator)
+	visited := make(map[string]bool, context.temp_allocator)
+	pending := make([dynamic]string, context.temp_allocator)
+	for target in targets {
+		visited[target] = true
+		append(&pending, target)
+	}
+	for len(pending) > 0 {
+		current := pop(&pending)
+		// A range over the map index itself loops forever for a key that is missing, so the lookup comes first.
+		importing := importers_of[current]
+		for dir in importing {
+			real := canonical[dir]
+			if !visited[real] {
+				visited[real] = true
 				append(&importers, dir)
-				seen[dir] = true
-				break
+				append(&pending, real)
 			}
 		}
 	}
+	slice.sort(importers[:])
 	return importers[:]
 }
 

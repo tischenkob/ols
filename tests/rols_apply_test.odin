@@ -1,5 +1,7 @@
 package tests
 
+import "base:runtime"
+import "core:odin/parser"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -298,4 +300,98 @@ apply_new_errors_matches_swapped_package_names :: proc(t: ^testing.T) {
 	// A second mismatch is a new error.
 	two := []cli.Check_Error{after[0], after[0]}
 	testing.expect_value(t, len(cli.new_errors(before, two)), 1)
+}
+
+@(test)
+apply_new_errors_keys_package_mismatch_on_both_names :: proc(t: ^testing.T) {
+	before := []cli.Check_Error{{"d/b.odin", 1, 9, "Different package name, expected 'a', got 'b'"}}
+	swapped := []cli.Check_Error{{"d/a.odin", 1, 9, "Different package name, expected 'b', got 'a'"}}
+	testing.expect_value(t, len(cli.new_errors(before, swapped)), 0)
+	// A move into a third package name is a new mismatch, not the one that was there.
+	third := []cli.Check_Error{{"d/c.odin", 1, 9, "Different package name, expected 'a', got 'c'"}}
+	testing.expect_value(t, len(cli.new_errors(before, third)), 1)
+}
+
+@(test)
+apply_new_errors_rename_matches_only_edited_lines :: proc(t: ^testing.T) {
+	// The rename of count to tally edits line 8. An old error on line 8 names count and matches the same
+	// error on tally. The same text on line 3, which the rename does not touch, is another symbol's error.
+	names := [2]string{"count", "tally"}
+	edited := make(cli.Edited_Lines, context.temp_allocator)
+	edited["a.odin"] = []cli.Line_Span{{8, 8}}
+	on_edited := []cli.Check_Error{{"a.odin", 8, 1, "Cannot assign 'count()' to 's'"}}
+	renamed := []cli.Check_Error{{"a.odin", 8, 1, "Cannot assign 'tally()' to 's'"}}
+	testing.expect_value(t, len(cli.new_errors(on_edited, renamed, names, edited)), 0)
+
+	// An error in a file the rename does not edit has no edit lines at all.
+	otherfile := []cli.Check_Error{{"b.odin", 3, 1, "Cannot assign 'count()' to 's'"}}
+	testing.expect_value(t, len(cli.new_errors(otherfile, renamed, names, edited)), 1)
+	elsewhere := []cli.Check_Error{{"a.odin", 3, 1, "Cannot assign 'count()' to 's'"}}
+	testing.expect_value(t, len(cli.new_errors(elsewhere, renamed, names, edited)), 1)
+	// Without edit lines no error is rewritten.
+	testing.expect_value(t, len(cli.new_errors(on_edited, renamed, names)), 1)
+	// An unmatched error of the edited line is rewritten once: a second new copy stays new.
+	twice := []cli.Check_Error{renamed[0], renamed[0]}
+	testing.expect_value(t, len(cli.new_errors(on_edited, twice, names, edited)), 1)
+}
+
+@(test)
+apply_importer_dirs_follow_importers_of_importers :: proc(t: ^testing.T) {
+	config: common.Config
+	files := []server.Package_File {
+		{"/ws/a/a.odin", "package a\n\nimport \"../b\"\n"},
+		{"/ws/b/b.odin", "package b\n\nimport \"../c\"\n"},
+		{"/ws/c/c.odin", "package c\n\nimport \"../b\"\n"}, // a cycle b <-> c
+		{"/ws/d/d.odin", "package d\n\nimport \"../e\"\n"},
+		{"/ws/e/e.odin", "package e\n"},
+	}
+	found := server.importer_dirs([]string{"/ws/c"}, &config, files)
+	testing.expect_value(t, len(found), 2)
+	if len(found) == 2 {
+		testing.expect_value(t, found[0], "/ws/a")
+		testing.expect_value(t, found[1], "/ws/b")
+	}
+	// The unrelated pair is not an importer of c.
+	testing.expect_value(t, len(server.importer_dirs([]string{"/ws/a"}, &config, files)), 0)
+}
+
+@(test)
+apply_gate_targets_follow_the_files_the_host_does_not_build :: proc(t: ^testing.T) {
+	host := parser.Build_Target {
+		os   = .Darwin,
+		arch = .arm64,
+	}
+	target, need := server.target_for_file("/p/io_windows.odin", "package p\n", host)
+	testing.expect_value(t, need, server.Target_Need.Other)
+	testing.expect_value(t, target, "windows_amd64")
+	target, need = server.target_for_file("/p/io.odin", "#+build js\npackage p\n", host)
+	testing.expect_value(t, target, "js_wasm32")
+	target, need = server.target_for_file("/p/io.odin", "#+build linux, freebsd\npackage p\n", host)
+	testing.expect_value(t, target, "linux_amd64")
+	_, need = server.target_for_file("/p/io.odin", "package p\n", host)
+	testing.expect_value(t, need, server.Target_Need.None)
+	_, need = server.target_for_file("/p/io_darwin.odin", "package p\n", host)
+	testing.expect_value(t, need, server.Target_Need.None)
+	_, need = server.target_for_file("/p/io.odin", "#+build ignore\npackage p\n", host)
+	testing.expect_value(t, need, server.Target_Need.None)
+	_, need = server.target_for_file("/p/io.odin", "#+build windows\n#+build linux\npackage p\n", host)
+	testing.expect_value(t, need, server.Target_Need.Nowhere)
+	target, need = server.target_for_file("/p/io_linux_arm64.odin", "package p\n", {os = .Linux, arch = .amd64})
+	testing.expect_value(t, target, "linux_arm64")
+
+	name, ok := server.target_name("windows")
+	testing.expect(t, ok)
+	testing.expect_value(t, name, "windows_amd64")
+	name, ok = server.target_name("js_wasm32")
+	testing.expect(t, ok)
+	testing.expect_value(t, name, "js_wasm32")
+	_, ok = server.target_name("plan9_amd64")
+	testing.expect(t, !ok)
+	_, ok = server.target_name("darwin_wasm32")
+	testing.expect(t, !ok, "an OS and an architecture that odin has no target for")
+	testing.expect_value(t, server.base_target("-target:linux_arm64 -vet").arch, runtime.Odin_Arch_Type.arm64)
+	testing.expect_value(t, server.gate_check_timeout(0, 8), server.CHECK_TIMEOUT)
+	testing.expect_value(t, server.gate_check_timeout(8, 8), server.CHECK_TIMEOUT)
+	testing.expect_value(t, server.gate_check_timeout(9, 8), 2 * server.CHECK_TIMEOUT)
+	testing.expect_value(t, server.gate_check_timeout(100000, 8), server.GATE_TIMEOUT_CAP)
 }
