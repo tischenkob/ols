@@ -724,8 +724,9 @@ expect_definition_locations :: proc(t: ^testing.T, src: ^Source, expect_location
 		return
 	}
 
+	// rols: failure output uses temp memory so a failed assertion reports no leaks
 	extra_expected, extra_locations, all_good := compare_expected_slice_set(
-		locations, expect_locations, equals = proc (a, e: common.Location) -> bool {
+		locations, expect_locations, allocator = context.temp_allocator, equals = proc (a, e: common.Location) -> bool {
 			if e.uri != "" {
 				if a.range == e.range && a.uri == e.uri {
 					return true
@@ -737,7 +738,8 @@ expect_definition_locations :: proc(t: ^testing.T, src: ^Source, expect_location
 	})
 	if all_good do return
 
-	sb := strings.builder_make()
+	// rols: failure output uses temp memory so a failed assertion reports no leaks
+	sb := strings.builder_make(context.temp_allocator)
 
 	if len(extra_expected) > 0 {
 		strings.write_rune(&sb, '\n')
@@ -749,7 +751,7 @@ expect_definition_locations :: proc(t: ^testing.T, src: ^Source, expect_location
 				loc.uri = "test/main.odin"
 			}
 			strings.write_string(&sb,
-				source_location_display(src^, loc, before=ANSI_RED_BG))
+				source_location_display(src^, loc, before=ANSI_RED_BG, allocator=context.temp_allocator))
 		}
 	}
 
@@ -759,7 +761,7 @@ expect_definition_locations :: proc(t: ^testing.T, src: ^Source, expect_location
 		strings.write_string(&sb,  " Definition(s) reported but not expected:\n")
 		for i in extra_locations {
 			strings.write_string(&sb,
-				source_location_display(src^, locations[i], before=ANSI_GREEN_BG))
+				source_location_display(src^, locations[i], before=ANSI_GREEN_BG, allocator=context.temp_allocator))
 		}
 	}
 
@@ -780,8 +782,9 @@ expect_type_definition_locations :: proc(t: ^testing.T, src: ^Source, expect_loc
 		return
 	}
 
+	// rols: failure output uses temp memory so a failed assertion reports no leaks
 	extra_expected, extra_locations, all_good := compare_expected_slice_set(
-		locations, expect_locations, equals = proc (a, e: common.Location) -> bool {
+		locations, expect_locations, allocator = context.temp_allocator, equals = proc (a, e: common.Location) -> bool {
 			if e.uri != "" {
 				if a.range == e.range && a.uri == e.uri {
 					return true
@@ -793,7 +796,8 @@ expect_type_definition_locations :: proc(t: ^testing.T, src: ^Source, expect_loc
 	})
 	if all_good do return
 
-	sb := strings.builder_make()
+	// rols: failure output uses temp memory so a failed assertion reports no leaks
+	sb := strings.builder_make(context.temp_allocator)
 
 	if len(extra_expected) > 0 {
 		strings.write_rune(&sb, '\n')
@@ -805,7 +809,7 @@ expect_type_definition_locations :: proc(t: ^testing.T, src: ^Source, expect_loc
 				loc.uri = "test/main.odin"
 			}
 			strings.write_string(&sb,
-				source_location_display(src^, loc, before=ANSI_RED_BG))
+				source_location_display(src^, loc, before=ANSI_RED_BG, allocator=context.temp_allocator))
 		}
 	}
 
@@ -815,7 +819,7 @@ expect_type_definition_locations :: proc(t: ^testing.T, src: ^Source, expect_loc
 		strings.write_string(&sb,  " Type definition(s) reported but not expected:\n")
 		for i in extra_locations {
 			strings.write_string(&sb,
-				source_location_display(src^, locations[i], before=ANSI_GREEN_BG))
+				source_location_display(src^, locations[i], before=ANSI_GREEN_BG, allocator=context.temp_allocator))
 		}
 	}
 
@@ -841,11 +845,14 @@ expect_reference_locations :: proc(
 		return
 	}
 
+	// rols: failure output uses temp memory so a failed assertion reports no leaks
 	extra_expected, extra_locations, all_good := compare_expected_slice_set(locations, expect_locations,
+	                                                                        allocator = context.temp_allocator,
 	                                                                        equals = proc (a, b: common.Location) -> bool {return a.range == b.range})
 	if all_good do return
 
-	sb := strings.builder_make()
+	// rols: failure output uses temp memory so a failed assertion reports no leaks
+	sb := strings.builder_make(context.temp_allocator)
 
 	if len(extra_expected) > 0 {
 		strings.write_rune(&sb, '\n')
@@ -857,7 +864,7 @@ expect_reference_locations :: proc(
 				loc.uri = "test/main.odin"
 			}
 			strings.write_string(&sb,
-				source_location_display(src^, loc, before=ANSI_RED_BG))
+				source_location_display(src^, loc, before=ANSI_RED_BG, allocator=context.temp_allocator))
 		}
 	}
 
@@ -867,7 +874,7 @@ expect_reference_locations :: proc(
 		strings.write_string(&sb,  " Reference(s) reported but not expected:\n")
 		for i in extra_locations {
 			strings.write_string(&sb,
-				source_location_display(src^, locations[i], before=ANSI_GREEN_BG))
+				source_location_display(src^, locations[i], before=ANSI_GREEN_BG, allocator=context.temp_allocator))
 		}
 	}
 
@@ -1806,9 +1813,14 @@ expect_implementation_locations :: proc(t: ^testing.T, src: ^Source, expected: [
 	locations := server.get_implementation_locations(src.document, cursor, package_files(src))
 	for &location in locations do location.uri = ""
 
-	_, _, all_good := compare_expected_slice_set(locations, expected, equals = proc(a, e: common.Location) -> bool {
-		return a.range == e.range
-	})
+	_, _, all_good := compare_expected_slice_set(
+		locations,
+		expected,
+		equals = proc(a, e: common.Location) -> bool {
+			return a.range == e.range
+		},
+		allocator = context.temp_allocator,
+	)
 	testing.expectf(t, all_good, "\nExpected %v but received %v", expected, locations)
 }
 
