@@ -1483,7 +1483,7 @@ expect_reorder_params :: proc(t: ^testing.T, src: ^Source, order: []int, expecte
 
 // Moves the declaration at the cursor to target, a file name of the test package. Empty expected
 // means the move is refused.
-expect_move_declaration :: proc(t: ^testing.T, src: ^Source, target: string, expected: []File) {
+expect_move_declaration :: proc(t: ^testing.T, src: ^Source, target: string, expected: []File, cause := "") {
 	cursor := source_remove_cursor(src)
 
 	setup(src)
@@ -1491,9 +1491,11 @@ expect_move_declaration :: proc(t: ^testing.T, src: ^Source, target: string, exp
 
 	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
 
-	edit, _, ok := server.move_declaration(src.document, cursor, test_uri(target), package_files(src))
+	edit, reason, ok := server.move_declaration(src.document, cursor, test_uri(target), package_files(src))
 	if len(expected) == 0 {
-		testing.expectf(t, !ok, "Expected the move to be refused but received %v", edit)
+		if !testing.expectf(t, !ok, "Expected the move to be refused but received %v", edit) do return
+		// rols: an empty cause always matches
+		testing.expectf(t, strings.contains(reason, cause), "Expected the reason to contain %q but received %q", cause, reason)
 		return
 	}
 	if !testing.expectf(t, ok, "Expected a move but it was refused") do return

@@ -47,22 +47,23 @@ snapshot_directory :: proc(directory: string) -> bool {
 		fmt.eprintf("Error in globbing directory: %v", directory)
 	}
 
+	// rols: run every snapshot and report a failure at the end, so one mismatch does not hide the rest
+	ok := true
 	for match in matches {
 		if strings.contains(match, ".odin") {
-			snapshot_file(match) or_return
+			ok = snapshot_file(match) && ok
 		}
 	}
 
 	for match in matches {
 		if !strings.contains(match, ".snapshots") {
 			if os.is_dir(match) {
-				// rols: a mismatch in a subdirectory must fail the run
-				snapshot_directory(match) or_return
+				ok = snapshot_directory(match) && ok
 			}
 		}
 	}
 
-	return true
+	return ok
 }
 
 snapshot_file :: proc(path: string) -> bool {

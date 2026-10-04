@@ -454,3 +454,30 @@ f :: proc(b: ^Buf) {
 }
 `)
 }
+
+// Corpus: ols src/server/analysis.odin:2784 on the S17 rerun, see docs/corpus-validation.md.
+// This test fails until a builtin result type is not qualified with the callee's package (`strings.bool`).
+@(test)
+action_add_explicit_type_builtin_result_of_package_call :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "other"
+
+main :: proc() {
+	x{*} := other.has("a")
+}
+`,
+		packages = {{pkg = "other", source = "package other\n\nhas :: proc(s: string) -> bool {\n\treturn true\n}\n"}},
+		config = {enable_code_action_add_explicit_type = true},
+	}
+
+	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+
+import "other"
+
+main :: proc() {
+	x: bool = other.has("a")
+}
+`)
+}
