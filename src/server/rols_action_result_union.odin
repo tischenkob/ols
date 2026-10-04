@@ -270,6 +270,7 @@ named_results_edits :: proc(ctx: ^ActionContext, lit: ^ast.Proc_Lit, text: strin
 }
 
 // Every identifier in the body, nested procedures included.
+@(private = "package")
 body_ident_names :: proc(body: ^ast.Stmt) -> []string {
 	names := make([dynamic]string, context.temp_allocator)
 	visitor := ast.Visitor {

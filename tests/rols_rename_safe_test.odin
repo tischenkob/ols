@@ -102,7 +102,6 @@ main :: proc() {
 }
 
 // Corpus: karl2d karl2d.odin:5723 and five example files on the S17 rerun, see docs/corpus-validation.md.
-// This test fails until a rename reaches an enum member that sits in the argument of a call inside a binary expression.
 @(test)
 rename_safe_enum_member_in_call_inside_binary_expression :: proc(t: ^testing.T) {
 	source := test.Source {

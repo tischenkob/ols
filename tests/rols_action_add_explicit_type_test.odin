@@ -456,7 +456,6 @@ f :: proc(b: ^Buf) {
 }
 
 // Corpus: ols src/server/analysis.odin:2784 on the S17 rerun, see docs/corpus-validation.md.
-// This test fails until a builtin result type is not qualified with the callee's package (`strings.bool`).
 @(test)
 action_add_explicit_type_builtin_result_of_package_call :: proc(t: ^testing.T) {
 	source := test.Source {
@@ -478,6 +477,32 @@ import "other"
 
 main :: proc() {
 	x: bool = other.has("a")
+}
+`)
+}
+
+// An alias that a package declares with a builtin name (core:c has `int :: builtin.i32`) keeps its package.
+@(test)
+action_add_explicit_type_keeps_package_of_builtin_named_alias :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "other"
+
+f :: proc(y: other.int) {
+	x{*} := y
+}
+`,
+		packages = {{pkg = "other", source = "package other\n\nint :: i32\n"}},
+		config = {enable_code_action_add_explicit_type = true},
+	}
+
+	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+
+import "other"
+
+f :: proc(y: other.int) {
+	x: other.int = y
 }
 `)
 }

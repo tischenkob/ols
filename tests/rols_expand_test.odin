@@ -598,7 +598,6 @@ a: [1]int = {{*}1}
 }
 
 // Corpus: tina src/shard.odin:318 and :2497 on the S17 rerun, see docs/corpus-validation.md.
-// This test fails until the C-style loop declares the counter with the range's type.
 @(test)
 expand_range_keeps_non_int_bound_type :: proc(t: ^testing.T) {
 	expect_expand(t, C_STYLE_FOR, `package test
@@ -612,6 +611,79 @@ f :: proc(n: u32) {
 
 f :: proc(n: u32) {
 	for i: u32 = 0; i < n; i += 1 {
+		g(i)
+	}
+}
+`)
+}
+
+@(test)
+expand_range_type_from_call_bound :: proc(t: ^testing.T) {
+	expect_expand(t, C_STYLE_FOR, `package test
+
+n :: proc() -> u32 {
+	return 3
+}
+
+f :: proc() {
+	for i {*}in 0..<n() {
+		g(i)
+	}
+}
+`, `package test
+
+n :: proc() -> u32 {
+	return 3
+}
+
+f :: proc() {
+	for i: u32 = 0; i < n(); i += 1 {
+		g(i)
+	}
+}
+`)
+}
+
+@(test)
+expand_range_type_from_field_bound :: proc(t: ^testing.T) {
+	expect_expand(t, C_STYLE_FOR, `package test
+
+S :: struct {
+	n: u32,
+}
+
+f :: proc(s: S) {
+	for i {*}in 0..<s.n {
+		g(i)
+	}
+}
+`, `package test
+
+S :: struct {
+	n: u32,
+}
+
+f :: proc(s: S) {
+	for i: u32 = 0; i < s.n; i += 1 {
+		g(i)
+	}
+}
+`)
+}
+
+@(test)
+expand_range_len_bound_stays_int :: proc(t: ^testing.T) {
+	expect_expand(t, C_STYLE_FOR, `package test
+
+f :: proc(xs: []int) {
+	for i {*}in 0..<len(xs) {
+		g(i)
+	}
+}
+`, `package test
+
+f :: proc(xs: []int) {
+	for i := 0; i < len(xs); i += 1 {
 		g(i)
 	}
 }

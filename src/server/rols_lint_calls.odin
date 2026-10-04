@@ -49,7 +49,8 @@ lint_calls :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnost
 		if field.default_value == nil do required += count
 	}
 
-	given := len(call.args) + extra
+	given, _ := expanded_arg_count(ctx, call.args)
+	given += extra
 	if given >= required && given <= total do return
 
 	message: string

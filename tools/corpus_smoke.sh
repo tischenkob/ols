@@ -146,13 +146,19 @@ rel() {
 	fi
 }
 
-# has_decl FILE: the file declares something at column 0 outside block comments.
+# has_decl FILE: the file declares something at column 0 outside block comments and raw strings.
+# A file with a top-level `when` is exempt: its body often sits at column 0 and the branch may be inactive,
+# and text alone cannot tell which declarations the compiler sees. A backtick in a comment, string or rune
+# can toggle the raw-string state wrongly; the check then errs toward a missed or extra alarm on that file.
+# The caller prints `SKIP` for the exemption.
 has_decl() {
 	awk '{
 		line = $0
-		if (depth == 0 && line ~ /^[A-Za-z_][A-Za-z0-9_]*([ \t]*,[ \t]*[A-Za-z_][A-Za-z0-9_]*)*[ \t]*:/) found = 1
-		depth += gsub(/\/\*/, "", line) - gsub(/\*\//, "", line)
-	} END { exit !found }' "$1"
+		if (line ~ /^when[ \t]/) skip = 1
+		if (depth == 0 && !raw && line ~ /^[A-Za-z_][A-Za-z0-9_]*([ \t]*,[ \t]*[A-Za-z_][A-Za-z0-9_]*)*[ \t]*:/) found = 1
+		if (!raw) depth += gsub(/\/\*/, "", line) - gsub(/\*\//, "", line)
+		if (gsub(/`/, "", line) % 2 == 1) raw = !raw
+	} END { exit !(found && !skip) }' "$1"
 }
 
 # fetch: a shallow clone of url at sha in $root, reset and cleaned.
@@ -415,6 +421,9 @@ for name in "${names[@]}"; do
 		olsq "$w/sym.out" symbols symbols "$file" || continue
 		if [[ $rc -eq 1 ]] && has_decl "$file"; then
 			fail symbols "empty outline: ${file#"$root"/}"
+		elif [[ $rc -eq 1 ]] && grep -q '^when[[:space:]]' "$file"; then
+			echo "SKIP $name symbols ${file#"$root"/}" >&2
+			sym_ok=$((sym_ok + 1))
 		elif [[ $rc -gt 1 ]]; then
 			fail symbols "exit $rc: ${file#"$root"/}"
 		else
@@ -442,6 +451,11 @@ for name in "${names[@]}"; do
 		if [[ "$copy" == "$fmt1" ]]; then
 			while IFS= read -r pkg; do
 				if ! odin_check "$fmt1" "$fmt1/$(rel "$pkg")" "$w/fmtcheck.out"; then
+					# The copy of core meets the real core through its imports; that says nothing about the formatter.
+					if [[ $readonly_root -eq 1 ]] && grep -q "Duplicate declaration of 'package" "$w/fmtcheck.out"; then
+						echo "SKIP $name format $(rel "$pkg")" >&2
+						continue
+					fi
 					fail format "breaks $(rel "$pkg"): $(first_error "$w/fmtcheck.out")"
 					fmt_bad=$((fmt_bad + 1))
 				fi

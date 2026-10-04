@@ -31,6 +31,7 @@ add_named_results_action :: proc(ctx: ^ActionContext) {
 	}
 
 	taken := signature_names(lit)
+	body := lit.body != nil ? body_ident_names(lit.body) : nil
 
 	// Edits touch only names and a bare result's type, so defaults, comments and line breaks stay as written.
 	src := ctx.document.ast.src
@@ -38,7 +39,7 @@ add_named_results_action :: proc(ctx: ^ActionContext) {
 	for field in lit.type.results.list {
 		// Only an unparenthesized result has no names.
 		if field.names == nil {
-			text := fmt.tprintf("(%s: %s)", fresh_result_name(&taken, field.type), node_text(src, field.type))
+			text := fmt.tprintf("(%s: %s)", body_free_name(&taken, body, field.type), node_text(src, field.type))
 			append(
 				&edits,
 				TextEdit{range = range_of(ctx, field.type.pos.offset, field.type.end.offset), newText = text},
@@ -47,7 +48,7 @@ add_named_results_action :: proc(ctx: ^ActionContext) {
 		}
 		// The parser names an unnamed result in parentheses `_`, starting where its type does.
 		if field.type != nil && field.names[0].pos.offset == field.type.pos.offset {
-			name := fresh_result_name(&taken, field.type)
+			name := body_free_name(&taken, body, field.type)
 			at := field.type.pos.offset
 			append(
 				&edits,
@@ -63,7 +64,7 @@ add_named_results_action :: proc(ctx: ^ActionContext) {
 				continue
 			}
 			// A field like `_ := false` has no type to name it after.
-			fresh := field.type != nil ? fresh_result_name(&taken, field.type) : take_result_name(&taken, "result")
+			fresh := field.type != nil ? body_free_name(&taken, body, field.type) : take_result_name(&taken, "result")
 			append(&edits, TextEdit{range = range_of(ctx, name.pos.offset, name.end.offset), newText = fresh})
 		}
 	}
@@ -71,6 +72,17 @@ add_named_results_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	append(ctx.actions, make_code_action(ctx, "Use named results", "refactor.rewrite", edits[:]))
+}
+
+// fresh_result_name, but a name the body already uses (it would shadow or redeclare it) gives way to result.
+body_free_name :: proc(taken: ^[dynamic]string, body: []string, type: ^ast.Expr) -> string {
+	name := fresh_result_name(taken, type)
+	if !slice.contains(body, name) {
+		return name
+	}
+	pop(taken)
+	append(taken, ..body)
+	return take_result_name(taken, "result")
 }
 
 // The parameter and result names of a procedure literal, as a list new names are added to.

@@ -91,14 +91,15 @@ lint_printf :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnos
 
 // The number of arguments the call passes, counting every result of a multi-value call,
 // and the index of the first such call (len(args) when there is none).
-@(private = "file")
 expanded_arg_count :: proc(ctx: ^LintContext, args: []^ast.Expr) -> (count, first_spread: int) {
 	first_spread = len(args)
 	for arg, i in args {
 		results := 1
 		if call, is_call := arg.derived.(^ast.Call_Expr); is_call {
 			if resolved, ok := lint_symbols(ctx)[uintptr(call.expr)]; ok && !resolved.is_unresolved {
-				if value, is_proc := resolved.symbol.value.(SymbolProcedureValue); is_proc && len(value.return_types) > 0 {
+				// #optional_ok and #optional_allocator_error procs yield one value where an argument is wanted.
+				if value, is_proc := resolved.symbol.value.(SymbolProcedureValue);
+				   is_proc && len(value.return_types) > 0 && value.tags & {.Optional_Ok, .Optional_Allocator_Error} == {} {
 					results = 0
 					for field in value.return_types do results += max(len(field.names), 1)
 				}

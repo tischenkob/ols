@@ -3439,7 +3439,14 @@ resolve_implicit_selector :: proc(
 	Symbol,
 	bool,
 ) {
-	if position_context.binary != nil {
+	// rols: a selector in an argument of a call that is an operand (`ok && f(.A)`) takes its type from the parameter
+	call_inside_binary :=
+		position_context.binary != nil &&
+		position_context.call != nil &&
+		position_in_node(position_context.call, position_context.position) &&
+		!(position_context.call.pos.offset <= position_context.binary.pos.offset &&
+				position_context.binary.end.offset <= position_context.call.end.offset)
+	if position_context.binary != nil && !call_inside_binary {
 		if position_in_node(position_context.binary, position_context.position) {
 			// We resolve whichever is not the implicit_selector
 			if implicit, ok := position_context.binary.left.derived.(^ast.Implicit_Selector_Expr); ok {
