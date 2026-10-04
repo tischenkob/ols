@@ -23,3 +23,6 @@ deno.lock
 *.dSYM/
 .DS_store
 .claude/worktrees/
+
+# rols: failed snapshot output from tools/odinfmt/tests.sh
+tools/odinfmt/tests/**/.snapshots/*_failed

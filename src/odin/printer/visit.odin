@@ -195,7 +195,18 @@ visit_disabled :: proc(p: ^Printer, node: ^ast.Node) -> ^Document {
 		prefix = text(p.src[node_pos.offset:disabled_info.begin])
 	}
 
-	document := cons(move, prefix, text(disabled_info.text))
+	region_text := disabled_info.text
+	// rols: code before the comment ends a statement that began on an earlier line, which the printer already emitted
+	code_before := strings.trim_space(p.src[disabled_info.begin:disabled_info.comment_offset]) != ""
+	if code_before && node_pos.offset > disabled_info.comment_offset {
+		line_start := node_pos.offset - (node_pos.column - 1)
+		region_text = strings.concatenate(
+			{p.src[line_start:node_pos.offset], disabled_info.text[disabled_info.comment_offset - disabled_info.begin:]},
+			p.allocator,
+		)
+	}
+
+	document := cons(move, prefix, text(region_text))
 
 	for comment_before_or_in_line(p, disabled_info.end_line + 1) {
 		// we need to handle the rest of the comment group
@@ -604,6 +615,12 @@ visit_enum_exprs :: proc(p: ^Printer, enum_type: ast.Enum_Type, options := List_
 
 	document := empty()
 
+	// rols: compute the alignment once instead of once per field
+	alignment := 0
+	if .Enforce_Newline in options {
+		alignment = get_possible_enum_alignment(enum_type.fields)
+	}
+
 	for expr, i in enum_type.fields {
 		if i == 0 && .Enforce_Newline in options {
 			comment, _ := visit_comments(p, enum_type.fields[i].pos)
@@ -614,8 +631,7 @@ visit_enum_exprs :: proc(p: ^Printer, enum_type: ast.Enum_Type, options := List_
 		}
 
 		if (.Enforce_Newline in options) {
-			alignment := get_possible_enum_alignment(enum_type.fields)
-
+			// rols: the alignment is computed once before the loop
 			if value, ok := expr.derived.(^ast.Field_Value); ok && alignment > 0 {
 				document = cons(
 					document,
@@ -738,6 +754,12 @@ visit_union_exprs :: proc(p: ^Printer, union_type: ast.Union_Type, options := Li
 
 	document := empty()
 
+	// rols: compute the alignment once instead of once per variant
+	alignment := 0
+	if .Enforce_Newline in options {
+		alignment = get_possible_enum_alignment(union_type.variants)
+	}
+
 	for expr, i in union_type.variants {
 		if i == 0 && .Enforce_Newline in options {
 			comment, _ := visit_comments(p, union_type.variants[i].pos)
@@ -748,8 +770,7 @@ visit_union_exprs :: proc(p: ^Printer, union_type: ast.Union_Type, options := Li
 		}
 
 		if (.Enforce_Newline in options) {
-			alignment := get_possible_enum_alignment(union_type.variants)
-
+			// rols: the alignment is computed once before the loop
 			if value, ok := expr.derived.(^ast.Field_Value); ok && alignment > 0 {
 				document = cons(
 					document,
@@ -795,6 +816,14 @@ visit_comp_lit_exprs :: proc(p: ^Printer, comp_lit: ast.Comp_Lit, options := Lis
 
 	document := empty()
 
+	// rols: alignment depends on every element, so compute it once instead of once per element
+	alignment := 0
+	align_values := false
+	if .Enforce_Newline in options {
+		alignment = get_possible_comp_lit_alignment(comp_lit.elems)
+		align_values = alignment > 0 && should_align_comp_lit(p, comp_lit) && p.config.align_struct_values
+	}
+
 	for expr, i in comp_lit.elems {
 		if i == 0 && .Enforce_Newline in options {
 			comment, _ := visit_comments(p, comp_lit.elems[i].pos)
@@ -805,10 +834,11 @@ visit_comp_lit_exprs :: proc(p: ^Printer, comp_lit: ast.Comp_Lit, options := Lis
 		}
 
 		if (.Enforce_Newline in options) {
-			alignment := get_possible_comp_lit_alignment(comp_lit.elems)
+			// rols: the alignment is computed once before the loop
 			if value, ok := expr.derived.(^ast.Field_Value); ok && alignment > 0 {
 				align := empty()
-				if should_align_comp_lit(p, comp_lit) && p.config.align_struct_values {
+				// rols: the flag was computed once before the loop
+				if align_values {
 					align = repeat_space(alignment - get_node_length(value.field))
 				}
 				document = cons(
@@ -1857,6 +1887,8 @@ visit_expr :: proc(
 
 			if matrix_type, ok := v.type.derived.(^ast.Matrix_Type);
 			   ok && is_matrix_type_constant(matrix_type) && is_matrix_filled_comp_lit(matrix_type, v) {
+				// rols: as in the general case below, only a comment inside the braces takes the Indent option
+				_, matrix_indent_was_set := p.comments_option[v.pos.line]
 				document = cons(document, visit_begin_brace(p, v.pos, .Comp_Lit))
 
 				set_source_position(p, v.open)
@@ -1867,6 +1899,9 @@ visit_expr :: proc(
 				set_source_position(p, v.end)
 
 				document = cons(document, newline(1), text_position(p, "}", v.end))
+				if !matrix_indent_was_set {
+					delete_key(&p.comments_option, v.pos.line)
+				}
 
 				break
 			}
@@ -1885,6 +1920,8 @@ visit_expr :: proc(
 		should_newline |= p.config.multiline_composite_literals && len(v.elems) > 0 && v.open.line != v.close.line
 
 		if should_newline {
+			// rols: only a comment inside the braces takes the Indent option, not one after the closing brace
+			_, indent_was_set := p.comments_option[v.pos.line]
 			document = cons_with_nopl(document, visit_begin_brace(p, v.pos, .Comp_Lit))
 			inner_document := empty()
 			if len(v.elems) > 0 {
@@ -1896,6 +1933,10 @@ visit_expr :: proc(
 				inner_document, _ = visit_comments(p, v.end)
 			}
 			document = cons(document, nest(inner_document), newline(1), text_position(p, "}", v.end))
+			// rols: drop the option when no comment inside the braces consumed it
+			if !indent_was_set {
+				delete_key(&p.comments_option, v.pos.line)
+			}
 		} else {
 			break_string := " " if v.type != nil else ""
 			if len(v.elems) > 0 {
@@ -2069,15 +2110,22 @@ visit_block_stmts :: proc(p: ^Printer, stmts: []^ast.Stmt) -> ^Document {
 
 	for stmt, i in stmts {
 		last_index := max(0, i - 1)
-		if stmts[last_index].end.line == stmt.pos.line && i != 0 && stmt.pos.line not_in p.disabled_lines {
+		joined := stmts[last_index].end.line == stmt.pos.line && i != 0 && stmt.pos.line not_in p.disabled_lines
+		if joined {
 			document = group(cons(document, break_with("; ")))
 		}
 
+		stmt_document: ^Document
 		if p.force_statement_fit {
-			document = cons(document, enforce_fit(visit_stmt(p, stmt, .Generic, false, true)))
+			stmt_document = enforce_fit(visit_stmt(p, stmt, .Generic, false, true))
+		} else if joined && stmt.pos.line == stmt.end.line && (i == len(stmts) - 1 || stmts[i + 1].pos.line != stmt.end.line) {
+			// rols: the last one-line statement of a `;` chain stays in one piece, so the group before it measures all of it
+			stmt_document = enforce_fit(visit_stmt(p, stmt, .Generic, false, true))
 		} else {
-			document = cons(document, visit_stmt(p, stmt, .Generic, false, true))
+			stmt_document = visit_stmt(p, stmt, .Generic, false, true)
 		}
+
+		document = cons(document, stmt_document)
 	}
 
 	return document

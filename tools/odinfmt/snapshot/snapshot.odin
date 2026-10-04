@@ -56,7 +56,8 @@ snapshot_directory :: proc(directory: string) -> bool {
 	for match in matches {
 		if !strings.contains(match, ".snapshots") {
 			if os.is_dir(match) {
-				snapshot_directory(match)
+				// rols: a mismatch in a subdirectory must fail the run
+				snapshot_directory(match) or_return
 			}
 		}
 	}
