@@ -101,13 +101,13 @@ simplifications :: proc(document: ^Document) -> []Simplification {
 	for decl in document.ast.decls {
 		ast.walk(&visitor, decl)
 	}
-	// These rewrite a declaration and drop the `if` after it, so a comment in between would be lost.
+	// rols: a rewrite rebuilds its range from node text, so a comment inside would be lost.
+	// redundant-else and nested-if copy their inner source, comments included, and refuse the
+	// comments they would drop themselves.
 	kept := make([dynamic]Simplification, 0, len(w.out), context.temp_allocator)
 	for s in w.out {
-		switch s.code {
-		case "or-return", "or-break", "or-continue":
-			if len(comments_overlapping(document.ast, s.start, s.end)) > 0 do continue
-		}
+		copies_source := s.code == "redundant-else" || s.code == "nested-if"
+		if !copies_source && len(comments_overlapping(document.ast, s.start, s.end)) > 0 do continue
 		append(&kept, s)
 	}
 	return kept[:]
@@ -497,6 +497,11 @@ simplify_redundant_parens :: proc(src: string, node: ^ast.Node, _: []^ast.Node, 
 		}
 		paren, is_paren := expr.derived.(^ast.Paren_Expr)
 		if !is_paren || needs_parens(paren.expr) {
+			continue
+		}
+		// rols: parentheses that span lines hold the layout of a wrapped condition; removing them
+		// leaves a brace or a blank line out of place.
+		if strings.contains_any(node_text(src, paren), "\r\n") {
 			continue
 		}
 		// `return(x)` and `if(x)do` need a space once the parenthesis goes.
@@ -1314,6 +1319,10 @@ simplify_redundant_else :: proc(src: string, node: ^ast.Node, parents: []^ast.No
 	}
 	else_block, else_is_block := if_stmt.else_stmt.derived.(^ast.Block_Stmt)
 	if !else_is_block || else_block.uses_do || len(else_block.stmts) == 0 {
+		return
+	}
+	// rols: the replaced range starts at the end of the then block, so a comment before `else` goes too.
+	if strings.trim_space(src[if_stmt.body.end.offset:else_block.pos.offset]) != "else" {
 		return
 	}
 	declared := make([dynamic]string, context.temp_allocator)

@@ -216,6 +216,8 @@ modernize_fixes :: proc(
 		for m in stdlib_matches(document) {
 			id := stdlib_rule_id(m.rule)
 			if id not_in selected do continue
+			// rols: the call replaces the whole range, so a comment inside would be deleted.
+			if len(comments_overlapping(document.ast, m.start, m.end)) > 0 do continue
 			fix := Modernize_Fix {
 				rule  = id,
 				title = fmt.tprintf("Replace with %s", m.rule.target),

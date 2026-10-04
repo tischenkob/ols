@@ -186,6 +186,78 @@ is_string_expr :: proc(document: ^Document, node: ^ast.Node) -> bool {
 	return basic.ident.name == "string" || basic.ident.name == "cstring"
 }
 
+// rols: the text to pass where the core procedure takes a slice. A fixed array needs `[:]`, which
+// an enumerated array, an interval or a value that is not addressable cannot have.
+@(private = "file")
+slice_arg_text :: proc(w: ^Stdlib_Walker, bound: ^ast.Node) -> (string, bool) {
+	text := node_text(w.matcher.src, bound)
+	expr := pattern_unparen(bound)
+	if bin, is_bin := expr.derived.(^ast.Binary_Expr); is_bin {
+		if bin.op.kind == .Range_Half || bin.op.kind == .Range_Full do return "", false
+	}
+	resolved, ok := resolve_entire_file(w.document)[uintptr(bound)]
+	if !ok || resolved.is_unresolved || resolved.symbol == nil do return text, true
+	array, is_array := resolved.symbol.value.(SymbolFixedArrayValue)
+	if !is_array do return text, true
+	if len_symbol, len_ok := resolve_type_in_package(w.document, resolved.symbol.pkg, array.len); len_ok {
+		if _, is_enum := len_symbol.value.(SymbolEnumValue); is_enum do return "", false
+	}
+	// Odin slices only an addressable array: a variable, or a field or element of one. Constants,
+	// by-value parameters, range values and call results are not.
+	root := expr
+	for {
+		#partial switch e in root.derived {
+		case ^ast.Selector_Expr:
+			root = e.expr
+			continue
+		case ^ast.Index_Expr:
+			root = e.expr
+			continue
+		case ^ast.Paren_Expr:
+			root = e.expr
+			continue
+		}
+		break
+	}
+	if _, is_ident := root.derived.(^ast.Ident); !is_ident do return "", false
+	root_symbol, root_ok := resolve_entire_file(w.document)[uintptr(root)]
+	if !root_ok || root_symbol.symbol == nil do return "", false
+	flags := root_symbol.symbol.flags
+	if .Mutable not_in flags || .Parameter in flags do return "", false
+	if is_range_value(w.document, root.derived.(^ast.Ident)) do return "", false
+	return strings.concatenate({text, "[:]"}, w.allocator), true
+}
+
+// True when an enclosing loop of the identifier declares its name as a value without `&`. Such a
+// value is a copy and cannot be sliced. A same-named local inside the loop refuses too, which is safe.
+@(private = "file")
+is_range_value :: proc(document: ^Document, ident: ^ast.Ident) -> bool {
+	Search :: struct {
+		ident: ^ast.Ident,
+		found: bool,
+	}
+	search := Search{ident, false}
+	visitor := ast.Visitor {
+		data = &search,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil do return nil
+			search := (^Search)(visitor.data)
+			if loop, is_loop := node.derived.(^ast.Range_Stmt); is_loop && loop.body != nil {
+				if loop.body.pos.offset <= search.ident.pos.offset && search.ident.pos.offset < loop.body.end.offset {
+					for val in loop.vals {
+						if name, is_name := val.derived.(^ast.Ident); is_name && name.name == search.ident.name {
+							search.found = true
+						}
+					}
+				}
+			}
+			return visitor
+		},
+	}
+	for decl in document.ast.decls do ast.walk(&visitor, decl)
+	return search.found
+}
+
 @(private = "file")
 Stdlib_Walker :: struct {
 	document:  ^Document,
@@ -204,8 +276,15 @@ finish :: proc(w: ^Stdlib_Walker, start, end: int, form: Stdlib_Form) -> (result
 	for param, i in w.rule.params {
 		bound, bound_ok := m.binds[param]
 		if !bound_ok do return
-		if w.rule.slice_params[i] && is_string_expr(w.document, bound) do return
+		// rols: a loop variable of the code must not reach the call, which runs outside the loop.
+		for use in collect_ident_uses(bound) {
+			for _, code_name in m.names do if use.ident.name == code_name do return
+		}
 		args[i] = node_text(m.src, bound)
+		if w.rule.slice_params[i] {
+			if is_string_expr(w.document, bound) do return
+			args[i] = slice_arg_text(w, bound) or_return
+		}
 	}
 	result = Stdlib_Match {
 		start = start,

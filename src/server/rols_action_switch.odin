@@ -92,13 +92,13 @@ add_if_to_switch_action :: proc(ctx: ^ActionContext) {
 			strings.write_string(&sb, node_text(src, value))
 		}
 		strings.write_byte(&sb, ':')
-		write_case_body(&sb, src, branch.body)
+		write_case_body(&sb, src, branch.body, ind)
 	}
 	if else_body != nil {
 		strings.write_byte(&sb, '\n')
 		strings.write_string(&sb, ind)
 		strings.write_string(&sb, "case:")
-		write_case_body(&sb, src, else_body)
+		write_case_body(&sb, src, else_body, ind)
 	}
 	strings.write_byte(&sb, '\n')
 	strings.write_string(&sb, ind)
@@ -108,8 +108,9 @@ add_if_to_switch_action :: proc(ctx: ^ActionContext) {
 }
 
 // Statements of an if body sit one level below the if, which is where case statements sit too.
-write_case_body :: proc(sb: ^strings.Builder, src: string, body: ^ast.Block_Stmt) {
-	if inner := block_inner_text(src, body); len(inner) > 0 {
+write_case_body :: proc(sb: ^strings.Builder, src: string, body: ^ast.Block_Stmt, ind: string) {
+	unit := indent_unit(src, ind, body.stmts[0] if len(body.stmts) > 0 else nil)
+	if inner := block_lines(src, body, ind, unit); len(inner) > 0 {
 		strings.write_byte(sb, '\n')
 		strings.write_string(sb, inner)
 	}

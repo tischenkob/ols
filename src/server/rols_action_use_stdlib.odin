@@ -10,9 +10,9 @@ add_use_stdlib_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	for m in stdlib_matches(ctx.document) {
-		if m.start > ctx.range.start || ctx.range.end > m.end {
-			continue
-		}
+		if m.start > ctx.range.start || ctx.range.end > m.end do continue
+		// rols: the call replaces the whole range, so a comment inside would be deleted.
+		if len(comments_overlapping(ctx.document.ast, m.start, m.end)) > 0 do continue
 
 		import_path := fmt.tprintf("core:%s", m.rule.pkg)
 		alias, imported := import_alias(ctx.document, import_path)

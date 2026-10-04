@@ -7,6 +7,7 @@ import "core:odin/tokenizer"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
+import "core:unicode/utf8"
 
 import "src:common"
 
@@ -397,16 +398,28 @@ block_inner_text :: proc(src: string, block: ^ast.Block_Stmt) -> string {
 	if block.uses_do && len(block.stmts) == 1 {
 		return node_text(src, block.stmts[0])
 	}
-	return strings.trim_left(strings.trim_right_space(src[block.open.offset + 1:block.close.offset]), "\r\n")
+	return trim_block_text(src[block.open.offset + 1:block.close.offset])
+}
+
+// The text between braces without the newline after `{` and trailing whitespace. A body written on
+// the brace line, like `{ x = 1 }`, has no indentation of its own, so it loses its leading space.
+trim_block_text :: proc(text: string) -> string {
+	inner := strings.trim_left(strings.trim_right_space(text), "\r\n")
+	if !strings.contains_any(inner, "\r\n") {
+		return strings.trim_left_space(inner)
+	}
+	return inner
 }
 
 // The lines of a block at their current depth. A `do` body has no braces; its one statement is
 // placed one level below ind.
 block_lines :: proc(src: string, block: ^ast.Block_Stmt, ind, unit: string) -> string {
-	if block.uses_do {
-		return strings.concatenate({ind, unit, node_text(src, block.stmts[0])}, context.temp_allocator)
+	inner := block_inner_text(src, block)
+	// A `do` body or a body on the brace line has no indentation of its own.
+	if block.uses_do || (len(inner) > 0 && !strings.contains_any(inner, "\r\n")) {
+		return strings.concatenate({ind, unit, inner}, context.temp_allocator)
 	}
-	return block_inner_text(src, block)
+	return inner
 }
 
 // `do ` when body is a one-statement block written with `do`, so a rewritten loop header keeps it.
@@ -841,4 +854,65 @@ package_import_path :: proc(ctx: ^ActionContext, dir: string) -> (string, bool) 
 	}
 	rel, _ = filepath.replace_separators(rel, '/', context.temp_allocator)
 	return rel, true
+}
+
+// Drops an action whose title, kind and edits equal an earlier one, as two providers can offer the
+// same fix; the kept action takes over isPreferred. Titles that still occur more than once get the
+// first line of the code the action replaces in this document, shortened. A title that is still
+// shared after that gets its position among the equal ones. Unique titles stay as they are, so an
+// editor shows the usual text.
+make_titles_distinct :: proc(document: ^Document, actions: ^[dynamic]CodeAction) {
+	MAX_SNIPPET :: 40
+	same_edits :: proc(a, b: CodeAction) -> bool {
+		if len(a.edit.changes) != len(b.edit.changes) do return false
+		for uri, edits in a.edit.changes {
+			other, found := b.edit.changes[uri]
+			if !found || len(edits) != len(other) do return false
+			for edit, i in edits {
+				if edit.range != other[i].range || edit.newText != other[i].newText do return false
+			}
+		}
+		// Document changes hold file operations; compare their printed form.
+		return fmt.tprintf("%v", a.edit.documentChanges) == fmt.tprintf("%v", b.edit.documentChanges)
+	}
+	for i := 0; i < len(actions); i += 1 {
+		for j := 0; j < i; j += 1 {
+			if actions[j].title == actions[i].title && actions[j].kind == actions[i].kind && same_edits(actions[j], actions[i]) {
+				actions[j].isPreferred ||= actions[i].isPreferred
+				ordered_remove(actions, i)
+				i -= 1
+				break
+			}
+		}
+	}
+
+	text := document.text[:document.used_text]
+	counts := make(map[string]int, context.temp_allocator)
+	for action in actions do counts[action.title] += 1
+	for &action in actions {
+		if counts[action.title] < 2 do continue
+		edits := action.edit.changes[document.uri.uri]
+		if len(edits) == 0 do continue
+		range, ok := common.get_absolute_range(edits[0].range, text)
+		if !ok || range.start >= range.end do continue
+		snippet := string(text[range.start:range.end])
+		if newline := strings.index_byte(snippet, '\n'); newline >= 0 {
+			snippet = snippet[:newline]
+		}
+		snippet = strings.trim_space(snippet)
+		if cut := utf8.rune_offset(snippet, MAX_SNIPPET); cut >= 0 {
+			snippet = strings.concatenate({snippet[:cut], "..."}, context.temp_allocator)
+		}
+		if snippet != "" {
+			action.title = fmt.aprintf("%s (%s)", action.title, snippet, allocator = context.temp_allocator)
+		}
+	}
+	seen := make(map[string]int, context.temp_allocator)
+	counts = make(map[string]int, context.temp_allocator)
+	for action in actions do counts[action.title] += 1
+	for &action in actions {
+		if counts[action.title] < 2 do continue
+		seen[action.title] += 1
+		action.title = fmt.aprintf("%s #%d", action.title, seen[action.title], allocator = context.temp_allocator)
+	}
 }

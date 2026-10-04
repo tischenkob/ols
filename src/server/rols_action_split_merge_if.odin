@@ -91,6 +91,17 @@ merge_if_text :: proc(src: string, if_stmt: ^ast.If_Stmt) -> (string, bool) {
 		return "", false
 	}
 
+	// rols: a comment between a condition and its brace would be lost as well.
+	// The head is rebuilt too, so a comment before the condition is lost.
+	head := if_stmt.init.pos.offset if if_stmt.init != nil else if_stmt.cond.pos.offset
+	if strings.trim_space(src[if_stmt.cond.end.offset:body.open.offset]) != "" ||
+	   strings.trim_space(src[inner.cond.end.offset:inner_body.open.offset]) != "" ||
+	   strings.trim_space(src[if_stmt.pos.offset + len("if"):head]) != "" ||
+	   (if_stmt.init != nil && strings.trim_space(src[if_stmt.init.end.offset:if_stmt.cond.pos.offset]) != ";") ||
+	   strings.trim_space(src[inner.pos.offset + len("if"):inner.cond.pos.offset]) != "" {
+		return "", false
+	}
+
 	ind := get_line_indentation(src, if_stmt.pos.offset)
 	unit := indent_unit(src, ind, inner)
 	deeper := strings.concatenate({ind, unit}, context.temp_allocator)

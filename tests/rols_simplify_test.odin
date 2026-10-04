@@ -3081,3 +3081,184 @@ f :: proc(xs: []int) {
 `,
 	)
 }
+
+@(test)
+action_simplify_redundant_parens_skips_multiline_condition :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a, b: bool) {
+	if ({*}a &&
+	    b) {
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_missing(t, &source, "Remove redundant parentheses")
+}
+
+// Two nested merges cover the cursor; --apply TITLE needs titles that tell them apart.
+@(test)
+action_simplify_equal_titles_name_their_code :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a, b, c: bool) {
+	if a {
+		if b {
+			if c {
+				{*}foo()
+			}
+		}
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action(t, &source, {"Merge nested if (if a {)", "Merge nested if (if b {)"})
+}
+
+// The merge copies the inner body, so a comment inside it stays.
+@(test)
+action_simplify_nested_if_keeps_comment_in_inner_body :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a, b: bool) {
+	{*}if a {
+		if b {
+			// note
+			foo()
+		}
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Merge nested if",
+		`package test
+
+f :: proc(a, b: bool) {
+	if a && b {
+		// note
+		foo()
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_simplify_nested_if_skips_comment_before_brace :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a, b: bool) {
+	{*}if a /* why */ {
+		if b {
+			foo()
+		}
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_missing(t, &source, "Merge nested if")
+}
+
+// The fix replaces everything from the end of the then block, so a comment before `else` would go.
+@(test)
+action_simplify_redundant_else_skips_comment_before_else :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a: bool) {
+	if a {
+		return
+	} /* why */ {*}else {
+		foo()
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_missing(t, &source, "Remove redundant else")
+}
+
+@(test)
+action_simplify_nested_if_skips_comment_before_condition :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a, b: bool) {
+	{*}if /* why */ a {
+		if b {
+			foo()
+		}
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_missing(t, &source, "Merge nested if")
+}
+
+@(test)
+action_simplify_nested_if_merges_init_with_slash :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a, b: int, c: bool) {
+	{*}if n := a / b; n > 1 {
+		if c {
+			foo()
+		}
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Merge nested if",
+		`package test
+
+f :: proc(a, b: int, c: bool) {
+	if n := a / b; n > 1 && c {
+		foo()
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_simplify_nested_if_skips_comment_after_init :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(c: bool) {
+	{*}if x := g(); /* why */ x {
+		if c {
+			foo()
+		}
+	}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_missing(t, &source, "Merge nested if")
+}

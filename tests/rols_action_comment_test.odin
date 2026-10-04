@@ -31,7 +31,7 @@ fo{*}o :: proc(a: int) -> int {
 		DOC_COMMENT,
 		`package test
 
-// foo 
+// foo
 foo :: proc(a: int) -> int {
 	return a
 }
@@ -49,7 +49,7 @@ ba{*}r := 1
 
 	test.expect_action_applied(t, &attributed, DOC_COMMENT, `package test
 
-// bar 
+// bar
 @(private)
 bar := 1
 `)
@@ -301,7 +301,7 @@ Poi{*}nt :: struct {
 		t,
 		&structure,
 		DOC_COMMENT,
-		"package test\n\n// Point \nPoint :: struct {\n\tx: int,\n}\n",
+		"package test\n\n// Point\nPoint :: struct {\n\tx: int,\n}\n",
 	)
 
 	constant := comment_source(`package test
@@ -309,7 +309,7 @@ Poi{*}nt :: struct {
 MA{*}X :: 10
 `)
 
-	test.expect_action_applied(t, &constant, DOC_COMMENT, "package test\n\n// MAX \nMAX :: 10\n")
+	test.expect_action_applied(t, &constant, DOC_COMMENT, "package test\n\n// MAX\nMAX :: 10\n")
 
 	// Only top level declarations are offered a doc comment.
 	conditional := comment_source(`package test

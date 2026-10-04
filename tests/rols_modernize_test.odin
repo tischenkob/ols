@@ -696,3 +696,153 @@ f :: proc(a, b: bool) -> int {
 `,
 	)
 }
+
+// A fixed array needs a slice expression before it reaches a slice parameter, and only an
+// addressable value has one.
+@(test)
+modernize_sum_slices_fixed_array :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+make_arr :: proc() -> [4]int {
+	return {}
+}
+
+f :: proc() -> int {
+	arr: [4]int
+	total := 0
+	for x in arr {
+		total += x
+	}
+	return total
+}
+
+g :: proc() -> int {
+	total := 0
+	for x in make_arr() {
+		total += x
+	}
+	return total
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_modernized(
+		t,
+		&src,
+		{},
+		`package test
+
+import "core:math"
+
+make_arr :: proc() -> [4]int {
+	return {}
+}
+
+f :: proc() -> int {
+	arr: [4]int
+	return math.sum(arr[:])
+}
+
+g :: proc() -> int {
+	total := 0
+	for x in make_arr() {
+		total += x
+	}
+	return total
+}
+`,
+	)
+}
+
+@(test)
+modernize_keeps_comment_inside_rewritten_range :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+f :: proc(s: []int, x: int) -> bool {
+	for e in s {
+		// look
+		if e == x {
+			return true
+		}
+	}
+	return false
+}
+
+g :: proc(n: int) -> int {
+	n := n
+	n = n + /* one */ 1
+	return n
+}
+`,
+		config = {enable_lint_use_stdlib = true, enable_lint_simplify = true},
+	}
+
+	test.expect_modernized(t, &src, {}, src.main)
+}
+
+// Odin rejects `x[:]` on a constant, a by-value parameter and a range value, so the loop stays.
+@(test)
+modernize_sum_skips_fixed_array_parameter :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+f :: proc(a: [4]int) -> int {
+	total := 0
+	for x in a {
+		total += x
+	}
+	return total
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_modernized(t, &src, {}, src.main)
+}
+
+@(test)
+modernize_sum_skips_fixed_array_constant :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+C :: [3]int{1, 2, 3}
+
+f :: proc() -> int {
+	total := 0
+	for x in C {
+		total += x
+	}
+	return total
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_modernized(t, &src, {}, src.main)
+}
+
+@(test)
+modernize_sum_skips_fixed_array_range_value :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+f :: proc(grid: [2][3]int) -> int {
+	out := 0
+	for row in grid {
+		total := 0
+		for x in row {
+			total += x
+		}
+		out += total
+	}
+	return out
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_modernized(t, &src, {}, src.main)
+}
