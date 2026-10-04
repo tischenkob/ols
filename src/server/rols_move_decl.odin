@@ -133,13 +133,16 @@ prepare_move :: proc(document: ^Document, offset: int) -> (move: Move, reason: s
 move_edit :: proc(move: Move, target_uri: string, files: []Package_File) -> (WorkspaceEdit, string, bool) {
 	document := move.document
 	target_path := common.uri_to_path(target_uri, context.temp_allocator)
-	if target_uri == document.uri.uri {
+	// Both directories resolve symlinks, so a target spelled through /tmp on macOS still compares equal.
+	target_dir := canonical_dir(path.dir(target_path, context.temp_allocator))
+	document_dir := canonical_dir(path.dir(document.fullpath, context.temp_allocator))
+	if target_dir == document_dir && path.base(target_path) == path.base(document.fullpath) {
 		return {}, "the target is the file that holds the declaration", false
 	}
 	if path.ext(target_path) != ".odin" {
 		return {}, "the target must be a .odin file", false
 	}
-	if path.dir(target_path, context.temp_allocator) != path.dir(document.fullpath, context.temp_allocator) {
+	if target_dir != document_dir {
 		return {}, "the target must be in the directory of the declaration", false
 	}
 

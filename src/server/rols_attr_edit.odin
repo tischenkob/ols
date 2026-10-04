@@ -186,7 +186,7 @@ attr_sweep :: proc(
 		if !contains_word(text, key) {
 			continue
 		}
-		ast_file, parsed := parse_attr_file(file.fullpath, text)
+		ast_file, parsed := parse_syntax(file.fullpath, text)
 		if !parsed {
 			append(
 				&all_warnings,
@@ -528,7 +528,7 @@ file_edit :: proc(uri, src: string, spans: []Attr_Span) -> (edit: WorkspaceEdit)
 @(private = "file")
 is_attr_value :: proc(key, value: string) -> bool {
 	prefix := fmt.tprintf("package attr_value\n@(%s=", key)
-	file := parse_attr_file("attr_value.odin", strings.concatenate({prefix, value, ") _x :: 0\n"})) or_return
+	file := parse_syntax("attr_value.odin", strings.concatenate({prefix, value, ") _x :: 0\n"})) or_return
 	if len(file.decls) != 1 {
 		return false
 	}
@@ -541,8 +541,7 @@ is_attr_value :: proc(key, value: string) -> bool {
 }
 
 // Parses src without reporting its errors; fails on any syntax error.
-@(private = "file")
-parse_attr_file :: proc(fullpath, src: string) -> (file: ast.File, ok: bool) {
+parse_syntax :: proc(fullpath, src: string) -> (file: ast.File, ok: bool) {
 	silent :: proc(pos: tokenizer.Pos, msg: string, args: ..any) {}
 	p := parser.Parser {
 		flags = {.Optional_Semicolons},

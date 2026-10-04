@@ -4,7 +4,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## Corpus validation (`docs/corpus-validation.md`)
 
-- **A sweep over seven open-source Odin projects and Odin's core found bugs that are not fixed yet.** `docs/corpus-validation.md` lists them. No bug has a failing harness test any more: `./build.sh test` reports no failures. Three odinfmt snapshot cases named `rols_*` still fail in `tools/odinfmt/tests.sh`. The doc's 19 follow-ups have no harness test and each names a repro. `docs/corpus/triage/` holds the reduced source of every confirmed case, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
+- **A sweep over seven open-source Odin projects and Odin's core found bugs that are not fixed yet.** `docs/corpus-validation.md` lists them. No bug has a failing harness test any more: `./build.sh test` reports no failures. Three odinfmt snapshot cases named `rols_*` still fail in `tools/odinfmt/tests.sh`. The doc's 10 follow-ups have no harness test and each names a repro. `docs/corpus/triage/` holds the reduced source of every confirmed case, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
 - **Rerun the sweep after the fixes land.** Follow "Rerunning the sweep" in the doc: run `tools/corpus_smoke.sh`, then the manual checks it lists. Remove fixed items from the doc and this entry when nothing is left.
 
 ## Edits (stage S9)
@@ -47,11 +47,14 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **"Remove redundant else" is refused when the `if` is not the last statement of its block.** This follows from the guards shared with the simplify rule.
 - **"Add ok result" refuses any procedure with `or_return`**, because `or_return` assigns the operand's end value to the last result and Odin rejects `Err` to `bool`.
 
-## CLI refactor output (`src/cli/rols_cli.odin`, `src/cli/rols_apply.odin`)
+## CLI queries (`src/cli/rols_cli.odin`, `src/server/rols_find.odin`)
 
-- **`actions --apply` skips `refuse` when the file cannot be opened.** `open_target` calls `refuse` only when `symbol_paths` is set, which `run` sets for rename, reorder-params and move. `ols query actions missing.odin:1:1 --apply TITLE` prints the plain `cannot read` line and exits 1, with no `actions: refused, nothing written` summary and no JSON object under `--json`.
-- **`workspace_relative` states its inside-the-root test twice.** The raw comparison and the symlink-resolved comparison each repeat `err == nil && !strings.has_prefix(rel, "..")`. One loop over the two pairs of root and file would state the test once. The prefix test also misreads a file named `..x.odin` at the root as outside it.
-- **The `.Refused` summary in `finish` can be shorter.** Two one-line appends and one `tprintf` with "nothing written" as the fallback for an empty list would replace the outer `if`/`else`, about 8 lines fewer.
+- **`check` and `tests` in a directory without `.odin` files cover every package of the root, with one `odin check` per package.** The run gets the 20 s of an editor check for each batch of cores packages, capped at 10 minutes (`gate_check_timeout`), and the packages share no cache, so a large repository takes long.
+- **`checker_skip_packages` compares the literal path.** The CLI resolves symlinks in its paths, so an entry that goes through a symlink such as macOS `/var` or `/tmp` never matches, and `ols query check` still checks the package. The smoke case `check-skipped-package` passed only because `check` always exited `0`.
+- **`find` parses every workspace `.odin` file on each call.** The LSP workspace symbols read the index, which parses each package once. `find_symbols` reads all files again, so a call on a large tree such as Odin's `core/` costs one parse of the tree. A cache across calls does not help a one-shot CLI process.
+- **`find` does not evaluate `when` conditions.** It reports a declaration in every branch of a `when` block, so the branch that the target does not take shows without a mark. The index evaluates the conditions it can.
+- **`tests FILE` drops a file that the target does not build.** `odin test -file` may still build a file with `#+build` tags that exclude the host; this was not checked.
+- **`test DIR NAME` checks the names against `find_tests` before it starts `odin test`.** An `@(test)` in a `when` branch counts whatever the condition, so a name from a branch that the target does not take passes the check and `odin test` then reports "No tests to run" with exit `0`.
 
 ## CLI compile gate (`src/cli/rols_apply.odin` `run_edit`)
 

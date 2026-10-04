@@ -3520,7 +3520,12 @@ resolve_implicit_selector :: proc(
 
 	if position_context.assign != nil && len(position_context.assign.lhs) == len(position_context.assign.rhs) {
 		for _, i in position_context.assign.lhs {
-			if position_in_node(position_context.assign.rhs[i], position_context.position) {
+			// rols: a selector inside a comp literal takes its type from the literal, not from the assigned name
+			rhs := position_context.assign.rhs[i]
+			comp_lit := position_context.comp_lit
+			in_comp_lit :=
+				comp_lit != nil && comp_lit.pos.offset >= rhs.pos.offset && position_in_node(comp_lit, position_context.position)
+			if !in_comp_lit && position_in_node(rhs, position_context.position) {
 				if symbol, ok := resolve_type_expression(ast_context, position_context.assign.lhs[i]); ok {
 					return symbol, ok
 				}

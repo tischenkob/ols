@@ -39,24 +39,34 @@ proc_decl_of :: proc(document: ^Document, lit: ^ast.Proc_Lit) -> (^ast.Value_Dec
 	return nil, false
 }
 
-// Whether the argument shape may change: a body, no polymorphism, variadics, defaults or field
-// flags, and no attribute fixing the signature for a linker or a deferred call.
-plain_signature :: proc(decl: ^ast.Value_Decl, lit: ^ast.Proc_Lit) -> bool {
-	if lit.body == nil || lit.type == nil || lit.type.generic || len(lit.where_clauses) > 0 {
-		return false
+// Why the argument shape of lit may not change, or "" when it may: it needs a body, no polymorphism,
+// variadics, defaults or field flags, and no attribute fixing the signature for a linker or a deferred call.
+// Only the first cause that applies is named.
+signature_problem :: proc(decl: ^ast.Value_Decl, lit: ^ast.Proc_Lit) -> string {
+	if lit.body == nil {
+		return "the procedure has no body"
+	}
+	if lit.type == nil || lit.type.generic || len(lit.where_clauses) > 0 {
+		return "the procedure is polymorphic or has a where clause"
 	}
 	if has_fixed_signature_attribute(decl.attributes[:]) {
-		return false
+		return "an attribute of the procedure fixes its signature"
 	}
 	for param in param_names(lit) {
-		if param.name == nil || param.field.flags != {} || param.field.default_value != nil {
-			return false
+		if param.name == nil {
+			return "a parameter has no name"
+		}
+		if param.field.flags != {} {
+			return "a parameter has flags such as #any_int or using"
+		}
+		if param.field.default_value != nil {
+			return "a parameter has a default value"
 		}
 		if _, variadic := param.field.type.derived.(^ast.Ellipsis); variadic {
-			return false
+			return "the procedure is variadic"
 		}
 	}
-	return true
+	return ""
 }
 
 // Every call of the procedure decl declares, in the open document and the rest of the workspace
@@ -231,10 +241,8 @@ reorder_params :: proc(
 	if lit == nil {
 		return {}, "the position is not on the name of a top-level procedure", false
 	}
-	if !plain_signature(decl, lit) {
-		return {},
-			"the procedure has no body, or is polymorphic, variadic, has default values, parameter flags or an attribute that fixes its signature",
-			false
+	if problem := signature_problem(decl, lit); problem != "" {
+		return {}, problem, false
 	}
 
 	params := param_names(lit)

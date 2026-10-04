@@ -20,15 +20,15 @@ Positions are `file:line:col`, 1-based, columns in bytes, in every input and out
 
 ## After every edit
 
-- `ols query check DIR` prints compiler errors and lints without building or running. Fix everything it prints.
+- `ols query check [DIR]` prints compiler errors and lints without building or running, and exits 1 when it prints an error. Without `DIR` it checks the cwd package, else the packages below the root that an `ols.json` defines. Fix everything it prints.
 - `ols query lint FILE` when the package does not compile yet.
 
 ## Refactor with edits, not by hand
 
 - `ols query actions FILE:LINE:COL` lists what applies at a position, `FILE:L:C-L:C` at a selection. `--apply "TITLE"` writes one.
   Available: extract variable, procedure or constant, inline, introduce or remove parameter, generate procedure, generate test, fill struct, add `or_return`, invert if, and more.
-- `ols query rename FILE:LINE:COL NEW --apply`, `reorder-params FILE:LINE:COL --order 1,0 --apply` and `move FILE:LINE:COL --to other.odin --apply` update every use across the workspace.
-- They also take a symbol path instead of `FILE:LINE:COL`: `ols query rename src/game.Player.hp health`, `core:strings.clone`. `PKG.Name` or `PKG.Name.Member`, where Member is a struct field, enum member or bit_field field.
+- `ols query rename FILE:LINE:COL NEW --apply`, `reorder-params FILE:LINE:COL --order 1,0 --apply` and `move FILE:LINE:COL --to DIR/other.odin --apply` update every use across the workspace. `--to` is relative to the cwd, like every path.
+- They also take a symbol path instead of `FILE:LINE:COL`: `ols query rename src/game.Player.hp health`, `core:strings.clone`. `PKG.Name` or `PKG.Name.Member` (`.Name` for the package in the cwd), where Member is a struct field, enum member or bit_field field.
 - `rename` refuses a keyword, an invalid identifier, a builtin name, a name already declared in the same scope, a name that would capture or be captured at a use site, a declaration in `core:`, `vendor:`, `base:` or outside the workspace, and a package qualifier. A `warning:` names filter-skipped files that still contain the old name.
 - `ols query rename-package DIR NEW --apply` renames a package: its `package` clauses, every import path into it or below it, the `old.x` qualifiers of unaliased importers, and the directory itself. It refuses when the directory name and the `package` clause differ, when the sibling `NEW` exists, and when an importer already binds `NEW` (another import, a declaration, or a local at a qualifier).
 - `ols query attr add TARGET KEY[=VALUE] --apply` adds an attribute: into the last `@(…)` group, or as a new `@(KEY)` line above the declaration. `attr remove TARGET KEY` drops one, and its group or line when empty. `attr remove --all KEY [DIR]` and `attr rename OLD NEW [DIR]` sweep the workspace or `DIR`, foreign blocks, `when` blocks and procedure bodies included. They refuse a key already present, a value that does not parse, and a struct field or enum member as `TARGET`.
@@ -39,6 +39,6 @@ Positions are `file:line:col`, 1-based, columns in bytes, in every input and out
 
 ## Tests
 
-- `ols query tests DIR` lists the `@(test)` procedures.
-- `ols query test DIR [name,...]` runs them with the collections and defines of `ols.json`.
+- `ols query tests [DIR]` lists the `@(test)` procedures that `odin test` would run on this target, for the cwd package or the packages of the root without `DIR`.
+- `ols query test DIR [name,...]` runs them with the collections and defines of `ols.json`. A name that no test has exits 1.
 - On a procedure name, `ols query actions FILE:LINE:COL --apply "Generate test for NAME"` adds a stub to `<file>_test.odin`.

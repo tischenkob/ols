@@ -12,25 +12,32 @@ import "src:common"
 Test_Proc :: struct {
 	name, file: string,
 	line, col:  int,
+	pkg:        string, // the name in the `package` clause, which `odin test` prefixes to the test name
 }
 
-// Every @(test) procedure of the package at dir, or of one .odin file, in file then line order.
+// Every @(test) procedure of the package at dir, or of one .odin file, in file then line order. Only the
+// files that `odin test` builds count: not `#+build ignore`, and not those that name or tag another target
+// than the one of checker_args, else the host.
 find_tests :: proc(target: string, config: ^common.Config) -> []Test_Proc {
+	// The parsed files are not freed.
+	context.allocator = context.temp_allocator
 	files := []string{target}
 	if os.is_directory(target) {
 		files, _ = filepath.glob(fmt.tprintf("%s/*.odin", target), context.temp_allocator)
 	}
 
 	tests := make([dynamic]Test_Proc, context.temp_allocator)
+	built_on := base_target(config.checker_args)
 	for file in files {
-		if skip_file(filepath.base(file)) do continue
 		data, err := os.read_entire_file(file, context.temp_allocator)
 		if err != nil do continue
-		document := parse_package_file({file, string(data)}, config) or_continue
-		for decl, attributes in top_level_decls(document.ast) {
+		if !builds_on(file, string(data), built_on) do continue
+		// Only the syntax tree counts: parse_package_file would also index the packages the file imports.
+		parsed := parse_syntax(file, string(data)) or_continue
+		for decl, attributes in top_level_decls(parsed) {
 			if !slice.contains(attribute_names(attributes), "test") do continue
 			for name in decl.names {
-				append(&tests, Test_Proc{node_to_string(name), file, name.pos.line, name.pos.column})
+				append(&tests, Test_Proc{node_to_string(name), file, name.pos.line, name.pos.column, parsed.pkg_name})
 			}
 		}
 	}

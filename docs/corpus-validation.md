@@ -43,18 +43,6 @@ These findings have no harness test, because they live in the CLI or the compile
 
 - **A code action on a 1.8 MB generated file segfaults** when the package also contains odin-godot's `libgd/classdb/bind.odin`. The setup is in the sweep's scratch copy of `libgd/classdb`, with `bind.gen.odin` repeated 12 times. Possibly fixed by the default-parameter fix; not rechecked.
 
-### CLI
-
-- **A relative `--root` limits workspace searches to the current file.** `refs`, `callers`, `find` and `rename` with `--root .` miss other files, and a rename then rolls back. An absolute root, or no `--root`, works. Repro: `a.odin` declares and uses `helper`, `b.odin` also calls it, then run `ols query refs a.odin:3:1 --root .`.
-- **`move --to` resolves a relative path against the declaration's directory**, unlike every other path argument, and refuses an absolute path that goes through a symlink such as macOS `/tmp`. Repro: `ols query move pkg/a.odin:3:1 --to pkg/b.odin` is refused, while `--to b.odin` works.
-- **`symbols` text output is not stable and lacks the `file:` prefix** that the README contract states. Its order changes between runs because it follows map iteration.
-- **`tests` and `check` with no argument read only the cwd package.** At a root without `.odin` files, `tests` exits 1 and `check` prints an error with an empty file path and exits 0. `check` also exits 0 when it reports errors.
-- **`test DIR NAME` exits 0 when no test matches the name.**
-- **`tests` lists tests from `#+build ignore` files but drops `_windows.odin` files.**
-- **A symbol path cannot name the package in the cwd.** `.Name` and `./Name` are refused.
-- **`find` omits `@(private)`, `#+private` and other-platform declarations**, which hides most of karl2d's backend code.
-- **`reorder-params` refusals list six possible reasons at once**, and the README does not list them.
-
 ### Performance
 
 - **The formatter is quadratic in the number of elements of one composite literal.** 16,000 elements take 0.95 s and 32,000 take 3.8 s. Formatting `core/rexcode/isa/ppc/tablegen/generated/decode_tables.odin` (950 KB) takes 11 to 13 s.

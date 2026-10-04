@@ -29,10 +29,13 @@ USAGE :: `usage: ols query <command> [--root DIR] [--json]
   rename-package DIR NEW [--apply [--no-check]]
                                            renames the package in DIR: its package clauses, the import paths
                                            and unaliased old.x qualifiers of every importer, and DIR itself
-  check   [DIR]                            odin check errors plus lints, no build or run; run after every edit
+  check   [DIR]                            odin check errors plus lints, no build or run; run after every edit;
+                                           exits 1 on an error. Without DIR: the cwd package, else the packages
+                                           below the root that an ols.json defines
   lint    FILE|DIR [--fail-on CODE,...]    lints only, works on code that does not compile;
                                            --fail-on exits 1 when a listed code is reported
-  tests   [DIR|FILE]                       list @(test) procedures
+  tests   [DIR|FILE]                       list @(test) procedures that odin test runs on this target; without
+                                           an argument as check does
   test    DIR [NAME,...]                   odin test with the collections and defines of ols.json; NAME is
                                            pkg.name or name, several separated by commas
   api     PKG [NAME]                       exported symbols of a package (a directory or core:strings), one per line;
@@ -57,7 +60,8 @@ Output is one line per result, FILE:LINE:COL: TEXT; --json prints the LSP object
 Lines and columns are 1-based, columns in bytes, as odin check prints them.
 --root defaults to the nearest directory with an ols.json above the file, else the cwd.
 TARGET is FILE:LINE:COL or a symbol path PKG.Name[.Member]: PKG is a directory or a collection path like
-core:strings, and Member a struct field, enum member or bit_field field.
+core:strings, and Member a struct field, enum member or bit_field field. .Name and ./Name name a symbol
+of the package in the cwd. move --to and every other path are relative to the cwd.
 rename, reorder-params, move, rename-package and attr without --apply print a unified diff and a summary line.
 --apply writes every file or none, after odin check on each touched package; new errors restore every
 file. rename-package writes the files first and renames DIR last; a rollback renames it back first.
@@ -93,7 +97,8 @@ run :: proc(args: []string) -> int {
 			if i == len(args) {
 				return usage()
 			}
-			root = args[i]
+			// A relative root would make the workspace folder a relative uri, and searches miss other files.
+			root = absolute(args[i])
 		case "--order":
 			i += 1
 			if i == len(args) {
@@ -159,24 +164,31 @@ run :: proc(args: []string) -> int {
 		return attr(rest_args, root, all, apply, check_edit)
 	}
 
-	if command == "check" {
-		dir := os.get_working_directory(context.temp_allocator) or_else "."
-		if len(rest_args) > 0 {
-			dir = rest_args[0]
+	cwd := os.get_working_directory(context.temp_allocator) or_else "."
+	// Without an argument, check and tests cover the package in the cwd, else the packages of the root.
+	if len(rest_args) == 0 && (command == "check" || command == "tests") {
+		cwd = absolute(cwd)
+		root_dir := root if root != "" else find_root(cwd)
+		setup(root_dir)
+		defined := root != "" || os.exists(path.join({root_dir, "ols.json"}, context.temp_allocator))
+		dirs, found := default_packages(cwd, defined)
+		if !found {
+			return 1
 		}
-		dir = absolute(dir)
+		return check(dirs) if command == "check" else tests(dirs)
+	}
+
+	if command == "check" {
+		dir := absolute(rest_args[0])
 		setup(root if root != "" else find_root(dir))
-		return check(dir)
+		return check({dir})
 	}
 
 	if command == "lint" || command == "tests" || command == "test" {
-		target := os.get_working_directory(context.temp_allocator) or_else "."
-		if len(rest_args) > 0 {
-			target = rest_args[0]
-		} else if command != "tests" {
+		if len(rest_args) == 0 {
 			return usage()
 		}
-		target = absolute(target)
+		target := absolute(rest_args[0])
 		setup(
 			root if root != "" else find_root(target if os.is_directory(target) else path.dir(target, context.temp_allocator)),
 		)
@@ -184,7 +196,7 @@ run :: proc(args: []string) -> int {
 		case "lint":
 			return lint(target, fail_on)
 		case "tests":
-			return tests(target)
+			return tests({target})
 		case:
 			return test(target, strings.join(rest_args[1:], ",", context.temp_allocator))
 		}
@@ -194,7 +206,6 @@ run :: proc(args: []string) -> int {
 		if len(rest_args) < 1 {
 			return usage()
 		}
-		cwd := os.get_working_directory(context.temp_allocator) or_else "."
 		setup(root if root != "" else find_root(cwd))
 		if command == "find" {
 			return find(rest_args[0])
@@ -230,6 +241,7 @@ run :: proc(args: []string) -> int {
 		root,
 		symbol_paths = refactor,
 		whole_file = command == "symbols",
+		refuse_unopened = refactor || (command == "actions" && apply),
 	)
 	if !opened {
 		return code
@@ -280,11 +292,11 @@ run :: proc(args: []string) -> int {
 		}
 		return 0
 	case "symbols":
-		symbols := server.get_document_symbols(document)
+		symbols := sorted_symbols(server.get_document_symbols(document))
 		if json_output {
 			return print_nonempty(symbols)
 		}
-		print_symbols(target.file, symbols, "")
+		print_symbols(target.file, symbols)
 		return 0 if len(symbols) > 0 else 1
 	case "actions":
 		actions, _ := server.get_code_actions(document, {}, range, config)
@@ -339,9 +351,9 @@ run :: proc(args: []string) -> int {
 			fmt.eprintln("--to names the target file")
 			return 2
 		}
-		if !filepath.is_abs(move_to) {
-			move_to = path.join({path.dir(target.file, context.temp_allocator), move_to}, context.temp_allocator)
-		}
+		// Like every path argument, --to is relative to the cwd. The directory resolves symlinks, as the
+		// declaration's does, and the file itself may not exist yet.
+		move_to = absolute_new(move_to)
 		edit, reason, ok := server.move_declaration(
 			document,
 			position,
@@ -358,12 +370,13 @@ run :: proc(args: []string) -> int {
 
 // Sets up the workspace for spec and opens the file of target, the position spec names. spec is
 // FILE:LINE:COL, or a symbol path when symbol_paths is set; with whole_file it is a file, opened at 1:1.
-// On failure the cause is printed and code is the exit code: 2 when spec is neither, 1 otherwise. The refactor
-// commands set symbol_paths, so their failures go through refuse.
+// On failure the cause is printed and code is the exit code: 2 when spec is neither, 1 otherwise. The commands
+// that write set refuse_unopened, so a file that cannot be opened goes through refuse.
 open_target :: proc(
 	name, spec, root: string,
 	symbol_paths := false,
 	whole_file := false,
+	refuse_unopened := false,
 ) -> (
 	document: ^server.Document,
 	target: Target,
@@ -405,7 +418,7 @@ open_target :: proc(
 	reason: string
 	document, position, range, reason, opened = open(target)
 	if !opened {
-		if symbol_paths {
+		if refuse_unopened {
 			return nil, {}, {}, {}, refuse(name, reason), false
 		}
 		fmt.eprintln(reason)
@@ -425,6 +438,15 @@ absolute :: proc(p: string) -> string {
 		return p
 	}
 	return abs
+}
+
+// p against the cwd for a file that may not exist: its directory resolves symlinks, as absolute does for one that does.
+absolute_new :: proc(p: string) -> string {
+	cwd := os.get_working_directory(context.temp_allocator) or_else "."
+	full := p if filepath.is_abs(p) else path.join({cwd, p}, context.temp_allocator)
+	full, _ = filepath.replace_separators(full, '/', context.temp_allocator)
+	full = path.clean(full, context.temp_allocator)
+	return path.join({server.canonical_dir(path.dir(full, context.temp_allocator)), path.base(full)}, context.temp_allocator)
 }
 
 // FILE:LINE:COL or FILE:LINE:COL-LINE:COL, parsed from the right so the file may contain colons.
@@ -467,18 +489,19 @@ symbol_path_root :: proc(spec: string) -> string {
 }
 
 // PKG.Name or PKG.Name.Member, where PKG is the longest prefix before a `.` that names a directory with
-// .odin files, so package directories may contain dots. reason says why the path does not resolve.
+// .odin files, so package directories may contain dots. `.Name` and `./Name` have the cwd as PKG. reason says
+// why the path does not resolve.
 resolve_symbol_path :: proc(spec: string) -> (target: Target, reason: string, ok: bool) {
-	for i := len(spec) - 1; i > 0; i -= 1 {
+	for i := len(spec) - 1; i >= 0; i -= 1 {
 		if spec[i] != '.' {
 			continue
 		}
-		dir := resolve_package(spec[:i])
+		dir := resolve_package(spec[:i] if i > 0 else ".")
 		matches, _ := filepath.glob(path.join({dir, "*.odin"}, context.temp_allocator), context.temp_allocator)
 		if len(matches) == 0 {
 			continue
 		}
-		found, find_reason, found_ok := server.find_symbol_path(dir, spec[i + 1:])
+		found, find_reason, found_ok := server.find_symbol_path(dir, strings.trim_prefix(spec[i + 1:], "/"))
 		if !found_ok {
 			return {}, find_reason, false
 		}
@@ -589,11 +612,60 @@ to_position :: proc(line_col: [2]int, text: []u8) -> (common.Position, string, b
 	return {line_col.x - 1, common.get_character_offset_u8_to_u16(line_col.y - 1, text[line_start:])}, "", true
 }
 
-check :: proc(dir: string) -> int {
+// Whether dir holds .odin files.
+has_odin_files :: proc(dir: string) -> bool {
+	matches, _ := filepath.glob(path.join({dir, "*.odin"}, context.temp_allocator), context.temp_allocator)
+	return len(matches) > 0
+}
+
+// The packages for check and tests without an argument: the cwd when it holds .odin files, else every package
+// below the workspace root, but only when an ols.json or --root defines that root.
+default_packages :: proc(cwd: string, root_defined: bool) -> (dirs: []string, ok: bool) {
+	missing := cwd
+	if has_odin_files(cwd) {
+		return slice.clone([]string{cwd}, context.temp_allocator), true
+	}
+	if root_defined {
+		dirs = server.workspace_package_dirs(&common.config)
+		if len(dirs) > 0 {
+			return dirs, true
+		}
+		missing = common.uri_to_path(common.config.workspace_folders[0].uri, context.temp_allocator)
+	}
+	fmt.eprintfln("error: no package in %s", missing)
+	return nil, false
+}
+
+// Whether every directory among targets holds .odin files. The first one that does not is named on stderr.
+all_packages :: proc(targets: []string) -> bool {
+	for target in targets {
+		if os.is_directory(target) && !has_odin_files(target) {
+			fmt.eprintfln("error: no package in %s", target)
+			return false
+		}
+	}
+	return true
+}
+
+// Checks the package directories (or files) targets, prints the diagnostics and returns 1 when one has the
+// error severity, or when odin did not run to its JSON.
+check :: proc(targets: []string) -> int {
+	if !all_packages(targets) {
+		return 1
+	}
 	// resolve_check_paths checks the directory of each path, and a trailing slash keeps DIR itself.
-	check_path := dir if !os.is_directory(dir) else strings.concatenate({dir, "/"}, context.temp_allocator)
+	check_paths := make([]string, len(targets), context.temp_allocator)
+	for target, i in targets {
+		check_paths[i] =
+			target if !os.is_directory(target) else strings.concatenate({target, "/"}, context.temp_allocator)
+	}
 	server.check_run = {}
-	server.check(.Saved, {check_path}, &common.config)
+	server.check(
+		.Saved,
+		check_paths,
+		&common.config,
+		server.gate_check_timeout(len(targets), os.get_processor_core_count()),
+	)
 	// No package to check (checker_skip_packages) is not a failure; a check that did not run to JSON is.
 	if server.check_run.failure != "" {
 		fmt.eprintfln("error: %s", server.check_run.failure)
@@ -606,21 +678,38 @@ check :: proc(dir: string) -> int {
 			append(&entries, Entry{uri, diagnostic})
 		}
 	}
-	if os.is_directory(dir) {
-		lints, ok := collect_lints(dir)
-		if !ok {
-			return 1
+	for target in targets {
+		if os.is_directory(target) {
+			lints, ok := collect_lints(target)
+			if !ok {
+				return 1
+			}
+			append(&entries, ..lints)
 		}
-		append(&entries, ..lints)
 	}
 	print_entries(entries[:])
+	for entry in entries {
+		if entry.diagnostic.severity == .Error {
+			return 1
+		}
+	}
 	return 0
 }
 
-tests :: proc(target: string) -> int {
-	found := server.find_tests(target, &common.config)
+// Lists the @(test) procedures of the package directories or files targets.
+tests :: proc(targets: []string) -> int {
+	if !all_packages(targets) {
+		return 1
+	}
+	found := make([dynamic]server.Test_Proc, context.temp_allocator)
+	for target in targets {
+		append(&found, ..server.find_tests(target, &common.config))
+	}
+	slice.sort_by(found[:], proc(a, b: server.Test_Proc) -> bool {
+		return a.file < b.file if a.file != b.file else a.line < b.line
+	})
 	if json_output {
-		return print_nonempty(found)
+		return print_nonempty(found[:])
 	}
 	for test in found {
 		fmt.printfln("%s:%d:%d: %s", test.file, test.line, test.col, test.name)
@@ -628,7 +717,22 @@ tests :: proc(target: string) -> int {
 	return 0 if len(found) > 0 else 1
 }
 
+// Runs odin test on dir. A name that no test of dir has is refused, since odin only reports it and exits 0.
 test :: proc(dir: string, names: string) -> int {
+	if names != "" {
+		found := server.find_tests(dir, &common.config)
+		for name in strings.split(names, ",", context.temp_allocator) {
+			name := strings.trim_space(name)
+			matches := false
+			for test in found {
+				matches ||= name == test.name || name == fmt.tprintf("%s.%s", test.pkg, test.name)
+			}
+			if !matches {
+				fmt.eprintfln("error: no test %q in %s", name, dir)
+				return 1
+			}
+		}
+	}
 	cmd := server.test_command(dir, names, &common.config)
 	fmt.eprintln(strings.join(cmd, " ", context.temp_allocator))
 	process, err := os.process_start({command = cmd, stdout = os.stdout, stderr = os.stderr})
@@ -670,15 +774,24 @@ api :: proc(dir: string, name: string) -> int {
 	return 0
 }
 
+// The declarations of the workspace that match query, private ones and those of other targets included; the
+// text output marks them with (private) and (other platform).
 find :: proc(query: string) -> int {
-	symbols, _ := server.get_workspace_symbols(query)
+	symbols := server.find_symbols(query, &common.config)
 	if json_output {
 		return print_nonempty(symbols)
 	}
 	for symbol in symbols {
 		file := common.uri_to_path(symbol.location.uri, context.temp_allocator)
 		line, col := line_col(file, symbol.location.range.start)
-		fmt.printfln("%s:%d:%d: %v %s", file, line, col, symbol.kind, symbol.name)
+		fmt.printf("%s:%d:%d: %v %s", file, line, col, symbol.kind, symbol.name)
+		if symbol.private || symbol.otherPlatform {
+			marks := make([dynamic]string, context.temp_allocator)
+			if symbol.private do append(&marks, "private")
+			if symbol.otherPlatform do append(&marks, "other platform")
+			fmt.printf(" (%s)", strings.join(marks[:], ", ", context.temp_allocator))
+		}
+		fmt.println()
 	}
 	return 0 if len(symbols) > 0 else 1
 }
@@ -797,11 +910,28 @@ print_location :: proc(location: common.Location, name := "") {
 	fmt.printfln("%s:%d:%d: %s", file, line, col, text)
 }
 
-print_symbols :: proc(file: string, symbols: []server.DocumentSymbol, indent: string) {
+// The symbols by position, then name, and their children the same way: the server collects the top level
+// from a map, whose order changes between runs.
+sorted_symbols :: proc(symbols: []server.DocumentSymbol) -> []server.DocumentSymbol {
+	sorted := slice.clone(symbols, context.temp_allocator)
+	slice.sort_by(sorted, proc(a, b: server.DocumentSymbol) -> bool {
+		a_at, b_at := a.selectionRange.start, b.selectionRange.start
+		if a_at.line != b_at.line do return a_at.line < b_at.line
+		if a_at.character != b_at.character do return a_at.character < b_at.character
+		return a.name < b.name
+	})
+	for &symbol in sorted {
+		symbol.children = sorted_symbols(symbol.children)
+	}
+	return sorted
+}
+
+// FILE:LINE:COL: KIND NAME, a member indented by two spaces below the symbol it belongs to.
+print_symbols :: proc(file: string, symbols: []server.DocumentSymbol, indent := "") {
 	for symbol in symbols {
 		line, col := line_col(file, symbol.selectionRange.start)
-		fmt.printfln("%s%d:%d %v %s", indent, line, col, symbol.kind, symbol.name)
-		print_symbols(file, symbol.children, strings.concatenate({indent, "\t"}, context.temp_allocator))
+		fmt.printfln("%s:%d:%d: %s%v %s", file, line, col, indent, symbol.kind, symbol.name)
+		print_symbols(file, symbol.children, strings.concatenate({indent, "  "}, context.temp_allocator))
 	}
 }
 
