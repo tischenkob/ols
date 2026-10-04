@@ -4,7 +4,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## Corpus validation (`docs/corpus-validation.md`)
 
-- **A sweep over seven open-source Odin projects and Odin's core found bugs that are not fixed yet.** `docs/corpus-validation.md` lists them. No bug has a failing test any more: `./build.sh test` and `tools/odinfmt/tests.sh` report no failures. The doc's 12 follow-ups have no harness test and each names a repro. `docs/corpus/triage/` holds the reduced source of every confirmed case, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
+- **A sweep over seven open-source Odin projects and Odin's core found bugs that are not fixed yet.** `docs/corpus-validation.md` lists them. No bug has a failing test any more: `./build.sh test` and `tools/odinfmt/tests.sh` report no failures. The doc's 11 follow-ups have no harness test and each names a repro. `docs/corpus/triage/` holds the reduced source of every confirmed case, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
 - **Rerun the sweep after the fixes land.** Follow "Rerunning the sweep" in the doc: run `tools/corpus_smoke.sh`, then the manual checks it lists. Remove fixed items from the doc and this entry when nothing is left.
 
 ## Edits (stage S9)
@@ -72,8 +72,19 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## Test harness (`build.sh`)
 
-- **A test hung instead of failing on a reversed slice.** Before c5c8fa27, `./build.sh single_test invert_if_early_exit_do_body` spun at 100% CPU for 10 minutes until it was killed. The test build keeps bounds checks on, so the slice `src[p+1:p]` should have panicked at once. The cause is unknown.
-- **`for x in m[k]` over a map index loops forever when `k` is missing (Odin dev-2026-09).** It may explain the unexplained hang above, if that test ranged over a map index. Repro: `m := make(map[string][dynamic]string); for d in m["x"] { _ = d }` in a `main` hangs, and `l := m["x"]; for d in l {}` ends. `importer_dirs` hit it (a map of `[dynamic]string`); the same range over a map of slices (`on_edited_line`) did not hang in a test, but is written with a local variable too. A grep for `in [a-z_.]*\[` over map indexes would find other cases.
+- **A test that panics or faults never ends in the agent sandbox (found in S16).** `invert_if_early_exit_do_body` at `c5c8fa27^` printed `Invalid slice indices 61:60 is out of range 0..<83` and then spun at about 60% CPU, so the bounds check did panic. A scratch Odin test with a plain `panic("boom")` or an out-of-range index hung the same way. A C program whose `SIGSEGV` and `SIGTRAP` handlers run `write(2, "hit\n", 4); _exit(42);` printed nothing and was still spinning when a 10 s alarm killed it (exit 142), for a null write and for `__builtin_trap()`. So in the sandbox the handler is not reached, and the faulting thread re-traps forever. The same C program without handlers exits 139. The Odin runner relies on such a handler (`stop_test_callback` in `core:testing`) to learn that a test failed. `kill` (SIGTERM) does not end the run, because the first SIGTERM only sets a flag in the runner; a second SIGTERM calls `os.exit`, and `kill -9` on the `tests` process works. Outside the sandbox this was not tried, so it is not confirmed that the runner works there. The orphaned `tests` processes from earlier sessions (12 h old) are probably the same hang. A fix would kill the whole process group from `build.sh`; `perl -e 'alarm N; exec ...'` only kills `odin test`, not its `tests` child.
+- **`for x in m[k]` over a map index loops forever when `k` is missing (Odin dev-2026-09).** S16 grepped `src/`, `tests/` and `tools/` for ranges over an index expression and found no remaining site over a map (`importer_dirs` was already rewritten; `untyped_map` and `diagnostics` are enum-indexed arrays, and the rest index slices or fixed arrays). `lint_loops` reports the pattern. Candidate upstream Odin issue, not filed. Repro:
+
+  ```odin
+  package main
+
+  main :: proc() {
+  	m := make(map[string][dynamic]string)
+  	for d in m["x"] { _ = d } // never ends
+  	l := m["x"]
+  	for d in l {} // ends
+  }
+  ```
 
 ## Whole-file resolve (`src/server/file_resolve.odin`)
 

@@ -47,8 +47,7 @@ These findings have no harness test, because they live in the CLI or the compile
 ### Edits
 
 - **"Invert if" on an `if` without `else` leaves an empty then-branch** (`if !c {} else {…}`). This is upstream OLS's tested behavior (`action_invert_if_simple_edit`), kept for compatibility.
-- **The harness's `expect_*` procs leak their message builders when an assertion fails**, so a failing test also reports memory leaks under `ODIN_TEST_FAIL_ON_BAD_MEMORY`.
-- **The upstream ols test suite hung for more than 20 minutes** on the tree that `modernize --apply` rewrote. This was not investigated.
+- **The upstream ols test suite hung for more than 20 minutes** on the tree that `modernize --apply` rewrote. The corpus checkout was absent when this was looked at, so the hang was not reproduced. A test that panicked or faulted hung the Odin test runner in the agent sandbox (see "Test harness" in `FOLLOWUPS.md`), so a single panicking test on the rewritten tree could explain it. An assertion failure does not hang. Rerun the suite outside the sandbox, or under `perl -e 'alarm 600; exec @ARGV'` with a check for orphaned `tests` processes, to find the test.
 
 ## Findings in the corpus itself
 
