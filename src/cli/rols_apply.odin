@@ -657,19 +657,25 @@ diff_label :: proc(prefix, file: string) -> string {
 workspace_relative :: proc(file: string) -> string {
 	if len(common.config.workspace_folders) > 0 {
 		root := common.uri_to_path(common.config.workspace_folders[0].uri, context.temp_allocator)
-		if rel, err := filepath.rel(root, file, context.temp_allocator); err == nil && !strings.has_prefix(rel, "..") {
-			return rel
-		}
 		real := path.join(
 			{server.canonical_dir(path.dir(file, context.temp_allocator)), path.base(file)},
 			context.temp_allocator,
 		)
-		if rel, err := filepath.rel(server.canonical_dir(root), real, context.temp_allocator);
-		   err == nil && !strings.has_prefix(rel, "..") {
-			return rel
+		for pair in ([2][2]string{{root, file}, {server.canonical_dir(root), real}}) {
+			if rel, inside := relative_inside(pair[0], pair[1]); inside {
+				return rel
+			}
 		}
 	}
 	return file
+}
+
+// file relative to root, when it lies in root. The path leaves root when it is `..` or starts with `..` and a
+// separator, so a file called `..x.odin` in root stays inside.
+relative_inside :: proc(root, file: string) -> (string, bool) {
+	rel, err := filepath.rel(root, file, context.temp_allocator)
+	outside := rel == ".." || strings.has_prefix(rel, "../") || strings.has_prefix(rel, "..\\")
+	return rel, err == nil && !outside
 }
 
 // Prints the result of a refactor command and returns its exit code. renames name the moved paths,
@@ -707,28 +713,21 @@ finish :: proc(
 	case .Noop:
 		summary = fmt.tprintf("%s: nothing to change", name)
 	case .Refused:
-		if left_files > 0 || left_dirs > 0 {
-			left := make([dynamic]string, context.temp_allocator)
-			if left_files > 0 {
-				append(
-					&left,
-					fmt.tprintf("%d %s modified", left_files, "file remains" if left_files == 1 else "files remain"),
-				)
-			}
-			if left_dirs > 0 {
-				append(
-					&left,
-					fmt.tprintf(
-						"%d %s renamed",
-						left_dirs,
-						"directory remains" if left_dirs == 1 else "directories remain",
-					),
-				)
-			}
-			summary = fmt.tprintf("%s: refused, %s", name, strings.join(left[:], " and ", context.temp_allocator))
-		} else {
-			summary = fmt.tprintf("%s: refused, nothing written", name)
+		left := make([dynamic]string, context.temp_allocator)
+		if left_files > 0 {
+			append(&left, fmt.tprintf("%d %s modified", left_files, "file remains" if left_files == 1 else "files remain"))
 		}
+		if left_dirs > 0 {
+			append(
+				&left,
+				fmt.tprintf("%d %s renamed", left_dirs, "directory remains" if left_dirs == 1 else "directories remain"),
+			)
+		}
+		summary = fmt.tprintf(
+			"%s: refused, %s",
+			name,
+			strings.join(left[:], " and ", context.temp_allocator) if len(left) > 0 else "nothing written",
+		)
 	case .Check_Failed:
 		summary = fmt.tprintf("%s: %s rolled back, odin check reports new errors", name, counts)
 	}

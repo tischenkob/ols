@@ -328,6 +328,55 @@ main :: proc() {
 	)
 }
 
+// The reported shape: the literal is an argument of a call whose result is assigned.
+@(test)
+references_enum_in_comp_lit_argument_assigned :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Kind :: enum { A, B{*} }
+Item :: struct { kind: Kind }
+take :: proc(it: Item) -> Kind { return it.kind }
+main :: proc() {
+	k: Kind
+	k = take(Item{kind = .B})
+}
+`,
+	}
+	test.expect_reference_locations(
+		t,
+		&source,
+		{
+			{range = {start = {line = 2, character = 18}, end = {line = 2, character = 19}}},
+			{range = {start = {line = 7, character = 23}, end = {line = 7, character = 24}}},
+		},
+	)
+}
+
+// The assigned name must not decide the type of a selector inside the literal on the right.
+@(test)
+references_enum_in_comp_lit_assigned_to_a_variable :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Kind :: enum { A, B{*} }
+Item :: struct { kind: Kind }
+main :: proc() {
+	x: Item
+	x = Item{kind = .B}
+}
+`,
+	}
+	test.expect_reference_locations(
+		t,
+		&source,
+		{
+			{range = {start = {line = 2, character = 18}, end = {line = 2, character = 19}}},
+			{range = {start = {line = 6, character = 18}, end = {line = 6, character = 19}}},
+		},
+	)
+}
+
 // Corpus: reduced, see docs/corpus-validation.md.
 @(test)
 references_imported_global_with_field :: proc(t: ^testing.T) {

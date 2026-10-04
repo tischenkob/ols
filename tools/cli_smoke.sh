@@ -7,7 +7,7 @@ OLS="$PWD/ols"
 export OLS_BUILTIN_FOLDER="$PWD/builtin"
 
 dir="$(mktemp -d)"
-trap 'rm -rf "$dir" "$dir.link"' EXIT
+trap 'rm -rf "$dir" "$dir.link" "$dir.bare"' EXIT
 mkdir "$dir/bad"
 echo '{}' > "$dir/ols.json"
 cat > "$dir/main.odin" <<'ODIN'
@@ -58,6 +58,19 @@ expect() {
 	out="$("$@")"
 	if ! grep -q -- "$pattern" <<<"$out"; then
 		echo "FAIL $name: expected $pattern in:" >&2
+		echo "$out" >&2
+		exit 1
+	fi
+	echo "ok $name"
+}
+
+# Like expect, and the command must exit 1, as `check` does when it reports an error.
+expect_exit1() {
+	local name="$1" pattern="$2" out got=0
+	shift 2
+	out="$("$@")" || got=$?
+	if [[ $got -ne 1 ]] || ! grep -q -- "$pattern" <<<"$out"; then
+		echo "FAIL $name: exit $got, expected 1 and $pattern in:" >&2
 		echo "$out" >&2
 		exit 1
 	fi
@@ -129,11 +142,11 @@ got=0
 "$OLS" query reorder-params "$dir/util.odin:3:1" --order 1,0 >/dev/null 2>&1 || got=$?
 if [[ $got -ne 1 ]]; then echo "FAIL reorder-params group member: exit $got"; exit 1; fi
 echo "ok reorder-params refused"
-expect move-new "scale.odin" "$OLS" query move "$dir/util.odin:17:1" --to scale.odin --apply
+expect move-new "scale.odin" "$OLS" query move "$dir/util.odin:17:1" --to "$dir/scale.odin" --apply
 grep -q "^scale :: proc" "$dir/scale.odin" && ! grep -q "^scale :: proc" "$dir/util.odin"
 odin check "$dir" -no-entry-point
 echo "ok move-new check"
-expect move-existing "main.odin" "$OLS" query move "$dir/util.odin:7:1" --to main.odin --apply
+expect move-existing "main.odin" "$OLS" query move "$dir/util.odin:7:1" --to "$dir/main.odin" --apply
 grep -q "^twice :: proc" "$dir/main.odin" && ! grep -q "^twice :: proc" "$dir/util.odin"
 odin check "$dir" -no-entry-point
 echo "ok move-existing check"
@@ -206,7 +219,7 @@ expect_exit 1 check-cannot-run-exit "$OLS" query rename "$dir/safe/a.odin:9:1" u
 cmp -s "$dir/safe/a.odin" "$dir/a.orig" || { echo "FAIL check-cannot-run wrote the file"; exit 1; }
 echo '{}' > "$dir/ols.json"
 # A _js.odin file is not built on this host, so moving `one` there leaves its call undeclared.
-expect_exit 4 created-rollback-exit "$OLS" query move "$dir/safe/a.odin:9:1" --to one_js.odin --apply
+expect_exit 4 created-rollback-exit "$OLS" query move "$dir/safe/a.odin:9:1" --to "$dir/safe/one_js.odin" --apply
 [[ ! -e "$dir/safe/one_js.odin" ]] || { echo "FAIL created-rollback left one_js.odin"; exit 1; }
 cmp -s "$dir/safe/a.odin" "$dir/a.orig" || { echo "FAIL created-rollback is not byte for byte"; exit 1; }
 echo "ok created-rollback deletes the created file"
@@ -244,7 +257,7 @@ expect symbol-path-apply "sp.odin" sh -c "cd \"$dir\" && \"$OLS\" query rename s
 grep -q "return t.new_field" "$dir/sp/sp.odin" && grep -q "Thing{new_field = 2}" "$dir/sp/sp.odin"
 odin check "$dir/sp"
 echo "ok symbol-path-apply check"
-expect move-symbol-path "^move: " "$OLS" query move "$dir/sp.total" --to other.odin
+expect move-symbol-path "^move: " "$OLS" query move "$dir/sp.total" --to "$dir/sp/other.odin"
 echo "{\"collections\": [{\"name\": \"shared\", \"path\": \"$dir\"}]}" > "$dir/ols.json"
 expect collection-symbol-path "^+total_of :: proc" "$OLS" query --root "$dir" rename shared:sp.total total_of
 echo '{}' > "$dir/ols.json"
@@ -364,9 +377,9 @@ cmp -s "$dir/at/at.odin" "$dir/at.orig" || { echo "FAIL attr check-failed rollba
 echo "ok attr check-failed rollback"
 expect attr-check-failed-error "^error: .*at.odin:.*Unknown attribute element name 'foobar'" sh -c "\"$OLS\" query attr add \"$dir/at.counter\" foobar --apply 2>&1 || true"
 rm "$dir/at.orig"
-expect check "not an int\|Cannot assign\|cannot" "$OLS" query check "$dir/bad"
-expect check-text 'bad.odin:3:10: error:' "$OLS" query check "$dir/bad"
-expect check-json '"diagnostic"' "$OLS" query check "$dir/bad" --json
+expect_exit1 check "not an int\|Cannot assign\|cannot" "$OLS" query check "$dir/bad"
+expect_exit1 check-text 'bad.odin:3:10: error:' "$OLS" query check "$dir/bad"
+expect_exit1 check-json '"diagnostic"' "$OLS" query check "$dir/bad" --json
 mkdir "$dir/lint"
 cat > "$dir/lint/a.odin" <<'ODIN'
 package lint
@@ -589,8 +602,9 @@ rm -rf "$dir/rp"
 mkdir "$dir/dupe"
 printf 'package dupe\n\nf :: proc() {\n\tx: int = "s"\n\t_ = x\n}\n' > "$dir/dupe/d.odin"
 echo '{"checker_args": "-no-entry-point"}' > "$dir/ols.json"
-expect dupe-flag-reports-the-error "d.odin:4:11: error: Cannot convert" "$OLS" query check "$dir/dupe"
-echo '{"checker_skip_packages": ["'"$dir/dupe"'"]}' > "$dir/ols.json"
+expect_exit1 dupe-flag-reports-the-error "d.odin:4:11: error: Cannot convert" "$OLS" query check "$dir/dupe"
+# The skip list compares the literal path, and the CLI resolves symlinks in its paths (/var on macOS).
+echo '{"checker_skip_packages": ["'"$(cd "$dir/dupe" && pwd -P)"'"]}' > "$dir/ols.json"
 expect_exit 0 check-skipped-package "$OLS" query check "$dir/dupe"
 echo '{"odin_command": "/nonexistent/odin"}' > "$dir/ols.json"
 expect_exit 1 check-without-odin "$OLS" query check "$dir/dupe"
@@ -617,8 +631,8 @@ rm -rf "$dir/many" "$dir/many.orig"
 # so the check reruns without the style flags and keeps the comma as a warning.
 mkdir "$dir/sty"
 printf 'package sty\n\nS :: struct {\n\ta: int,\n}\n\nf :: proc() {\n\ts := S{\n\t\ta = 1\n\t}\n\tx: int = "s"\n\t_, _ = s, x\n}\n' > "$dir/sty/s.odin"
-expect style-syntax-error-is-a-warning "s.odin:9:7: warning: Syntax Error: Expected a comma" "$OLS" query check "$dir/sty"
-expect style-rerun-reports-the-type-error "s.odin:11:11: error: Cannot convert" "$OLS" query check "$dir/sty"
+expect_exit1 style-syntax-error-is-a-warning "s.odin:9:7: warning: Syntax Error: Expected a comma" "$OLS" query check "$dir/sty"
+expect_exit1 style-rerun-reports-the-type-error "s.odin:11:11: error: Cannot convert" "$OLS" query check "$dir/sty"
 rm -rf "$dir/sty"
 # A quoted checker_args value keeps its space.
 mkdir -p "$dir/sp/my lib/lib" "$dir/sp/use"
@@ -634,4 +648,92 @@ fi
 echo "ok checker-args-quoted-space"
 rm -rf "$dir/sp"
 echo '{}' > "$dir/ols.json"
+
+# Path arguments, the workspace root and the commands without an argument.
+mkdir -p "$dir/cli/pkg" "$dir/cli/other"
+echo '{}' > "$dir/cli/ols.json"
+printf 'package pkg\n\nhelper :: proc() {}\n\nuse_a :: proc() { helper() }\n\nOne :: struct {\n\tx: int,\n}\n\nzed :: proc() {}\n\nalpha :: proc() {}\n' > "$dir/cli/pkg/a.odin"
+printf 'package pkg\n\nuse_b :: proc() { helper() }\n' > "$dir/cli/pkg/b.odin"
+printf 'package other\n\nimport "core:testing"\n\n@(test)\nnamed :: proc(t: ^testing.T) {}\n\nx: int = "s"\n' > "$dir/cli/other/o_test.odin"
+# A relative --root is made absolute: the search still reaches b.odin.
+expect refs-relative-root "b.odin:3:" sh -c "cd \"$dir/cli/pkg\" && \"$OLS\" query refs a.odin:3:1 --root ."
+expect_exit 0 rename-relative-root sh -c "cd \"$dir/cli/pkg\" && \"$OLS\" query rename a.odin:3:1 helper2 --root . --apply --no-check"
+grep -q "helper2()" "$dir/cli/pkg/b.odin" || { echo "FAIL rename-relative-root did not reach b.odin"; exit 1; }
+sh -c "cd \"$dir/cli/pkg\" && \"$OLS\" query rename a.odin:3:1 helper --root . --apply --no-check" >/dev/null
+# move --to is relative to the cwd, like every other path; an absolute path may go through a symlink.
+expect move-to-relative-to-cwd "^+++ b/pkg/c.odin" sh -c "cd \"$dir/cli\" && \"$OLS\" query move pkg/a.odin:3:1 --to pkg/c.odin"
+expect move-to-in-cwd "^+++ b/pkg/c.odin" sh -c "cd \"$dir/cli/pkg\" && \"$OLS\" query move a.odin:3:1 --to c.odin"
+expect_exit 1 move-to-relative-to-declaration-is-gone sh -c "cd \"$dir/cli\" && \"$OLS\" query move pkg/a.odin:3:1 --to c.odin"
+expect move-to-symlink "^+++ b/pkg/c.odin" "$OLS" query --root "$dir/cli" move "$dir/cli/pkg/a.odin:3:1" --to "$dir.link/cli/pkg/c.odin"
+# symbols: FILE:LINE:COL: KIND NAME, by position, the same on every run.
+sym_expected=$'a.odin:3:1: Function helper\na.odin:5:1: Function use_a\na.odin:7:1: Struct One\na.odin:8:2:   Field x\na.odin:11:1: Function zed\na.odin:13:1: Function alpha'
+for run in 1 2 3; do
+	got="$("$OLS" query symbols "$dir/cli/pkg/a.odin" | sed 's|^[^ ]*/a.odin:|a.odin:|')"
+	[[ "$got" == "$sym_expected" ]] || { echo "FAIL symbols-order run $run:" >&2; echo "$got" >&2; exit 1; }
+done
+echo "ok symbols-order"
+# A symbol path may name the package in the cwd.
+expect symbol-path-cwd-dot "^+helper3 :: proc" sh -c "cd \"$dir/cli/pkg\" && \"$OLS\" query rename .helper helper3"
+expect symbol-path-cwd-dot-slash "^+helper3 :: proc" sh -c "cd \"$dir/cli/pkg\" && \"$OLS\" query rename ./helper helper3"
+expect symbol-path-cwd-member "^+[[:space:]]y: int," sh -c "cd \"$dir/cli/pkg\" && \"$OLS\" query rename ./One.x y"
+# actions --apply on a file that cannot be read is a refusal with a summary, and a JSON object under --json.
+expect actions-apply-missing-file "^actions: refused, nothing written$" sh -c "\"$OLS\" query actions \"$dir/cli/missing.odin:1:1\" --apply T 2>&1 || true"
+expect actions-apply-missing-file-json '"status": "refused"' sh -c "\"$OLS\" query actions \"$dir/cli/missing.odin:1:1\" --apply T --json || true"
+expect_exit 1 actions-apply-missing-file-exit "$OLS" query actions "$dir/cli/missing.odin:1:1" --apply T
+# check and tests without an argument cover every package below the root; check exits 1 on an error.
+expect tests-root "other/o_test.odin:6:1: named" sh -c "cd \"$dir/cli\" && \"$OLS\" query tests"
+expect_exit1 check-root "other/o_test.odin:8:10: error:" sh -c "cd \"$dir/cli\" && \"$OLS\" query check"
+mkdir "$dir/cli/empty"
+expect_exit 1 check-empty-dir "$OLS" query check "$dir/cli/empty"
+expect check-empty-dir-message "^error: no package in .*cli/empty$" sh -c "\"$OLS\" query check \"$dir/cli/empty\" 2>&1 || true"
+expect check-empty-dir-message-tests "^error: no package in .*cli/empty$" sh -c "\"$OLS\" query tests \"$dir/cli/empty\" 2>&1 || true"
+mkdir "$dir/cli/none"
+echo '{}' > "$dir/cli/none/ols.json"
+expect check-no-package-message "^error: no package in .*cli/none$" sh -c "cd \"$dir/cli/none\" && \"$OLS\" query check 2>&1 || true"
+# In a directory with .odin files they cover that package alone; with no ols.json and no package it is an error.
+out="$(cd "$dir/cli/pkg" && "$OLS" query check 2>&1 || true)"
+[[ "$out" != *o_test* ]] || { echo "FAIL check-cwd-package-only: $out"; exit 1; }
+echo "ok check-cwd-package-only"
+expect_exit 0 check-cwd-package-exit sh -c "cd \"$dir/cli/pkg\" && \"$OLS\" query check"
+expect tests-cwd-package "o_test.odin:6:1: named" sh -c "cd \"$dir/cli/other\" && \"$OLS\" query tests"
+mkdir "$dir.bare"
+expect_exit 1 check-no-ols-json sh -c "cd \"$dir.bare\" && \"$OLS\" query check"
+expect check-no-ols-json-message "^error: no package in .*\.bare$" sh -c "cd \"$dir.bare\" && \"$OLS\" query check 2>&1 || true"
+rmdir "$dir.bare"
+expect_exit 1 tests-no-package sh -c "cd \"$dir/cli/none\" && \"$OLS\" query tests"
+expect_exit 0 check-clean-exit "$OLS" query check "$dir/cli/pkg"
+# test DIR NAME names a test that exists.
+expect_exit 1 test-unknown-name "$OLS" query test "$dir/cli/other" nope
+expect test-unknown-name-message '^error: no test "nope" in ' sh -c "\"$OLS\" query test \"$dir/cli/other\" nope 2>&1 || true"
+# tests lists what odin test builds on this host, so a file of another target and #+build ignore are left out.
+mkdir "$dir/cli/plat"
+printf 'package plat\n\nimport "core:testing"\n\n@(test)\nhost_one :: proc(t: ^testing.T) {}\n' > "$dir/cli/plat/a_test.odin"
+printf 'package plat\n\nimport "core:testing"\n\n@(test)\nother_one :: proc(t: ^testing.T) {}\n' > "$dir/cli/plat/b_windows.odin"
+printf '#+build ignore\npackage plat\n\nimport "core:testing"\n\n@(test)\nignored_one :: proc(t: ^testing.T) {}\n' > "$dir/cli/plat/c_test.odin"
+if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
+	tests_out="$("$OLS" query tests "$dir/cli/plat")"
+	[[ "$tests_out" == *host_one* && "$tests_out" != *other_one* && "$tests_out" != *ignored_one* ]] || { echo "FAIL tests-build-rules: $tests_out"; exit 1; }
+	echo "ok tests-build-rules"
+fi
+# find reports private declarations and those of other targets, and marks them.
+printf 'package plat\n\n@(private)\nmarker_secret :: proc() {}\nmarker_open :: proc() {}\n' > "$dir/cli/plat/d.odin"
+printf 'package plat\n\nmarker_other :: proc() {}\n' > "$dir/cli/plat/e_js.odin"
+mkdir "$dir/cli/.hid"
+printf 'package hid\n\nmarker_hidden :: proc() {}\n' > "$dir/cli/.hid/h.odin"
+expect find-private "d.odin:4:1: Function marker_secret (private)$" "$OLS" query --root "$dir/cli" find marker
+expect find-public "d.odin:5:1: Function marker_open$" "$OLS" query --root "$dir/cli" find marker
+expect find-other-platform "e_js.odin:3:1: Function marker_other (other platform)$" "$OLS" query --root "$dir/cli" find marker
+out="$("$OLS" query --root "$dir/cli" find marker_hidden || true)"
+[[ -z "$out" ]] || { echo "FAIL find-hidden-dir: $out"; exit 1; }
+echo "ok find-hidden-dir"
+expect find-json-flags '"otherPlatform": true' "$OLS" query --root "$dir/cli" find marker_other --json
+# reorder-params names the one cause that applies.
+printf 'package plat\n\nvariadic :: proc(a: int, b: ..int) {}\n\nwith_default :: proc(a: int, b: int = 1) {}\n' > "$dir/cli/plat/f.odin"
+expect reorder-params-variadic "^error: the procedure is variadic$" sh -c "\"$OLS\" query reorder-params \"$dir/cli/plat/f.odin:3:1\" --order 1,0 2>&1 || true"
+expect reorder-params-default "^error: a parameter has a default value$" sh -c "\"$OLS\" query reorder-params \"$dir/cli/plat/f.odin:5:1\" --order 1,0 2>&1 || true"
+# An enum member used as `.B` in a literal that is assigned to `_` or passed to a call is a reference.
+printf 'package plat\n\nKind :: enum { A, B }\nItem :: struct { kind: Kind }\ntake :: proc(it: Item) -> Kind { return it.kind }\nmain :: proc() {\n\t_ = take(Item{kind = .B})\n\t_ = Item{kind = .B}\n}\n' > "$dir/cli/plat/g.odin"
+expect refs-enum-in-comp-lit-call "g.odin:7:" "$OLS" query refs "$dir/cli/plat/g.odin:3:19"
+expect refs-enum-in-comp-lit-blank "g.odin:8:" "$OLS" query refs "$dir/cli/plat/g.odin:3:19"
+rm -rf "$dir/cli"
 echo "all ok"

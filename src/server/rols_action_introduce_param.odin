@@ -18,7 +18,7 @@ add_introduce_param_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	decl, is_top := proc_decl_of(ctx.document, function)
-	if !is_top || !plain_signature(decl, function) {
+	if !is_top || signature_problem(decl, function) != "" {
 		return
 	}
 
