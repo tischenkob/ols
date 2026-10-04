@@ -89,6 +89,7 @@ Small fixes:
 - `src/server/locals.odin`: no preallocation for name groups.
 - `src/server/symbol.odin`: symbols stored by pointer in the resolve map.
 - `src/server/ast.odin`: end positions for `break` and `continue`.
+- `src/server/indexer.odin`: `lookup` reuses the package and uri of the last file it ran for.
 - `src/server/build.odin`: drop stale symbols on removal and reindex.
 - `src/server/generics.odin`: keep procedure tags when solving a generic.
 - `src/server/writer.odin`: framed write of one message.

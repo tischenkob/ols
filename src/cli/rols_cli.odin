@@ -406,6 +406,8 @@ open_target :: proc(
 			symbol_path_root(symbol_path) if symbol_path != "" else find_root(path.dir(target.file, context.temp_allocator))
 	}
 	setup(root)
+	// An outline reads no diagnostics, and opening the file would lint it, which resolves every node.
+	if whole_file do common.config.enable_diagnostics = false
 	if symbol_path != "" {
 		reason: string
 		target, reason, target_ok = resolve_symbol_path(symbol_path)

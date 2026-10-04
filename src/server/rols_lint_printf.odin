@@ -470,7 +470,9 @@ arg_kind :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> Arg_Kind {
 // one of them, so those identifiers are not judged.
 @(private = "file")
 bound_by_type_switch :: proc(ctx: ^LintContext, ident: ^ast.Ident) -> bool {
-	for at in nodes_at(ctx.document.ast.decls[:], ident.pos.offset) {
+	stmt := top_level_stmt_at(ctx.document.ast.decls[:], ident.pos.offset)
+	if stmt == nil do return false
+	for at in nodes_at({stmt}, ident.pos.offset) {
 		ts := at.node.derived.(^ast.Type_Switch_Stmt) or_continue
 		if ts.tag == nil do continue
 		assign := ts.tag.derived.(^ast.Assign_Stmt) or_continue

@@ -36,8 +36,8 @@ These findings have no harness test, because they live in the CLI or the compile
 
 ### Performance
 
-- **documentSymbol and code actions are slow on 2 MB files.** On `core/rexcode/isa/ppc/mnemonic_builders.odin`, documentSymbol takes 20 s and each code action 8 s, even where no action applies.
-- **`ols query symbols FILE` indexes the whole package** before it outlines one file. A 55 KB file with one symbol takes 2.7 s.
+- **Opening a 2 MB file takes 1.3 to 2.4 s.** The lints resolve every node of `core/rexcode/isa/ppc/mnemonic_builders.odin` (13,308 declarations), about 2 s of it. Before S15 the open took 15 to 25 s, because `lint_deprecated` and `lint_test_attribute` scanned every top-level declaration for each identifier. After the open, documentSymbol answers in about 1.6 to 2.1 s, a code action in 1.5 s and inlay hints in 1.8 s (before: 17 to 26 s, 25 to 34 s and 51 s). A synthetic 2 MB file (16,000 procedures, 64,000 hints) answers inlay hints in 5.7 s, against 144 s before.
+- **A file that names a large enum is slow to open.** `ppc/mnemonics.odin` (55 KB) takes about 3 s because the whole-file resolve rebuilds the enum symbol for each use. `ols query symbols FILE` now opens the file without lints and answers in 0.5 s for that file and 0.3 s for the 2 MB one (before: 3.4 s and 14.2 s), with identical output on 14 files.
 
 ### Lint heuristics and noise
 
