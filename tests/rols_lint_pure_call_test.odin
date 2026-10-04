@@ -126,3 +126,42 @@ main :: proc(a: ^[dynamic]int, s: []int) {
 
 	expect_lint_cases(t, cases, {enable_lint_pure_call = true}, packages)
 }
+
+@(test)
+lint_pure_call_ignores_buffer_mutators :: proc(t: ^testing.T) {
+	// Corpus: bytes.buffer_write on a ^bytes.Buffer, see docs/corpus-validation.md.
+	src := test.Source {
+		main = `package test
+
+import "bytes"
+
+main :: proc(b: ^bytes.Buffer, chunk: []byte) {
+	bytes.buffer_write(b, chunk)
+	bytes.buffer_write_string(b, "x")
+	bytes.buffer_truncate(b, 0)
+	bytes.buffer_next(b, 1)
+	bytes.reader_read_byte(nil)
+	bytes.buffer_to_string(b)
+}
+`,
+		packages = {
+			{
+				pkg = "bytes",
+				source = `package bytes
+Buffer :: struct {}
+Reader :: struct {}
+buffer_write :: proc(b: ^Buffer, p: []byte) -> (int, bool) { return 0, true }
+buffer_write_string :: proc(b: ^Buffer, s: string) -> (int, bool) { return 0, true }
+buffer_truncate :: proc(b: ^Buffer, n: int) {}
+buffer_next :: proc(b: ^Buffer, n: int) -> []byte { return nil }
+buffer_to_string :: proc(b: ^Buffer) -> string { return "" }
+reader_read_byte :: proc(r: ^Reader) -> (byte, bool) { return 0, true }
+`,
+			},
+		},
+		config = {enable_lint_pure_call = true},
+	}
+
+	// Only the accessor, which leaves the buffer alone, is a pure call.
+	test.expect_lint_diagnostics(t, &src, {{10, "pure-call-unused"}})
+}

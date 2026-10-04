@@ -305,3 +305,50 @@ prefixes :: proc(s: string) -> int {
 
 	test.expect_lint_diagnostics(t, &source, {})
 }
+
+@(test)
+range_off_by_one_ignores_other_collection :: proc(t: ^testing.T) {
+	// Corpus: Skald text.odin:589, text_runa.odin:441 and wrap_test.odin:395.
+	source := test.Source {
+		main = `package test
+
+other :: proc(text: string) -> []f32 {
+	out := make([]f32, len(text) + 1)
+	for b in 0 ..= len(text) {
+		out[b] = 1
+	}
+	for b in 0 ..= len(text) {
+		if b < len(text) {
+			_ = text[b]
+		}
+	}
+	return out
+}
+
+same :: proc(text: string) {
+	for b in 0 ..= len(text) {
+		_ = text[b]
+	}
+	for b in 0 ..= len(text) {
+		_ = text[:b]
+		_ = text[b]
+	}
+	for b in 0 ..= len(text) {
+		if len(text) > 0 {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if b == len(text) {
+		} else {
+			_ = text[b]
+		}
+	}
+}
+`,
+		config = {enable_lint_loops = true},
+	}
+
+	// Indexing the bounded collection itself without a guard still runs one past the end.
+	test.expect_lint_diagnostics(t, &source, {{16, "range-off-by-one"}, {19, "range-off-by-one"}, {23, "range-off-by-one"}})
+}

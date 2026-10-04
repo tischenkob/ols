@@ -5,6 +5,7 @@ import "core:odin/ast"
 import "core:odin/tokenizer"
 import "core:slice"
 import "core:strconv"
+import "core:strings"
 
 import "src:common"
 
@@ -252,9 +253,12 @@ range_off_by_one :: proc(ctx: ^LintContext, n: ^ast.Range_Stmt, diags: ^[dynamic
 	if !is_low || low.tok.kind != .Integer || low.tok.text != "0" do return
 
 	fix: Lint_Fix
+	bound: ^ast.Expr // the collection whose len ends the range
 	#partial switch bin.op.kind {
 	case .Range_Full:
-		if _, ok := len_call(bin.right); !ok do return
+		ok: bool
+		bound, ok = len_call(bin.right)
+		if !ok do return
 		fix = {
 			bin.op.pos.offset,
 			bin.op.pos.offset + len(bin.op.text),
@@ -265,7 +269,9 @@ range_off_by_one :: proc(ctx: ^LintContext, n: ^ast.Range_Stmt, diags: ^[dynamic
 	case .Range_Half:
 		plus, is_plus := unparen(bin.right).derived.(^ast.Binary_Expr)
 		if !is_plus || plus.op.kind != .Add do return
-		if _, ok := len_call(plus.left); !ok do return
+		ok: bool
+		bound, ok = len_call(plus.left)
+		if !ok do return
 		lit, is_lit := unparen(plus.right).derived.(^ast.Basic_Lit)
 		if !is_lit || lit.tok.kind != .Integer do return
 		if value, ok := strconv.parse_i64_maybe_prefixed(lit.tok.text); !ok || value != 1 do return
@@ -280,7 +286,7 @@ range_off_by_one :: proc(ctx: ^LintContext, n: ^ast.Range_Stmt, diags: ^[dynamic
 		return
 	}
 
-	if only_slice_bound(n) do return
+	if intentional_inclusive(ctx, n, bound) do return
 
 	append(
 		diags,
@@ -294,22 +300,48 @@ range_off_by_one :: proc(ctx: ^LintContext, n: ^ast.Range_Stmt, diags: ^[dynamic
 	append(&ctx.fixes, fix)
 }
 
-// `for b in 0 ..= len(s) { s[:b] }` visits every split point, and len(s) is a valid slice bound.
+// `for b in 0 ..= len(s)` is intended when the loop variable only addresses the end of something
+// else: a slice bound (`s[:b]`), another collection (`adv[b]` sized len+1), or `s[b]` behind a
+// `b < len(s)` guard. Any unguarded `s[b]` still reads one past the end, so it keeps the warning.
 @(private = "file")
-only_slice_bound :: proc(n: ^ast.Range_Stmt) -> bool {
+intentional_inclusive :: proc(ctx: ^LintContext, n: ^ast.Range_Stmt, bound: ^ast.Expr) -> bool {
 	if len(n.vals) == 0 || n.body == nil do return false
 	val := n.vals[0].derived.(^ast.Ident) or_else nil
 	if val == nil do return false
 
-	found := false
+	bound_text := node_text(ctx.src, bound)
+	evidence := false
 	for use in collect_ident_uses(n.body) {
 		if use.ident.name != val.name do continue
-		if len(use.parents) == 0 do return false
-		slice_expr := use.parents[len(use.parents) - 1].derived.(^ast.Slice_Expr) or_else nil
-		if slice_expr == nil || (slice_expr.low != use.ident && slice_expr.high != use.ident) do return false
-		found = true
+		if len(use.parents) == 0 do continue
+		parent := use.parents[len(use.parents) - 1]
+		#partial switch p in parent.derived {
+		case ^ast.Slice_Expr:
+			if p.low == use.ident || p.high == use.ident do evidence = true
+		case ^ast.Index_Expr:
+			if p.index != use.ident do continue
+			if node_text(ctx.src, p.expr) != bound_text || guarded_by_len(ctx, use.parents, bound_text, val.name) {
+				evidence = true
+			} else {
+				return false
+			}
+		}
 	}
-	return found
+	return evidence
+}
+
+// Whether an enclosing `if` compares the loop variable with len(collection).
+@(private = "file")
+guarded_by_len :: proc(ctx: ^LintContext, parents: []^ast.Node, collection: string, var_name: string) -> bool {
+	needle := fmt.tprintf("len(%s)", collection)
+	for parent in parents {
+		if_stmt, is_if := parent.derived.(^ast.If_Stmt)
+		if !is_if || if_stmt.cond == nil || !strings.contains(node_text(ctx.src, if_stmt.cond), needle) do continue
+		for use in collect_ident_uses(if_stmt.cond) {
+			if use.ident.name == var_name do return true
+		}
+	}
+	return false
 }
 
 // Evaluating the expression twice cannot change anything: no calls, no `or_return`, no dereference.

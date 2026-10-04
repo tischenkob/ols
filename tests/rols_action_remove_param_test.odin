@@ -540,3 +540,24 @@ main :: proc() {
 	}
 	test.expect_reorder_params(t, &source, {1, 0}, {})
 }
+
+@(test)
+reorder_params_refused_nested_poly :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Ctx :: struct($M: typeid) {
+	x: M,
+}
+
+s{*}c :: proc(ctx: ^Ctx($Msg), chord: int, msg: Msg) {
+}
+
+main :: proc() {
+	c: Ctx(int)
+	sc(&c, 1, 2)
+}
+`,
+	}
+	test.expect_reorder_params(t, &source, {2, 1, 0}, {})
+}
