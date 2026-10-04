@@ -2391,3 +2391,92 @@ run :: proc() -> (x := 1) {
 }
 `)
 }
+
+@(test)
+result_union_comment_before_first_result :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (
+	// first
+	int,
+	bool,
+) {
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (
+	// first
+	result: int,
+	err: os.Error,
+) {
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_keeps_comments_and_lines_of_the_result_list :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (
+	int, // count
+	bool, // done
+) {
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (
+	result: int, // count
+	err: os.Error, // done
+) {
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}
+
+@(test)
+result_union_keeps_comment_when_splitting_shared_field :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (a, b, /* last */ c: int) {
+	os.re{*}ad("x") or_return
+	return
+}
+`,
+		`package test
+
+import "core:os"
+
+run :: proc() -> (a, b: int, /* last */ c: os.Error) {
+	os.read("x") or_return
+	return
+}
+`,
+	)
+}

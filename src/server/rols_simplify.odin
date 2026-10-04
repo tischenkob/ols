@@ -795,7 +795,6 @@ reads_name :: proc(root: ^ast.Node, name: string) -> (found, unsure: bool) {
 
 // Names an `if`'s init declares live only inside the statement, so text that mentions
 // them cannot be lifted out of it.
-@(private = "file")
 mentions_any :: proc(node: ^ast.Node, names: ..string) -> bool {
 	for use in collect_ident_uses(node) {
 		for name in names {
@@ -1269,7 +1268,6 @@ simplify_or_continue :: proc(src: string, node: ^ast.Node, parents: []^ast.Node,
 	or_branch(src, node, parents, out, .Continue, "or-continue", "Use or_continue", "or_continue")
 }
 
-@(private = "file")
 append_decl_names :: proc(names: ^[dynamic]string, stmt: ^ast.Stmt) {
 	if stmt == nil do return
 	decl, is_decl := stmt.derived.(^ast.Value_Decl)
@@ -1284,7 +1282,17 @@ append_decl_names :: proc(names: ^[dynamic]string, stmt: ^ast.Stmt) {
 @(private = "file")
 simplify_redundant_else :: proc(src: string, node: ^ast.Node, parents: []^ast.Node, out: ^[dynamic]Simplification) {
 	if_stmt, ok := node.derived.(^ast.If_Stmt)
-	if !ok || if_stmt.else_stmt == nil || if_stmt.body == nil || if_stmt.label != nil || len(parents) == 0 {
+	if !ok do return
+	if s, found := redundant_else(src, if_stmt, parents); found {
+		append(out, s)
+	}
+}
+
+// The rewrite that drops the else of if_stmt, shared by the rule and the "Remove redundant else"
+// action so the two cannot drift. parents run from the outermost node down to the if's parent.
+redundant_else :: proc(src: string, if_stmt: ^ast.If_Stmt, parents: []^ast.Node) -> (s: Simplification, ok: bool) {
+	node := (^ast.Node)(if_stmt)
+	if if_stmt.else_stmt == nil || if_stmt.body == nil || if_stmt.label != nil || len(parents) == 0 {
 		return
 	}
 	// The unwrapped else lands right after the if, so the if must be the last statement of a
@@ -1352,16 +1360,8 @@ simplify_redundant_else :: proc(src: string, node: ^ast.Node, parents: []^ast.No
 	from := get_line_indentation(src, else_block.stmts[0].pos.offset)
 	to := get_line_indentation(src, if_stmt.pos.offset)
 	text := fmt.tprintf("\n%s", reindent(block_inner_text(src, else_block), from, to))
-	append(
-		out,
-		Simplification {
-			if_stmt.body.end.offset,
-			else_block.end.offset,
-			"redundant-else",
-			"Remove redundant else",
-			text,
-		},
-	)
+	s = Simplification{if_stmt.body.end.offset, else_block.end.offset, "redundant-else", "Remove redundant else", text}
+	return s, true
 }
 
 @(private = "file")

@@ -433,3 +433,24 @@ f :: proc(s: ^S) {
 }
 `)
 }
+
+@(test)
+action_add_explicit_type_slice_of_named_array :: proc(t: ^testing.T) {
+	expect_add_explicit_type(t, `package test
+
+Buf :: [4]int
+
+f :: proc(b: ^Buf) {
+	r{*} := b[:2]
+	_ = r
+}
+`, `package test
+
+Buf :: [4]int
+
+f :: proc(b: ^Buf) {
+	r: []int = b[:2]
+	_ = r
+}
+`)
+}

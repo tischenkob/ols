@@ -468,3 +468,43 @@ _ :: fresh
 		},
 	)
 }
+
+@(test)
+rename_package_leaves_fields_named_like_the_package :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "shared:old"
+
+S :: struct {
+	old: int,
+}
+
+alias :: old
+s := S{old = 1}
+`,
+		packages = old_package(),
+		collections = {"shared" = "test"},
+	}
+	test.expect_rename_package(
+		t,
+		&source,
+		"old",
+		"fresh",
+		{
+			{"main.odin", `package test
+
+import "shared:fresh"
+
+S :: struct {
+	old: int,
+}
+
+alias :: fresh
+s := S{old = 1}
+`},
+			{"fresh/a.odin", "package fresh\n\nX :: 1\n\nS :: struct {\n\told: int,\n}\n"},
+			{"fresh/a_test.odin", "package fresh_test\n\nT :: 2\n"},
+		},
+	)
+}

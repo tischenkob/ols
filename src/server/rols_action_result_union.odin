@@ -175,7 +175,7 @@ add_result_union_action :: proc(ctx: ^ActionContext) {
 	if count == 1 || all_named && len(last.names) == 1 {
 		append(&edits, TextEdit{range = range_of(ctx, declared.pos.offset, declared.end.offset), newText = text})
 	} else {
-		append(&edits, named_results_edit(ctx, lit, text))
+		append(&edits, ..named_results_edits(ctx, lit, text))
 	}
 	append(&edits, ..types.edits[:])
 	append(ctx.actions, make_code_action(ctx, TITLE, "quickfix", edits[:]))
@@ -206,72 +206,67 @@ proc_exits :: proc(body: ^ast.Stmt) -> []Proc_Exit {
 	return found[:]
 }
 
-// The results list with the last type replaced by text, every unnamed result named. The list is
-// written out in full so that a last field shared as `a, b: T` splits.
-named_results_edit :: proc(ctx: ^ActionContext, lit: ^ast.Proc_Lit, text: string) -> TextEdit {
+// Edits that name every unnamed result and replace the last type with text. A last field shared as
+// `a, b: T` splits. Only names, the last type and the split colon change, so comments and line
+// breaks of the list stay as written.
+named_results_edits :: proc(ctx: ^ActionContext, lit: ^ast.Proc_Lit, text: string) -> []TextEdit {
 	src := ctx.document.ast.src
-	results := lit.type.results
+	fields := lit.type.results.list
 
 	taken := signature_names(lit)
 	// A new name must not shadow or redeclare a name the body uses.
 	append(&taken, ..body_ident_names(lit.body))
 
 	// Names are chosen left to right, as the named-results action does.
-	Value :: struct {
-		name, type, default_value: string,
-		field:                     int,
-	}
-	values := make([dynamic]Value, context.temp_allocator)
-	for field, i in results.list {
-		default_value := field.default_value != nil ? node_text(src, field.default_value) : ""
-		for j in 0 ..< max(len(field.names), 1) {
-			value := Value {
-				type          = node_text(src, field.type),
-				default_value = default_value,
-				field         = i,
+	edits := make([dynamic]TextEdit, context.temp_allocator)
+	for field, i in fields {
+		is_last := i + 1 == len(fields)
+		// The parser names an unnamed result in parentheses `_`, starting where its type does.
+		if field.names[0].pos.offset == field.type.pos.offset {
+			name: string
+			if is_last {
+				name = take_result_name(&taken, text == "bool" ? "ok" : "err")
+			} else {
+				name = fresh_result_name(&taken, field.type)
 			}
-			if j < len(field.names) {
-				value.name = final_name(field.names[j])
-			}
-			append(&values, value)
-		}
-	}
-	values[len(values) - 1].type = text
-	for &value, i in values {
-		if value.name != "" && value.name != "_" {
+			type_text := is_last ? text : node_text(src, field.type)
+			append(
+				&edits,
+				TextEdit {
+					range = range_of(ctx, field.type.pos.offset, field.type.end.offset),
+					newText = strings.concatenate({name, ": ", type_text}, context.temp_allocator),
+				},
+			)
 			continue
 		}
-		if i + 1 < len(values) {
-			value.name = fresh_result_name(&taken, results.list[value.field].type)
-		} else {
-			value.name = take_result_name(&taken, text == "bool" ? "ok" : "err")
+		for name, j in field.names {
+			if existing := final_name(name); existing != "" && existing != "_" {
+				continue
+			}
+			fresh: string
+			if is_last && j + 1 == len(field.names) {
+				fresh = take_result_name(&taken, text == "bool" ? "ok" : "err")
+			} else {
+				fresh = fresh_result_name(&taken, field.type)
+			}
+			append(&edits, TextEdit{range = range_of(ctx, name.pos.offset, name.end.offset), newText = fresh})
 		}
-	}
-
-	// Values of one field stay grouped, except the last value, whose type changes.
-	sb := strings.builder_make(context.temp_allocator)
-	strings.write_byte(&sb, '(')
-	for value, i in values {
-		strings.write_string(&sb, value.name)
-		next_shares := i + 2 < len(values) && values[i + 1].field == value.field
-		if next_shares {
-			strings.write_string(&sb, ", ")
+		if !is_last {
 			continue
 		}
-		strings.write_string(&sb, ": ")
-		strings.write_string(&sb, value.type)
-		if value.default_value != "" {
-			strings.write_string(&sb, " = ")
-			strings.write_string(&sb, value.default_value)
+		if len(field.names) > 1 {
+			previous := field.names[len(field.names) - 2]
+			append(
+				&edits,
+				TextEdit {
+					range = range_of(ctx, previous.end.offset, previous.end.offset),
+					newText = strings.concatenate({": ", node_text(src, field.type)}, context.temp_allocator),
+				},
+			)
 		}
-		if i + 1 < len(values) {
-			strings.write_string(&sb, ", ")
-		}
+		append(&edits, TextEdit{range = range_of(ctx, field.type.pos.offset, field.type.end.offset), newText = text})
 	}
-	strings.write_byte(&sb, ')')
-
-	start, end := result_list_range(src, results)
-	return TextEdit{range = range_of(ctx, start, end), newText = strings.to_string(sb)}
+	return edits[:]
 }
 
 // Every identifier in the body, nested procedures included.

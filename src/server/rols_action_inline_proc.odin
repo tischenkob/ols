@@ -100,6 +100,19 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	callee_src := target.ast.src
+	if target != ctx.document {
+		roots := make([dynamic]^ast.Node, context.temp_allocator)
+		append(&roots, body)
+		if lit.type.params != nil {
+			for field in lit.type.params.list {
+				if field.type != nil do append(&roots, field.type)
+				if field.default_value != nil do append(&roots, field.default_value)
+			}
+		}
+		if borrows_from_file(target, ctx.document, roots[:]) {
+			return
+		}
+	}
 
 	params := make([dynamic]Param, context.temp_allocator)
 	if lit.type.params != nil {
@@ -299,12 +312,49 @@ find_proc_lit :: proc(ctx: ^ActionContext, symbol: Symbol) -> (^Document, ^ast.P
 	if lit := proc_lit_named(ctx.document, symbol.name); lit != nil {
 		return ctx.document, lit
 	}
-	h := Call_Hierarchy{{}, make(map[string]^Document, context.temp_allocator)}
+	h := Call_Hierarchy{ctx.files, make(map[string]^Document, context.temp_allocator)}
 	document := hierarchy_document(&h, symbol.uri)
 	if document == nil {
 		return nil, nil
 	}
 	return document, proc_lit_named(document, symbol.name)
+}
+
+// The source of roots is copied from the callee's file into the caller's, so it must mean the same
+// there: it may not name a file-private declaration of the callee's file, or use an import that the
+// caller's file lacks or binds under another name. Shadowing is not tracked, so a local of the same
+// name refuses too.
+borrows_from_file :: proc(callee, caller: ^Document, roots: []^ast.Node) -> bool {
+	private_names := make(map[string]struct{}, context.temp_allocator)
+	whole_file := parser.parse_file_tags(callee.ast, context.temp_allocator).private == .File
+	for decl in top_level_value_decls(callee.ast) {
+		if whole_file || is_file_private(decl.attributes[:]) {
+			for name in decl.names {
+				private_names[final_name(name)] = {}
+			}
+		}
+	}
+	for root in roots {
+		for use in collect_ident_uses(root) {
+			name := use.ident.name
+			if name in private_names {
+				return true
+			}
+			for imp in callee.ast.imports {
+				if pattern_import_name(imp) != name {
+					continue
+				}
+				imported := false
+				for other in caller.ast.imports {
+					imported ||= other.fullpath == imp.fullpath && pattern_import_name(other) == name
+				}
+				if !imported {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 proc_lit_named :: proc(document: ^Document, name: string) -> ^ast.Proc_Lit {

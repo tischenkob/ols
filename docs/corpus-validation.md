@@ -1,6 +1,6 @@
 # Corpus validation
 
-rols was run over seven open-source Odin projects and the Odin standard library on 2026-10-02, at rols `2c89a95a` with Odin `dev-2026-09:a2fb372b7` on macOS arm64. The sweep looked for crashes, hangs, edits that break `odin check`, false lints and wrong query results. This file records the corpus, the bugs that became failing tests, the follow-ups that did not, and how to repeat the sweep once the fixes land.
+rols was run over seven open-source Odin projects and the Odin standard library on 2026-10-02, at rols `2c89a95a` with Odin `dev-2026-09:a2fb372b7` on macOS arm64. The sweep looked for crashes, hangs, edits that break `odin check`, false lints and wrong query results. This file records the corpus, the bugs that became failing tests (the edit bugs are fixed, the formatter cases remain), the follow-ups that did not, and how to repeat the sweep once the fixes land.
 
 ## Corpus
 
@@ -21,21 +21,7 @@ odin-godot's own generated bindings could not be produced, because its generator
 
 ## Bugs with a failing test
 
-Each bug below has a test that fails today and passes once the bug is fixed. The reduced source of each case is in the test itself. At the time of writing, the 7 tests that `./build.sh test` reports as failing are exactly the tests below. The tests assume a darwin host, where the corpus ran: the build-tag cases use `linux` and `windows` files as the excluded platforms.
-
-### Edits
-
-| Test | File | Bug |
-|---|---|---|
-| `action_unwrap_not_offered_on_range_loop_using_its_variable` | `rols_action_unwrap_test.odin` | "Unwrap block" deletes a loop header the body depends on |
-| `action_unwrap_not_offered_when_body_returns_before_statements` | `rols_action_unwrap_test.odin` | "Unwrap block" leaves unreachable code |
-| `add_ok_result_updates_callers` | `rols_action_add_ok_result_test.odin` | callers keep one value and stop compiling |
-| `add_ok_result_not_offered_with_or_return_on_unnamed_results` | `rols_action_add_ok_result_test.odin` | `or_return` needs named results once there are two |
-| `generate_test_enum_result_uses_typed_zero_value` | `rols_generate_test_test.odin` | `expect_value(t, result, {})` does not compile for an enum |
-| `action_add_explicit_type_slice_of_field` | `rols_action_add_explicit_type_test.odin` | `r := s.arr[:2]` becomes `r: arr = …` |
-| `rename_package_rewrites_bare_package_name` | `rols_rename_package_test.odin` | `_ :: old` is not rewritten |
-
-Some edit tests assert one of two acceptable fixes, and a comment in each says which. The comment tests assert "no fix". `add_ok_result_updates_callers` asserts that callers are updated. A fix that refuses the action instead must switch the assertion.
+Each bug below has a snapshot case that fails today and passes once the bug is fixed. The reduced source of each case is in the case itself. Every bug that had a harness test is fixed: `./build.sh test` reports no failures. The tests assume a darwin host, where the corpus ran: the build-tag cases use `linux` and `windows` files as the excluded platforms.
 
 ### Formatter
 
@@ -89,7 +75,6 @@ These findings have no harness test, because they live in the CLI or the compile
 
 ### Edits
 
-- **"Inline procedure call" inlines a body that calls a `@(private="file")` procedure into another file**, and the result does not compile. Repro: `a.odin` has `@(private = "file") norm :: proc(v: int) -> int` and `draw :: proc(x, y: int) { _ = norm(x); _ = y }`, and `b.odin` calls `draw(1, 2)`. Run `ols query actions b.odin:4:2`. The harness cannot show it: `find_proc_lit` in `rols_action_inline_proc.odin` builds its `Call_Hierarchy` with no files, so a callee in another file is read from disk, and the harness's in-memory files are never seen. Passing `ctx.files` there would make the case testable. The same gap applies to types: a typed local or a `T(lit)` cast copies the parameter's type text from the callee file, so a package-qualified type such as `time.Duration` needs an import the caller file may lack.
 - **"Invert if" on an `if` without `else` leaves an empty then-branch** (`if !c {} else {…}`). This is upstream OLS's tested behavior (`action_invert_if_simple_edit`), kept for compatibility.
 - **The odinfmt snapshot suite ignores failures in subdirectories.** `snapshot_directory` in `tools/odinfmt/snapshot/snapshot.odin` drops the result of its recursive call, so `tools/odinfmt/tests.sh` exits 0 after a mismatch in a subdirectory. A mismatch also leaves `.snapshots/*_failed` files that git does not ignore.
 - **The harness's `expect_*` procs leak their message builders when an assertion fails**, so a failing test also reports memory leaks under `ODIN_TEST_FAIL_ON_BAD_MEMORY`.
@@ -108,7 +93,7 @@ The lints found real bugs in the projects. They are listed here so that a rerun 
 
 Run the sweep again after the bugs above are fixed.
 
-1. Run `./build.sh test`. Every test listed under "Bugs with a failing test" must pass.
+1. Run `./build.sh test`, which must report no failures, and `tools/odinfmt/tests.sh`, where every case listed under "Bugs with a failing test" must pass.
 2. Run `tools/corpus_smoke.sh`, and `tools/corpus_smoke.sh --lsp` for the stdio pass. The script clones the corpus at the pinned commits into `${ROLS_CORPUS_DIR:-$HOME/.cache/rols-corpus}`. It runs the baseline `odin check`, `check`, `lint`, `symbols`, `modernize --apply` with a plain `odin check` afterwards, and the formatter round trip. It exits 1 and prints one `FAIL` line per problem. A run on the pinned commits should end with no `FAIL` lines.
 3. Repeat the manual checks that the script does not automate, on two or three projects:
    - Rename a package proc, a struct field used through `using`, an enum member used inside call arguments, and a local, each with `--apply`.

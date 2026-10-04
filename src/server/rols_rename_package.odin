@@ -512,20 +512,20 @@ rewrite_qualifiers :: proc(r: ^Package_Rename, document: ^Document, imp: ^ast.Im
 		)
 	}
 
-	for selector in qualifier_selectors(document, r.old_name) {
-		ident := selector.expr.derived.(^ast.Ident)
+	for qualifier in qualifier_uses(document, r.old_name) {
+		ident := qualifier.ident
+		label := fmt.tprintf("%s.%s", r.old_name, qualifier.field) if qualifier.field != "" else r.old_name
 		at := common.get_token_range(ident^, src)
 		symbol, found := resolve_name_at(document, at.start, ident.pos.offset, r.old_name)
 		if !found {
 			append(
 				&r.warnings,
 				fmt.tprintf(
-					"%s:%d:%d: cannot resolve `%s.%s`, so the rename does not change it",
+					"%s:%d:%d: cannot resolve `%s`, so the rename does not change it",
 					document.fullpath,
 					ident.pos.line,
 					ident.pos.column,
-					r.old_name,
-					selector.field.name if selector.field != nil else "",
+					label,
 				),
 			)
 			continue
@@ -538,14 +538,13 @@ rewrite_qualifiers :: proc(r: ^Package_Rename, document: ^Document, imp: ^ast.Im
 			append(
 				r.reasons,
 				fmt.tprintf(
-					"%s:%d:%d: `%s` is a local here, declared at %s, so it would capture the qualifier of `%s.%s`",
+					"%s:%d:%d: `%s` is a local here, declared at %s, so it would capture the qualifier of `%s`",
 					document.fullpath,
 					ident.pos.line,
 					ident.pos.column,
 					r.new_name,
 					declared_at(other),
-					r.old_name,
-					selector.field.name if selector.field != nil else "",
+					label,
 				),
 			)
 		}
@@ -553,23 +552,42 @@ rewrite_qualifiers :: proc(r: ^Package_Rename, document: ^Document, imp: ^ast.Im
 	}
 }
 
-// Every `name.x` selector of document whose left side is the identifier name.
+// A use of the package name: the `name` of `name.x`, with the field x, or the value of an alias
+// declaration `alias :: name`, with an empty field.
 @(private = "file")
-qualifier_selectors :: proc(document: ^Document, name: string) -> []^ast.Selector_Expr {
+Qualifier :: struct {
+	ident: ^ast.Ident,
+	field: string,
+}
+
+// Every qualifier of document whose identifier is name. Only a selector's left side and the value of
+// a declaration count: any other identifier named like the package could be a field or a local.
+@(private = "file")
+qualifier_uses :: proc(document: ^Document, name: string) -> []Qualifier {
 	Found :: struct {
-		name:      string,
-		selectors: [dynamic]^ast.Selector_Expr,
+		name:       string,
+		qualifiers: [dynamic]Qualifier,
 	}
-	found := Found{name, make([dynamic]^ast.Selector_Expr)}
+	found := Found{name, make([dynamic]Qualifier)}
 	visitor := ast.Visitor {
 		visit = proc(v: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
 			if node == nil {
 				return nil
 			}
-			if selector, is_selector := node.derived.(^ast.Selector_Expr); is_selector && selector.expr != nil {
-				found := (^Found)(v.data)
-				if ident, is_ident := selector.expr.derived.(^ast.Ident); is_ident && ident.name == found.name {
-					append(&found.selectors, selector)
+			found := (^Found)(v.data)
+			#partial switch n in node.derived {
+			case ^ast.Selector_Expr:
+				if n.expr != nil {
+					if ident, is_ident := n.expr.derived.(^ast.Ident); is_ident && ident.name == found.name {
+						append(&found.qualifiers, Qualifier{ident, n.field.name if n.field != nil else ""})
+					}
+				}
+			case ^ast.Value_Decl:
+				// `alias :: old` names the package by its bare name.
+				for value in n.values {
+					if ident, is_ident := value.derived.(^ast.Ident); is_ident && ident.name == found.name {
+						append(&found.qualifiers, Qualifier{ident, ""})
+					}
 				}
 			}
 			return v
@@ -579,7 +597,7 @@ qualifier_selectors :: proc(document: ^Document, name: string) -> []^ast.Selecto
 	for decl in document.ast.decls {
 		ast.walk(&visitor, decl)
 	}
-	return found.selectors[:]
+	return found.qualifiers[:]
 }
 
 // Every foreign import of document, those in `when` blocks included.

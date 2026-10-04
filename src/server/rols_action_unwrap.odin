@@ -57,38 +57,31 @@ add_unwrap_action :: proc(ctx: ^ActionContext) {
 }
 
 add_remove_else :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt) {
-	else_block, else_is_block := if_stmt.else_stmt.derived.(^ast.Block_Stmt)
-	body, body_is_block := if_stmt.body.derived.(^ast.Block_Stmt)
-	if !else_is_block || !body_is_block || body.uses_do || else_block.uses_do || len(body.stmts) == 0 {
-		return
-	}
-	#partial switch last in body.stmts[len(body.stmts) - 1].derived {
-	case ^ast.Return_Stmt:
-	case ^ast.Branch_Stmt:
-		if last.tok.kind != .Break && last.tok.kind != .Continue {
-			return
+	parents := make([dynamic]^ast.Node, context.temp_allocator)
+	for at in nodes_at(ctx.document.ast.decls[:], if_stmt.pos.offset) {
+		if at.node == if_stmt {
+			break
 		}
-	case:
+		if at.node.end.offset >= if_stmt.end.offset {
+			append(&parents, at.node)
+		}
+	}
+	// The same eligibility check and text as the simplify rule, so the two cannot drift.
+	s, ok := redundant_else(ctx.document.ast.src, if_stmt, parents[:])
+	if !ok {
 		return
 	}
-
-	src := ctx.document.ast.src
-	sb := strings.builder_make(context.temp_allocator)
-	strings.write_string(&sb, src[if_stmt.pos.offset:body.close.offset + 1])
-	if inner := block_inner_text(src, else_block); len(inner) > 0 {
-		ind := get_line_indentation(src, if_stmt.pos.offset)
-		unit := indent_unit(src, ind, body.stmts[0])
-		strings.write_byte(&sb, '\n')
-		strings.write_string(&sb, reindent(inner, strings.concatenate({ind, unit}, context.temp_allocator), ind))
-	}
-	append_replace_range(ctx, if_stmt.pos.offset, if_stmt.end.offset, "Remove redundant else", strings.to_string(sb))
+	append_replace_range(ctx, s.start, s.end, s.title, s.text)
 }
 
 // Replaces stmt with the contents of body, one indentation level up. An empty body deletes
 // the statement's lines.
 unwrap_body :: proc(ctx: ^ActionContext, stmt: ^ast.Node, body: ^ast.Stmt) {
 	block, is_block := body.derived.(^ast.Block_Stmt)
-	if !is_block || block.uses_do || unwrap_redeclares(ctx, stmt, block) {
+	if !is_block || block.uses_do || loop_variable_used(stmt, block) {
+		return
+	}
+	if unwrap_redeclares(ctx, stmt, block) || unwrap_leaves_dead_code(ctx, stmt, block) {
 		return
 	}
 	src := ctx.document.ast.src
@@ -137,6 +130,50 @@ unwrap_redeclares :: proc(ctx: ^ActionContext, stmt: ^ast.Node, block: ^ast.Bloc
 					}
 				}
 			}
+		}
+	}
+	return false
+}
+
+// A loop header declares names that the body may use, and unwrapping deletes the header.
+loop_variable_used :: proc(stmt: ^ast.Node, body: ^ast.Block_Stmt) -> bool {
+	names := make([dynamic]string, context.temp_allocator)
+	#partial switch n in stmt.derived {
+	case ^ast.Range_Stmt:
+		for val in n.vals {
+			val := val
+			// `for &v in xs` stores &v.
+			if unary, is_unary := val.derived.(^ast.Unary_Expr); is_unary {
+				val = unary.expr
+			}
+			if ident, ok := val.derived.(^ast.Ident); ok {
+				append(&names, ident.name)
+			}
+		}
+		append_decl_names(&names, n.init)
+	case ^ast.For_Stmt:
+		append_decl_names(&names, n.init)
+	}
+	return len(names) > 0 && mentions_any(body, ..names[:])
+}
+
+// A return, break, continue, fallthrough or goto in the body would leave the statements after
+// the unwrapped statement, or after it in the body, unreachable. Without a known enclosing list the
+// edit is refused.
+unwrap_leaves_dead_code :: proc(ctx: ^ActionContext, stmt: ^ast.Node, block: ^ast.Block_Stmt) -> bool {
+	outer := enclosing_stmts(ctx, stmt)
+	if outer == nil {
+		return true
+	}
+	followed := outer[len(outer) - 1].pos.offset != stmt.pos.offset
+	for inner, i in block.stmts {
+		terminates := false
+		#partial switch _ in inner.derived {
+		case ^ast.Return_Stmt, ^ast.Branch_Stmt:
+			terminates = true
+		}
+		if terminates && (followed || i < len(block.stmts) - 1) {
+			return true
 		}
 	}
 	return false

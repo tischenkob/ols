@@ -3157,6 +3157,10 @@ resolve_slice_expression :: proc(
 	symbol.value = SymbolSliceValue {
 		expr = expr,
 	}
+	// rols: a slice is a new anonymous type, so it keeps neither the name of the sliced field or alias nor the
+	// pointer of a sliced pointer to an array.
+	symbol.name = ""
+	symbol.pointers = 0
 
 	return symbol, true
 }

@@ -4,7 +4,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## Corpus validation (`docs/corpus-validation.md`)
 
-- **A sweep over seven open-source Odin projects and Odin's core found bugs that are not fixed yet.** `docs/corpus-validation.md` lists them. 7 have a failing test in `tests/rols_*`, so `./build.sh test` reports 7 failures until they are fixed. Three odinfmt snapshot cases named `rols_*` fail in `tools/odinfmt/tests.sh`. The doc's 23 follow-ups have no harness test and each names a repro. `docs/corpus/triage/` holds the reduced source of every confirmed case, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
+- **A sweep over seven open-source Odin projects and Odin's core found bugs that are not fixed yet.** `docs/corpus-validation.md` lists them. No bug has a failing harness test any more: `./build.sh test` reports no failures. Three odinfmt snapshot cases named `rols_*` still fail in `tools/odinfmt/tests.sh`. The doc's 23 follow-ups have no harness test and each names a repro. `docs/corpus/triage/` holds the reduced source of every confirmed case, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
 - **Rerun the sweep after the fixes land.** Follow "Rerunning the sweep" in the doc: run `tools/corpus_smoke.sh`, then the manual checks it lists. Remove fixed items from the doc and this entry when nothing is left.
 
 ## Edits (stage S9)
@@ -34,20 +34,25 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **Field captures skip uses that already resolve to a field, and alias embedders are missed.** `field_captures` skips a use of the new name that resolves to a `.Field`. Given `proc(using bar: Bar)` with `Bar.limit`, and then `{ using foo; _ = limit }` in its body, renaming `Foo.x` to `limit` misses the capture. `Alias :: Foo` with `using a: Alias` is not followed as an embedder; this predates S5.
 - **Implementation requests on a procedure run a workspace reference scan.** `proc_group_locations` in `src/server/rols_implementation.odin` calls `find_symbol_references` to find the groups that list the procedure, and then loops over `top_level_value_decls` of the file for each reference. A procedure with many references in a large workspace makes the request slow.
 
-## Unwrap code action (`src/server/rols_action_unwrap.odin`)
+## Edits (stage S10)
 
-- **"Remove redundant else" still has the old unsafe checks.** `add_remove_else` checks only the `if` itself, as the `redundant-else` simplify rule did before `3d6c7ced`. On `if a { return } else if b { return } else { x = 1 }`, the action on the inner `if` moves `x = 1` after the whole chain. On `if a { return 1 } else { return 2 }` followed by `return 0`, it leaves code after a return. It also accepts a labeled `if`, a `when` body, and an else that redeclares a name from earlier in the block. The guards in `simplify_redundant_else` in `src/server/rols_simplify.odin` cover these cases. Its "Remove redundant else" also deletes a comment in `} /* c */ else {`; stage S10 is to reuse the simplify guards there.
+- **"Add ok result" refuses every caller shape it cannot extend.** It adds `, _` to `v := f()`, `v = f()`, `a, b := f()` and the `if` init form, leaves a statement call alone, and refuses the whole action for a call used as an argument, a return value, an `or_return` operand, a typed declaration, a named-argument call and a procedure used as a value. `#optional_ok` would keep most of those compiling but changes the result type the tests expect. A local procedure is refused when its name appears anywhere else in the file.
+- **"Add ok result" does not look past the workspace.** `find_call_sites` reads the workspace files, so a caller in a package outside the workspace folders still breaks.
+- **"Unwrap block" treats only a direct `return` or branch statement as terminating.** `unwrap_leaves_dead_code` in `src/server/rols_action_unwrap.odin` does not see `if c { return } else { return }`, `panic(...)` or `os.exit(...)` as a terminator, so unwrapping a body that ends that way can still leave unreachable statements. The action also refuses when `enclosing_stmts` finds no statement list, such as an `if` in an `else if` chain.
+- **"Inline procedure call" refuses on any identifier match.** `borrows_from_file` in `src/server/rols_action_inline_proc.odin` does not track shadowing, so a parameter or local named like a file-private declaration or an import of the callee's file refuses the action. It does not add the missing import for the caller.
+- **"Generate test" refuses a result whose zero value needs a package-qualified type.** `zero_values` in `src/server/rols_action_generate_test.odin` spells an aggregate as `T{}` because `testing.expect_value` cannot infer a bare `{}`. For `time.Time` the test file would need the import, so the action is withheld instead.
+- **Slicing resolves to an anonymous slice type.** `resolve_slice_expression` in `src/server/analysis.odin` now clears the symbol's name and pointer count, so hover and "Add explicit type" print `[]int` for `s.arr[:2]` instead of the field name. The upstream test suite passes, but a client that read the old name from a hover will see a different text.
+- **`rename-package` rewrites a bare package name only as the value of a declaration.** `alias :: old` is rewritten. Any other bare use of the name is left alone because it may be a field or a local.
+- **`borrows_from_file` checks one direction.** A local, file-private declaration or import in the caller's file that shadows a package name the copied body uses is not detected. Same-file inlining had this gap before.
+- **Generated `T{}` can still fail.** `testing.expect_value(t, x, T{})` does not compile when `T` is file-private in its source file or has slice or map fields, which are not comparable.
+- **"Remove redundant else" is refused when the `if` is not the last statement of its block.** This follows from the guards shared with the simplify rule.
+- **"Add ok result" refuses any procedure with `or_return`**, because `or_return` assigns the operand's end value to the last result and Odin rejects `Err` to `bool`.
 
 ## CLI refactor output (`src/cli/rols_cli.odin`, `src/cli/rols_apply.odin`)
 
 - **`actions --apply` skips `refuse` when the file cannot be opened.** `open_target` calls `refuse` only when `symbol_paths` is set, which `run` sets for rename, reorder-params and move. `ols query actions missing.odin:1:1 --apply TITLE` prints the plain `cannot read` line and exits 1, with no `actions: refused, nothing written` summary and no JSON object under `--json`.
 - **`workspace_relative` states its inside-the-root test twice.** The raw comparison and the symlink-resolved comparison each repeat `err == nil && !strings.has_prefix(rel, "..")`. One loop over the two pairs of root and file would state the test once. The prefix test also misreads a file named `..x.odin` at the root as outside it.
 - **The `.Refused` summary in `finish` can be shorter.** Two one-line appends and one `tprintf` with "nothing written" as the fallback for an empty list would replace the outer `if`/`else`, about 8 lines fewer.
-
-## Result-union action (`src/server/rols_action_result_union.odin`)
-
-- **Rewriting the result list drops comments and joins lines.** `named_results_edit` writes out the whole list when it names unnamed results or splits a shared last field. Comments inside the list are lost, and a multi-line list ends up on one line. The named-results action avoids this by editing only the names (`db49088f`).
-- **A comment before the first result breaks the edit.** `result_list_range` in `src/server/rols_action_named_results.odin` steps back over whitespace only, so it never reaches `(` after a comment such as `-> (\n\t// first\n\tint, Error)`. The replaced range then starts at the first type, and the edit leaves an extra `(`. This comes from reading the code. No test reproduces it yet.
 
 ## CLI compile gate (`src/cli/rols_apply.odin` `run_edit`)
 

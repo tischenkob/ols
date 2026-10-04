@@ -644,3 +644,143 @@ main :: proc() {
 }
 `)
 }
+
+inline_across_files :: proc(callee, caller: string) -> test.Source {
+	files := make([]test.File, 1, context.temp_allocator)
+	files[0] = {"a.odin", callee}
+	return test.Source{main = caller, files = files, config = {enable_code_action_inline_proc = true}}
+}
+
+@(test)
+action_inline_proc_callee_in_other_file :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+draw :: proc(x, y: int) {
+	_ = x + y
+}
+`, `package test
+
+main :: proc() {
+	dr{*}aw(1, 2)
+}
+`)
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+
+main :: proc() {
+	{
+		x: int = 1
+		y: int = 2
+		_ = x + y
+	}
+}
+`)
+}
+
+@(test)
+action_inline_proc_refused_file_private_callee_of_body :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+@(private = "file")
+norm :: proc(v: int) -> int {
+	return v
+}
+
+draw :: proc(x, y: int) {
+	_ = norm(x)
+	_ = y
+}
+`, `package test
+
+main :: proc() {
+	dr{*}aw(1, 2)
+}
+`)
+	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
+}
+
+@(test)
+action_inline_proc_refused_declaration_of_private_file :: proc(t: ^testing.T) {
+	source := inline_across_files(`#+private file
+package test
+
+LIMIT :: 3
+
+draw :: proc(x: int) {
+	_ = x + LIMIT
+}
+`, `package test
+
+main :: proc() {
+	dr{*}aw(1)
+}
+`)
+	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
+}
+
+@(test)
+action_inline_proc_refused_import_the_caller_lacks :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import "core:time"
+
+wait :: proc(d: time.Duration) {
+	_ = d
+}
+`, `package test
+
+main :: proc() {
+	wa{*}it(5)
+}
+`)
+	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
+}
+
+@(test)
+action_inline_proc_refused_import_under_another_alias :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import t "core:time"
+
+wait :: proc(d: t.Duration) {
+	_ = d
+}
+`, `package test
+
+import "core:time"
+
+main :: proc() {
+	wa{*}it(5)
+}
+`)
+	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
+}
+
+@(test)
+action_inline_proc_import_both_files_share :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import "core:time"
+
+wait :: proc(d: time.Duration) {
+	_ = d
+}
+`, `package test
+
+import "core:time"
+
+main :: proc() {
+	wa{*}it(5)
+}
+`)
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+
+import "core:time"
+
+main :: proc() {
+	{
+		d: time.Duration = 5
+		_ = d
+	}
+}
+`)
+}
