@@ -90,27 +90,6 @@ signature_names :: proc(lit: ^ast.Proc_Lit) -> [dynamic]string {
 	return taken
 }
 
-// The offsets of a result list with its parentheses; the list node excludes them.
-@(private = "package")
-result_list_range :: proc(src: string, results: ^ast.Field_List) -> (start, end: int) {
-	start, end = results.pos.offset, results.end.offset
-	open := start
-	for open > 0 && strings.is_space(rune(src[open - 1])) {
-		open -= 1
-	}
-	if open > 0 && src[open - 1] == '(' {
-		start = open - 1
-	}
-	close := end
-	for close < len(src) && strings.is_space(rune(src[close])) {
-		close += 1
-	}
-	if close < len(src) && src[close] == ')' {
-		end = close + 1
-	}
-	return
-}
-
 // ok for bool, err for error-like types, the lowercased type name for named types and pointers
 // to them, result otherwise. Numbered when taken.
 @(private = "package")

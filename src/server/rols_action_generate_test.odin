@@ -48,8 +48,11 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	proc_name := node_text(src, decl.names[0])
 	unit := indent_unit(src, "", nil)
 
-	args := zero_values(ctx, lit.type.params)
-	results := zero_values(ctx, lit.type.results)
+	args, _ := zero_values(ctx, lit.type.params, typed = false)
+	results, results_ok := zero_values(ctx, lit.type.results, typed = true)
+	if !results_ok {
+		return
+	}
 	names := make([]string, len(results), context.temp_allocator)
 	for &name, i in names {
 		name = "result" if len(results) == 1 else fmt.tprintf("%c", 'a' + i)
@@ -97,17 +100,27 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	)
 }
 
-zero_values :: proc(ctx: ^ActionContext, fields: ^ast.Field_List) -> []string {
+// typed spells an aggregate zero value with its type, `E{}`, for testing.expect_value, which cannot
+// infer the type of a bare `{}`. That fails (ok is false) for a type the test file cannot spell: a
+// package-qualified or multi-line one.
+zero_values :: proc(ctx: ^ActionContext, fields: ^ast.Field_List, typed: bool) -> (values: []string, ok: bool) {
 	if fields == nil {
-		return {}
+		return {}, true
 	}
 	types := field_types(fields.list)
-	values := make([]string, len(types), context.temp_allocator)
+	values = make([]string, len(types), context.temp_allocator)
 	for type, i in types {
 		symbol, resolved := resolve_type_expression(ctx.ast_context, type)
 		values[i] = zero_value_text(symbol, resolved)
+		if typed && values[i] == "{}" {
+			text := node_text(ctx.document.ast.src, type)
+			if strings.contains_any(text, ".\n") {
+				return nil, false
+			}
+			values[i] = strings.concatenate({text, "{}"}, context.temp_allocator)
+		}
 	}
-	return values
+	return values, true
 }
 
 // A global of the document or, through the index, of any file of the package.

@@ -42,8 +42,24 @@ add_add_ok_result_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 
+	// or_return assigns its operand's end value to the last result, which would become the bool.
+	if has_or_return(lit.body) {
+		return
+	}
+
+	old_count := 0
+	if results != nil {
+		for field in results.list {
+			old_count += max(len(field.names), 1)
+		}
+	}
+	changes := make(Changes, context.temp_allocator)
+	if !add_ok_to_callers(ctx, &changes, decl, lit, old_count) {
+		return
+	}
+
 	src := ctx.document.ast.src
-	edits := make([dynamic]TextEdit, context.temp_allocator)
+	edits := changes[ctx.document.uri.uri] or_else make([dynamic]TextEdit, context.temp_allocator)
 
 	if results == nil {
 		// Before the body brace rather than at the proc type end, which a where clause extends.
@@ -73,7 +89,7 @@ add_add_ok_result_action :: proc(ctx: ^ActionContext) {
 			append(&edits, TextEdit{range = range_of(ctx, close, close), newText = text})
 		}
 	} else {
-		named := false
+		named := results_named(results)
 		taken := make([dynamic]string, context.temp_allocator)
 		if lit.type.params != nil {
 			for field in lit.type.params.list {
@@ -82,47 +98,33 @@ add_add_ok_result_action :: proc(ctx: ^ActionContext) {
 				}
 			}
 		}
-		// The parser gives an unnamed result a synthesised name at the type's own position, so
-		// counting names would read `(int, bool)` as named and write a list mixing the two forms.
-		for field in results.list {
-			for name in field.names {
-				if field.type != nil && name.pos.offset == field.type.pos.offset {
-					continue
+		if named {
+			for field in results.list {
+				for name in field.names {
+					append(&taken, final_name(name))
 				}
-				named = true
-				append(&taken, final_name(name))
 			}
 		}
 
-		text: string
-		inner := src[results.pos.offset:results.end.offset]
+		// Only insertions, so comments and line breaks in the list stay as written.
+		text := ", bool"
 		if named {
 			ok := "ok"
 			for i := 2; slice.contains(taken[:], ok); i += 1 {
 				ok = fmt.tprintf("ok%d", i)
 			}
-			text = fmt.tprintf("(%s, %s: bool)", inner, ok)
+			text = fmt.tprintf(", %s: bool", ok)
+		}
+		// Only an unparenthesized result has no names; the list node excludes parentheses.
+		if results.list[0].names == nil {
+			start, end := results.pos.offset, results.end.offset
+			append(&edits, TextEdit{range = range_of(ctx, start, start), newText = "("})
+			close := strings.concatenate({text, ")"}, context.temp_allocator)
+			append(&edits, TextEdit{range = range_of(ctx, end, end), newText = close})
 		} else {
-			text = fmt.tprintf("(%s, bool)", inner)
+			end := results.list[len(results.list) - 1].end.offset
+			append(&edits, TextEdit{range = range_of(ctx, end, end), newText = text})
 		}
-
-		// The result list node excludes its parentheses.
-		start, end := results.pos.offset, results.end.offset
-		open := start
-		for open > 0 && strings.is_space(rune(src[open - 1])) {
-			open -= 1
-		}
-		if open > 0 && src[open - 1] == '(' {
-			start = open - 1
-		}
-		close := end
-		for close < len(src) && strings.is_space(rune(src[close])) {
-			close += 1
-		}
-		if close < len(src) && src[close] == ')' {
-			end = close + 1
-		}
-		append(&edits, TextEdit{range = range_of(ctx, start, end), newText = text})
 	}
 
 	for ret in body_returns(lit.body) {
@@ -137,7 +139,108 @@ add_add_ok_result_action :: proc(ctx: ^ActionContext) {
 		}
 	}
 
-	append(ctx.actions, make_code_action(ctx, "Add ok result", "refactor.rewrite", edits[:]))
+	changes[ctx.document.uri.uri] = edits
+	append(ctx.actions, CodeAction{title = "Add ok result", kind = "refactor.rewrite", edit = workspace_edit(changes)})
+}
+
+// Whether the result list names its results. The parser gives an unnamed result a synthesised
+// name at the type's own position, so counting names would read `(int, bool)` as named.
+results_named :: proc(results: ^ast.Field_List) -> bool {
+	for field in results.list {
+		for name in field.names {
+			if field.type == nil || name.pos.offset != field.type.pos.offset {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+has_or_return :: proc(body: ^ast.Stmt) -> bool {
+	found := false
+	visitor := ast.Visitor {
+		data = &found,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil {
+				return nil
+			}
+			#partial switch _ in node.derived {
+			case ^ast.Proc_Lit:
+				return nil
+			case ^ast.Or_Return_Expr:
+				(^bool)(visitor.data)^ = true
+				return nil
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, body)
+	return found
+}
+
+// Adds `, _` to every call that receives the old results, so each caller still compiles. A
+// call in any other position, and a procedure whose callers cannot all be found, refuse the action.
+add_ok_to_callers :: proc(
+	ctx: ^ActionContext,
+	changes: ^Changes,
+	decl: ^ast.Value_Decl,
+	lit: ^ast.Proc_Lit,
+	old_count: int,
+) -> bool {
+	// A new unused result breaks a call of a @(require_results) procedure.
+	if old_count == 0 && slice.contains(attribute_names(decl.attributes[:]), "require_results") {
+		return false
+	}
+	if has_fixed_signature_attribute(decl.attributes[:]) {
+		return false
+	}
+	if _, is_top := proc_decl_of(ctx.document, lit); !is_top {
+		// A local procedure's callers are not searched for, so it must have none.
+		name := final_name(decl.names[0])
+		for top in ctx.document.ast.decls {
+			for use in collect_ident_uses(top) {
+				if use.ident.name == name && use.ident.pos.offset != decl.names[0].pos.offset {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	sites, _, found := find_call_sites(ctx.document, decl, len(param_names(lit)), ctx.files)
+	if !found {
+		return false
+	}
+	for site in sites {
+		parent: ^ast.Node
+		for at in nodes_at(site.document.ast.decls[:], site.call.pos.offset) {
+			if at.node == site.call {
+				parent = at.parent
+			}
+		}
+		if parent == nil {
+			return false
+		}
+		last: ^ast.Expr
+		#partial switch p in parent.derived {
+		case ^ast.Expr_Stmt:
+			continue
+		case ^ast.Value_Decl:
+			single := len(p.values) == 1 && p.values[0] == site.call
+			if !p.is_mutable || p.type != nil || !single || len(p.names) != old_count {
+				return false
+			}
+			last = p.names[old_count - 1]
+		case ^ast.Assign_Stmt:
+			if p.op.kind != .Eq || len(p.rhs) != 1 || p.rhs[0] != site.call || len(p.lhs) != old_count {
+				return false
+			}
+			last = p.lhs[old_count - 1]
+		case:
+			return false
+		}
+		append_edit(changes, site.document, last.end.offset, last.end.offset, ", _")
+	}
+	return true
 }
 
 // Returns of this procedure, skipping those of nested procedure literals.

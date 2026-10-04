@@ -86,7 +86,7 @@ pa{*}rse :: proc(s: string, p: ^Point) -> (Point, bool) {
 		{
 			{
 				"main_test.odin",
-				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_parse :: proc(t: ^testing.T) {\n\ta, b := parse(\"\", nil)\n\ttesting.expect_value(t, a, {})\n\ttesting.expect_value(t, b, false)\n}\n",
+				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_parse :: proc(t: ^testing.T) {\n\ta, b := parse(\"\", nil)\n\ttesting.expect_value(t, a, Point{})\n\ttesting.expect_value(t, b, false)\n}\n",
 			},
 		},
 	)
@@ -223,4 +223,17 @@ f{*} :: proc() -> E {
 			},
 		},
 	)
+}
+
+@(test)
+generate_test_refused_when_result_needs_a_qualified_type :: proc(t: ^testing.T) {
+	source := generate_source(`package test
+
+import "core:time"
+
+f{*} :: proc() -> time.Time {
+	return {}
+}
+`)
+	test.expect_action_missing(t, &source, "Generate test for f")
 }

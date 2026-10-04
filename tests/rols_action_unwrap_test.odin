@@ -630,3 +630,149 @@ f :: proc(running: bool) -> int {
 
 	test.expect_action_missing(t, &source, UNWRAP_ACTION)
 }
+
+@(test)
+action_remove_else_refused_inner_else_if_chain :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc(a, b: bool) {
+	x := 0
+	if a {
+		return
+	} else {*}if b {
+		return
+	} else {
+		x = 1
+	}
+	_ = x
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_missing(t, &source, REMOVE_ELSE_ACTION)
+}
+
+@(test)
+action_remove_else_refused_before_more_statements :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+pick :: proc(c: bool) -> int {
+	{*}if c {
+		return 1
+	} else {
+		return 2
+	}
+	return 0
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_missing(t, &source, REMOVE_ELSE_ACTION)
+}
+
+@(test)
+action_remove_else_refused_labeled_if :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+pick :: proc(c: bool) -> int {
+	label: {*}if c {
+		return 1
+	} else {
+		return 2
+	}
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_missing(t, &source, REMOVE_ELSE_ACTION)
+}
+
+@(test)
+action_remove_else_refused_in_when_body :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+pick :: proc(c: bool) -> int {
+	when true {
+		{*}if c {
+			return 1
+		} else {
+			return 2
+		}
+	}
+	return 0
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_missing(t, &source, REMOVE_ELSE_ACTION)
+}
+
+@(test)
+action_remove_else_refused_redeclared_name :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+pick :: proc(c: bool) -> int {
+	x := 1
+	_ = x
+	{*}if c {
+		return 1
+	} else {
+		x := 2
+		return x
+	}
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_missing(t, &source, REMOVE_ELSE_ACTION)
+}
+
+@(test)
+action_remove_else_refused_comment_before_else :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+pick :: proc(c: bool) -> int {
+	{*}if c {
+		return 1
+	} /* keep me */ else {
+		return 2
+	}
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_missing(t, &source, REMOVE_ELSE_ACTION)
+}
+
+@(test)
+action_unwrap_not_offered_on_reference_loop_using_its_variable :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+P :: struct {
+	x: int,
+}
+
+f :: proc(xs: []P) {
+	{*}for &v in xs {
+		v.x = 1
+	}
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_missing(t, &source, UNWRAP_ACTION)
+}
