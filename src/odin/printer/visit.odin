@@ -1,5 +1,7 @@
 package odin_printer
 
+// rols: fmt builds the group id of a one-line block
+import "core:fmt"
 import "core:log"
 import "core:odin/ast"
 import "core:odin/parser"
@@ -101,6 +103,11 @@ visit_comment :: proc(p: ^Printer, comment: tokenizer.Token) -> (int, ^Document)
 		} else if comment.pos.line == p.source_position.line && p.source_position.column != 1 {
 			p.source_position = comment.pos
 			if comment_option, exist := p.comments_option[comment.pos.line]; exist && comment_option == .Indent {
+				// rols: a comment after the closing brace does not take the option of the opening line
+				limit, has_limit := p.comments_option_limit[comment.pos.line]
+				if has_limit && comment.pos.offset >= limit {
+					return newlines_before_comment, cons_with_nopl(document, line_suffix(comment.text, alignable = true))
+				}
 				delete_key(&p.comments_option, comment.pos.line)
 				return newlines_before_comment, cons_with_nopl(
 					document,
@@ -154,6 +161,21 @@ visit_comments :: proc(p: ^Printer, pos: tokenizer.Pos) -> (^Document, int) {
 	return document, lines
 }
 
+// rols: the text of a disabled region as emitted for a node at `node_pos`
+@(private)
+disabled_region_text :: proc(p: ^Printer, info: Disabled_Info, node_pos: tokenizer.Pos) -> string {
+	// code before the comment ends a statement that began on an earlier line, which the printer already emitted
+	code_before := strings.trim_space(p.src[info.begin:info.comment_offset]) != ""
+	if code_before && node_pos.offset > info.comment_offset {
+		line_start := node_pos.offset - (node_pos.column - 1)
+		return strings.concatenate(
+			{p.src[line_start:node_pos.offset], info.text[info.comment_offset - info.begin:]},
+			p.allocator,
+		)
+	}
+	return info.text
+}
+
 @(private)
 visit_disabled :: proc(p: ^Printer, node: ^ast.Node) -> ^Document {
 	if node.pos.line not_in p.disabled_lines {
@@ -195,16 +217,8 @@ visit_disabled :: proc(p: ^Printer, node: ^ast.Node) -> ^Document {
 		prefix = text(p.src[node_pos.offset:disabled_info.begin])
 	}
 
-	region_text := disabled_info.text
-	// rols: code before the comment ends a statement that began on an earlier line, which the printer already emitted
-	code_before := strings.trim_space(p.src[disabled_info.begin:disabled_info.comment_offset]) != ""
-	if code_before && node_pos.offset > disabled_info.comment_offset {
-		line_start := node_pos.offset - (node_pos.column - 1)
-		region_text = strings.concatenate(
-			{p.src[line_start:node_pos.offset], disabled_info.text[disabled_info.comment_offset - disabled_info.begin:]},
-			p.allocator,
-		)
-	}
+	// rols: the region rule is shared with visit_struct_field_list
+	region_text := disabled_region_text(p, disabled_info, node_pos)
 
 	document := cons(move, prefix, text(region_text))
 
@@ -994,9 +1008,17 @@ visit_stmt :: proc(
 			document = cons(document, visit_expr(p, v.label), text(":"), break_with_space())
 		}
 
+		// rols: a one-line block of `;` joined statements opens a normal block when it does not fit; a switch body keeps its layout
+		chain_id := ""
+		if !uses_do && is_single_line && len(v.stmts) > 1 && block_type != .Switch_Stmt {
+			chain_id = fmt.aprintf("chain@%d", v.pos.offset, allocator = p.allocator)
+		}
+
 		if !uses_do {
-			document = cons(document, visit_begin_brace(p, v.pos, block_type))
-			if p.config.space_single_line_blocks && is_single_line {
+			// rols: pass the closing brace so the Indent option stays inside the braces
+			document = cons(document, visit_begin_brace(p, v.pos, block_type, v.end))
+			// rols: a block that may break takes its edge breaks from the group below
+			if p.config.space_single_line_blocks && is_single_line && chain_id == "" {
 				document = cons(document, break_with_no_newline())
 			}
 		} else {
@@ -1009,11 +1031,21 @@ visit_stmt :: proc(
 			compute_constant_alignment(p, v.stmts)
 		}
 
-		block := visit_block_stmts(p, v.stmts)
+		// rols: the group below breaks the `;` joins into lines and the braces onto lines of their own
+		block := visit_block_stmts(p, v.stmts, chain_id)
 
 		comment_end, _ := visit_comments(p, tokenizer.Pos{line = v.end.line, offset = v.end.offset})
 
-		if block_type == .Switch_Stmt && !p.config.indent_cases {
+		if chain_id != "" {
+			edge := break_with(p.config.space_single_line_blocks ? " " : "", true)
+			document = cons(
+				document,
+				group(
+					cons(nest(cons(edge, block, comment_end)), edge, visit_end_brace(p, v.end)),
+					Document_Group_Options{id = chain_id},
+				),
+			)
+		} else if block_type == .Switch_Stmt && !p.config.indent_cases {
 			document = cons(document, block, comment_end)
 		} else if uses_do {
 			document = cons(document, cons(block, comment_end))
@@ -1021,7 +1053,8 @@ visit_stmt :: proc(
 			document = cons(document, nest(cons(block, comment_end)))
 		}
 
-		if !uses_do {
+		// rols: the chain group already holds the closing brace
+		if !uses_do && chain_id == "" {
 			if p.config.space_single_line_blocks && is_single_line {
 				document = cons(document, break_with_no_newline())
 			}
@@ -1122,11 +1155,17 @@ visit_stmt :: proc(
 		if v.list != nil && len(v.list) > 0 {
 			options: List_Options = {.Add_Comma}
 
-			if contains_comments_in_range(p, v.list[0].pos, v.list[len(v.list) - 1].end) {
+			// rols: a comment that starts where the last expression ends belongs to the terminator, not the list
+			list_end := v.list[len(v.list) - 1].end
+			list_end.offset -= 1
+			if contains_comments_in_range(p, v.list[0].pos, list_end) {
 				options |= {.Enforce_Newline}
 			}
 
 			document = cons_with_nopl(document, align(group(visit_exprs(p, v.list, options))))
+			// rols: a block comment between the last expression and the terminator stays on the clause line
+			trailing_comment, _ := visit_comments(p, v.terminator.pos)
+			document = cons(document, trailing_comment)
 		}
 
 		document = cons(document, text(v.terminator.text))
@@ -1612,7 +1651,8 @@ visit_expr :: proc(
 			document = cons_with_nopl(document, text("{"))
 			document = cons(document, text("}"))
 		} else {
-			document = cons_with_nopl(document, visit_begin_brace(p, v.pos, .Generic))
+			// rols: pass the closing brace so the Indent option stays inside the braces
+			document = cons_with_nopl(document, visit_begin_brace(p, v.pos, .Generic, v.end))
 			set_source_position(p, v.variants[0].pos)
 			document = cons(
 				document,
@@ -1638,7 +1678,8 @@ visit_expr :: proc(
 			document = cons_with_nopl(document, text("{"))
 			document = cons(document, text("}"))
 		} else {
-			document = cons(document, break_with_space(), visit_begin_brace(p, v.pos, .Generic))
+			// rols: pass the closing brace so the Indent option stays inside the braces
+			document = cons(document, break_with_space(), visit_begin_brace(p, v.pos, .Generic, v.end))
 			set_source_position(p, v.fields[0].pos)
 			document = cons(
 				document,
@@ -1721,7 +1762,8 @@ visit_expr :: proc(
 				document = cons(document, visit_struct_field_list(p, v.fields, {.Add_Comma}), text("}"))
 			}
 		} else if v.fields != nil {
-			document = cons(document, break_with_no_newline(), visit_begin_brace(p, v.pos, .Generic))
+			// rols: pass the closing brace so the Indent option stays inside the braces
+			document = cons(document, break_with_no_newline(), visit_begin_brace(p, v.pos, .Generic, v.end))
 
 			set_source_position(p, v.fields.pos)
 			document = cons(
@@ -1748,7 +1790,8 @@ visit_expr :: proc(
 			document = cons_with_nopl(document, text("{"))
 			document = cons(document, text("}"))
 		} else {
-			document = cons(document, break_with_space(), visit_begin_brace(p, v.pos, .Generic))
+			// rols: pass the closing brace so the Indent option stays inside the braces
+			document = cons(document, break_with_space(), visit_begin_brace(p, v.pos, .Generic, v.end))
 			set_source_position(p, v.fields[0].pos)
 			document = cons(
 				document,
@@ -1862,7 +1905,8 @@ visit_expr :: proc(
 		document = text_token(p, v.tok)
 
 		if len(v.args) != 0 {
-			document = cons_with_nopl(document, visit_begin_brace(p, v.pos, .Generic))
+			// rols: pass the closing brace so the Indent option stays inside the braces
+			document = cons_with_nopl(document, visit_begin_brace(p, v.pos, .Generic, v.end))
 			set_source_position(p, v.args[0].pos)
 			document = cons(
 				document,
@@ -1889,7 +1933,8 @@ visit_expr :: proc(
 			   ok && is_matrix_type_constant(matrix_type) && is_matrix_filled_comp_lit(matrix_type, v) {
 				// rols: as in the general case below, only a comment inside the braces takes the Indent option
 				_, matrix_indent_was_set := p.comments_option[v.pos.line]
-				document = cons(document, visit_begin_brace(p, v.pos, .Comp_Lit))
+				// rols: pass the closing brace so the Indent option stays inside the braces
+				document = cons(document, visit_begin_brace(p, v.pos, .Comp_Lit, v.end))
 
 				set_source_position(p, v.open)
 				document = cons(
@@ -1922,7 +1967,8 @@ visit_expr :: proc(
 		if should_newline {
 			// rols: only a comment inside the braces takes the Indent option, not one after the closing brace
 			_, indent_was_set := p.comments_option[v.pos.line]
-			document = cons_with_nopl(document, visit_begin_brace(p, v.pos, .Comp_Lit))
+			// rols: pass the closing brace so the Indent option stays inside the braces
+			document = cons_with_nopl(document, visit_begin_brace(p, v.pos, .Comp_Lit, v.end))
 			inner_document := empty()
 			if len(v.elems) > 0 {
 				inner_document = cons(
@@ -2072,9 +2118,14 @@ visit_matrix_comp_lit :: proc(p: ^Printer, matrix_type: ^ast.Matrix_Type, comp_l
 
 
 @(private)
-visit_begin_brace :: proc(p: ^Printer, begin: tokenizer.Pos, type: Block_Type) -> ^Document {
+// rols: the closing brace position limits the Indent option
+visit_begin_brace :: proc(p: ^Printer, begin: tokenizer.Pos, type: Block_Type, end := tokenizer.Pos{}) -> ^Document {
 	set_source_position(p, begin)
 	set_comment_option(p, begin.line, .Indent)
+	// rols: the Indent option is for a comment inside the braces, so remember where the closing brace is
+	if end.offset > 0 {
+		p.comments_option_limit[begin.line] = max(p.comments_option_limit[begin.line], end.offset)
+	}
 
 	newline_braced := p.config.brace_style == .Allman
 	newline_braced |= p.config.brace_style == .K_And_R && type == .Proc
@@ -2105,22 +2156,30 @@ visit_end_brace :: proc(p: ^Printer, end: tokenizer.Pos, limit := 0) -> ^Documen
 }
 
 @(private)
-visit_block_stmts :: proc(p: ^Printer, stmts: []^ast.Stmt) -> ^Document {
+// rols: chain_id names the group of a one-line block that may break
+visit_block_stmts :: proc(p: ^Printer, stmts: []^ast.Stmt, chain_id := "") -> ^Document {
 	document := empty()
 
 	for stmt, i in stmts {
 		last_index := max(0, i - 1)
 		joined := stmts[last_index].end.line == stmt.pos.line && i != 0 && stmt.pos.line not_in p.disabled_lines
-		if joined {
+		// rols: adjacent backtick tokens with no `;` between them (the ``` raw string quirk) stay glued; inside a broken one-line block each statement gets its own line
+		glued := joined && stmts[last_index].end.offset == stmt.pos.offset && p.src[stmt.pos.offset] == '`'
+		if joined && !glued && chain_id != "" {
+			document = cons(document, if_break_or(newline(1), text("; "), chain_id))
+		} else if joined && !glued {
 			document = group(cons(document, break_with("; ")))
 		}
 
 		stmt_document: ^Document
-		if p.force_statement_fit {
+		// rols: a foreign procedure with a comment inside needs its own lines, so it cannot be forced onto one
+		// the last one-line statement of a `;` chain stays in one piece, so the group before it measures all of it,
+		// but in a broken one-line block it may wrap
+		if p.force_statement_fit && !contains_comments_in_range(p, stmt.pos, stmt.end) {
 			stmt_document = enforce_fit(visit_stmt(p, stmt, .Generic, false, true))
 		} else if joined && stmt.pos.line == stmt.end.line && (i == len(stmts) - 1 || stmts[i + 1].pos.line != stmt.end.line) {
-			// rols: the last one-line statement of a `;` chain stays in one piece, so the group before it measures all of it
-			stmt_document = enforce_fit(visit_stmt(p, stmt, .Generic, false, true))
+			stmt_document = visit_stmt(p, stmt, .Generic, false, true)
+			stmt_document = chain_id != "" ? if_break_or(stmt_document, enforce_fit(stmt_document), chain_id) : enforce_fit(stmt_document)
 		} else {
 			stmt_document = visit_stmt(p, stmt, .Generic, false, true)
 		}
@@ -2181,7 +2240,8 @@ visit_struct_field_list :: proc(p: ^Printer, list: ^ast.Field_List, options := L
 			p.disabled_until_line = info.end_line
 			p.source_position = field.end
 			p.source_position.line = info.end_line
-			document = cons(document, escape_nest(text(strings.trim_left(info.text, " \t"))))
+			// rols: the region can start on an earlier line than the field, as in visit_disabled
+			document = cons(document, escape_nest(text(strings.trim_left(disabled_region_text(p, info, field.pos), " \t"))))
 			if i != len(list.list) - 1 {
 				document = cons(document, newline(1))
 			}
@@ -2409,6 +2469,32 @@ visit_binary_expr :: proc(p: ^Printer, binary: ast.Binary_Expr, nested := false)
 
 	document = cons_with_nopl(document, text(binary.op.text))
 
+	// rols: a line comment on the operator's line is the trailing comment of that line, not of the right operand's line
+	if binary.right != nil && comment_before_position(p, binary.right.pos) {
+		cg := p.comments[p.latest_comment_index]
+		first := cg.list[0]
+		if len(cg.list) == 1 &&
+		   first.pos.line == binary.op.pos.line &&
+		   strings.has_prefix(first.text, "//") &&
+		   first.pos.line not_in p.disabled_lines {
+			document = cons(document, line_suffix(first.text, alignable = true))
+			p.source_position = first.pos
+			next_comment_group(p)
+		}
+	}
+
+	// rols: comments on their own lines between the operator and the right operand keep those lines
+	if binary.right != nil && comment_before_position(p, binary.right.pos) &&
+	   p.comments[p.latest_comment_index].pos.line > binary.op.pos.line {
+		p.source_position = binary.op.pos
+		comments, _ := visit_comments(p, binary.right.pos)
+		right := binary.right
+		if b, ok := right.derived.(^ast.Binary_Expr); ok {
+			return cons(document, comments, newline(1), group(nest(visit_binary_expr(p, b^, true))))
+		}
+		return cons(document, comments, newline(1), group(nest(visit_expr(p, right, .Binary_Expr))))
+	}
+
 	if binary.right != nil {
 		if b, ok := binary.right.derived.(^ast.Binary_Expr); ok {
 			document = cons_with_opl(document, group(nest(visit_binary_expr(p, b^, true))))
@@ -2431,6 +2517,15 @@ visit_call_exprs :: proc(p: ^Printer, call_expr: ^ast.Call_Expr) -> ^Document {
 		if call_expr.ellipsis.pos.offset <= expr.pos.offset && ellipsis {
 			document = cons(document, text(".."))
 			ellipsis = false
+		}
+
+		// rols: comments above the first argument stay above it
+		if i == 0 && comment_before_position(p, expr.pos) && p.comments[p.latest_comment_index].pos.line < expr.pos.line {
+			// the break after the opening parenthesis already starts the line of the first comment
+			p.source_position.line = p.comments[p.latest_comment_index].pos.line
+			p.source_position.column = 1
+			comments, _ := visit_comments(p, expr.pos)
+			document = cons(document, comments, newline(1))
 		}
 
 		document = cons(document, group(visit_expr(p, expr, .Call_Expr)))
@@ -2501,6 +2596,18 @@ visit_signature_list :: proc(
 	document := empty()
 
 	for field, i in list.list {
+		// rols: a comment above the first field stays above it
+		if i == 0 && .Enforce_Newline in options {
+			// the caller already broke the line, so each comment starts on the current one
+			for comment_before_position(p, field.pos) && p.comments[p.latest_comment_index].pos.line < field.pos.line {
+				for comment in p.comments[p.latest_comment_index].list {
+					document = cons(document, text(comment.text), newline(1))
+					p.source_position = comment.pos
+					p.source_position.line += strings.count(comment.text, "\n")
+				}
+				next_comment_group(p)
+			}
+		}
 		p.source_position = field.pos
 
 		document = cons(document, visit_signature_field(p, field, remove_blank))

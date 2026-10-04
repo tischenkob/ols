@@ -1200,7 +1200,7 @@ threading_example :: proc() {
 		task_proc :: proc(t: thread.Task) {
 			index := t.user_index % len(prefix_table)
 			for iteration in 1 ..= 5 {
-				for !did_acquire(&print_mutex) {thread.yield()} 	// Allow one thread to print at a time.
+				for !did_acquire(&print_mutex) {thread.yield()} // Allow one thread to print at a time.
 
 				fmt.printf(
 					"Worker Task %d is on iteration %d\n",

@@ -113,6 +113,15 @@ Set in `apply_default_config` in `src/server/requests.odin`, and in `misc/ols.sc
 
 - `enable_comp_lit_signature_help`: true, upstream false.
 
+## Changed upstream formatter output
+
+The fork formatter differs from upstream OLS in these cases. Each has a `tools/odinfmt/tests/rols_*.odin` snapshot, except the first, which edits an upstream snapshot, and the last, which a snapshot covers only through the others.
+
+- `tools/odinfmt/tests/random/.snapshots/demo.odin`: a one-line block followed by a trailing comment (`for !did_acquire(&print_mutex) {thread.yield()} // Allow one thread ...`) loses the tab upstream prints before the comment. The tab came from the Indent comment option leaking from the opening brace to a comment after the closing brace (stage S19). The user approved this snapshot change.
+- A one-line block of `;` joined statements that does not fit opens a normal block (`rols_when_block_semicolon_line`).
+- A comment on the operator's line in a binary chain stays on that line, and a comment above the first call argument stays above it (`rols_idempotent_binary_trailing_comment`, `rols_idempotent_call_arg_comments`).
+- `odinfmt` prints a trailing line comment with a space before it even when the document queued it without one (`flush_line_suffix` in `src/odin/printer/document.odin`).
+
 ## Fork-only config keys
 
 Regenerate with:

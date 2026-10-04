@@ -11,6 +11,8 @@ Printer :: struct {
 	config:               Config,
 	comments:             [dynamic]^ast.Comment_Group,
 	comments_option:      map[int]Line_Suffix_Option,
+	// rols: line to the offset of the closing brace that belongs to the opening brace on that line
+	comments_option_limit: map[int]int,
 	latest_comment_index: int,
 	allocator:            mem.Allocator,
 	file:                 ^ast.File,
@@ -378,7 +380,9 @@ print_file :: proc(p: ^Printer, file: ^ast.File) -> string {
 			}
 
 			if prev_decl != nil && prev_decl.end.line == decl.pos.line && decl.pos.line not_in p.disabled_lines {
-				p.document = cons(p.document, break_with("; "))
+				// rols: adjacent backtick tokens with no `;` between them (the ``` raw string quirk) stay glued
+				glued := prev_decl.end.offset == decl.pos.offset && p.src[decl.pos.offset] == '`'
+				p.document = cons(p.document, break_with(glued ? "" : "; ", !glued))
 			}
 			p.document = cons(p.document, visit_decl(p, decl))
 		}
