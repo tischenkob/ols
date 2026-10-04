@@ -28,6 +28,10 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	if !is_proc || lit.type == nil || lit.type.generic || len(lit.where_clauses) > 0 {
 		return
 	}
+	// A `$` nested in a parameter type, as in `^Ctx($Msg)`, leaves `generic` unset but no zero value fits.
+	if lit.type.params != nil && strings.contains(node_text(document.ast.src, lit.type.params), "$") {
+		return
+	}
 	if slice.contains(attribute_names(decl.attributes[:]), "test") || is_file_private(decl.attributes[:]) {
 		return
 	}

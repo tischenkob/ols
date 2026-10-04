@@ -237,3 +237,19 @@ f{*} :: proc() -> time.Time {
 `)
 	test.expect_action_missing(t, &source, "Generate test for f")
 }
+
+// Corpus: manual check, repro2. A `$` nested in a parameter type makes the call `send(nil, {})` fail to compile.
+@(test)
+generate_test_refused_for_nested_poly_parameter :: proc(t: ^testing.T) {
+	source := generate_source(`package test
+
+Ctx :: struct($M: typeid) {
+	x: M,
+}
+
+se{*}nd :: proc(ctx: ^Ctx($Msg), m: Msg) {
+	ctx.x = m
+}
+`)
+	test.expect_action_missing(t, &source, "Generate test for send")
+}

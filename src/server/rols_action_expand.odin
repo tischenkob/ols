@@ -276,7 +276,11 @@ add_c_style_for :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 		lo, hi := node_text(src, bounds.left), node_text(src, bounds.right)
 		// `i := 0` is an int, so a bound of another type needs the counter declared with it.
 		decl := " := "
-		if type_text, typed := range_type_text(ctx, bounds); typed && type_text != "int" {
+		type_text, named := range_type_text(ctx, bounds)
+		if !named {
+			return
+		}
+		if type_text != "int" {
 			decl = strings.concatenate({": ", type_text, " = "}, context.temp_allocator)
 		}
 		text := strings.concatenate(
@@ -303,7 +307,8 @@ add_c_style_for :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 	}
 }
 
-// The written type of the range, which is that of its typed bound; false when both bounds are untyped constants.
+// The written type of the range, which is that of its typed bound. An untyped range is an int. ok is false
+// when the file cannot name the type.
 range_type_text :: proc(ctx: ^ActionContext, bounds: ^ast.Binary_Expr) -> (string, bool) {
 	pc := ctx.position_context^
 	pc.position = bounds.end.offset
@@ -313,7 +318,11 @@ range_type_text :: proc(ctx: ^ActionContext, bounds: ^ast.Binary_Expr) -> (strin
 	ctx.ast_context.use_locals = true
 	symbol, ok := resolve_type_expression(ctx.ast_context, bounds)
 	if !ok {
-		return "", false
+		return "int", true
 	}
-	return symbol_type_text(ctx.ast_context, symbol, "")
+	if text, named := symbol_type_text(ctx.ast_context, symbol, "", require_import = true); named {
+		return text, true
+	}
+	_, untyped := symbol.value.(SymbolUntypedValue)
+	return "int", untyped
 }

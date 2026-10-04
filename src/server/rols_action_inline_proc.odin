@@ -275,6 +275,10 @@ inline_statement :: proc(
 		if arg == param.name {
 			continue
 		}
+		// The body redeclaring the parameter would clash with the local that binds the argument.
+		if body_declares(body, param.name) {
+			return
+		}
 		// Locals declared above would capture a later argument that names them.
 		for use in collect_ident_uses(param.arg) {
 			if param_index(params, use) >= 0 {
@@ -305,6 +309,19 @@ inline_statement :: proc(
 		newText = strings.to_string(sb),
 	}
 	append(ctx.actions, make_code_action(ctx, "Inline procedure call", "refactor.inline", edits))
+}
+
+// Whether a statement directly in the body declares the name.
+body_declares :: proc(body: ^ast.Block_Stmt, name: string) -> bool {
+	for stmt in body.stmts {
+		decl := stmt.derived.(^ast.Value_Decl) or_continue
+		for n in decl.names {
+			if ident, is_ident := n.derived.(^ast.Ident); is_ident && ident.name == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // The current document first: a file-private callee shadows a package one of the same name.

@@ -2480,3 +2480,32 @@ run :: proc() -> (a, b: int, /* last */ c: os.Error) {
 `,
 	)
 }
+
+// The type text may name a package the file does not import: the action adds the import.
+@(test)
+result_union_adds_import_for_returned_error :: proc(t: ^testing.T) {
+	expect_result_union(
+		t,
+		`package test
+
+import "core:os"
+
+run :: proc() -> union {} {
+	os.wa{*}it() or_return
+	_, err := os.join("a")
+	return err
+}
+`,
+		`package test
+import "core:runtime"
+
+import "core:os"
+
+run :: proc() -> union {bool, runtime.Allocator_Error} {
+	os.wait() or_return
+	_, err := os.join("a")
+	return err
+}
+`,
+	)
+}

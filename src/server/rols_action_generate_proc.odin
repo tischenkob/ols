@@ -66,7 +66,7 @@ add_generate_proc_action :: proc(ctx: ^ActionContext) {
 		}
 		// Untyped literals print as their default types only when marked mutable.
 		symbol.flags += {.Mutable}
-		text, text_ok := symbol_type_text(ctx.ast_context, symbol, name)
+		text, text_ok := symbol_type_text(ctx.ast_context, symbol, name, require_import = true)
 		if !text_ok {
 			return
 		}
@@ -167,7 +167,7 @@ call_result :: proc(
 		if !param_ok {
 			return
 		}
-		result, ok = symbol_type_text(ctx.ast_context, param, "")
+		result, ok = symbol_type_text(ctx.ast_context, param, "", require_import = true)
 		return result, zero_value_text(param, true), true, ok
 	}
 	if type == nil {

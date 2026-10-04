@@ -1548,7 +1548,10 @@ get_proc_return_types :: proc(
 		if call, ok := ret.derived.(^ast.Call_Expr); ok {
 			symbol := Symbol{}
 			if ok := internal_resolve_type_expression(ast_context, call.expr, &symbol); ok {
-				return get_proc_return_types(ast_context, symbol, call, true)
+				// rols: a conversion such as `int(x)` resolves to a type, which has no return types.
+				if returns := get_proc_return_types(ast_context, symbol, call, true); len(returns) > 0 {
+					return returns
+				}
 			}
 		}
 		append(&return_types, ret)

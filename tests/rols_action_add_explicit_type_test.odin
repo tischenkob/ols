@@ -1,3 +1,5 @@
+#+feature dynamic-literals
+
 package tests
 
 import "core:strings"
@@ -505,4 +507,113 @@ f :: proc(y: other.int) {
 	x: other.int = y
 }
 `)
+}
+
+// Corpus: manual check, repro2. The typed argument of min/max/clamp names the type, not the builtin.
+@(test)
+action_add_explicit_type_max_with_untyped_and_typed_arguments :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a: f32) {
+	x0{*} := max(0, int(a * 2))
+	_ = x0
+}
+`,
+		packages = {},
+		config = {enable_code_action_add_explicit_type = true},
+	}
+
+	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+
+f :: proc(a: f32) {
+	x0: int = max(0, int(a * 2))
+	_ = x0
+}
+`)
+}
+
+// Corpus: manual check, repro1. A local poly proc applied to a field of a foreign struct.
+@(test)
+action_add_explicit_type_poly_result_of_foreign_field :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "other"
+
+unwritten :: proc(d: [dynamic]$E) -> []E {
+	return nil
+}
+
+main :: proc() {
+	b: other.Buffer
+	size_buf{*} := unwritten(b.buf)
+	_ = size_buf
+}
+`,
+		packages = {{pkg = "other", source = "package other\n\nBuffer :: struct {\n\tbuf: [dynamic]byte,\n}\n"}},
+		config = {enable_code_action_add_explicit_type = true},
+	}
+
+	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+
+import "other"
+
+unwritten :: proc(d: [dynamic]$E) -> []E {
+	return nil
+}
+
+main :: proc() {
+	b: other.Buffer
+	size_buf: []byte = unwritten(b.buf)
+	_ = size_buf
+}
+`)
+}
+
+// A builtin constant keeps its type name, though its package is not imported.
+@(test)
+action_add_explicit_type_builtin_constant_needs_no_import :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	x{*} := ODIN_OS
+	_ = x
+}
+`,
+		packages = {},
+		config = {enable_code_action_add_explicit_type = true},
+	}
+
+	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+
+main :: proc() {
+	x: Odin_OS_Type = ODIN_OS
+	_ = x
+}
+`)
+}
+
+// An unimported package has no name to write, so the action is not offered.
+@(test)
+action_add_explicit_type_refused_for_unimported_package :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "other"
+
+main :: proc() {
+	n{*} := other.count()
+	_ = n
+}
+`,
+		packages = {
+			{pkg = "other", source = "package other\n\nimport \"core:c\"\n\ncount :: proc() -> c.int {\n\treturn 4\n}\n"},
+			{pkg = "c", source = "package c\n\nint :: i32\n"},
+		},
+		collections = {"core" = "test"},
+		config = {enable_code_action_add_explicit_type = true},
+	}
+	test.expect_action_missing(t, &source, ADD_EXPLICIT_TYPE_ACTION)
 }
