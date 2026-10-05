@@ -615,18 +615,19 @@ import_group_offset :: proc(document: ^Document, import_path: string) -> (int, b
 	return after + newline + 1, true
 }
 
-// Adds `import "<import_path>"` among the imports of its collection, else after the package
-// clause, or after the last import when enable_add_import_to_bottom is set.
+// Adds `import "<import_path>"` after the last import when enable_add_import_to_bottom is set,
+// else among the imports of its collection, else after the package clause.
 import_edit :: proc(ctx: ^ActionContext, import_path: string) -> TextEdit {
-	if offset, grouped := import_group_offset(ctx.document, import_path); grouped {
-		return {range = range_of(ctx, offset, offset), newText = fmt.tprintf("import \"%s\"\n", import_path)}
-	}
 	if ctx.config.enable_add_import_to_bottom {
 		line, is_import := find_most_bottom_line_number(ctx.ast_context)
 		return {
 			range = {start = {line = line, character = 0}, end = {line = line, character = 0}},
 			newText = is_import ? fmt.tprintf("import \"%s\"\n", import_path) : fmt.tprintf("\nimport \"%s\"", import_path),
 		}
+	}
+
+	if offset, grouped := import_group_offset(ctx.document, import_path); grouped {
+		return {range = range_of(ctx, offset, offset), newText = fmt.tprintf("import \"%s\"\n", import_path)}
 	}
 
 	// pkg_decl lines are 1-based, so this is the 0-based line right after the package clause.

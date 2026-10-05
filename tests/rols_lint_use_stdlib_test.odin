@@ -771,3 +771,43 @@ f :: proc(sizes: [][2]int) {
 `,
 	)
 }
+
+// Review: enable_add_import_to_bottom puts the import at the end of the file, before the sorted placement.
+@(test)
+use_stdlib_action_import_to_bottom :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+import "core:fmt"
+import "core:testing"
+
+f :: proc(s: []int, x: int) -> bool {
+	fmt.println(testing.T)
+	for e in s {
+		if e{*} == x {
+			return true
+		}
+	}
+	return false
+}
+`,
+		config = {enable_lint_use_stdlib = true, enable_add_import_to_bottom = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&src,
+		"Replace with slice.contains",
+		`package test
+
+import "core:fmt"
+import "core:testing"
+
+f :: proc(s: []int, x: int) -> bool {
+	fmt.println(testing.T)
+	return slice.contains(s, x)
+}
+
+import "core:slice"`,
+	)
+}

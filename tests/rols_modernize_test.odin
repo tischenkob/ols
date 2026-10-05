@@ -1073,3 +1073,88 @@ f :: proc(s: []int, x: int) -> bool {
 `,
 	)
 }
+
+// Review: a pointer to a fixed array takes slice.fill through `p[:]`, never a broadcast, and a
+// #soa array takes neither.
+@(test)
+modernize_fill_pointer_and_soa_arrays :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+S :: struct {
+	ptr: ^[4]int,
+}
+
+f :: proc() {
+	s: S
+	buf: [8]u8
+	p := &buf
+	for i in 0 ..< len(p) {
+		p[i] = 0
+	}
+	for &e in s.ptr {
+		e = 1
+	}
+	soa: #soa[4]struct {
+		x: int,
+	}
+	for &e in soa {
+		e = {}
+	}
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_modernized(
+		t,
+		&src,
+		{},
+		`package test
+
+import "core:slice"
+
+S :: struct {
+	ptr: ^[4]int,
+}
+
+f :: proc() {
+	s: S
+	buf: [8]u8
+	p := &buf
+	slice.fill(p[:], 0)
+	slice.fill(s.ptr[:], 1)
+	soa: #soa[4]struct {
+		x: int,
+	}
+	for &e in soa {
+		e = {}
+	}
+}
+`,
+	)
+}
+
+// Review: a value that reads the array changes as the loop writes it, so the loop stays.
+@(test)
+modernize_fill_skips_value_reading_array :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+arr: [4]int
+xs: []int
+
+f :: proc() {
+	for &e in arr {
+		e = arr[0] * 2
+	}
+	for i in 0 ..< len(xs) {
+		xs[i] = xs[0] + 1
+	}
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_modernized(t, &src, {}, src.main)
+}

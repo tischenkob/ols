@@ -387,23 +387,16 @@ imports_insert :: proc(document: ^Document, fixes: []Modernize_Fix) -> []Moderni
 	if len(paths) == 0 do return nil
 	slice.sort(paths[:])
 
-	// rols: an insertion per group offset; sorted paths keep their order inside one insertion.
+	// rols: one insertion per grouped path. Insertions at one offset keep this sorted order, since
+	// modernize_pass sorts the edits stably.
 	inserts := make([dynamic]Modernize_Fix, context.temp_allocator)
 	ungrouped := make([dynamic]string, context.temp_allocator)
-	grouped: for path in slice.unique(paths[:]) {
-		offset, ok := import_group_offset(document, path)
-		if !ok {
+	for path in slice.unique(paths[:]) {
+		if offset, ok := import_group_offset(document, path); ok {
+			append(&inserts, Modernize_Fix{start = offset, end = offset, text = fmt.tprintf("import \"%s\"\n", path)})
+		} else {
 			append(&ungrouped, path)
-			continue
 		}
-		line := fmt.tprintf("import \"%s\"\n", path)
-		for &insert in inserts {
-			if insert.start == offset {
-				insert.text = strings.concatenate({insert.text, line}, context.temp_allocator)
-				continue grouped
-			}
-		}
-		append(&inserts, Modernize_Fix{start = offset, end = offset, text = line})
 	}
 	if len(ungrouped) == 0 do return inserts[:]
 
