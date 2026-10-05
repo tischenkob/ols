@@ -251,7 +251,7 @@ f :: proc(a, b: bool, xs: []int) {
 			g()
 		}
 	}
-	for _ in 0..<len(xs) {
+	for _ in 0 ..< len(xs) {
 		g()
 	}
 }

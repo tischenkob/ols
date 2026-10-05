@@ -488,7 +488,7 @@ grep -q "m.odin:6:2: \[use-stdlib/contains\] Replace with slice.contains" "$dir/
 echo "ok modernize dry-run"
 expect modernize-diff "^+++ b/m.odin" "$OLS" query modernize "$mdir" --diff
 expect modernize-apply "^modernize: .* written" "$OLS" query --root "$mdir" modernize --apply
-grep -q "return slice.contains(s, x)" "$mdir/m.odin" && grep -q '^import "core:slice"' "$mdir/m.odin" && grep -q "for i in 0..<len(xs)" "$mdir/m.odin" || { echo "FAIL modernize-apply"; exit 1; }
+grep -q "return slice.contains(s, x)" "$mdir/m.odin" && grep -q '^import "core:slice"' "$mdir/m.odin" && grep -q "for i in 0 ..< len(xs)" "$mdir/m.odin" || { echo "FAIL modernize-apply"; exit 1; }
 odin check "$mdir" -no-entry-point
 echo "ok modernize-apply check"
 if [[ -d "$mdir/gen" ]]; then

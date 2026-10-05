@@ -734,9 +734,10 @@ simplify_range_loop :: proc(src: string, node: ^ast.Node, parents: []^ast.Node, 
 	if !reads && unsure {
 		return
 	}
+	// Spaced, as odinfmt prints a range.
 	op := cond.op.kind == .Lt ? "..<" : "..="
 	text := fmt.tprintf(
-		"for %s in %s%s%s %s",
+		"for %s in %s %s %s %s",
 		reads ? name.name : "_",
 		node_text(src, decl.values[0]),
 		op,
