@@ -89,6 +89,44 @@ FL{*}AG :: #config(FLAG, false)
 	})
 }
 
+@(test)
+document_symbols_compound_literal_values_have_a_kind :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+P :: struct { x: int }
+A := []int{1, 2}
+B := [2]int{1, 2}
+C :: P{x = 1}
+D := P{x = 1}
+E := 3
+F{*} :: [2]int{1, 2}
+`,
+	}
+	test.with_document(t, &source, proc(t: ^testing.T, src: ^test.Source, _: common.Range) {
+		expected := map[string]server.SymbolKind {
+			"P" = .Struct,
+			"A" = .Variable,
+			"B" = .Variable,
+			"C" = .Constant,
+			"D" = .Variable,
+			"E" = .Variable,
+			"F" = .Constant,
+		}
+		defer delete(expected)
+		symbols := server.get_document_symbols(src.document)
+		testing.expectf(t, len(symbols) == len(expected), "\nExpected %d symbols but received %v", len(expected), symbols)
+		for symbol in symbols {
+			testing.expectf(t, expected[symbol.name] == symbol.kind, "%s: expected %v, got %v", symbol.name, expected[symbol.name], symbol.kind)
+			// Upstream lists the fields a struct literal sets as its children.
+			if symbol.name == "C" || symbol.name == "D" {
+				ok := len(symbol.children) == 1 && symbol.children[0].name == "x" && symbol.children[0].kind == .Field
+				testing.expectf(t, ok, "%s: expected the child field x, got %v", symbol.name, symbol.children)
+			}
+		}
+	})
+}
+
 // Corpus: reduced, see docs/corpus-validation.md.
 @(test)
 definition_follows_true_string_when_branch :: proc(t: ^testing.T) {

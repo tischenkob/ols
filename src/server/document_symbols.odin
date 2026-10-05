@@ -32,6 +32,8 @@ get_document_symbols :: proc(document: ^Document) -> []DocumentSymbol {
 		symbol.range = common.get_token_range(global.expr, ast_context.file.src)
 		ensure_selection_range_contained(&symbol.range, symbol.selectionRange)
 		symbol.name = k
+		// rols: a value, a literal or `#config` included, is a variable or a constant; type cases override it.
+		symbol.kind = .Variable if .Mutable in global.flags else .Constant
 
 		#partial switch v in global.expr.derived {
 		case ^ast.Struct_Type, ^ast.Bit_Field_Type:
@@ -66,7 +68,8 @@ get_document_symbols :: proc(document: ^Document) -> []DocumentSymbol {
 					range:           common.Range,
 					selection_range: common.Range,
 				}
-				name_map := make(map[string]ranges)
+				// rols: temp memory, the map was never freed.
+				name_map := make(map[string]ranges, context.temp_allocator)
 				for elem in v.elems {
 					if field_value, ok := elem.derived.(^ast.Field_Value); ok {
 						if name, ok := field_value.field.derived.(^ast.Ident); ok {
@@ -109,9 +112,6 @@ get_document_symbols :: proc(document: ^Document) -> []DocumentSymbol {
 					symbol.children = children[:]
 				}
 			}
-		case:
-			// rols: `X :: 1` and `X :: #config(X, false)` are constants, not variables.
-			symbol.kind = .Variable if .Mutable in global.flags else .Constant
 		}
 
 		append(&symbols, symbol)

@@ -292,12 +292,14 @@ run :: proc(args: []string) -> int {
 		}
 		return 0
 	case "symbols":
+		// A file without declarations has an empty outline, which is an answer, not a failure.
 		symbols := sorted_symbols(server.get_document_symbols(document))
 		if json_output {
-			return print_nonempty(symbols)
+			print(symbols)
+		} else {
+			print_symbols(target.file, symbols)
 		}
-		print_symbols(target.file, symbols)
-		return 0 if len(symbols) > 0 else 1
+		return 0
 	case "actions":
 		actions, _ := server.get_code_actions(document, {}, range, config)
 		if apply_title == "" {
