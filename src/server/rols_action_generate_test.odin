@@ -52,8 +52,8 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	proc_name := node_text(src, decl.names[0])
 	unit := indent_unit(src, "", nil)
 
-	args, _ := zero_values(ctx, lit.type.params, typed = false)
-	results, results_ok := zero_values(ctx, lit.type.results, typed = true)
+	args := call_arguments(ctx, lit.type.params)
+	results, results_ok := result_checks(ctx, lit.type.results)
 	if !results_ok {
 		return
 	}
@@ -81,7 +81,16 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	strings.write_string(&sb, strings.join(args, ", ", context.temp_allocator))
 	strings.write_string(&sb, ")\n")
 	for name, i in names {
-		fmt.sbprintf(&sb, "%stesting.expect_value(t, %s, %s)\n", unit, name, results[i])
+		if results[i].collection {
+			fmt.sbprintf(&sb, "%sdefer delete(%s)\n", unit, name)
+		}
+	}
+	for name, i in names {
+		if results[i].collection {
+			fmt.sbprintf(&sb, "%stesting.expect(t, len(%s) == 0)\n", unit, name)
+		} else {
+			fmt.sbprintf(&sb, "%stesting.expect_value(t, %s, %s)\n", unit, name, results[i].zero)
+		}
 	}
 	strings.write_string(&sb, "}\n")
 
@@ -104,27 +113,111 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	)
 }
 
-// typed spells an aggregate zero value with its type, `E{}`, for testing.expect_value, which cannot
-// infer the type of a bare `{}`. That fails (ok is false) for a type the test file cannot spell: a
-// package-qualified or multi-line one.
-zero_values :: proc(ctx: ^ActionContext, fields: ^ast.Field_List, typed: bool) -> (values: []string, ok: bool) {
+// Zero values for the parameters without a default value. A parameter after a skipped one is passed
+// by name, since its position no longer matches.
+call_arguments :: proc(ctx: ^ActionContext, fields: ^ast.Field_List) -> []string {
+	args := make([dynamic]string, context.temp_allocator)
+	if fields == nil {
+		return args[:]
+	}
+	named := false
+	for field in fields.list {
+		if field.default_value != nil {
+			named = true
+			continue
+		}
+		symbol, resolved := resolve_type_expression(ctx.ast_context, field.type)
+		value := zero_value_text(symbol, resolved)
+		if !named || len(field.names) == 0 {
+			for _ in 0 ..< max(len(field.names), 1) {
+				append(&args, value)
+			}
+			continue
+		}
+		for name in field.names {
+			append(&args, fmt.tprintf("%s = %s", node_text(ctx.document.ast.src, name), value))
+		}
+	}
+	return args[:]
+}
+
+Result_Check :: struct {
+	// A slice, dynamic array or map: not comparable, so the test checks its length and deletes it.
+	collection: bool,
+	// The expected value for testing.expect_value otherwise.
+	zero:       string,
+}
+
+// testing.expect_value needs a comparable type and cannot infer a bare `{}`, so an aggregate zero value
+// is spelled `E{}`. That fails (ok is false) for a type the test file cannot spell, a package-qualified
+// or multi-line one, and for a type that is not comparable, such as a struct holding a slice.
+result_checks :: proc(ctx: ^ActionContext, fields: ^ast.Field_List) -> (checks: []Result_Check, ok: bool) {
 	if fields == nil {
 		return {}, true
 	}
 	types := field_types(fields.list)
-	values = make([]string, len(types), context.temp_allocator)
+	checks = make([]Result_Check, len(types), context.temp_allocator)
 	for type, i in types {
+		if type == nil {
+			return nil, false
+		}
 		symbol, resolved := resolve_type_expression(ctx.ast_context, type)
-		values[i] = zero_value_text(symbol, resolved)
-		if typed && values[i] == "{}" {
+		if resolved && symbol.pointers == 0 {
+			#partial switch _ in symbol.value {
+			case SymbolSliceValue, SymbolDynamicArrayValue, SymbolMapValue:
+				checks[i].collection = true
+				continue
+			}
+		}
+		if resolved && !is_comparable(ctx.ast_context, symbol, 0) {
+			return nil, false
+		}
+		checks[i].zero = zero_value_text(symbol, resolved)
+		if checks[i].zero == "{}" {
 			text := node_text(ctx.document.ast.src, type)
 			if strings.contains_any(text, ".\n") {
 				return nil, false
 			}
-			values[i] = strings.concatenate({text, "{}"}, context.temp_allocator)
+			checks[i].zero = strings.concatenate({text, "{}"}, context.temp_allocator)
 		}
 	}
-	return values, true
+	return checks, true
+}
+
+// intrinsics.type_is_comparable: false for a slice, dynamic array, map or `any`, and for an aggregate
+// holding one. A field type that does not resolve counts as not comparable.
+is_comparable :: proc(ast_context: ^AstContext, symbol: Symbol, depth: int) -> bool {
+	if symbol.pointers > 0 {
+		return true
+	}
+	if depth > 16 {
+		return false
+	}
+	element_types: []^ast.Expr
+	#partial switch v in symbol.value {
+	case SymbolSliceValue, SymbolDynamicArrayValue, SymbolMapValue:
+		return false
+	case SymbolBasicValue:
+		return v.ident.name != "any"
+	case SymbolStructValue:
+		element_types = v.types
+	case SymbolUnionValue:
+		element_types = v.types
+	case SymbolFixedArrayValue:
+		set_ast_package_from_symbol_scoped(ast_context, symbol)
+		element, resolved := resolve_type_expression(ast_context, v.expr)
+		return resolved && is_comparable(ast_context, element, depth + 1)
+	case:
+		return true
+	}
+	for type in element_types {
+		set_ast_package_from_symbol_scoped(ast_context, symbol)
+		element, resolved := resolve_type_expression(ast_context, type)
+		if !resolved || !is_comparable(ast_context, element, depth + 1) {
+			return false
+		}
+	}
+	return true
 }
 
 // A global of the document or, through the index, of any file of the package.
