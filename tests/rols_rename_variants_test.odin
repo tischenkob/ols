@@ -273,3 +273,53 @@ when ODIN_DEBUG {
 	}
 	test.expect_reorder_params(t, &source, {1, 0}, {})
 }
+
+// A file-private declaration is never a variant of one in another file, since each file may declare its own: the
+// helper of the windows file keeps its name, by attribute or by `#+private file`.
+@(test)
+rename_file_private_is_not_a_variant :: proc(t: ^testing.T) {
+	windows_files := [2]string {
+		`#+build windows
+package test
+
+@(private = "file")
+helper :: proc() -> int { return 2 }
+`,
+		`#+build windows
+#+private file
+package test
+
+helper :: proc() -> int { return 2 }
+`,
+	}
+	for windows in windows_files {
+		source := test.Source {
+			main  = `package test
+
+@(private = "file")
+hel{*}per :: proc() -> int { return 1 }
+
+g :: proc() -> int { return helper() }
+`,
+			files = {{"b_windows.odin", windows}},
+		}
+		test.expect_rename(
+			t,
+			&source,
+			"assist",
+			{
+				{
+					"main.odin",
+					`package test
+
+@(private = "file")
+assist :: proc() -> int { return 1 }
+
+g :: proc() -> int { return assist() }
+`,
+				},
+				{"b_windows.odin", windows},
+			},
+		)
+	}
+}

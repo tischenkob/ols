@@ -2,9 +2,8 @@ package server
 
 import "core:odin/ast"
 import "core:odin/parser"
+import "core:os"
 import "core:path/filepath"
-import path "core:path/slashpath"
-import "core:slice"
 import "core:strings"
 
 import "src:common"
@@ -15,7 +14,6 @@ import "src:common"
 Decl_Variant :: struct {
 	document: ^Document,
 	decl:     ^ast.Value_Decl,
-	name:     ^ast.Ident,
 	symbol:   Symbol, // uri, name range, package and name, as a reference to it resolves
 }
 
@@ -27,6 +25,8 @@ Decl_Variant :: struct {
 // are always built together, which odin rejects as a redeclaration:
 // - both sit outside any `when` in files that the current target builds, or
 // - both sit in the same `when` branch of one file, or both outside any `when` of one file.
+// A file-private declaration (`@(private="file")` or `#+private file`) only has variants in its own file, and
+// a declaration in another file is never a variant of one: each file may declare its own.
 // Any other pair has a build condition that can tell them apart: a file name suffix or `#+build` line,
 // or a `when` condition, which this does not evaluate.
 declaration_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> []Decl_Variant {
@@ -39,11 +39,12 @@ declaration_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> []Decl_Varia
 	}
 	home_src := string(home.text[:home.used_text])
 	target: ^ast.Ident
+	target_private: bool
 	for decl in top_level_value_decls(home.ast) {
 		for expr in decl.names {
 			ident := expr.derived.(^ast.Ident) or_continue
 			if common.get_token_range(ident^, home_src) == symbol.range {
-				target = ident
+				target, target_private = ident, file_private(home, decl)
 			}
 		}
 	}
@@ -53,8 +54,18 @@ declaration_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> []Decl_Varia
 	target_branch := when_branch_of(home.ast, target.pos.offset)
 	target_always := target_branch == nil && builds_on_host(home)
 
+	paths := make([dynamic]string, context.temp_allocator)
+	append(&paths, home.fullpath)
+	if !target_private {
+		for sibling in package_siblings(home, h.files) {
+			slashed, _ := filepath.replace_separators(sibling, '/', context.temp_allocator)
+			// Most siblings never mention the name, so they are not parsed.
+			if mentions(h, slashed, target.name) do append(&paths, slashed)
+		}
+	}
+
 	variants := make([dynamic]Decl_Variant, context.temp_allocator)
-	for fullpath in package_file_paths(h, home.fullpath) {
+	for fullpath in paths {
 		document := hierarchy_document(h, common.create_uri(fullpath, context.temp_allocator).uri)
 		if document == nil || document.ast.pkg_name != home.ast.pkg_name {
 			continue
@@ -72,14 +83,16 @@ declaration_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> []Decl_Varia
 					continue
 				}
 				branch := when_branch_of(document.ast, ident.pos.offset)
-				if (target_always && always && branch == nil) || (same_file && branch == target_branch) {
+				if (target_always && always && branch == nil) ||
+				   (same_file && branch == target_branch) ||
+				   (!same_file && file_private(document, decl)) {
 					continue
 				}
 				variant_symbol := symbol
 				variant_symbol.name = ident.name
 				variant_symbol.uri = document.uri.uri
 				variant_symbol.range = common.get_token_range(ident^, src)
-				append(&variants, Decl_Variant{document, decl, ident, variant_symbol})
+				append(&variants, Decl_Variant{document, decl, variant_symbol})
 			}
 		}
 	}
@@ -140,28 +153,15 @@ reference_target :: proc(resolved: Symbol, symbol: Symbol, variants: []Symbol) -
 	return {}, false
 }
 
-// Adds the declared name of each variant, which the resolver does not reach in an inactive `when` branch,
-// and drops repeated locations.
+// Adds the declared name of each variant that is not there yet, since the resolver does not reach it in an
+// inactive `when` branch.
 add_variant_declarations :: proc(locations: ^[dynamic]common.Location, variants: []Symbol) {
-	for variant in variants {
+	next: for variant in variants {
+		for location in locations {
+			if strings.equal_fold(location.uri, variant.uri) && location.range == variant.range do continue next
+		}
 		append(locations, common.Location{uri = variant.uri, range = variant.range})
 	}
-	slice.sort_by(locations[:], proc(a, b: common.Location) -> bool {
-		if a.uri != b.uri do return a.uri < b.uri
-		if a.range.start.line != b.range.start.line do return a.range.start.line < b.range.start.line
-		return a.range.start.character < b.range.start.character
-	})
-	kept := 0
-	for location, i in locations {
-		if i > 0 &&
-		   strings.equal_fold(location.uri, locations[kept - 1].uri) &&
-		   location.range == locations[kept - 1].range {
-			continue
-		}
-		locations[kept] = location
-		kept += 1
-	}
-	resize(locations, kept)
 }
 
 // The `when` branch block that holds offset most closely in file, nil outside any `when`.
@@ -194,24 +194,22 @@ builds_on_host :: proc(document: ^Document) -> bool {
 	return builds_on(document.fullpath, string(document.text[:document.used_text]), host_target())
 }
 
-// The .odin files of the directory of fullpath, from h.files when given, else from disk.
+// Whether the text of the file at fullpath, as hierarchy_document reads it, contains name.
 @(private = "file")
-package_file_paths :: proc(h: ^Call_Hierarchy, fullpath: string) -> []string {
-	paths := make([dynamic]string, context.temp_allocator)
-	dir := path.dir(fullpath, context.temp_allocator)
-	if len(h.files) > 0 {
-		for file in h.files {
-			if path.dir(file.fullpath, context.temp_allocator) == dir {
-				append(&paths, file.fullpath)
-			}
-		}
-		return paths[:]
+mentions :: proc(h: ^Call_Hierarchy, fullpath, name: string) -> bool {
+	if open := &document_storage.documents[fullpath]; open != nil && open.client_owned {
+		return strings.contains(string(open.text[:open.used_text]), name)
 	}
-	pattern := path.join({dir, "*.odin"}, context.temp_allocator)
-	matches, _ := filepath.glob(pattern, context.temp_allocator)
-	for match in matches {
-		slashed, _ := filepath.replace_separators(match, '/', context.temp_allocator)
-		append(&paths, slashed)
+	for file in h.files {
+		if file.fullpath == fullpath do return strings.contains(file.text, name)
 	}
-	return paths[:]
+	data, err := os.read_entire_file(fullpath, context.temp_allocator)
+	return err == nil && strings.contains(string(data), name)
+}
+
+// Whether decl of document is private to its file, by its attribute or by `#+private file`.
+@(private = "file")
+file_private :: proc(document: ^Document, decl: ^ast.Value_Decl) -> bool {
+	tags := parser.parse_file_tags(document.ast, context.temp_allocator)
+	return is_file_private(decl.attributes[:]) || tags.private == .File
 }
