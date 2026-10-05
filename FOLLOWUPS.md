@@ -59,6 +59,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **Generated `T{}` can still fail.** `testing.expect_value(t, x, T{})` does not compile when `T` is file-private in its source file or has slice or map fields, which are not comparable.
 - **"Remove redundant else" is refused when the `if` is not the last statement of its block.** This follows from the guards shared with the simplify rule.
 - **"Add ok result" refuses any procedure with `or_return`**, because `or_return` assigns the operand's end value to the last result and Odin rejects `Err` to `bool`.
+- **A `distinct bool` result is not read as an ok flag.** `result_kind` in `src/server/rols_action_result_handling.odin` matches only the names `bool`, `b8`, `b16`, `b32` and `b64`. "Add ok result" is still offered on a procedure whose last result is `My_Ok :: distinct bool`, and the result-handling actions treat that result as `.Other`. Resolving the type to its base would lift it.
 - **`builtin_without_decl` accepts any declaration of a builtin name.** `symbol_type_text` in `src/server/rols_edit.odin` qualifies a builtin type name when the package declares that name, whatever the declaration is. A procedure or variable named `string` in the package, or a `@(private = "file")` alias `int :: i32` in another file, makes a builtin result print as `pkg.string` or `pkg.int`, which does not compile. Requiring a non-private type declaration would close it.
 
 ## CLI queries (`src/cli/rols_cli.odin`, `src/server/rols_find.odin`)

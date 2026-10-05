@@ -24,7 +24,8 @@ add_result_handling_action :: proc(ctx: ^ActionContext) {
 
 	call: ^ast.Call_Expr
 	parent: ^ast.Node
-	#reverse for at in nodes_at({function.body}, ctx.range.start) {
+	nodes := nodes_at({function.body}, ctx.range.start)
+	#reverse for at in nodes {
 		if c, is_call := at.node.derived.(^ast.Call_Expr); is_call {
 			call, parent = c, at.parent
 			break
@@ -32,6 +33,13 @@ add_result_handling_action :: proc(ctx: ^ActionContext) {
 	}
 	if call == nil || parent == nil {
 		return
+	}
+	// `x, ok := (f())` binds the same values as `x, ok := f()`.
+	bind := parent
+	#reverse for at in nodes {
+		if _, is_paren := at.node.derived.(^ast.Paren_Expr); is_paren && at.node == bind {
+			bind = at.parent
+		}
 	}
 	#partial switch _ in parent.derived {
 	case ^ast.Or_Return_Expr, ^ast.Or_Else_Expr, ^ast.Or_Branch_Expr:
@@ -77,6 +85,19 @@ add_result_handling_action :: proc(ctx: ^ActionContext) {
 		proc_last = proc_results[len(proc_results) - 1]
 	}
 	propagates := proc_last != nil && same_error(ctx, src, last, proc_last, kind)
+
+	// or_return and or_else take the last value off, so a left side that also binds it would no
+	// longer match the value count. With several values on the right, each binds one name.
+	bound := -1
+	#partial switch p in bind.derived {
+	case ^ast.Value_Decl:
+		bound = len(p.values) == 1 ? len(p.names) : 1
+	case ^ast.Assign_Stmt:
+		bound = len(p.rhs) == 1 ? len(p.lhs) : 1
+	}
+	if bound >= len(results) {
+		return
+	}
 
 	// `x := f() or_return` needs a result left over once the error is taken off.
 	if propagates && (is_stmt || len(results) > 1) {
@@ -181,7 +202,8 @@ result_kind :: proc(type: ^ast.Expr) -> Result_Kind {
 	}
 	#partial switch t in type.derived {
 	case ^ast.Ident:
-		if t.name == "bool" {
+		switch t.name {
+		case "bool", "b8", "b16", "b32", "b64":
 			return .Bool
 		}
 		if strings.contains(t.name, "Err") {
@@ -213,8 +235,9 @@ final_name :: proc(type: ^ast.Expr) -> string {
 // Whether a result of type `last` can be returned through a proc whose last result is `proc_last`:
 // bool through bool, or an error through the same error type or a union that lists it.
 same_error :: proc(ctx: ^ActionContext, src: string, last, proc_last: ^ast.Expr, kind: Result_Kind) -> bool {
+	// or_return assigns the value itself, so b32 does not pass through a bool result.
 	if kind == .Bool {
-		return result_kind(proc_last) == .Bool
+		return final_name(last) == final_name(proc_last)
 	}
 	if result_kind(proc_last) != .Error {
 		return false
