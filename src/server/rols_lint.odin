@@ -106,6 +106,7 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_invisible,
 	lint_result_order,
 	lint_switch,
+	lint_redundant_type_assertion,
 	lint_calls,
 	lint_struct_literal,
 	lint_pure_call,

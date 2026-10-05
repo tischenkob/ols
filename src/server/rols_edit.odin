@@ -143,10 +143,15 @@ collect_ident_uses :: proc(root: ^ast.Node, allocator := context.temp_allocator)
 // Assignment, address-of and `using` targets count as writes, also through the base of a
 // selector, index, slice or deref: `x.y = 1` and `&x[i]` write x.
 is_write :: proc(use: IdentUse) -> bool {
-	target: ^ast.Expr = use.ident
-	i := len(use.parents) - 1
+	return writes_through(use.ident, use.parents)
+}
+
+// is_write for any expression, with parents its ancestors outermost first.
+writes_through :: proc(target: ^ast.Expr, parents: []^ast.Node) -> bool {
+	target := target
+	i := len(parents) - 1
 	for ; i >= 0; i -= 1 {
-		#partial switch p in use.parents[i].derived {
+		#partial switch p in parents[i].derived {
 		case ^ast.Selector_Expr:
 			if p.expr == target {
 				target = p
@@ -172,7 +177,7 @@ is_write :: proc(use: IdentUse) -> bool {
 		return false
 	}
 
-	#partial switch p in use.parents[i].derived {
+	#partial switch p in parents[i].derived {
 	case ^ast.Assign_Stmt:
 		return slice.contains(p.lhs, target)
 	case ^ast.Unary_Expr:
