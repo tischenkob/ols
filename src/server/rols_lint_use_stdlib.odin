@@ -207,21 +207,7 @@ slice_arg_text :: proc(w: ^Stdlib_Walker, bound: ^ast.Node) -> (string, bool) {
 	}
 	// Odin slices only an addressable array: a variable, or a field or element of one. Constants,
 	// by-value parameters, range values and call results are not.
-	root := expr
-	for {
-		#partial switch e in root.derived {
-		case ^ast.Selector_Expr:
-			root = e.expr
-			continue
-		case ^ast.Index_Expr:
-			root = e.expr
-			continue
-		case ^ast.Paren_Expr:
-			root = e.expr
-			continue
-		}
-		break
-	}
+	root := access_root(expr)
 	if _, is_ident := root.derived.(^ast.Ident); !is_ident do return "", false
 	root_symbol, root_ok := resolve_entire_file(w.document)[uintptr(root)]
 	if !root_ok || root_symbol.symbol == nil do return "", false
@@ -229,6 +215,24 @@ slice_arg_text :: proc(w: ^Stdlib_Walker, bound: ^ast.Node) -> (string, bool) {
 	if .Mutable not_in flags || .Parameter in flags do return "", false
 	if is_range_value(w.document, root.derived.(^ast.Ident)) do return "", false
 	return strings.concatenate({text, "[:]"}, w.allocator), true
+}
+
+// The expression that a chain of fields, indexes and parentheses starts from: `a` in `a.b[i].c`.
+@(private = "file")
+access_root :: proc(node: ^ast.Node) -> ^ast.Node {
+	root := node
+	for {
+		#partial switch e in root.derived {
+		case ^ast.Selector_Expr:
+			root = e.expr
+		case ^ast.Index_Expr:
+			root = e.expr
+		case ^ast.Paren_Expr:
+			root = e.expr
+		case:
+			return root
+		}
+	}
 }
 
 // True when an enclosing loop of the identifier declares its name as a value without `&`. Such a
@@ -319,32 +323,30 @@ finish :: proc(w: ^Stdlib_Walker, start, end: int, form: Stdlib_Form) -> (result
 // broadcast assignment instead, which needs no import.
 @(private = "file")
 fill_args :: proc(w: ^Stdlib_Walker, m: ^Stdlib_Match, s, v: ^ast.Node) -> bool {
-	ast_context := make_ast_context(
-		w.document.ast,
-		w.document.imports,
-		w.document.package_name,
-		w.document.uri.uri,
-		w.document.fullpath,
-		context.temp_allocator,
-	)
-	get_globals(w.document.ast, &ast_context)
+	// The loop writes each element before it reads the value again, so a value that reads the
+	// array, like `arr[0] * 2`, changes as the loop runs. The rewrite reads it once.
+	if root, is_ident := access_root(s).derived.(^ast.Ident); is_ident {
+		for use in collect_ident_uses(v) do if use.ident.name == root.name do return false
+	}
 
 	elem: Symbol
 	elem_ok, fixed := false, false
 	if resolved, ok := resolve_entire_file(w.document)[uintptr(s)];
 	   ok && !resolved.is_unresolved && resolved.symbol != nil {
+		// Neither slice.fill nor a broadcast takes a #soa array.
+		if .Soa in resolved.symbol.flags do return false
 		elem_expr: ^ast.Expr
 		#partial switch a in resolved.symbol.value {
 		case SymbolFixedArrayValue:
-			elem_expr, fixed = a.expr, true
+			// A pointer to an array takes slice.fill through `p[:]`, but not a broadcast.
+			elem_expr, fixed = a.expr, resolved.symbol.pointers == 0
 		case SymbolSliceValue:
 			elem_expr = a.expr
 		case SymbolDynamicArrayValue:
 			elem_expr = a.expr
 		}
 		if elem_expr != nil {
-			set_ast_package_set_scoped(&ast_context, resolved.symbol.pkg)
-			elem, elem_ok = resolve_type_expression(&ast_context, elem_expr)
+			elem, elem_ok = resolve_type_in_package(w.document, resolved.symbol.pkg, elem_expr)
 		}
 	}
 
@@ -362,6 +364,14 @@ fill_args :: proc(w: ^Stdlib_Walker, m: ^Stdlib_Match, s, v: ^ast.Node) -> bool 
 	if untyped {
 		// An anonymous aggregate carries the keyword as its name, which symbol_type_text would write.
 		if .Anonymous in elem.flags do return false
+		ast_context := make_ast_context(
+			w.document.ast,
+			w.document.imports,
+			w.document.package_name,
+			w.document.uri.uri,
+			w.document.fullpath,
+			context.temp_allocator,
+		)
 		type_text := symbol_type_text(&ast_context, elem, "", require_import = true) or_return
 		m.args[1] = strings.concatenate({type_text, node_text(w.src, value)}, w.allocator)
 	}
