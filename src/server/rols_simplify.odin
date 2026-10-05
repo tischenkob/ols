@@ -1058,21 +1058,6 @@ private_local :: proc(lit: ^ast.Proc_Lit, name: string, loop: ^ast.Node) -> (typ
 	return type, value, true
 }
 
-// `&x`, `&x.f` or `&x[i]`: is_write already found the unary parent.
-@(private = "file")
-address_taken :: proc(use: IdentUse) -> bool {
-	#reverse for parent in use.parents {
-		#partial switch p in parent.derived {
-		case ^ast.Selector_Expr, ^ast.Index_Expr, ^ast.Slice_Expr, ^ast.Deref_Expr, ^ast.Paren_Expr:
-			continue
-		case ^ast.Unary_Expr:
-			return p.op.kind == .And
-		}
-		return false
-	}
-	return false
-}
-
 // or_return returns the current value of a named result, so a zero literal stands for it only
 // while the procedure never writes it.
 @(private = "file")

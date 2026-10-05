@@ -65,37 +65,56 @@ add_inline_variable_action :: proc(ctx: ^ActionContext) {
 	// Inlining keeps behaviour only when the initializer still runs once, at the same point, or
 	// when it has no side effects and reads nothing the code it moves past can change.
 	typed := resolve_entire_file(ctx.document)
-	if !evaluated_in_place(typed, function.body, decl, uses[:]) && !is_stable(typed, value) {
+	if !evaluated_in_place(typed, function.body, decl, uses[:]) && reads_state(typed, value, max(int), true) {
+		return
+	}
+	// Each copy of a literal is a fresh value: copies no longer share storage, and a [dynamic] or
+	// map literal allocates once per copy.
+	if len(uses) > 1 && contains_comp_lit(value) {
 		return
 	}
 
-	// A use inside a loop that starts after the declaration sees writes made anywhere in that loop.
+	// A use inside a loop that starts after the declaration sees writes made anywhere in that loop,
+	// and a deferred use runs when the procedure returns.
 	check_end := last_use.end.offset
 	for use in uses {
 		for parent in use.parents {
+			if parent.pos.offset < decl.end.offset {
+				continue
+			}
 			#partial switch _ in parent.derived {
 			case ^ast.For_Stmt, ^ast.Range_Stmt, ^ast.Unroll_Range_Stmt:
-				if decl.end.offset <= parent.pos.offset {
-					check_end = max(check_end, parent.end.offset)
-				}
+				check_end = max(check_end, parent.end.offset)
+			case ^ast.Defer_Stmt:
+				check_end = max(check_end, function.body.end.offset)
 			}
 		}
 	}
 
-	// A local read by the initializer must keep its value up to the last use, and no pointer to it
-	// may exist.
+	// A local read by the initializer must keep its value up to the last use, and nothing may
+	// reach it under another name.
 	for read in collect_ident_uses(value) {
+		if is_member_name(read) {
+			continue
+		}
 		read_decl, ok := local_decl_offset(ctx, symbols, read.ident)
 		if !ok {
+			// A field that `using` brings into scope resolves to the field, not to a local.
+			if resolved, found := typed[uintptr(read.ident)]; found && .Local in resolved.symbol.flags {
+				return
+			}
 			continue
+		}
+		if !strings.has_prefix(src[read_decl:], read.ident.name) {
+			return
 		}
 		for use in all_uses {
 			offset, ok := local_decl_offset(ctx, symbols, use.ident)
-			if !ok || offset != read_decl || !is_write(use) {
+			if !ok || offset != read_decl {
 				continue
 			}
 			between := decl.end.offset <= use.ident.pos.offset && use.ident.pos.offset <= check_end
-			if between || takes_address(use) {
+			if is_write(use) && (between || address_taken(use)) || aliases(use) {
 				return
 			}
 		}
@@ -210,12 +229,6 @@ evaluated_in_place :: proc(typed: SymbolAndNodeMap, body: ^ast.Stmt, decl: ^ast.
 	return inside_next && !reads_state(typed, next, use.ident.pos.offset, false)
 }
 
-// The initializer has no side effects and reads only locals, so the local write check covers
-// every way the code it moves past could change its value.
-is_stable :: proc(typed: SymbolAndNodeMap, value: ^ast.Expr) -> bool {
-	return !reads_state(typed, value, max(int), true)
-}
-
 // Whether the part of root before offset limit calls, reads through an indirection, or reads a
 // global variable. Locals count too unless allow_locals is set, except plain assignment targets.
 reads_state :: proc(typed: SymbolAndNodeMap, root: ^ast.Node, limit: int, allow_locals: bool) -> bool {
@@ -247,7 +260,8 @@ reads_state :: proc(typed: SymbolAndNodeMap, root: ^ast.Node, limit: int, allow_
 			     ^ast.Deref_Expr,
 			     ^ast.Index_Expr,
 			     ^ast.Slice_Expr,
-			     ^ast.Matrix_Index_Expr:
+			     ^ast.Matrix_Index_Expr,
+			     ^ast.Implicit:
 				data.found = true
 				return nil
 			case ^ast.Selector_Expr:
@@ -266,7 +280,14 @@ reads_state :: proc(typed: SymbolAndNodeMap, root: ^ast.Node, limit: int, allow_
 	}
 
 	for use in collect_ident_uses(root) {
-		if limit <= use.ident.pos.offset || !is_variable(typed, use.ident) {
+		if limit <= use.ident.pos.offset || is_member_name(use) {
+			continue
+		}
+		// Fail closed on a name the resolver missed, except a callee: compiling code calls a procedure.
+		if _, resolved := typed[uintptr(use.ident)]; !resolved && !is_callee(use) {
+			return true
+		}
+		if !is_variable(typed, use.ident) {
 			continue
 		}
 		if .Local not_in typed[uintptr(use.ident)].symbol.flags {
@@ -298,29 +319,83 @@ is_plain_target :: proc(use: IdentUse) -> bool {
 	return false
 }
 
-// `&x`, `&x.y` or `&x[i]`: a pointer to x can change it from anywhere.
-takes_address :: proc(use: IdentUse) -> bool {
+// `x[:]` or `for &e in x` lets writes change x without naming it.
+aliases :: proc(use: IdentUse) -> bool {
 	target: rawptr = use.ident
 	#reverse for parent in use.parents {
-		base: rawptr
 		#partial switch p in parent.derived {
 		case ^ast.Selector_Expr:
-			base = p.expr
+			if rawptr(p.expr) != target {
+				return false
+			}
 		case ^ast.Index_Expr:
-			base = p.expr
+			if rawptr(p.expr) != target {
+				return false
+			}
+		case ^ast.Paren_Expr:
 		case ^ast.Slice_Expr:
-			base = p.expr
-		case ^ast.Unary_Expr:
-			return p.op.kind == .And && p.expr == target
-		case ^ast.Using_Stmt:
-			return true
-		}
-		if base != target {
+			return rawptr(p.expr) == target
+		case ^ast.Range_Stmt:
+			return rawptr(p.expr) == target && slice.any_of_proc(p.vals, is_address_of)
+		case ^ast.Unroll_Range_Stmt:
+			return rawptr(p.expr) == target && (is_address_of(p.val0) || is_address_of(p.val1))
+		case:
 			return false
 		}
 		target = parent
 	}
 	return false
+}
+
+is_address_of :: proc(expr: ^ast.Expr) -> bool {
+	if expr == nil {
+		return false
+	}
+	unary, ok := expr.derived.(^ast.Unary_Expr)
+	return ok && unary.op.kind == .And
+}
+
+// A field, enum member or argument name, which the resolver does not record on its own.
+is_member_name :: proc(use: IdentUse) -> bool {
+	if len(use.parents) == 0 {
+		return false
+	}
+	#partial switch p in use.parents[len(use.parents) - 1].derived {
+	case ^ast.Selector_Expr:
+		return p.field == use.ident
+	case ^ast.Implicit_Selector_Expr:
+		return p.field == use.ident
+	case ^ast.Field_Value:
+		return p.field == use.ident
+	}
+	return false
+}
+
+is_callee :: proc(use: IdentUse) -> bool {
+	if len(use.parents) == 0 {
+		return false
+	}
+	call, ok := use.parents[len(use.parents) - 1].derived.(^ast.Call_Expr)
+	return ok && call.expr == use.ident
+}
+
+contains_comp_lit :: proc(value: ^ast.Expr) -> bool {
+	found: bool
+	visitor := ast.Visitor {
+		data = &found,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil {
+				return nil
+			}
+			if _, is_lit := node.derived.(^ast.Comp_Lit); is_lit {
+				(^bool)(visitor.data)^ = true
+				return nil
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, value)
+	return found
 }
 
 needs_parens :: proc(value: ^ast.Expr, use: IdentUse) -> bool {
