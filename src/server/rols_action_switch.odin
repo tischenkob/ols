@@ -161,7 +161,7 @@ pair_value :: proc(src: string, pair: [2]^ast.Expr, subject: ^ast.Expr) -> (^ast
 }
 
 // Odin rejects an enum switch that leaves a member out, even with a default case, and rejects #partial on any other type.
-// #partial on an enum is always legal, so a case value that names no member keeps it.
+// #partial on an enum is always legal, so any member left uncovered keeps it.
 needs_partial :: proc(ctx: ^ActionContext, subject: ^ast.Expr, branches: []Branch) -> bool {
 	covered := make(map[string]struct{}, context.temp_allocator)
 	has_implicit := false
