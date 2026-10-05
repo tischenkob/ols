@@ -102,6 +102,9 @@ Small fixes:
 - `src/server/position_context.odin`, `src/server/file_resolve.odin`: a call argument drops the enclosing comp literal, so a comp literal in the argument resolves against the parameter type.
 - `src/server/signature.odin`: inside a comp literal passed to a call, the comp literal signature comes before the procedure signature.
 - `src/server/analysis.odin`: `resolve_implicit_selector` resolves an implicit selector inside a comp literal on the right of an assignment against the literal, not against the assigned name.
+- `src/server/analysis.odin`: `expand_call_args` passes the member of `offset_of(T, member)` without a symbol, so a member named like a package keeps the two-argument overload.
+- `src/server/file_resolve.odin`: the `offset_of` member resolves to the field of T, and struct and bit_field field names are not resolved as identifiers.
+- `src/server/references.odin`: the `offset_of` member is a reference to its field.
 
 Tests:
 
