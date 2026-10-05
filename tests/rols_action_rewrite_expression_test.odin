@@ -696,3 +696,20 @@ main :: proc() {
 }
 `)
 }
+
+@(test)
+flip_comparison_refuses_untyped_compound_literal :: proc(t: ^testing.T) {
+	for cond in ([]string{"r {*}== {0, 0}", "r {*}!= ({0, 0})"}) {
+		source := test.Source {
+			main = rewrite_if_source(cond),
+			config = {enable_code_action_rewrite_expression = true},
+		}
+		test.expect_action_missing(t, &source, FLIP_ACTION)
+	}
+}
+
+@(test)
+flip_comparison_typed_compound_literal_and_implicit_selector :: proc(t: ^testing.T) {
+	expect_flip_round_trip(t, "r {*}== [2]f32{0, 0}")
+	expect_flip_round_trip(t, "k {*}== .A")
+}

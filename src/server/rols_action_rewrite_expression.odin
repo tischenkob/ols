@@ -45,6 +45,10 @@ add_flip_comparison :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 		case:
 			continue
 		}
+		// An untyped compound literal takes its type from the left operand, so it cannot go first.
+		if lit, is_lit := unparen(bin.right).derived.(^ast.Comp_Lit); is_lit && lit.type == nil {
+			continue
+		}
 		text := strings.concatenate(
 			{node_text(src, bin.right), " ", mirrored, " ", node_text(src, bin.left)},
 			context.temp_allocator,
