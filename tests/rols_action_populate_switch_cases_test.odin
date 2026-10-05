@@ -352,3 +352,84 @@ f :: proc(k: Kind) {
 `,
 	)
 }
+
+// A super enum's member names are qualified by their enum, while its cases are bare names.
+@(test)
+populate_switch_cases_super_enum_complete :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Sub_One :: enum {
+	ONE,
+}
+
+Sub_Two :: enum {
+	TWO,
+}
+
+Super :: union {
+	Sub_One,
+	Sub_Two,
+}
+
+f :: proc(e: Super) {
+	swi{*}tch e {
+	case .ONE:
+	case .TWO:
+	}
+}
+`,
+	}
+
+	test.expect_action_missing(t, &source, POPULATE)
+}
+
+@(private = "file")
+KINDS :: `package kinds
+
+BASE :: 4
+
+Kind :: enum {
+	A = BASE,
+	B,
+	C = 5,
+}
+`
+
+// Member values name constants of the enum's own package, never locals at the switch.
+@(test)
+populate_switch_cases_enum_values_in_their_package :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "core:kinds"
+
+f :: proc(k: kinds.Kind) {
+	BASE :: 100
+	swi{*}tch k {
+	case .A:
+	}
+}
+`,
+		packages = {{pkg = "kinds", source = KINDS}},
+		collections = {"core" = "test"},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		POPULATE,
+		`package test
+
+import "core:kinds"
+
+f :: proc(k: kinds.Kind) {
+	BASE :: 100
+	switch k {
+	case .A:
+	case .B:
+	}
+}
+`,
+	)
+}

@@ -61,7 +61,7 @@ redundant_partial :: proc(
 			},
 			severity = .Hint,
 			code = "redundant-partial",
-			message = "#partial is unnecessary: every case is listed",
+			message = "#partial is unnecessary: every value has a case",
 			tags = unnecessary_tags,
 		},
 	)
@@ -94,17 +94,25 @@ switch_is_complete :: proc(ctx: ^LintContext, subject: ^ast.Expr, cases: map[str
 		for name in cases {
 			if !slice.contains(v.names, name) do return false
 		}
+		if len(cases) == len(v.names) do return true
+		// Without an explicit value every member is distinct, so a missing name is a missing value.
+		explicit := false
+		for value in v.values {
+			if value != nil {
+				explicit = true
+				break
+			}
+		}
+		if !explicit do return false
 		// Member values may name constants of the enum's own package.
-		ast_context := make_ast_context(
+		ast_context := package_ast_context(
 			ctx.document.ast,
 			ctx.document.imports,
 			ctx.document.package_name,
 			ctx.document.uri.uri,
 			ctx.document.fullpath,
-			context.temp_allocator,
+			resolved.symbol.pkg,
 		)
-		get_globals(ctx.document.ast, &ast_context)
-		set_ast_package_set_scoped(&ast_context, resolved.symbol.pkg)
 		return len(uncovered_enum_members(&ast_context, v, cases)) == 0
 	case SymbolUnionValue:
 		if len(cases) != len(v.types) do return false

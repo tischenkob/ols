@@ -1,3 +1,5 @@
+#+feature dynamic-literals
+
 package tests
 
 import "core:testing"
@@ -278,4 +280,38 @@ f :: proc(n: int) {
 	}
 
 	expect_fix_twice(t, cases, {enable_lint_switch = true})
+}
+
+// Member values name constants of the enum's own package, never of the switch's file.
+@(test)
+lint_redundant_partial_values_in_their_package :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "core:kinds"
+
+BASE :: 100
+
+f :: proc(k: kinds.Kind) {
+	#partial switch k {
+	case .A:
+	case .B:
+	}
+}
+`,
+		packages = {{pkg = "kinds", source = `package kinds
+
+BASE :: 4
+
+Kind :: enum {
+	A = BASE,
+	B,
+	C = 5,
+}
+`}},
+		collections = {"core" = "test"},
+		config = {enable_lint_switch = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{7, "redundant-partial"}})
 }
