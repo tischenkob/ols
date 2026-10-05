@@ -912,7 +912,13 @@ expand_call_args :: proc(ast_context: ^AstContext, call: ^ast.Call_Expr) -> ([]C
 	}
 
 	all_valid := true
+	// rols: the member of `offset_of(T, member)` is a field name, an argument without a symbol
+	member, has_member := offset_of_member_arg(call)
 	for arg in call.args {
+		if has_member && arg == &member.node {
+			append(&results, CallArg{value_expr = arg})
+			continue
+		}
 		reset_ast_context(ast_context)
 		ast_context.current_package = ast_context.document_package
 		if !append_arg(ast_context, arg, &results, &used_named) {

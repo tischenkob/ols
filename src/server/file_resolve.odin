@@ -542,7 +542,13 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 
 		data.ast_context.call = old_ast_call
 
+		// rols: the member of `offset_of(T, member)` resolves only to the field of T
+		member, has_member := offset_of_member_arg(n)
 		for arg in n.args {
+			if has_member && arg == &member.node {
+				resolve_offset_of_member(data, n, member)
+				continue
+			}
 			data.position_context.position = arg.pos.offset
 			// rols: an argument takes its type from the parameter, not from an enclosing comp literal
 			old_comp_lit, old_parent_comp_lit := data.position_context.comp_lit, data.position_context.parent_comp_lit
@@ -677,7 +683,13 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 			resolve_node(clause, data)
 		}
 		local_scope_poly(data, n.poly_params)
-		resolve_node(n.fields, data)
+		// rols: a field name declares the field, it is no use of a package or global of the same name
+		if n.fields != nil {
+			for field in n.fields.list {
+				resolve_node(field.type, data)
+				resolve_node(field.default_value, data)
+			}
+		}
 
 		if data.flag != .None {
 			for field in n.fields.list {
@@ -781,7 +793,7 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 		resolve_node(n.backing_type, data)
 		resolve_nodes(n.fields, data)
 	case ^ast.Bit_Field_Field:
-		resolve_node(n.name, data)
+		// rols: the field name is a declaration, never resolved as an identifier
 		resolve_node(n.type, data)
 		resolve_node(n.bit_size, data)
 		if data.flag != .None {
