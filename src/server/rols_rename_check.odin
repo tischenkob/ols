@@ -30,6 +30,7 @@ Rename_Target :: struct {
 	flag:     ResolveReferenceFlag,
 	old_name: string,
 	h:        Call_Hierarchy,
+	variants: []Decl_Variant, // the platform variants that the rename changes too
 }
 
 // Why renaming the symbol at position to new_name is unsafe, one sentence per cause, and warnings that
@@ -88,6 +89,9 @@ check_rename :: proc(
 		return out[:], {}
 	}
 
+	if target.flag == .Identifier {
+		target.variants = declaration_variants(&target.h, target.symbol)
+	}
 	if target.flag == .Identifier && is_builtin_name(new_name, document.fullpath) {
 		// Every reference site would report the builtin again.
 		append(&out, fmt.tprintf("`%s` is a builtin name, and the rename would shadow it", new_name))
@@ -352,25 +356,36 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 			}
 		}
 	case:
-		in_file := false
-		for decl in top_level_value_decls(decl_document.ast) {
-			for name in decl.names {
-				if ident, ok := name.derived.(^ast.Ident); ok && ident.name == new_name {
-					in_file = true
-					append(
-						out,
-						fmt.tprintf(
-							"`%s` is already declared in the package at %s%s",
-							new_name,
-							ident_text(decl_document, ident),
-							" (in a when branch)" if in_when(decl_document.ast, ident.pos.offset) else "",
-						),
-					)
+		// The files of the declaration and of its variants, each once. The index misses the other targets' files.
+		other, found := lookup(new_name, symbol.pkg, decl_document.fullpath)
+		scanned := make([dynamic]^Document, context.temp_allocator)
+		append(&scanned, decl_document)
+		next: for variant in target.variants {
+			for scan in scanned {
+				if scan.fullpath == variant.document.fullpath do continue next
+			}
+			append(&scanned, variant.document)
+		}
+		for scan in scanned {
+			for decl in top_level_value_decls(scan.ast) {
+				for name in decl.names {
+					if ident, ok := name.derived.(^ast.Ident); ok && ident.name == new_name {
+						// The index's declaration is reported here.
+						found = found && !strings.equal_fold(other.uri, scan.uri.uri)
+						append(
+							out,
+							fmt.tprintf(
+								"`%s` is already declared in the package at %s%s",
+								new_name,
+								ident_text(scan, ident),
+								" (in a when branch)" if in_when(scan.ast, ident.pos.offset) else "",
+							),
+						)
+					}
 				}
 			}
 		}
-		other, found := lookup(new_name, symbol.pkg, decl_document.fullpath)
-		if found && !(in_file && strings.equal_fold(other.uri, decl_document.uri.uri)) {
+		if found {
 			append(out, fmt.tprintf("`%s` is already declared in the package at %s", new_name, declared_at(other)))
 		}
 	}
@@ -708,6 +723,7 @@ check_captures :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name: 
 	local := .Local in symbol.flags
 
 	ast_context := globals_context(document)
+	variants := variant_symbols(target.variants)
 	locations, _ := find_symbol_references(
 		document,
 		&ast_context,
@@ -715,11 +731,13 @@ check_captures :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name: 
 		.Identifier,
 		target_name = target.old_name,
 		files = files,
+		variants = variants,
 	)
 
-	// A reference that new_name would resolve elsewhere.
+	// A reference that new_name would resolve elsewhere. A declaration, of the target or a variant, is none.
 	for location in locations {
-		if strings.equal_fold(location.uri, symbol.uri) && location.range == symbol.range {
+		if _, declaration := reference_target({uri = location.uri, range = location.range}, symbol, variants);
+		   declaration {
 			continue
 		}
 		site := hierarchy_document(&target.h, location.uri)

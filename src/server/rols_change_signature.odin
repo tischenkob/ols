@@ -71,8 +71,8 @@ signature_problem :: proc(decl: ^ast.Value_Decl, lit: ^ast.Proc_Lit) -> string {
 	return ""
 }
 
-// Every call of the procedure decl declares, in the open document and the rest of the workspace
-// (files stands in for the workspace). Fails when the procedure is referenced other than as a callee,
+// Every call of the procedure decl declares, or of one of its variants, in the open document and the rest
+// of the workspace (files stands in for the workspace). Fails when the procedure is referenced other than as a callee,
 // since its argument shape then cannot change, or when a call names, spreads or omits arguments.
 // reason says why in a sentence for the user.
 find_call_sites :: proc(
@@ -80,6 +80,7 @@ find_call_sites :: proc(
 	decl: ^ast.Value_Decl,
 	param_count: int,
 	files: []Package_File,
+	variants: []Symbol = {},
 ) -> (
 	sites: []Call_Site,
 	reason: string,
@@ -145,6 +146,7 @@ proc_references :: proc(document: ^Document, decl: ^ast.Value_Decl, files: []Pac
 		include_declaration = false,
 		target_name = name,
 		files = files,
+		variants = variants,
 	)
 	return locations
 }
@@ -272,28 +274,34 @@ reorder_params :: proc(
 		seen[i] = true
 	}
 
-	sites, sites_reason, sites_ok := find_call_sites(document, decl, len(params), files)
+	// The platform variants of the procedure take the same reorder, so they must have the same parameters.
+	h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
+	h.documents[document.uri.uri] = document
+	symbol := Symbol {
+		uri   = document.uri.uri,
+		range = common.get_token_range(decl.names[0], src),
+		pkg   = document.package_name,
+		name  = final_name(decl.names[0]),
+	}
+	variants := declaration_variants(&h, symbol)
+	for variant in variants {
+		if problem := variant_problem(variant, params, src); problem != "" {
+			where_ := location_text({uri = variant.symbol.uri, range = variant.symbol.range}, variant.document)
+			return {}, fmt.tprintf("the variant of `%s` at %s %s", symbol.name, where_, problem), false
+		}
+	}
+
+	sites, sites_reason, sites_ok := find_call_sites(document, decl, len(params), files, variant_symbols(variants))
 	if !sites_ok {
 		return {}, sites_reason, false
 	}
 
 	changes := make(Changes, context.temp_allocator)
 
-	texts := make([]string, len(params), context.temp_allocator)
-	for i, k in order {
-		texts[k] = strings.concatenate(
-			{params[i].name.name, ": ", node_text(src, params[i].field.type)},
-			context.temp_allocator,
-		)
+	reorder_param_list(&changes, document, lit, order)
+	for variant in variants {
+		reorder_param_list(&changes, variant.document, variant.decl.values[0].derived.(^ast.Proc_Lit), order)
 	}
-	fields := lit.type.params.list
-	append_edit(
-		&changes,
-		document,
-		fields[0].pos.offset,
-		fields[len(fields) - 1].end.offset,
-		strings.join(texts, ", ", context.temp_allocator),
-	)
 
 	for site in sites {
 		args := site.call.args
@@ -308,4 +316,53 @@ reorder_params :: proc(
 		}
 	}
 	return workspace_edit(changes), "", true
+}
+
+// Rewrites the parameter list of lit in document in the new order.
+@(private = "file")
+reorder_param_list :: proc(changes: ^Changes, document: ^Document, lit: ^ast.Proc_Lit, order: []int) {
+	params := param_names(lit)
+	texts := make([]string, len(params), context.temp_allocator)
+	for i, k in order {
+		texts[k] = strings.concatenate(
+			{params[i].name.name, ": ", node_text(document.ast.src, params[i].field.type)},
+			context.temp_allocator,
+		)
+	}
+	fields := lit.type.params.list
+	append_edit(
+		changes,
+		document,
+		fields[0].pos.offset,
+		fields[len(fields) - 1].end.offset,
+		strings.join(texts, ", ", context.temp_allocator),
+	)
+}
+
+// Why the variant cannot take the reorder of a procedure with params, declared in src, or "" when it can:
+// it must be a procedure whose signature may change, with the same parameter names and type texts.
+@(private = "file")
+variant_problem :: proc(variant: Decl_Variant, params: []Param_Name, src: string) -> string {
+	decl := variant.decl
+	if len(decl.names) != 1 || len(decl.values) != 1 {
+		return "is not a single procedure declaration"
+	}
+	lit, is_proc := decl.values[0].derived.(^ast.Proc_Lit)
+	if !is_proc {
+		return "is not a procedure"
+	}
+	if problem := signature_problem(decl, lit); problem != "" {
+		return fmt.tprintf("cannot change: %s", problem)
+	}
+	theirs := param_names(lit)
+	if len(theirs) != len(params) {
+		return "has different parameters"
+	}
+	for param, i in params {
+		if theirs[i].name.name != param.name.name ||
+		   node_text(variant.document.ast.src, theirs[i].field.type) != node_text(src, param.field.type) {
+			return "has different parameters"
+		}
+	}
+	return ""
 }

@@ -750,5 +750,13 @@ expect reorder-params-default "^error: a parameter has a default value$" sh -c "
 printf 'package plat\n\nKind :: enum { A, B }\nItem :: struct { kind: Kind }\ntake :: proc(it: Item) -> Kind { return it.kind }\nmain :: proc() {\n\t_ = take(Item{kind = .B})\n\t_ = Item{kind = .B}\n}\n' > "$dir/cli/plat/g.odin"
 expect refs-enum-in-comp-lit-call "g.odin:7:" "$OLS" query refs "$dir/cli/plat/g.odin:3:19"
 expect refs-enum-in-comp-lit-blank "g.odin:8:" "$OLS" query refs "$dir/cli/plat/g.odin:3:19"
+# rename changes every platform variant of a declaration, read from the files on disk, from either variant.
+mkdir "$dir/cli/variants"
+printf '#+build !windows\npackage variants\n\nf :: proc() -> int { return 1 }\n' > "$dir/cli/variants/v_host.odin"
+printf 'package variants\n\nf :: proc() -> int { return 2 }\n\ntwice :: proc() -> int { return 2 * f() }\n' > "$dir/cli/variants/v_windows.odin"
+printf 'package variants\n\ng :: proc() -> int { return f() }\n' > "$dir/cli/variants/use.odin"
+expect rename-variant-excluded '^+++ b/.*v_windows.odin' "$OLS" query rename "$dir/cli/variants/v_host.odin:4:1" h
+expect rename-variant-host '^+++ b/.*v_host.odin' "$OLS" query rename "$dir/cli/variants/v_windows.odin:3:1" h
+expect rename-variant-summary '^rename: 4 edits in 3 files$' "$OLS" query rename "$dir/cli/variants/v_windows.odin:3:1" h
 rm -rf "$dir/cli"
 echo "all ok"
