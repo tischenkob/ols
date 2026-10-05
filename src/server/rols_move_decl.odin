@@ -12,13 +12,14 @@ import "core:strings"
 import "src:common"
 
 // A top-level declaration ready to leave its file: the lines to delete from the source, the
-// lines to write elsewhere, and the imports those lines use.
+// lines to write elsewhere, the imports those lines use, and the imports only those lines use.
 Move :: struct {
 	document:           ^Document,
 	decl:               ^ast.Value_Decl,
 	del_start, del_end: int,
 	text:               string,
 	imports:            []Package,
+	stale_imports:      []Package,
 }
 
 // reason says why a move is refused.
@@ -125,6 +126,7 @@ prepare_move :: proc(document: ^Document, offset: int) -> (move: Move, reason: s
 	}
 
 	move.imports = used_imports(document, decl)
+	move.stale_imports = stale_imports(document, decl, move.imports)
 	return move, "", true
 }
 
@@ -155,7 +157,9 @@ move_edit :: proc(move: Move, target_uri: string, files: []Package_File) -> (Wor
 	}
 
 	changes := make(Changes, context.temp_allocator)
-	append_edit(&changes, document, move.del_start, move.del_end, "")
+	for cut in source_cuts(move) {
+		append_edit(&changes, document, cut[0], cut[1], "")
+	}
 	imports := make([]string, len(move.imports), context.temp_allocator)
 	for imp, i in move.imports {
 		imports[i] = node_text(document.ast.src, imp.import_decl)
@@ -313,6 +317,98 @@ used_imports :: proc(document: ^Document, decl: ^ast.Value_Decl) -> []Package {
 		}
 	}
 	return used[:]
+}
+
+// The imports in used that no other code of document names, leaving out those the file already
+// left unused. Any identifier spelled like the import counts as a use, so a shadowing local keeps it.
+@(private = "file")
+stale_imports :: proc(document: ^Document, decl: ^ast.Value_Decl, used: []Package) -> []Package {
+	if len(used) == 0 || document.ast.syntax_error_count > 0 {
+		return nil
+	}
+	names := make(map[string]struct{}, context.temp_allocator)
+	visitor := ast.Visitor {
+		data = &names,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil do return nil
+			if ident, ok := node.derived.(^ast.Ident); ok {
+				(^map[string]struct{})(visitor.data)[ident.name] = {}
+			}
+			return visitor
+		},
+	}
+	for stmt in document.ast.decls {
+		if stmt == decl do continue
+		if _, is_import := stmt.derived.(^ast.Import_Decl); is_import do continue
+		ast.walk(&visitor, stmt)
+	}
+
+	stale := make([dynamic]Package, context.temp_allocator)
+	for imp in used {
+		if imp.base != "_" && imp.base not_in names {
+			append(&stale, imp)
+		}
+	}
+	if len(stale) == 0 {
+		return nil
+	}
+	unused_before := find_unused_imports(document, context.temp_allocator)
+	#reverse for imp, i in stale {
+		for before in unused_before {
+			if before.import_decl == imp.import_decl {
+				unordered_remove(&stale, i)
+				break
+			}
+		}
+	}
+	return stale[:]
+}
+
+// The byte ranges move deletes from its file, sorted and merged: the declaration and the lines of
+// its stale imports. A stale import line between blank lines takes one of them along.
+@(private = "file")
+source_cuts :: proc(move: Move) -> [][2]int {
+	src := move.document.ast.src
+	cuts := make([dynamic][2]int, context.temp_allocator)
+	append(&cuts, [2]int{move.del_start, move.del_end})
+	if len(move.stale_imports) == 0 {
+		return cuts[:]
+	}
+	for imp in move.stale_imports {
+		start := strings.last_index_byte(src[:imp.import_decl.pos.offset], '\n') + 1
+		end := imp.import_decl.end.offset
+		if nl := strings.index_byte(src[end:], '\n'); nl >= 0 {
+			end += nl + 1
+		} else {
+			end = len(src)
+		}
+		append(&cuts, [2]int{start, end})
+	}
+	slice.sort_by(cuts[:], proc(a, b: [2]int) -> bool {return a[0] < b[0]})
+
+	merged := make([dynamic][2]int, context.temp_allocator)
+	for cut in cuts {
+		if n := len(merged); n > 0 && cut[0] <= merged[n - 1][1] {
+			merged[n - 1][1] = max(merged[n - 1][1], cut[1])
+		} else {
+			append(&merged, cut)
+		}
+	}
+	for &cut in merged {
+		if cut == {move.del_start, move.del_end} {
+			continue
+		}
+		blank_before := cut[0] >= 2 && src[cut[0] - 1] == '\n' && src[cut[0] - 2] == '\n'
+		if !blank_before {
+			continue
+		}
+		if cut[1] == len(src) {
+			cut[0] -= 1
+		} else if src[cut[1]] == '\n' {
+			cut[1] += 1
+		}
+	}
+	return merged[:]
 }
 
 package_file_exists :: proc(fullpath: string, files: []Package_File) -> bool {

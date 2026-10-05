@@ -121,6 +121,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **A `when` condition can read `pkg.NAME` only for a constant whose value folds to a bool, int or string.** Chains through other packages' constants and mutable globals are treated as unknown, which means false.
 - **`#+build` project names are matched with an empty project name**, so a `#+build !name` line does not exclude anything.
 - **`move_decl` compares the OS and architecture suffix of file names and the `#+build` lines literally.** Two spellings of the same constraint count as different, so the move is refused: `#+build linux, darwin` against `#+build darwin, linux`, or `#+build linux` against a `_linux.odin` name.
+- **`move_decl` keeps a source import when any other identifier in the file is spelled like it.** `stale_imports` in `src/server/rols_move_decl.odin` counts names, not resolved uses, so a local `strings :: 1` elsewhere in the file keeps `import "core:strings"` after the only real user moves out. Resolving the remaining code with the declaration excluded would remove it.
 
 ## Poly call result symbols (`src/server/rols_edit.odin`, `src/server/analysis.odin`)
 

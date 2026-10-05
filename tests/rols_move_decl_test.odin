@@ -10,8 +10,10 @@ move_source :: proc(main: string, files: []test.File = {}) -> (src: test.Source)
 	src.main = main
 	src.files = files
 	src.config = {enable_code_action_move_decl = true, client_create_file_support = true}
-	src.packages = make([]test.Package, 1, context.temp_allocator)
+	src.packages = make([]test.Package, 3, context.temp_allocator)
 	src.packages[0] = {pkg = "fmt", source = "package fmt\nprintln :: proc(args: ..any) {}\n"}
+	src.packages[1] = {pkg = "slice", source = "package slice\nreverse :: proc(s: []int) {}\n"}
+	src.packages[2] = {pkg = "strings", source = "package strings\nto_upper :: proc(s: string) -> string {return s}\n"}
 	src.collections = {"core" = "test"}
 	return src
 }
@@ -79,8 +81,6 @@ main :: proc() {
 		{
 			{"main.odin", `package test
 
-import "core:fmt"
-
 main :: proc() {
 	show()
 }
@@ -117,8 +117,6 @@ other :: proc() {}`}})
 		"b.odin",
 		{
 			{"main.odin", `package test
-
-import "core:fmt"
 
 main :: proc() {}
 `},
@@ -218,8 +216,6 @@ other :: proc() {
 		"b.odin",
 		{
 			{"main.odin", `package test
-
-import "core:fmt"
 
 main :: proc() {
 	show()
@@ -349,4 +345,137 @@ use :: proc() {
 }
 `, {{"b_darwin.odin", "package test\n"}})
 	test.expect_action_missing(t, &source, "Move to b_darwin.odin")
+}
+
+@(test)
+move_decl_drops_import_only_the_moved_decl_used :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+import "core:strings"
+
+u{*}p :: proc(s: string) -> string {
+	return strings.to_upper(s)
+}
+`, {{"b.odin", "package test\n\nB :: 1\n"}})
+	test.expect_move_declaration(
+		t,
+		&source,
+		"b.odin",
+		{{"main.odin", "package test\n"}, {"b.odin", `package test
+
+import "core:strings"
+
+B :: 1
+
+up :: proc(s: string) -> string {
+	return strings.to_upper(s)
+}
+`}},
+	)
+}
+
+@(test)
+move_decl_keeps_imports_the_rest_of_the_file_uses :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+import "core:fmt"
+import sl "core:slice"
+import "core:strings"
+
+keep :: proc() {
+	fmt.println("x")
+}
+
+mo{*}ved :: proc(s: []int) {
+	sl.reverse(s)
+	fmt.println(strings.to_upper("y"))
+}
+
+when ODIN_OS == .Linux {
+	other :: proc() -> string {
+		return strings.to_upper("z")
+	}
+}
+`, {{"b.odin", "package test\n"}})
+	test.expect_move_declaration(
+		t,
+		&source,
+		"b.odin",
+		{{"main.odin", `package test
+
+import "core:fmt"
+import "core:strings"
+
+keep :: proc() {
+	fmt.println("x")
+}
+
+when ODIN_OS == .Linux {
+	other :: proc() -> string {
+		return strings.to_upper("z")
+	}
+}
+`}, {"b.odin", `package test
+
+import "core:fmt"
+import sl "core:slice"
+import "core:strings"
+
+moved :: proc(s: []int) {
+	sl.reverse(s)
+	fmt.println(strings.to_upper("y"))
+}
+`}},
+	)
+}
+
+@(test)
+move_decl_keeps_import_unused_before_the_move :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+import "core:fmt"
+import "core:slice"
+
+sh{*}ow :: proc() {
+	fmt.println("x")
+}
+
+main :: proc() {}
+`, {{"b.odin", "package test\n"}})
+	test.expect_move_declaration(
+		t,
+		&source,
+		"b.odin",
+		{{"main.odin", `package test
+
+import "core:slice"
+
+main :: proc() {}
+`}, {"b.odin", `package test
+
+import "core:fmt"
+
+show :: proc() {
+	fmt.println("x")
+}
+`}},
+	)
+}
+
+@(test)
+move_decl_action_drops_import :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+import "core:fmt"
+
+main :: proc() {}
+
+sh{*}ow :: proc() {
+	fmt.println("x")
+}
+`, {{"b.odin", "package test\n"}})
+	test.expect_action_applied(t, &source, "Move to b.odin", `package test
+
+main :: proc() {}
+`)
 }
