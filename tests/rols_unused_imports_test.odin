@@ -89,3 +89,47 @@ import _ "a"
 	}
 	test.expect_unused_imports(t, &source, {})
 }
+
+@(test)
+import_named_only_in_a_union_where_clause_is_used :: proc(t: ^testing.T) {
+	source := test.Source {
+		main     = `package test
+
+import "a"
+
+U :: union($T: typeid) where size_of(T) > size_of(a.Foo) {
+	T,
+}
+`,
+		packages = a_and_b_packages(),
+	}
+	test.expect_unused_imports(t, &source, {})
+}
+
+@(test)
+import_named_only_in_a_foreign_import_path_is_used :: proc(t: ^testing.T) {
+	packages := make([dynamic]test.Package, context.temp_allocator)
+	append(&packages, test.Package{pkg = "paths", source = "package paths\n\nLIB :: \"libfoo.a\"\n"})
+	source := test.Source {
+		main     = `package test
+
+import "paths"
+
+foreign import foo { paths.LIB }
+`,
+		packages = packages[:],
+	}
+	test.expect_unused_imports(t, &source, {})
+}
+
+@(test)
+required_import_is_never_unused :: proc(t: ^testing.T) {
+	source := test.Source {
+		main     = `package test
+
+@(require) import "a"
+`,
+		packages = a_and_b_packages(),
+	}
+	test.expect_unused_imports(t, &source, {})
+}

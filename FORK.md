@@ -105,7 +105,8 @@ Small fixes:
 - `src/server/analysis.odin`: `expand_call_args` passes the member of `offset_of(T, member)` without a symbol, so a member named like a package keeps the two-argument overload.
 - `src/server/file_resolve.odin`: the `offset_of` member resolves to the field of T, and struct and bit_field field names are not resolved as identifiers.
 - `src/server/references.odin`: the `offset_of` member is a reference to its field.
-- `src/server/imports.odin`: `find_unused_imports` counts an import as used only where the file names its package, not where a value of one of its types appears.
+- `src/server/imports.odin`: `find_unused_imports` counts an import as used only where the file names its package, not where a value of one of its types appears, and never reports an `@(require)` import.
+- `src/server/file_resolve.odin`: the where clauses of a union and the paths of a foreign import are resolved, so a package named only there counts as used.
 
 Tests:
 
