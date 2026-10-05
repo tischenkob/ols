@@ -461,9 +461,7 @@ find_symbol_references :: proc(
 	}
 
 	// rols: the declared names of the variants, once each
-	if len(variants) > 0 {
-		add_variant_declarations(&locations, variants if include_declaration else nil)
-	}
+	if include_declaration do add_variant_declarations(&locations, variants)
 
 	return locations[:], true
 }

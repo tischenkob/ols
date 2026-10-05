@@ -89,7 +89,7 @@ find_call_sites :: proc(
 	h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
 	h.documents[document.uri.uri] = document
 	name := final_name(decl.names[0])
-	locations := proc_references(document, decl, files)
+	locations := proc_references(document, decl, files, variants)
 
 	found := make([dynamic]Call_Site, context.temp_allocator)
 	for location in locations {
@@ -118,9 +118,14 @@ find_call_sites :: proc(
 	return found[:], "", true
 }
 
-// Every reference to the procedure decl declares, outside the declaration, in the open document and the
-// rest of the workspace (files stands in for the workspace).
-proc_references :: proc(document: ^Document, decl: ^ast.Value_Decl, files: []Package_File) -> []common.Location {
+// Every reference to the procedure decl declares, or to one of its variants, outside the declarations, in the
+// open document and the rest of the workspace (files stands in for the workspace).
+proc_references :: proc(
+	document: ^Document,
+	decl: ^ast.Value_Decl,
+	files: []Package_File,
+	variants: []Symbol = {},
+) -> []common.Location {
 	ast_context := make_ast_context(
 		document.ast,
 		document.imports,
