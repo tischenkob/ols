@@ -156,14 +156,12 @@ gate_baseline :: proc(
 	ok: bool,
 ) {
 	all := make([dynamic]Check_Error, context.temp_allocator)
-	for &c in checks {
-		paths := checkable_paths(c.dirs)
-		if len(paths) == 0 {
-			continue
-		}
-		found, failure, ran := check_errors_for(paths, c.target)
+	for &c, i in checks {
+		// A check without a checkable directory leaves no error files behind.
+		server.check_run = {}
+		found, failure, ran := check_errors(checks[i:i + 1])
 		if !ran {
-			return {}, gate_failure(failure, c.target), false
+			return {}, failure, false
 		}
 		if c.target != "" {
 			kept := make([dynamic]string, context.temp_allocator)
@@ -185,12 +183,8 @@ gate_baseline :: proc(
 			}
 			if len(kept) < len(c.dirs) {
 				c.dirs = kept[:]
-				rerun := checkable_paths(c.dirs)
-				found = {}
-				if len(rerun) > 0 {
-					if found, failure, ran = check_errors_for(rerun, c.target); !ran {
-						return {}, gate_failure(failure, c.target), false
-					}
+				if found, failure, ran = check_errors(checks[i:i + 1]); !ran {
+					return {}, failure, false
 				}
 			}
 		}

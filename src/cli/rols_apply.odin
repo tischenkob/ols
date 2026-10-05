@@ -511,6 +511,7 @@ restore_files :: proc(files: []File_State) -> []string {
 }
 
 // The check paths of the package directories that exist and are not in checker_skip_packages.
+@(private = "file")
 checkable_paths :: proc(dirs: []string) -> []string {
 	paths := make([dynamic]string, context.temp_allocator)
 	for dir in dirs {
@@ -554,6 +555,7 @@ check_errors :: proc(
 
 // The `odin check` errors of paths for target, `-target:` of odin or empty for the current one. Fails when
 // a check could not run to a parsed result.
+@(private = "file")
 check_errors_for :: proc(paths: []string, target: string) -> (errors: []Check_Error, reason: string, ok: bool) {
 	config := &common.config
 	// The gate checks the touched packages, whatever the profile names, needs the diagnostics stored, and
@@ -734,19 +736,12 @@ finish :: proc(
 	case .Refused:
 		left := make([dynamic]string, context.temp_allocator)
 		if left_files > 0 {
-			append(
-				&left,
-				fmt.tprintf("%d %s modified", left_files, "file remains" if left_files == 1 else "files remain"),
-			)
+			append(&left, fmt.tprintf("%d %s modified", left_files, "file remains" if left_files == 1 else "files remain"))
 		}
 		if left_dirs > 0 {
 			append(
 				&left,
-				fmt.tprintf(
-					"%d %s renamed",
-					left_dirs,
-					"directory remains" if left_dirs == 1 else "directories remain",
-				),
+				fmt.tprintf("%d %s renamed", left_dirs, "directory remains" if left_dirs == 1 else "directories remain"),
 			)
 		}
 		summary = fmt.tprintf(
