@@ -121,16 +121,16 @@ run_edit :: proc(
 	check := check
 	// The packages are checked at their old paths before the write and at their new paths after it.
 	dirs := package_dirs(changed, renames)
-	targets: []string
+	checks: []Gate_Check
 	if check {
 		// An edit can break a package that imports a touched one, directly or not, without touching it.
 		importers := server.importer_dirs(dirs, &common.config)
 		dirs = slice.concatenate([][]string{dirs, importers}, context.temp_allocator)
-		targets = gate_targets(changed, importers, &reasons)
-	}
-	moved_dirs := make([]string, len(dirs), context.temp_allocator)
-	for dir, i in dirs {
-		moved_dirs[i] = renamed_path(renames, dir)
+		targets := gate_targets(changed, importers, &reasons)
+		checks = make([]Gate_Check, len(targets), context.temp_allocator)
+		for target, i in targets {
+			checks[i] = {target, dirs}
+		}
 	}
 	before: []Check_Error
 	checked := 0
@@ -143,7 +143,7 @@ run_edit :: proc(
 			)
 			check = false
 		} else {
-			before, reason, ok = check_errors(paths, targets)
+			before, reason, ok = gate_baseline(checks, &reasons)
 			if !ok {
 				append(&reasons, reason)
 				return finish(name, .Refused, edit, {}, reasons[:])
@@ -171,7 +171,7 @@ run_edit :: proc(
 	}
 
 	if check {
-		after, after_reason, after_ok := check_errors(checkable_paths(moved_dirs), targets)
+		after, after_reason, after_ok := check_errors(checks, renames)
 		if !after_ok {
 			append(&reasons, fmt.tprintf("%s after writing", after_reason))
 			return roll_back(name, .Refused, edit, changed, renames, &reasons, plan.edits)
@@ -511,7 +511,6 @@ restore_files :: proc(files: []File_State) -> []string {
 }
 
 // The check paths of the package directories that exist and are not in checker_skip_packages.
-@(private = "file")
 checkable_paths :: proc(dirs: []string) -> []string {
 	paths := make([dynamic]string, context.temp_allocator)
 	for dir in dirs {
@@ -523,14 +522,30 @@ checkable_paths :: proc(dirs: []string) -> []string {
 	return paths[:]
 }
 
-// The `odin check` errors of paths for each of targets, joined: each is a `-target:` value of odin, or empty
-// for the current one. Fails when a check could not run to a parsed result, naming its target.
-check_errors :: proc(paths: []string, targets: []string) -> (errors: []Check_Error, reason: string, ok: bool) {
+// The `odin check` errors of each gate check, joined, with its directories at their paths after renames.
+// A check without a checkable directory is skipped. Fails when a check could not run to a parsed result,
+// naming its target.
+check_errors :: proc(
+	checks: []Gate_Check,
+	renames: []Path_Rename = {},
+) -> (
+	errors: []Check_Error,
+	reason: string,
+	ok: bool,
+) {
 	all := make([dynamic]Check_Error, context.temp_allocator)
-	for target in targets {
-		found, failure, ran := check_errors_for(paths, target)
+	for c in checks {
+		dirs := make([]string, len(c.dirs), context.temp_allocator)
+		for dir, i in c.dirs {
+			dirs[i] = renamed_path(renames, dir)
+		}
+		paths := checkable_paths(dirs)
+		if len(paths) == 0 {
+			continue
+		}
+		found, failure, ran := check_errors_for(paths, c.target)
 		if !ran {
-			return {}, failure if target == "" else fmt.tprintf("%s (target %s)", failure, target), false
+			return {}, gate_failure(failure, c.target), false
 		}
 		append(&all, ..found)
 	}
@@ -539,7 +554,6 @@ check_errors :: proc(paths: []string, targets: []string) -> (errors: []Check_Err
 
 // The `odin check` errors of paths for target, `-target:` of odin or empty for the current one. Fails when
 // a check could not run to a parsed result.
-@(private = "file")
 check_errors_for :: proc(paths: []string, target: string) -> (errors: []Check_Error, reason: string, ok: bool) {
 	config := &common.config
 	// The gate checks the touched packages, whatever the profile names, needs the diagnostics stored, and
@@ -650,11 +664,16 @@ diff_label :: proc(prefix, file: string) -> string {
 	return strings.concatenate({prefix, "" if rel == file else "/", rel}, context.temp_allocator)
 }
 
-// file relative to the workspace root, or file itself outside it. When the spellings differ, both sides
-// resolve symlinks, so /var and /private/var compare equal; only the parent of file resolves, as created
-// files and rename targets do not exist yet.
-@(private = "file")
+// file relative to the workspace root, or file itself outside it.
 workspace_relative :: proc(file: string) -> string {
+	rel, _ := in_workspace(file)
+	return rel
+}
+
+// file relative to the workspace root and true, or file itself and false outside it or without a root.
+// When the spellings differ, both sides resolve symlinks, so /var and /private/var compare equal; only the
+// parent of file resolves, as created files and rename targets do not exist yet.
+in_workspace :: proc(file: string) -> (rel: string, inside: bool) {
 	if len(common.config.workspace_folders) > 0 {
 		root := common.uri_to_path(common.config.workspace_folders[0].uri, context.temp_allocator)
 		real := path.join(
@@ -663,11 +682,11 @@ workspace_relative :: proc(file: string) -> string {
 		)
 		for pair in ([2][2]string{{root, file}, {server.canonical_dir(root), real}}) {
 			if rel, inside := relative_inside(pair[0], pair[1]); inside {
-				return rel
+				return rel, true
 			}
 		}
 	}
-	return file
+	return file, false
 }
 
 // file relative to root, when it lies in root. The path leaves root when it is `..` or starts with `..` and a
@@ -715,12 +734,19 @@ finish :: proc(
 	case .Refused:
 		left := make([dynamic]string, context.temp_allocator)
 		if left_files > 0 {
-			append(&left, fmt.tprintf("%d %s modified", left_files, "file remains" if left_files == 1 else "files remain"))
+			append(
+				&left,
+				fmt.tprintf("%d %s modified", left_files, "file remains" if left_files == 1 else "files remain"),
+			)
 		}
 		if left_dirs > 0 {
 			append(
 				&left,
-				fmt.tprintf("%d %s renamed", left_dirs, "directory remains" if left_dirs == 1 else "directories remain"),
+				fmt.tprintf(
+					"%d %s renamed",
+					left_dirs,
+					"directory remains" if left_dirs == 1 else "directories remain",
+				),
 			)
 		}
 		summary = fmt.tprintf(
