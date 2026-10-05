@@ -319,10 +319,10 @@ add_c_style_for :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 }
 
 // A counter name for a range loop whose value is blank or absent: free at the loop and not named
-// in the body, so it neither captures an outer name nor is shadowed. "" when none of i, j, k fits.
+// in its bounds or body, so it neither captures an outer name nor is shadowed. "" when none of i, j, k fits.
 blank_loop_counter :: proc(ctx: ^ActionContext, loop: ^ast.Range_Stmt) -> string {
 	for base in ([]string{"i", "j", "k"}) {
-		if name := fresh_name(ctx, base, loop.pos); !mentions_any(loop.body, name) {
+		if name := fresh_name(ctx, base, loop.pos); !mentions_any(loop, name) {
 			return name
 		}
 	}

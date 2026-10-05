@@ -32,16 +32,12 @@ add_unwrap_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	#reverse for at in nodes_at({function.body}, ctx.range.start) {
-		#partial switch n in at.node.derived {
-		case ^ast.Block_Stmt:
-			if at.parent == nil {
-				continue
-			}
-			#partial switch _ in at.parent.derived {
-			case ^ast.Block_Stmt, ^ast.Case_Clause:
-				unwrap_body(ctx, n, n)
-				return
-			}
+		n, is_block := at.node.derived.(^ast.Block_Stmt)
+		if !is_block || at.parent == nil do continue
+		#partial switch _ in at.parent.derived {
+		case ^ast.Block_Stmt, ^ast.Case_Clause:
+			unwrap_body(ctx, n, n)
+			return
 		}
 	}
 }
