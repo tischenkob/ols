@@ -465,7 +465,8 @@ do_keyword :: proc(body: ^ast.Node) -> string {
 }
 
 // One indentation level: what inner adds to ind when it sits on its own deeper line, else the
-// indentation of the first indented line of the file, else a tab.
+// indentation of the first indented line of code in the file, else a tab. Lines inside a raw string
+// or block comment do not count.
 indent_unit :: proc(src, ind: string, inner: ^ast.Node) -> string {
 	if inner != nil {
 		deeper := get_line_indentation(src, inner.pos.offset)
@@ -473,11 +474,13 @@ indent_unit :: proc(src, ind: string, inner: ^ast.Node) -> string {
 			return deeper[len(ind):]
 		}
 	}
-	rest := src
-	for line in strings.split_lines_iterator(&rest) {
-		ws := len(line) - len(strings.trim_left(line, " \t"))
-		if ws > 0 && ws < len(line) {
-			return line[:ws]
+	t: tokenizer.Tokenizer
+	tokenizer.init(&t, src, "", common.parser_warning_handler)
+	for tok := tokenizer.scan(&t); tok.kind != .EOF; tok = tokenizer.scan(&t) {
+		lead := get_line_indentation(src, tok.pos.offset)
+		// A token that starts its line: the indentation reaches the token itself.
+		if len(lead) > 0 && tok.pos.column == len(lead) + 1 {
+			return lead
 		}
 	}
 	return "\t"
