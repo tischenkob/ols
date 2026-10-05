@@ -422,6 +422,18 @@ expect lint-file self-assignment "$OLS" query lint "$dir/lint/a.odin"
 if "$OLS" query lint "$dir/lint" --fail-on range-map-lookup > /dev/null; then echo "FAIL lint-fail-on: exit 0"; exit 1; fi
 "$OLS" query lint "$dir/lint" --fail-on no-such-code > /dev/null || { echo "FAIL lint-fail-on-clean"; exit 1; }
 echo "ok lint-fail-on"
+# Several paths: each is linted, in the order given, a shared file once, and --fail-on covers all of them.
+mkdir "$dir/lint2" && printf 'package lint2\n\nlower_const :: 1\n' > "$dir/lint2/c.odin"
+out="$("$OLS" query lint "$dir/lint2" "$dir/lint" "$dir/lint/a.odin")"
+[[ "$(head -1 <<<"$out")" == *lint2/c.odin* ]] || { echo "FAIL lint-multi-order:"; echo "$out"; exit 1; }
+[[ "$(grep -c '\[self-assignment\]' <<<"$out")" -eq 1 ]] || { echo "FAIL lint-multi-dedupe:"; echo "$out"; exit 1; }
+echo "ok lint-multi"
+expect_exit 1 lint-multi-fail-on "$OLS" query lint "$dir/lint2" "$dir/lint" --fail-on range-map-lookup
+expect lint-multi-json 'lint2/c.odin"' "$OLS" query lint "$dir/lint" "$dir/lint2" --json
+expect_exit 2 symbols-extra-arg "$OLS" query symbols "$dir/lint/a.odin" "$dir/lint/b.odin"
+expect_exit 2 def-extra-arg "$OLS" query def "$dir/main.odin:6:11" "$dir/main.odin:6:11"
+expect_exit 2 find-extra-arg "$OLS" query find add extra
+expect check-multi "\[naming\]" "$OLS" query check "$dir/lint" "$dir/lint2"
 expect check-lints "\[self-assignment\]" "$OLS" query check "$dir/lint"
 mdir="$dir/mod"
 mkdir "$mdir"
