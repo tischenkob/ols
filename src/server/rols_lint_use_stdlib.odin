@@ -38,6 +38,9 @@ Stdlib_Match :: struct {
 	args:       []string, // matched text per parameter, in parameter order
 	form:       Stdlib_Form,
 	target:     string, // lhs text for Assign and Decl
+	name:       string, // what the rewrite uses: the rule target, or "array assignment" for a broadcast
+	pkg:        string, // package the rewrite needs, "" for none
+	broadcast:  bool, // a fill of a fixed array, rewritten as `args[0] = args[1]`
 }
 
 @(private = "file")
@@ -292,6 +295,11 @@ finish :: proc(w: ^Stdlib_Walker, start, end: int, form: Stdlib_Form) -> (result
 		rule  = w.rule,
 		args  = args,
 		form  = form,
+		name  = w.rule.target,
+		pkg   = w.rule.pkg,
+	}
+	if w.rule.target == "slice.fill" {
+		fill_args(w, &result, m.binds[w.rule.params[0]], m.binds[w.rule.params[1]]) or_return
 	}
 	switch m.form {
 	case .None:
@@ -304,6 +312,111 @@ finish :: proc(w: ^Stdlib_Walker, start, end: int, form: Stdlib_Form) -> (result
 		result.target = node_text(m.src, m.target)
 	}
 	return result, true
+}
+
+// rols: slice.fill takes the value as the element type, so an untyped compound literal or implicit
+// selector must name that type, or the fill is not offered. A fixed array takes the value by
+// broadcast assignment instead, which needs no import.
+@(private = "file")
+fill_args :: proc(w: ^Stdlib_Walker, m: ^Stdlib_Match, s, v: ^ast.Node) -> bool {
+	ast_context := make_ast_context(
+		w.document.ast,
+		w.document.imports,
+		w.document.package_name,
+		w.document.uri.uri,
+		w.document.fullpath,
+		context.temp_allocator,
+	)
+	get_globals(w.document.ast, &ast_context)
+
+	elem: Symbol
+	elem_ok, fixed := false, false
+	if resolved, ok := resolve_entire_file(w.document)[uintptr(s)];
+	   ok && !resolved.is_unresolved && resolved.symbol != nil {
+		elem_expr: ^ast.Expr
+		#partial switch a in resolved.symbol.value {
+		case SymbolFixedArrayValue:
+			elem_expr, fixed = a.expr, true
+		case SymbolSliceValue:
+			elem_expr = a.expr
+		case SymbolDynamicArrayValue:
+			elem_expr = a.expr
+		}
+		if elem_expr != nil {
+			set_ast_package_set_scoped(&ast_context, resolved.symbol.pkg)
+			elem, elem_ok = resolve_type_expression(&ast_context, elem_expr)
+		}
+	}
+
+	value := pattern_unparen(v)
+	untyped := false
+	#partial switch e in value.derived {
+	case ^ast.Comp_Lit:
+		untyped = e.type == nil
+		if untyped && !(elem_ok && elem.pointers == 0 && takes_comp_lit(elem)) do return false
+	case ^ast.Implicit_Selector_Expr:
+		untyped = true
+		if !elem_ok || elem.pointers != 0 do return false
+		if _, is_enum := elem.value.(SymbolEnumValue); !is_enum do return false
+	}
+	if untyped {
+		// An anonymous aggregate carries the keyword as its name, which symbol_type_text would write.
+		if .Anonymous in elem.flags do return false
+		type_text := symbol_type_text(&ast_context, elem, "", require_import = true) or_return
+		m.args[1] = strings.concatenate({type_text, node_text(w.src, value)}, w.allocator)
+	}
+
+	is_nil := false
+	if ident, is_ident := value.derived.(^ast.Ident); is_ident do is_nil = ident.name == "nil"
+	if fixed && elem_ok && broadcasts(w.document, elem, is_nil) {
+		m.broadcast = true
+		m.args[0] = node_text(w.src, s)
+		m.name = "array assignment"
+		m.pkg = ""
+	}
+	return true
+}
+
+// Types that a compound literal can build. A pointer or procedure type before `{` would parse as
+// something else.
+@(private = "file")
+takes_comp_lit :: proc(symbol: Symbol) -> bool {
+	#partial switch _ in symbol.value {
+	case SymbolStructValue,
+	     SymbolUnionValue,
+	     SymbolEnumValue,
+	     SymbolBitSetValue,
+	     SymbolBitFieldValue,
+	     SymbolFixedArrayValue,
+	     SymbolSliceValue,
+	     SymbolDynamicArrayValue,
+	     SymbolMapValue,
+	     SymbolMatrixValue,
+	     SymbolBasicValue:
+		return true
+	}
+	return false
+}
+
+// rols: whether Odin assigns a value of the element type to every element of a fixed array. It
+// does, also through nested arrays, except an untyped constant into a matrix or an enumerated array,
+// and nil into a union. The value may be untyped, so those element types never broadcast.
+@(private = "file")
+broadcasts :: proc(document: ^Document, elem: Symbol, is_nil: bool) -> bool {
+	#partial switch e in elem.value {
+	case SymbolMatrixValue:
+		return false
+	case SymbolUnionValue:
+		return !is_nil || elem.pointers != 0
+	case SymbolFixedArrayValue:
+		if elem.pointers != 0 do return true
+		if len_symbol, ok := resolve_type_in_package(document, elem.pkg, e.len); ok {
+			if _, is_enum := len_symbol.value.(SymbolEnumValue); is_enum do return false
+		}
+		inner, inner_ok := resolve_type_in_package(document, elem.pkg, e.expr)
+		return inner_ok && broadcasts(document, inner, is_nil)
+	}
+	return true
 }
 
 @(private = "file")
@@ -435,6 +548,9 @@ try_expr :: proc(w: ^Stdlib_Walker, rule: ^Stdlib_Rule, node: ^ast.Node) -> (Std
 
 // `alias` replaces the rule package when the file imports it under another name.
 stdlib_rewrite :: proc(m: Stdlib_Match, alias: string) -> string {
+	if m.broadcast {
+		return strings.concatenate({m.args[0], " = ", m.args[1]}, context.temp_allocator)
+	}
 	name := m.rule.target
 	if m.rule.pkg != "" {
 		qualifier := alias if alias != "" else m.rule.pkg

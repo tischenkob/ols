@@ -220,16 +220,16 @@ modernize_fixes :: proc(
 			if len(comments_overlapping(document.ast, m.start, m.end)) > 0 do continue
 			fix := Modernize_Fix {
 				rule  = id,
-				title = fmt.tprintf("Replace with %s", m.rule.target),
+				title = fmt.tprintf("Replace with %s", m.name),
 				start = m.start,
 				end   = m.end,
 			}
 			alias := ""
-			if m.rule.pkg != "" {
-				import_path := fmt.tprintf("core:%s", m.rule.pkg)
+			if m.pkg != "" {
+				import_path := fmt.tprintf("core:%s", m.pkg)
 				imported: bool
 				alias, imported = import_alias(document, import_path)
-				if name_taken(document, m.start, alias != "" ? alias : m.rule.pkg, import_path) do continue
+				if name_taken(document, m.start, alias != "" ? alias : m.pkg, import_path) do continue
 				if !imported {
 					fix.imports = slice.clone([]string{import_path}, context.temp_allocator)
 				}
@@ -290,19 +290,18 @@ modernize_pass :: proc(
 		append(&chosen, fix)
 	}
 
-	insert, has_insert := imports_insert(document, chosen[:])
-	if has_insert {
-		outside := make([dynamic]Modernize_Fix, context.temp_allocator)
-		for fix in chosen do if !(fix.start < insert.start && insert.start < fix.end) do append(&outside, fix)
-		if len(outside) < len(chosen) {
-			chosen = outside
-			insert, has_insert = imports_insert(document, chosen[:])
-		}
+	inserts := imports_insert(document, chosen[:])
+	outside := make([dynamic]Modernize_Fix, context.temp_allocator)
+	fixes: for fix in chosen {
+		for insert in inserts do if fix.start < insert.start && insert.start < fix.end do continue fixes
+		append(&outside, fix)
+	}
+	if len(outside) < len(chosen) {
+		chosen = outside
+		inserts = imports_insert(document, chosen[:])
 	}
 	edits := slice.clone_to_dynamic(chosen[:], context.temp_allocator)
-	if has_insert {
-		append(&edits, insert)
-	}
+	append(&edits, ..inserts)
 	// An insertion goes before a replacement that starts at the same offset.
 	slice.stable_sort_by(edits[:], proc(a, b: Modernize_Fix) -> bool {
 		if a.start != b.start do return a.start < b.start
@@ -378,14 +377,35 @@ modernize_document :: proc(
 	return
 }
 
-// One insertion with an import line per missing path, sorted: after the last top-level import,
-// else after the package clause.
+// The insertions of the missing import paths, sorted. A path goes among the imports of its
+// collection. The rest share one insertion after the last top-level import, else after the
+// package clause.
 @(private = "file")
-imports_insert :: proc(document: ^Document, fixes: []Modernize_Fix) -> (Modernize_Fix, bool) {
+imports_insert :: proc(document: ^Document, fixes: []Modernize_Fix) -> []Modernize_Fix {
 	paths := make([dynamic]string, context.temp_allocator)
 	for fix in fixes do for path in fix.imports do append(&paths, path)
-	if len(paths) == 0 do return {}, false
+	if len(paths) == 0 do return nil
 	slice.sort(paths[:])
+
+	// rols: an insertion per group offset; sorted paths keep their order inside one insertion.
+	inserts := make([dynamic]Modernize_Fix, context.temp_allocator)
+	ungrouped := make([dynamic]string, context.temp_allocator)
+	grouped: for path in slice.unique(paths[:]) {
+		offset, ok := import_group_offset(document, path)
+		if !ok {
+			append(&ungrouped, path)
+			continue
+		}
+		line := fmt.tprintf("import \"%s\"\n", path)
+		for &insert in inserts {
+			if insert.start == offset {
+				insert.text = strings.concatenate({insert.text, line}, context.temp_allocator)
+				continue grouped
+			}
+		}
+		append(&inserts, Modernize_Fix{start = offset, end = offset, text = line})
+	}
+	if len(ungrouped) == 0 do return inserts[:]
 
 	src := document.ast.src
 	after, has_import := -1, false
@@ -408,10 +428,11 @@ imports_insert :: proc(document: ^Document, fixes: []Modernize_Fix) -> (Moderniz
 	b := strings.builder_make(context.temp_allocator)
 	if offset == len(src) && !strings.has_suffix(src, "\n") do strings.write_byte(&b, '\n')
 	if !has_import do strings.write_byte(&b, '\n')
-	for path in slice.unique(paths[:]) {
+	for path in ungrouped {
 		fmt.sbprintf(&b, "import \"%s\"\n", path)
 	}
-	return Modernize_Fix{start = offset, end = offset, text = strings.to_string(b)}, true
+	append(&inserts, Modernize_Fix{start = offset, end = offset, text = strings.to_string(b)})
+	return inserts[:]
 }
 
 // edits are sorted by start; one that begins inside the previous one fails the splice.

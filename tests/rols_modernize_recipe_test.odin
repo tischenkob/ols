@@ -58,8 +58,8 @@ main :: proc() {
 `,
 		`package test
 
-import "core:sort"
 import "core:slice"
+import "core:sort"
 
 main :: proc() {
 	xs := []int{3, 1}
@@ -90,9 +90,9 @@ main :: proc() {
 `,
 		`package test
 
+import "core:slice"
 import srt "core:sort"
 import sort "other:sorting"
-import "core:slice"
 
 main :: proc() {
 	xs := []int{3, 1}

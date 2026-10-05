@@ -585,9 +585,42 @@ import_alias :: proc(document: ^Document, import_path: string) -> (alias: string
 	return "", false
 }
 
-// Adds `import "<import_path>"` after the package clause, or after the last import when
-// enable_add_import_to_bottom is set.
+// The start of the line where `import "<import_path>"` goes, sorted among the top-level imports of
+// the same collection (`core`, `vendor`, or relative paths): before the first one whose path sorts
+// after it, else after the last one. False when the file imports nothing of that collection, or
+// the import that it would follow ends the file without a newline.
+import_group_offset :: proc(document: ^Document, import_path: string) -> (int, bool) {
+	collection :: proc(path: string) -> string {
+		colon := strings.index_byte(path, ':')
+		return colon >= 0 ? path[:colon] : ""
+	}
+	src := document.ast.src
+	after := -1
+	for decl in document.ast.decls {
+		imp, is_import := decl.derived.(^ast.Import_Decl)
+		if !is_import do continue
+		path := strings.trim(imp.fullpath, "\"`")
+		if collection(path) != collection(import_path) do continue
+		if import_path < path {
+			start := imp.pos.offset
+			if imp.docs != nil do start = min(start, imp.docs.pos.offset)
+			for attr in imp.attributes do start = min(start, attr.pos.offset)
+			return strings.last_index_byte(src[:start], '\n') + 1, true
+		}
+		after = imp.end.offset
+	}
+	if after < 0 do return 0, false
+	newline := strings.index_byte(src[after:], '\n')
+	if newline < 0 do return 0, false
+	return after + newline + 1, true
+}
+
+// Adds `import "<import_path>"` among the imports of its collection, else after the package
+// clause, or after the last import when enable_add_import_to_bottom is set.
 import_edit :: proc(ctx: ^ActionContext, import_path: string) -> TextEdit {
+	if offset, grouped := import_group_offset(ctx.document, import_path); grouped {
+		return {range = range_of(ctx, offset, offset), newText = fmt.tprintf("import \"%s\"\n", import_path)}
+	}
 	if ctx.config.enable_add_import_to_bottom {
 		line, is_import := find_most_bottom_line_number(ctx.ast_context)
 		return {

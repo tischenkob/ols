@@ -234,7 +234,7 @@ lint_document :: proc(document: ^Document, config: ^common.Config) -> []Diagnost
 					},
 					severity = .Hint,
 					code = "use_stdlib",
-					message = fmt.tprintf("Use %s", m.rule.target),
+					message = fmt.tprintf("Use %s", m.name),
 					tags = unnecessary_tags,
 				},
 			)

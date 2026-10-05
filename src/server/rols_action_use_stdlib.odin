@@ -14,15 +14,15 @@ add_use_stdlib_action :: proc(ctx: ^ActionContext) {
 		// rols: the call replaces the whole range, so a comment inside would be deleted.
 		if len(comments_overlapping(ctx.document.ast, m.start, m.end)) > 0 do continue
 
-		import_path := fmt.tprintf("core:%s", m.rule.pkg)
+		import_path := fmt.tprintf("core:%s", m.pkg)
 		alias, imported := import_alias(ctx.document, import_path)
 		edits := make([dynamic]TextEdit, context.temp_allocator)
 		append(&edits, TextEdit{range = range_of(ctx, m.start, m.end), newText = stdlib_rewrite(m, alias)})
-		if m.rule.pkg != "" && !imported {
+		if m.pkg != "" && !imported {
 			append(&edits, import_edit(ctx, import_path))
 		}
 
-		title := fmt.tprintf("Replace with %s", m.rule.target)
+		title := fmt.tprintf("Replace with %s", m.name)
 		append(ctx.actions, make_code_action(ctx, title, "quickfix", edits[:]))
 	}
 }

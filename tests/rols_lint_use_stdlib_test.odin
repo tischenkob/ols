@@ -698,3 +698,76 @@ main :: proc(s: []int, x: int) -> bool {
 
 	test.expect_action_missing(t, &src, "Replace with slice.contains")
 }
+
+// Sweep: a fixed array takes the fill value by broadcast, and an untyped value names the element type.
+@(test)
+use_stdlib_action_fill_broadcasts_fixed_array :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+f :: proc() {
+	sizes: [4][2]int
+	for &s in sizes {
+		s{*} = {1, 2}
+	}
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&src,
+		"Replace with array assignment",
+		`package test
+
+f :: proc() {
+	sizes: [4][2]int
+	sizes = [2]int{1, 2}
+}
+`,
+	)
+}
+
+// Sweep: the new import goes among the imports of its collection in sorted order.
+@(test)
+use_stdlib_action_import_joins_its_collection :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+import "core:fmt"
+import "core:testing"
+
+import "vendor:raylib"
+
+f :: proc(sizes: [][2]int) {
+	fmt.println(raylib.WHITE)
+	_ = testing.T
+	for &s in sizes {
+		s{*} = {1, 2}
+	}
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&src,
+		"Replace with slice.fill",
+		`package test
+
+import "core:fmt"
+import "core:slice"
+import "core:testing"
+
+import "vendor:raylib"
+
+f :: proc(sizes: [][2]int) {
+	fmt.println(raylib.WHITE)
+	_ = testing.T
+	slice.fill(sizes, [2]int{1, 2})
+}
+`,
+	)
+}
