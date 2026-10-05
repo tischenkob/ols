@@ -87,7 +87,39 @@ find_call_sites :: proc(
 ) {
 	h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
 	h.documents[document.uri.uri] = document
+	name := final_name(decl.names[0])
+	locations := proc_references(document, decl, files)
 
+	found := make([dynamic]Call_Site, context.temp_allocator)
+	for location in locations {
+		caller := hierarchy_document(&h, location.uri)
+		if caller == nil {
+			return {}, fmt.tprintf("cannot read %s", common.uri_to_path(location.uri, context.temp_allocator)), false
+		}
+		where_ := location_text(location, caller)
+		call, offset_ok := call_at_reference(caller, location)
+		if !offset_ok {
+			return {}, fmt.tprintf("cannot locate the reference at %s", where_), false
+		}
+		if call == nil {
+			return {}, fmt.tprintf("%s uses %s other than as a call", where_, name), false
+		}
+		if call.ellipsis.kind != .Invalid || len(call.args) != param_count {
+			return {}, fmt.tprintf("the call at %s spreads or omits arguments", where_), false
+		}
+		for arg in call.args {
+			if _, named := arg.derived.(^ast.Field_Value); named {
+				return {}, fmt.tprintf("the call at %s names its arguments", where_), false
+			}
+		}
+		append(&found, Call_Site{caller, call})
+	}
+	return found[:], "", true
+}
+
+// Every reference to the procedure decl declares, outside the declaration, in the open document and the
+// rest of the workspace (files stands in for the workspace).
+proc_references :: proc(document: ^Document, decl: ^ast.Value_Decl, files: []Package_File) -> []common.Location {
 	ast_context := make_ast_context(
 		document.ast,
 		document.imports,
@@ -114,39 +146,20 @@ find_call_sites :: proc(
 		target_name = name,
 		files = files,
 	)
+	return locations
+}
 
-	found := make([dynamic]Call_Site, context.temp_allocator)
-	for location in locations {
-		caller := hierarchy_document(&h, location.uri)
-		if caller == nil {
-			return {}, fmt.tprintf("cannot read %s", common.uri_to_path(location.uri, context.temp_allocator)), false
+// The call whose callee holds the reference at location, or nil when the reference is not a callee.
+// ok is false when the location lies outside the document text.
+call_at_reference :: proc(caller: ^Document, location: common.Location) -> (call: ^ast.Call_Expr, ok: bool) {
+	offset := common.get_absolute_position(location.range.start, caller.text[:caller.used_text]) or_return
+	for at in nodes_at(caller.ast.decls[:], offset) {
+		c, is_call := at.node.derived.(^ast.Call_Expr)
+		if is_call && c.expr.pos.offset <= offset && offset < c.expr.end.offset {
+			call = c
 		}
-		where_ := location_text(location, caller)
-		offset, offset_ok := common.get_absolute_position(location.range.start, caller.text[:caller.used_text])
-		if !offset_ok {
-			return {}, fmt.tprintf("cannot locate the reference at %s", where_), false
-		}
-		call: ^ast.Call_Expr
-		for at in nodes_at(caller.ast.decls[:], offset) {
-			c, is_call := at.node.derived.(^ast.Call_Expr)
-			if is_call && c.expr.pos.offset <= offset && offset < c.expr.end.offset {
-				call = c
-			}
-		}
-		if call == nil {
-			return {}, fmt.tprintf("%s uses %s other than as a call", where_, name), false
-		}
-		if call.ellipsis.kind != .Invalid || len(call.args) != param_count {
-			return {}, fmt.tprintf("the call at %s spreads or omits arguments", where_), false
-		}
-		for arg in call.args {
-			if _, named := arg.derived.(^ast.Field_Value); named {
-				return {}, fmt.tprintf("the call at %s names its arguments", where_), false
-			}
-		}
-		append(&found, Call_Site{caller, call})
 	}
-	return found[:], "", true
+	return call, true
 }
 
 // FILE:LINE:COL of a location in document, 1-based with the column in bytes, as the CLI prints positions.

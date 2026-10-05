@@ -283,3 +283,69 @@ lint_fix_twice :: proc(t: ^testing.T) {
 		},
 	)
 }
+
+@(test)
+lint_fix_unused_parameter_named_by_a_call :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a: int, hid{*}den := false) -> int {
+	return a
+}
+
+g :: proc() -> int {
+	return f(1, hidden = true)
+}
+`,
+		config = {enable_lint_unused_parameter = true},
+	}
+
+	test.expect_action_missing(t, &source, "Rename parameter to `_`")
+}
+
+@(test)
+lint_fix_unused_parameter_named_by_a_call_in_another_file :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a: int, hid{*}den := false) -> int {
+	return a
+}
+`,
+		files = {{"b.odin", `package test
+
+g :: proc() -> int {
+	return f(1, hidden = true)
+}
+`}},
+		config = {enable_lint_unused_parameter = true},
+	}
+
+	test.expect_action_missing(t, &source, "Rename parameter to `_`")
+}
+
+@(test)
+lint_fix_unused_parameter_positional_call_in_another_file :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a: int, hid{*}den := false) -> int {
+	return a
+}
+`,
+		files = {{"b.odin", `package test
+
+g :: proc() -> int {
+	return f(1, true) + f(2)
+}
+`}},
+		config = {enable_lint_unused_parameter = true},
+	}
+
+	test.expect_action_applied(t, &source, "Rename parameter to `_`", `package test
+
+f :: proc(a: int, _ := false) -> int {
+	return a
+}
+`)
+}

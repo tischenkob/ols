@@ -16,6 +16,8 @@ LintContext :: struct {
 	symbols:     Maybe(SymbolAndNodeMap),
 	// Names the file uses as values (see `value_names`), built on first use.
 	value_names: Maybe(map[string]struct{}),
+	// Names the file's calls give their arguments (see `named_arguments`), built on first use.
+	named_args:  Maybe(map[string]struct{}),
 	// Nodes a lint excluded while visiting their parent: deferred statements, proc literals whose signature
 	// an attribute fixes, callback literals, and procedures the file uses as values.
 	skip:        map[^ast.Node]struct{},
@@ -667,7 +669,9 @@ lint_unused_parameter :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynam
 				tags = unnecessary_tags,
 			},
 		)
-		if declares_one_name(lit, ident) {
+		// A call naming the argument stops compiling once the parameter is `_`. Calls in other files are
+		// checked only by the quick fix (see add_lint_fix_action).
+		if declares_one_name(lit, ident) && ident.name not_in lint_named_arguments(ctx) {
 			append(
 				&ctx.fixes,
 				Lint_Fix{ident.pos.offset, ident.end.offset, "Rename parameter to `_`", "_", "unused-parameter"},
@@ -719,6 +723,32 @@ value_names :: proc(ctx: ^LintContext) -> map[string]struct{} {
 		}
 	}
 	ctx.value_names = names
+	return names
+}
+
+@(private = "file")
+lint_named_arguments :: proc(ctx: ^LintContext) -> map[string]struct{} {
+	names, has_names := ctx.named_args.?
+	if !has_names {
+		names = named_arguments(&ctx.document.ast)
+		ctx.named_args = names
+	}
+	return names
+}
+
+// Every name a call in file gives an argument (`f(x, flag = true)` gives `flag`), whatever the callee.
+named_arguments :: proc(file: ^ast.File) -> map[string]struct{} {
+	names := make(map[string]struct{}, context.temp_allocator)
+	for stmt in file.decls {
+		for use in collect_ident_uses(stmt) {
+			if len(use.parents) < 2 do continue
+			field_value, is_field_value := use.parents[len(use.parents) - 1].derived.(^ast.Field_Value)
+			if !is_field_value || field_value.field != use.ident do continue
+			if call, is_call := use.parents[len(use.parents) - 2].derived.(^ast.Call_Expr); is_call {
+				if slice.contains(call.args, (^ast.Expr)(field_value)) do names[use.ident.name] = {}
+			}
+		}
+	}
 	return names
 }
 
