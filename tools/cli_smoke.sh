@@ -563,6 +563,10 @@ if "$OLS" query test "$dir/t" >/dev/null 2>&1; then echo "FAIL test exit code"; 
 echo "ok test failure exit"
 if "$OLS" query nonsense >/dev/null 2>&1; then echo "FAIL usage exit"; exit 1; fi
 echo "ok usage"
+# --help with any command prints the usage on stdout and exits 0, instead of reading --help as a path.
+expect modernize-help "^usage: ols query" "$OLS" query modernize --help
+expect lint-help "^usage: ols query" "$OLS" query lint -h
+expect help-alone "^usage: ols query" "$OLS" query --help
 # Compile gate: an unedited importer is checked, existing errors warn, and an existing error that names
 # the renamed symbol or package is not new.
 mkdir -p "$dir/imp/lib" "$dir/imp/use"

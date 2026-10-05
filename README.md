@@ -397,7 +397,7 @@ Support Language server features:
 
 ## Command line queries
 
-`ols query <command>` prints one line per result as `file:line:col: text`; `--json` prints the LSP objects instead. Positions are `file:line:col`, 1-based, columns in bytes, in both input and output. `--root DIR` sets the workspace, default: the nearest directory with an `ols.json` above the file, else the cwd. Every path argument, `--root` and `move --to` included, is relative to the cwd; the symlinks of the existing part of a path are resolved.
+`ols query <command>` prints one line per result as `file:line:col: text`; `--json` prints the LSP objects instead. Positions are `file:line:col`, 1-based, columns in bytes, in both input and output. `--root DIR` sets the workspace, default: the nearest directory with an `ols.json` above the file, else the cwd. Every path argument, `--root` and `move --to` included, is relative to the cwd; the symlinks of the existing part of a path are resolved. `--help` or `-h`, alone or with any command, prints the usage text on stdout and exits `0`.
 
 - `def`, `refs`, `hover`, `impl` `FILE:LINE:COL`
 - `callers`, `callees` `FILE:LINE:COL`: the call hierarchy of the procedure at the position, as `[{name, uri, range, fromRanges}]`
