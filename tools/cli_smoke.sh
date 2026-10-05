@@ -433,6 +433,11 @@ expect lint-multi-json 'lint2/c.odin"' "$OLS" query lint "$dir/lint" "$dir/lint2
 expect_exit 2 symbols-extra-arg "$OLS" query symbols "$dir/lint/a.odin" "$dir/lint/b.odin"
 expect_exit 2 def-extra-arg "$OLS" query def "$dir/main.odin:6:11" "$dir/main.odin:6:11"
 expect_exit 2 find-extra-arg "$OLS" query find add extra
+# A directory covers the packages below it, like modernize; one without a package is an error.
+mkdir -p "$dir/lintdeep/sub" "$dir/lintnone/empty"
+printf 'package sub\n\nlower_sub :: 1\n' > "$dir/lintdeep/sub/s.odin"
+expect lint-recursive "lintdeep/sub/s.odin:3:1: .*\[naming\]" "$OLS" query lint "$dir/lintdeep"
+expect_exit 1 lint-no-package "$OLS" query lint "$dir/lintnone"
 expect check-multi "\[naming\]" "$OLS" query check "$dir/lint" "$dir/lint2"
 expect check-lints "\[self-assignment\]" "$OLS" query check "$dir/lint"
 mdir="$dir/mod"

@@ -156,8 +156,7 @@ modernize :: proc(paths: []string, root: string, options: Modernize_Options) -> 
 }
 
 // Sorted absolute .odin paths, on the heap: the caller frees the temp allocator per file.
-// Directories are walked with the workspace filter; files named on the command line are kept.
-@(private = "file")
+// Directories are walked with the workspace filter; files named on the command line are kept. lint walks with it too.
 modernize_files :: proc(targets: []string, root: string) -> []string {
 	// The workspace walk of the server, which has the root as its only folder.
 	targets := len(targets) > 0 ? targets : []string{root}

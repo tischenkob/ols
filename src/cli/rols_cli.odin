@@ -32,8 +32,9 @@ USAGE :: `usage: ols query <command> [--root DIR] [--json]
   check   [DIR...]                         odin check errors plus lints, no build or run; run after every edit;
                                            exits 1 on an error. Without DIR: the cwd package, else the packages
                                            below the root that an ols.json defines
-  lint    FILE|DIR... [--fail-on CODE,...] lints only, works on code that does not compile; paths in order;
-                                           --fail-on exits 1 when a listed code is reported
+  lint    FILE|DIR... [--fail-on CODE,...] lints only, works on code that does not compile; paths in order,
+                                           a DIR with every package below it; --fail-on exits 1 when a listed
+                                           code is reported
   tests   [DIR|FILE...]                    list @(test) procedures that odin test runs on this target; without
                                            an argument as check does
   test    DIR [NAME,...]                   odin test with the collections and defines of ols.json; NAME is
@@ -188,14 +189,13 @@ run :: proc(args: []string) -> int {
 			targets[i] = absolute(arg)
 		}
 		first := targets[0]
-		setup(
-			root if root != "" else find_root(first if os.is_directory(first) else path.dir(first, context.temp_allocator)),
-		)
+		root_dir := root if root != "" else find_root(first if os.is_directory(first) else path.dir(first, context.temp_allocator))
+		setup(root_dir)
 		switch command {
 		case "check":
 			return check(targets)
 		case "lint":
-			return lint(targets, fail_on)
+			return lint(targets, fail_on, root_dir)
 		case "tests":
 			return tests(targets)
 		case:
@@ -809,17 +809,43 @@ Call :: struct {
 	fromRanges: []common.Range,
 }
 
-// Lints each of targets in order, and a file that two targets share once. fail_on lists diagnostic codes, comma
-// separated; any of them in the output makes the exit code 1.
-lint :: proc(targets: []string, fail_on: string) -> int {
+// Lints each of targets in order, and a file that two targets share once. A directory is walked like modernize
+// walks it, and each package below it is linted on its own. fail_on lists diagnostic codes, comma separated; any
+// of them in the output makes the exit code 1.
+lint :: proc(targets: []string, fail_on: string, root: string) -> int {
 	entries := make([dynamic]Entry, context.temp_allocator)
 	seen := make(map[string]struct{}, context.temp_allocator)
 	for target in targets {
-		lints, ok := collect_lints(target)
-		if !ok {
-			return 1
+		lints := make([dynamic]Entry, context.temp_allocator)
+		if !os.is_directory(target) {
+			found, ok := lint_files({target})
+			if !ok {
+				return 1
+			}
+			append(&lints, ..found)
+		} else {
+			files := modernize_files({target}, root)
+			if len(files) == 0 {
+				fmt.eprintfln("error: no package in %s", target)
+				return 1
+			}
+			packages := make(map[string][dynamic]string, context.temp_allocator)
+			for file in files {
+				dir := path.dir(file, context.temp_allocator)
+				if dir not_in packages {
+					packages[dir] = make([dynamic]string, context.temp_allocator)
+				}
+				append(&packages[dir], file)
+			}
+			for _, package_files in packages {
+				found, ok := lint_files(package_files[:])
+				if !ok {
+					return 1
+				}
+				append(&lints, ..found)
+			}
 		}
-		sort_entries(lints)
+		sort_entries(lints[:])
 		for entry in lints {
 			if entry.uri not_in seen {
 				append(&entries, entry)
@@ -857,7 +883,11 @@ collect_lints :: proc(target: string) -> ([]Entry, bool) {
 			return {}, false
 		}
 	}
+	return lint_files(files)
+}
 
+// The lints of files, which are one file or the files of one package directory.
+lint_files :: proc(files: []string) -> ([]Entry, bool) {
 	// document_open runs the per-file lints; the unused import check runs per open, as didOpen does.
 	uris := make(map[string]struct{}, context.temp_allocator)
 	document: ^server.Document
