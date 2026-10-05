@@ -370,25 +370,55 @@ f :: proc() -> int {
 `)
 }
 
-// #partial is only legal on an enum, so a union value switch stays plain.
 @(test)
-if_to_switch_union_value_is_plain :: proc(t: ^testing.T) {
+if_to_switch_unresolved_subject_qualified_value_is_partial :: proc(t: ^testing.T) {
 	expect_switch(t, `package test
 
-Value :: union { int, f32 }
+Layout :: enum { SPRITE, SHAPE, TEXT }
 
-f :: proc(v: Value) -> int {
-	{*}if v == 1 {
+f :: proc() -> int {
+	l := missing()
+	{*}if l == Layout.SHAPE {
+		return 1
+	} else {
+		return 2
+	}
+}
+`, `package test
+
+Layout :: enum { SPRITE, SHAPE, TEXT }
+
+f :: proc() -> int {
+	l := missing()
+	#partial switch l {
+	case Layout.SHAPE:
+		return 1
+	case:
+		return 2
+	}
+}
+`)
+}
+
+// #partial is only legal on an enum, so a resolved non-enum subject stays plain.
+@(test)
+if_to_switch_float_field_is_plain :: proc(t: ^testing.T) {
+	expect_switch(t, `package test
+
+Shape :: struct { radius: f32 }
+
+f :: proc(s: Shape) -> int {
+	{*}if s.radius == 1 {
 		return 1
 	}
 	return 2
 }
 `, `package test
 
-Value :: union { int, f32 }
+Shape :: struct { radius: f32 }
 
-f :: proc(v: Value) -> int {
-	switch v {
+f :: proc(s: Shape) -> int {
+	switch s.radius {
 	case 1:
 		return 1
 	}
