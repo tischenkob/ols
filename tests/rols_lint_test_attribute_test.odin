@@ -242,3 +242,64 @@ for{*}got :: proc(t: ^testing.T) {
 
 	expect_fix_twice(t, cases, {enable_lint_test_attribute = true})
 }
+
+// The message spells the type the way this file names core:testing, and avoids `testing.T` when
+// `testing` here is another package.
+@(test)
+lint_test_signature_message_names_core_testing :: proc(t: ^testing.T) {
+	cases := [?]struct {
+		source, message: string,
+	} {
+		{
+			`package test
+
+import "core:testing"
+
+@(test)
+bad :: proc() {
+}
+`,
+			"@(test) procedures must be proc(t: ^testing.T)",
+		},
+		{
+			`package test
+
+import tt "core:testing"
+
+@(test)
+bad :: proc() {
+}
+`,
+			"@(test) procedures must be proc(t: ^tt.T)",
+		},
+		{
+			`package test
+
+import testing "framework:test"
+
+@(test)
+bad :: proc(t: ^testing.T) {
+}
+`,
+			"@(test) procedures must be proc(t: ^T) with T from core:testing",
+		},
+		{
+			`package test
+
+import "framework:testing"
+
+@(test)
+bad :: proc(t: ^testing.T) {
+}
+`,
+			"@(test) procedures must be proc(t: ^T) with T from core:testing",
+		},
+	}
+	for c in cases {
+		source := test.Source {
+			main = c.source,
+			config = {enable_lint_test_attribute = true},
+		}
+		test.expect_lint_diagnostics(t, &source, {{5, "test-signature"}}, {c.message})
+	}
+}

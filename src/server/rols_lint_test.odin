@@ -30,7 +30,7 @@ lint_test_attribute :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 				range = common.get_token_range(name, ctx.src),
 				severity = .Warning,
 				code = "test-signature",
-				message = "@(test) procedures must be proc(t: ^testing.T)",
+				message = test_signature_message(ctx),
 			},
 		)
 		return
@@ -84,6 +84,20 @@ takes_testing_t :: proc(ctx: ^LintContext, lit: ^ast.Proc_Lit) -> bool {
 		return node_text(ctx.src, params.list[0].type) == fmt.tprintf("^%s.T", name)
 	}
 	return false
+}
+
+// Names the type the way this file can write it. When `testing` here is another package, the
+// usual `^testing.T` would point at that package's T.
+@(private = "file")
+test_signature_message :: proc(ctx: ^LintContext) -> string {
+	for imp in ctx.document.ast.imports {
+		if imp.fullpath != `"core:testing"` do continue
+		return fmt.tprintf("@(test) procedures must be proc(t: ^%s.T)", pattern_import_name(imp))
+	}
+	for imp in ctx.document.ast.imports {
+		if pattern_import_name(imp) == "testing" do return "@(test) procedures must be proc(t: ^T) with T from core:testing"
+	}
+	return "@(test) procedures must be proc(t: ^testing.T)"
 }
 
 @(private = "file")

@@ -892,8 +892,9 @@ package_import_path :: proc(ctx: ^ActionContext, dir: string) -> (string, bool) 
 	return rel, true
 }
 
-// Drops an action whose title, kind and edits equal an earlier one, as two providers can offer the
-// same fix; the kept action takes over isPreferred. Titles that still occur more than once get the
+// Drops an action whose title and edits equal an earlier one, as two providers can offer the same
+// fix, such as a lint quick fix and a refactoring. The kept action takes over isPreferred, and the
+// quickfix kind when either has it, since the client then lists it with its diagnostic. Titles that still occur more than once get the
 // first line of the code the action replaces in this document, shortened. A title that is still
 // shared after that gets its position among the equal ones. Unique titles stay as they are, so an
 // editor shows the usual text.
@@ -913,8 +914,9 @@ make_titles_distinct :: proc(document: ^Document, actions: ^[dynamic]CodeAction)
 	}
 	for i := 0; i < len(actions); i += 1 {
 		for j := 0; j < i; j += 1 {
-			if actions[j].title == actions[i].title && actions[j].kind == actions[i].kind && same_edits(actions[j], actions[i]) {
+			if actions[j].title == actions[i].title && same_edits(actions[j], actions[i]) {
 				actions[j].isPreferred ||= actions[i].isPreferred
+				if actions[i].kind == "quickfix" do actions[j].kind = "quickfix"
 				ordered_remove(actions, i)
 				i -= 1
 				break

@@ -21,6 +21,7 @@ add_split_merge_if_action :: proc(ctx: ^ActionContext) {
 	}
 
 	add_split_if(ctx, if_stmt, body)
+	if merge_calls_deferred(ctx.document, if_stmt) do return
 	if text, ok := merge_if_text(ctx.document.ast.src, if_stmt); ok {
 		append_replace(ctx, if_stmt, "Merge nested if", text)
 	}
@@ -116,6 +117,49 @@ merge_if_text :: proc(src: string, if_stmt: ^ast.If_Stmt) -> (string, bool) {
 	strings.write_string(&sb, ind)
 	strings.write_string(&sb, "}")
 	return strings.to_string(sb), true
+}
+
+// Odin rejects a call to a procedure with a deferred_* attribute inside `&&`, so merging fails
+// when either condition of `if a { if b { … } }` makes one. merge_if_text is syntactic; this
+// resolves the callees. An unresolved callee does not count.
+@(private = "package")
+merge_calls_deferred :: proc(document: ^Document, if_stmt: ^ast.If_Stmt) -> bool {
+	if if_stmt.body == nil do return false
+	body := if_stmt.body.derived.(^ast.Block_Stmt) or_return
+	if len(body.stmts) != 1 do return false
+	inner := body.stmts[0].derived.(^ast.If_Stmt) or_return
+	return calls_deferred(document, if_stmt.cond) || calls_deferred(document, inner.cond)
+}
+
+calls_deferred :: proc(document: ^Document, expr: ^ast.Expr) -> bool {
+	Search :: struct {
+		resolved: SymbolAndNodeMap,
+		found:    bool,
+	}
+	if expr == nil do return false
+	search := Search{resolve_entire_file(document), false}
+	visitor := ast.Visitor {
+		data = &search,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			search := (^Search)(visitor.data)
+			if node == nil || search.found do return nil
+			#partial switch n in node.derived {
+			case ^ast.Proc_Lit:
+				// A call in a nested body is not part of the condition's expression.
+				return nil
+			case ^ast.Call_Expr:
+				resolved, ok := search.resolved[uintptr(n.expr)]
+				if !ok || resolved.is_unresolved || resolved.symbol == nil do break
+				callee := resolved.symbol.value.(SymbolProcedureValue) or_break
+				for name in attribute_names(callee.attributes) {
+					if strings.has_prefix(name, "deferred_") do search.found = true
+				}
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, expr)
+	return search.found
 }
 
 write_if_head :: proc(sb: ^strings.Builder, src: string, if_stmt: ^ast.If_Stmt, cond: string) {
