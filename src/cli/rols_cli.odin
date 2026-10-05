@@ -29,12 +29,12 @@ USAGE :: `usage: ols query <command> [--root DIR] [--json]
   rename-package DIR NEW [--apply [--no-check]]
                                            renames the package in DIR: its package clauses, the import paths
                                            and unaliased old.x qualifiers of every importer, and DIR itself
-  check   [DIR]                            odin check errors plus lints, no build or run; run after every edit;
+  check   [DIR...]                         odin check errors plus lints, no build or run; run after every edit;
                                            exits 1 on an error. Without DIR: the cwd package, else the packages
                                            below the root that an ols.json defines
-  lint    FILE|DIR [--fail-on CODE,...]    lints only, works on code that does not compile;
+  lint    FILE|DIR... [--fail-on CODE,...] lints only, works on code that does not compile; paths in order;
                                            --fail-on exits 1 when a listed code is reported
-  tests   [DIR|FILE]                       list @(test) procedures that odin test runs on this target; without
+  tests   [DIR|FILE...]                    list @(test) procedures that odin test runs on this target; without
                                            an argument as check does
   test    DIR [NAME,...]                   odin test with the collections and defines of ols.json; NAME is
                                            pkg.name or name, several separated by commas
@@ -178,32 +178,33 @@ run :: proc(args: []string) -> int {
 		return check(dirs) if command == "check" else tests(dirs)
 	}
 
-	if command == "check" {
-		dir := absolute(rest_args[0])
-		setup(root if root != "" else find_root(dir))
-		return check({dir})
-	}
-
-	if command == "lint" || command == "tests" || command == "test" {
+	// check, lint and tests take several paths, test takes one; the root comes from the first path.
+	if command == "check" || command == "lint" || command == "tests" || command == "test" {
 		if len(rest_args) == 0 {
 			return usage()
 		}
-		target := absolute(rest_args[0])
+		targets := make([]string, len(rest_args), context.temp_allocator)
+		for arg, i in rest_args {
+			targets[i] = absolute(arg)
+		}
+		first := targets[0]
 		setup(
-			root if root != "" else find_root(target if os.is_directory(target) else path.dir(target, context.temp_allocator)),
+			root if root != "" else find_root(first if os.is_directory(first) else path.dir(first, context.temp_allocator)),
 		)
 		switch command {
+		case "check":
+			return check(targets)
 		case "lint":
-			return lint(target, fail_on)
+			return lint(targets, fail_on)
 		case "tests":
-			return tests({target})
+			return tests(targets)
 		case:
-			return test(target, strings.join(rest_args[1:], ",", context.temp_allocator))
+			return test(first, strings.join(rest_args[1:], ",", context.temp_allocator))
 		}
 	}
 
 	if command == "api" || command == "find" {
-		if len(rest_args) < 1 {
+		if len(rest_args) < 1 || len(rest_args) > (2 if command == "api" else 1) {
 			return usage()
 		}
 		setup(root if root != "" else find_root(cwd))
@@ -214,7 +215,7 @@ run :: proc(args: []string) -> int {
 	}
 
 	if command == "rename-package" {
-		if len(rest_args) < 2 {
+		if len(rest_args) != 2 {
 			return usage()
 		}
 		if root == "" {
@@ -230,7 +231,8 @@ run :: proc(args: []string) -> int {
 		return run_edit(command, edit, apply, check_edit, warnings, {path.base(dir), rest_args[1]})
 	}
 
-	if len(rest_args) < 1 || (command == "rename" && len(rest_args) < 2) {
+	// rename takes TARGET NEW, every other command here one target; an extra argument is a usage error.
+	if len(rest_args) != (2 if command == "rename" else 1) {
 		return usage()
 	}
 
@@ -807,13 +809,27 @@ Call :: struct {
 	fromRanges: []common.Range,
 }
 
-// fail_on lists diagnostic codes, comma separated; any of them in the output makes the exit code 1.
-lint :: proc(target: string, fail_on: string) -> int {
-	entries, ok := collect_lints(target)
-	if !ok {
-		return 1
+// Lints each of targets in order, and a file that two targets share once. fail_on lists diagnostic codes, comma
+// separated; any of them in the output makes the exit code 1.
+lint :: proc(targets: []string, fail_on: string) -> int {
+	entries := make([dynamic]Entry, context.temp_allocator)
+	seen := make(map[string]struct{}, context.temp_allocator)
+	for target in targets {
+		lints, ok := collect_lints(target)
+		if !ok {
+			return 1
+		}
+		sort_entries(lints)
+		for entry in lints {
+			if entry.uri not_in seen {
+				append(&entries, entry)
+			}
+		}
+		for entry in lints {
+			seen[entry.uri] = {}
+		}
 	}
-	print_entries(entries)
+	print_entries(entries[:], sorted = true)
 	if fail_on == "" {
 		return 0
 	}
@@ -825,6 +841,10 @@ lint :: proc(target: string, fail_on: string) -> int {
 	}
 	return 0
 }
+
+// The documents collect_lints opened, by uri, so a later target reuses them.
+@(private)
+linted_documents: map[string]^server.Document
 
 // Per-file lints, unused imports and unused private declarations of one file or a package directory.
 collect_lints :: proc(target: string) -> ([]Entry, bool) {
@@ -842,6 +862,13 @@ collect_lints :: proc(target: string) -> ([]Entry, bool) {
 	uris := make(map[string]struct{}, context.temp_allocator)
 	document: ^server.Document
 	for file in files {
+		// A file that an earlier target opened is already linted, and opening it again fails.
+		uri := common.create_uri(file, context.temp_allocator).uri
+		if opened, found := linted_documents[uri]; found {
+			document = opened
+			uris[document.uri.uri] = {}
+			continue
+		}
 		ok: bool
 		reason: string
 		document, _, _, reason, ok = open(Target{file = file, start = {1, 1}, end = {1, 1}})
@@ -851,6 +878,7 @@ collect_lints :: proc(target: string) -> ([]Entry, bool) {
 		}
 		server.check_unused_imports(document, &common.config)
 		uris[document.uri.uri] = {}
+		linted_documents[strings.clone(uri)] = document
 	}
 	if document != nil {
 		server.lint_unused_declarations(document, &common.config)
@@ -867,11 +895,18 @@ collect_lints :: proc(target: string) -> ([]Entry, bool) {
 	return entries[:], true
 }
 
-print_entries :: proc(entries: []Entry) {
+sort_entries :: proc(entries: []Entry) {
 	slice.sort_by(entries, proc(a, b: Entry) -> bool {
 		if a.uri != b.uri do return a.uri < b.uri
 		return a.diagnostic.range.start.line < b.diagnostic.range.start.line
 	})
+}
+
+// Prints entries by file and line, or in their given order when sorted is set.
+print_entries :: proc(entries: []Entry, sorted := false) {
+	if !sorted {
+		sort_entries(entries)
+	}
 	if json_output {
 		print(entries)
 		return
