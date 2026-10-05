@@ -303,6 +303,8 @@ Options:
 
 - `enable_lint_switch`: Report a `#partial` switch that already lists every case, and a `break` at the end of a case. Defaults to true.
 
+- `enable_lint_redundant_type_assertion`: Report `s.(T)` inside `case T:` of `switch _ in s`, which repeats the assertion the switch already made. The quick fix "Bind the switch variant" binds the variant in the switch (`switch &v in s`), replaces each assertion with the binding and removes local aliases such as `c := &s.(T)`. Defaults to true.
+
 - `enable_lint_call_arity`: Report a call that passes too few or too many arguments to a resolved procedure. Defaults to true.
 
 - `enable_lint_struct_literal`: Report a struct literal that sets the same field twice or names a field the struct does not have. Defaults to true.

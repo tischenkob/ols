@@ -543,6 +543,7 @@ OlsConfig :: struct {
 	enable_lint_invisible_characters:        Maybe(bool),
 	enable_lint_result_order:                Maybe(bool),
 	enable_lint_switch:                      Maybe(bool),
+	enable_lint_redundant_type_assertion:    Maybe(bool),
 	enable_lint_call_arity:                  Maybe(bool),
 	enable_lint_struct_literal:              Maybe(bool),
 	enable_lint_pure_call:                   Maybe(bool),

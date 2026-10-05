@@ -162,7 +162,7 @@ diff <(git show upstream/master:misc/ols.schema.json | grep -o '"enable_[a-z_]*"
 - `enable_code_action_ternary`
 - `enable_code_action_unwrap`
 
-### `enable_lint_*` (30)
+### `enable_lint_*` (31)
 
 - `enable_lint_allocator`
 - `enable_lint_bool_logic`
@@ -182,6 +182,7 @@ diff <(git show upstream/master:misc/ols.schema.json | grep -o '"enable_[a-z_]*"
 - `enable_lint_printf`
 - `enable_lint_pure_call`
 - `enable_lint_recursion`
+- `enable_lint_redundant_type_assertion`
 - `enable_lint_result_order`
 - `enable_lint_self_assignment`
 - `enable_lint_simplify`

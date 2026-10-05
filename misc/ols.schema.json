@@ -600,6 +600,11 @@
 			"description": "Report a '#partial' switch that already lists every case, and a 'break' at the end of a case.",
 			"default": true
 		},
+		"enable_lint_redundant_type_assertion": {
+			"type": "boolean",
+			"description": "Report a type assertion of a type switch subject to the type of the current case, with a quick fix that binds the variant in the switch instead.",
+			"default": true
+		},
 		"enable_lint_call_arity": {
 			"type": "boolean",
 			"description": "Report a call that passes too few or too many arguments to a resolved procedure.",

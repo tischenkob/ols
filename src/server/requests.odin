@@ -535,6 +535,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_lint_invisible_characters.(bool) or_else config.enable_lint_invisible_characters
 	config.enable_lint_result_order = ols_config.enable_lint_result_order.(bool) or_else config.enable_lint_result_order
 	config.enable_lint_switch = ols_config.enable_lint_switch.(bool) or_else config.enable_lint_switch
+	config.enable_lint_redundant_type_assertion =
+		ols_config.enable_lint_redundant_type_assertion.(bool) or_else config.enable_lint_redundant_type_assertion
 	config.enable_lint_call_arity = ols_config.enable_lint_call_arity.(bool) or_else config.enable_lint_call_arity
 	config.enable_lint_struct_literal =
 		ols_config.enable_lint_struct_literal.(bool) or_else config.enable_lint_struct_literal
@@ -1142,6 +1144,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_lint_invisible_characters = true
 	config.enable_lint_result_order = true
 	config.enable_lint_switch = true
+	config.enable_lint_redundant_type_assertion = true
 	config.enable_lint_call_arity = true
 	config.enable_lint_struct_literal = true
 	config.enable_lint_pure_call = true
