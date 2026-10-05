@@ -487,6 +487,10 @@ rc=0
 grep -q "m.odin:6:2: \[use-stdlib/contains\] Replace with slice.contains" "$dir/modernize.out" || { echo "FAIL modernize dry-run:"; cat "$dir/modernize.out"; exit 1; }
 echo "ok modernize dry-run"
 expect modernize-diff "^+++ b/m.odin" "$OLS" query modernize "$mdir" --diff
+# The summary counts the fixes the list prints, not the one whole-file edit per file.
+fixes=$(grep -c "^/.*: \[" "$dir/modernize.out")
+[[ $fixes -gt 1 ]] || { echo "FAIL modernize-diff-count: $fixes fixes"; exit 1; }
+expect modernize-diff-count "^modernize: $fixes edits in 1 file$" "$OLS" query modernize "$mdir" --diff
 expect modernize-apply "^modernize: .* written" "$OLS" query --root "$mdir" modernize --apply
 grep -q "return slice.contains(s, x)" "$mdir/m.odin" && grep -q '^import "core:slice"' "$mdir/m.odin" && grep -q "for i in 0 ..< len(xs)" "$mdir/m.odin" || { echo "FAIL modernize-apply"; exit 1; }
 odin check "$mdir" -no-entry-point

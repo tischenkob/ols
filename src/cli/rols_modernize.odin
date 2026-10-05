@@ -136,7 +136,8 @@ modernize :: proc(paths: []string, root: string, options: Modernize_Options) -> 
 		return refuse("modernize", ..reasons[:])
 	}
 	if options.diff || options.apply {
-		return run_edit("modernize", edit, options.apply, options.check)
+		// Each file is one whole-text edit, so the summary counts the fixes instead.
+		return run_edit("modernize", edit, options.apply, options.check, fixes = len(entries))
 	}
 
 	exit_codes := STATUS_EXIT

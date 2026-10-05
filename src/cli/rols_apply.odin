@@ -71,13 +71,15 @@ Check_Error :: struct {
 // package and each workspace package that imports one, before and after the write, and new errors
 // restore the originals. warnings do not stop the edit: text mode prints them on stderr, and JSON keeps
 // them in reasons. names, the old and new name of a rename, lets an existing error that names the old
-// one match its renamed form.
+// one match its renamed form. fixes replaces the count of text edits in the summary, for an edit that
+// replaces whole files.
 run_edit :: proc(
 	name: string,
 	edit: server.WorkspaceEdit,
 	apply, check: bool,
 	warnings: []string = {},
 	names: [2]string = {},
+	fixes: Maybe(int) = nil,
 ) -> int {
 	// Every outcome keeps the warnings.
 	reasons := make([dynamic]string, context.temp_allocator)
@@ -92,6 +94,7 @@ run_edit :: proc(
 	}
 	changed := changed_files(plan)
 	renames := plan.renames[:]
+	plan.edits = fixes.? or_else plan.edits
 	if len(changed) == 0 && len(renames) == 0 {
 		return finish(name, .Noop, edit, {}, reasons[:])
 	}
