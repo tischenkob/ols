@@ -579,7 +579,7 @@ package_ast_context :: proc(
 ) -> AstContext {
 	ast_context := make_ast_context(file, imports, document_package, uri, fullpath, context.temp_allocator)
 	get_globals(file, &ast_context)
-	set_ast_package_set_scoped(&ast_context, pkg)
+	ast_context.current_package = pkg
 	return ast_context
 }
 
