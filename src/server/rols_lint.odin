@@ -558,17 +558,29 @@ names_proc_type :: proc(ctx: ^LintContext, pkg: string, type: ^ast.Expr) -> bool
 // Resolves a type written in package `pkg`, which may be another package than the document's.
 @(private = "package")
 resolve_type_in_package :: proc(document: ^Document, pkg: string, type: ^ast.Expr) -> (Symbol, bool) {
-	ast_context := make_ast_context(
+	ast_context := package_ast_context(
 		document.ast,
 		document.imports,
 		document.package_name,
 		document.uri.uri,
 		document.fullpath,
-		context.temp_allocator,
+		pkg,
 	)
-	get_globals(document.ast, &ast_context)
-	set_ast_package_set_scoped(&ast_context, pkg)
 	return resolve_type_expression(&ast_context, type)
+}
+
+// A context without locals that resolves names in package `pkg`, seen from the open file.
+// It takes the file's fields because code actions hold an `AstContext` rather than the `Document`.
+@(private = "package")
+package_ast_context :: proc(
+	file: ast.File,
+	imports: []Package,
+	document_package, uri, fullpath, pkg: string,
+) -> AstContext {
+	ast_context := make_ast_context(file, imports, document_package, uri, fullpath, context.temp_allocator)
+	get_globals(file, &ast_context)
+	set_ast_package_set_scoped(&ast_context, pkg)
+	return ast_context
 }
 
 // bool, unions and anything named like an error must be handled by the caller,

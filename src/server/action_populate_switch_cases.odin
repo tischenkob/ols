@@ -108,9 +108,26 @@ get_switch_cases_info :: proc(
 			return {}, false
 		}
 		// rols: list only members whose value no case covers yet, so an alias such as `FIRST = A` gets no case.
-		uncovered := uncovered_enum_members(ast_context, enum_value, existing_cases)
+		// Member values are evaluated in the enum's package. A super enum's names are qualified, so it keeps all.
+		names := enum_value.names
+		if !was_super_enum {
+			pkg := ast_context.document_package
+			reset_ast_context(ast_context)
+			if subject, resolved := resolve_type_expression(ast_context, position_context.switch_stmt.cond); resolved {
+				pkg = subject.pkg
+			}
+			enum_context := package_ast_context(
+				ast_context.file,
+				ast_context.imports,
+				ast_context.document_package,
+				ast_context.uri,
+				ast_context.fullpath,
+				pkg,
+			)
+			names = uncovered_enum_members(&enum_context, enum_value, existing_cases)
+		}
 		return SwitchBlockInfo {
-				names = uncovered,
+				names = names,
 				existing_cases = existing_cases,
 				switch_indentation = switch_indentation,
 				is_enum = !was_super_enum,
@@ -196,15 +213,9 @@ add_populate_switch_cases_action :: proc(
 	info, ok := get_switch_cases_info(ast_context, position_context)
 	if !ok {return}
 
-	// rols: offer the action only when a name is missing, since aliases make counting cases unreliable.
-	missing := false
-	for name in info.names {
-		if name not_in info.existing_cases {
-			missing = true
-			break
-		}
-	}
-	if !missing {return}
+	// rols: an enum's names are only its uncovered members, so counting cases decides for unions and super enums.
+	if info.is_enum && len(info.names) == 0 {return}
+	if !info.is_enum && len(info.existing_cases) == len(info.names) {return} //action not needed
 	edit, edit_ok := create_populate_switch_cases_edit(position_context, info)
 	if !edit_ok {return}
 	textEdits := make([dynamic]TextEdit, context.temp_allocator)
