@@ -195,7 +195,10 @@ prepare_references :: proc(
 			}
 		}
 
-		if position_context.identifier != nil {
+		// rols: the member of `offset_of(T, member)` is the field of T
+		if member, is_member := resolve_location_offset_of_member(ast_context, position_context); is_member {
+			symbol, resolve_flag = member, .Field
+		} else if position_context.identifier != nil {
 			ident := position_context.identifier.derived.(^ast.Ident)
 			symbol, ok = resolve_location_identifier(ast_context, ident^)
 
