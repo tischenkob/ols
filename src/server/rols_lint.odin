@@ -744,8 +744,8 @@ named_arguments :: proc(file: ^ast.File) -> map[string]struct{} {
 			if len(use.parents) < 2 do continue
 			field_value, is_field_value := use.parents[len(use.parents) - 1].derived.(^ast.Field_Value)
 			if !is_field_value || field_value.field != use.ident do continue
-			if call, is_call := use.parents[len(use.parents) - 2].derived.(^ast.Call_Expr); is_call {
-				if slice.contains(call.args, (^ast.Expr)(field_value)) do names[use.ident.name] = {}
+			if _, is_call := use.parents[len(use.parents) - 2].derived.(^ast.Call_Expr); is_call {
+				names[use.ident.name] = {}
 			}
 		}
 	}
@@ -753,7 +753,6 @@ named_arguments :: proc(file: ^ast.File) -> map[string]struct{} {
 }
 
 // A mention that neither declares a name, calls it, nor names a field, parameter or group member.
-@(private = "file")
 is_value_use :: proc(use: IdentUse) -> bool {
 	if len(use.parents) == 0 do return false
 	#partial switch parent in use.parents[len(use.parents) - 1].derived {
@@ -767,7 +766,7 @@ is_value_use :: proc(use: IdentUse) -> bool {
 		return !slice.contains(parent.names, (^ast.Expr)(use.ident))
 	case ^ast.Field:
 		return parent.default_value == (^ast.Expr)(use.ident)
-	case ^ast.Proc_Group:
+	case ^ast.Proc_Group, ^ast.Implicit_Selector_Expr:
 		return false
 	}
 	return true
