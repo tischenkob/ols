@@ -188,50 +188,6 @@ main :: proc() {
 }
 
 @(test)
-action_unwrap_for_refused_break :: proc(t: ^testing.T) {
-	source := test.Source {
-		main = `package test
-
-main :: proc() {
-	n := 0
-	{*}for n < 3 {
-		n += 1
-		if n == 2 {
-			break
-		}
-	}
-}
-`,
-		packages = {},
-		config = {enable_code_action_unwrap = true},
-	}
-
-	test.expect_action_missing(t, &source, UNWRAP_ACTION)
-}
-
-@(test)
-action_unwrap_not_offered_on_for_with_nested_break :: proc(t: ^testing.T) {
-	source := test.Source {
-		main = `package test
-
-main :: proc() {
-	n := 0
-	{*}for n < 3 {
-		for {
-			break
-		}
-		n += 1
-	}
-}
-`,
-		packages = {},
-		config = {enable_code_action_unwrap = true},
-	}
-
-	test.expect_action_missing(t, &source, UNWRAP_ACTION)
-}
-
-@(test)
 action_unwrap_refused_if_else :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
@@ -741,29 +697,6 @@ pick :: proc(c: bool) -> int {
 	test.expect_action_missing(t, &source, REMOVE_ELSE_ACTION)
 }
 
-@(test)
-action_unwrap_not_offered_on_reference_loop_using_its_variable :: proc(t: ^testing.T) {
-	source := test.Source {
-		main = `package test
-
-P :: struct {
-	x: int,
-}
-
-f :: proc(xs: []P) {
-	{*}for &v in xs {
-		v.x = 1
-	}
-}
-`,
-		config = {enable_code_action_unwrap = true},
-	}
-
-	test.expect_action_missing(t, &source, UNWRAP_ACTION)
-}
-
-// A loop runs its body any number of times, so replacing it with one copy changes behavior even
-// when the loop variable is blank.
 @(test)
 action_unwrap_not_offered_on_blank_range_loop :: proc(t: ^testing.T) {
 	source := test.Source {

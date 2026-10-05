@@ -403,6 +403,35 @@ f :: proc(n: int) -> int {
 `)
 }
 
+// The counter must not take the name of an import alias that the bound reads.
+@(test)
+expand_range_blank_value_avoids_bound_names :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import i "other"
+
+f :: proc() {
+	for _ {*}in 0 ..< i.N {
+		g()
+	}
+}
+`,
+		packages = {{pkg = "other", source = "package other\n\nN :: 4\n"}},
+		config = {enable_code_action_expand = true},
+	}
+	test.expect_action_applied(t, &source, C_STYLE_FOR, `package test
+
+import i "other"
+
+f :: proc() {
+	for j := 0; j < i.N; j += 1 {
+		g()
+	}
+}
+`)
+}
+
 @(test)
 expand_range_no_value :: proc(t: ^testing.T) {
 	expect_expand(t, C_STYLE_FOR, `package test
