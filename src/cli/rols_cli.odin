@@ -13,7 +13,7 @@ import "core:strings"
 import "src:common"
 import "src:server"
 
-USAGE :: `usage: ols query <command> [--root DIR] [--json]
+USAGE :: `usage: ols query <command> [--root DIR] [--json] [--help]
   def     FILE:LINE:COL                    where the symbol is declared
   refs    FILE:LINE:COL                    every use across the workspace
   impl    FILE:LINE:COL                    members of a proc group, or the groups a proc belongs to
@@ -120,6 +120,10 @@ run :: proc(args: []string) -> int {
 				return usage()
 			}
 			move_to = args[i]
+		case "--help", "-h":
+			// With any command: a requested usage text is an answer, so it goes to stdout and exits 0.
+			fmt.print(USAGE)
+			return 0
 		case "--json":
 			json_output = true
 		case "--all":
