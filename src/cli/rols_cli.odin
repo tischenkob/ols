@@ -83,7 +83,9 @@ Target :: struct {
 json_output: bool
 
 run :: proc(args: []string) -> int {
-	context.logger = log.create_console_logger(.Error)
+	// The server logs what an editor log would show, such as a file the indexer cannot parse; the commands
+	// report what matters to them on stderr themselves. read_ols_json logs the config errors.
+	context.logger = log.nil_logger()
 
 	root, apply_title, order_text, move_to := "", "", "", ""
 	fail_on := ""
@@ -571,6 +573,7 @@ setup :: proc(root: string) {
 
 // Also called for a missing file: read_ols_initialize_options adds the core, base and vendor collections.
 read_ols_json :: proc(file: string, uri: common.Uri) {
+	context.logger = log.create_console_logger(.Error)
 	ols_config: server.OlsConfig
 	if data, err := os.read_entire_file(file, context.temp_allocator); err == nil {
 		if json_err := json.unmarshal(data, &ols_config, allocator = context.temp_allocator); json_err != nil {

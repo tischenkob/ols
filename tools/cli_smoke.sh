@@ -438,6 +438,12 @@ mkdir -p "$dir/lintdeep/sub" "$dir/lintnone/empty"
 printf 'package sub\n\nlower_sub :: 1\n' > "$dir/lintdeep/sub/s.odin"
 expect lint-recursive "lintdeep/sub/s.odin:3:1: .*\[naming\]" "$OLS" query lint "$dir/lintdeep"
 expect_exit 1 lint-no-package "$OLS" query lint "$dir/lintnone"
+# The indexer's log lines, such as a file of an imported package that does not parse, stay off stderr.
+mkdir -p "$dir/logq/z" "$dir/logq/use"
+printf 'x := 1\n' > "$dir/logq/z/bad.odin"
+printf 'package use\n\nimport "../z"\n\nmain :: proc() {\n\t_ = z.x\n}\n' > "$dir/logq/use/u.odin"
+if "$OLS" query lint "$dir/logq/use" 2>&1 >/dev/null | grep -q '\[ERROR\]'; then echo "FAIL cli-no-index-log"; exit 1; fi
+echo "ok cli-no-index-log"
 expect check-multi "\[naming\]" "$OLS" query check "$dir/lint" "$dir/lint2"
 expect check-lints "\[self-assignment\]" "$OLS" query check "$dir/lint"
 mdir="$dir/mod"
