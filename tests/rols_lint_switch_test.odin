@@ -19,6 +19,13 @@ Value :: union {
 	string,
 }
 
+Kind :: enum {
+	A,
+	B,
+	C,
+	LAST = C,
+}
+
 all_enum :: proc(c: Color) {
 	#partial switch c {
 	case .Red:
@@ -59,6 +66,13 @@ not_partial :: proc(c: Color) {
 	}
 }
 
+aliased :: proc(k: Kind) {
+	#partial switch k {
+	case .A, .B:
+	case .LAST:
+	}
+}
+
 not_enum :: proc(n: int) {
 	#partial switch n {
 	case 0:
@@ -72,7 +86,7 @@ not_enum :: proc(n: int) {
 	test.expect_lint_diagnostics(
 		t,
 		&source,
-		{{13, "redundant-partial"}, {20, "redundant-partial"}, {26, "redundant-partial"}},
+		{{20, "redundant-partial"}, {27, "redundant-partial"}, {33, "redundant-partial"}, {60, "redundant-partial"}},
 	)
 }
 
