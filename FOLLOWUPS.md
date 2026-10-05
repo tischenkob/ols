@@ -75,6 +75,8 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## CLI queries (`src/cli/rols_cli.odin`, `src/server/rols_find.odin`)
 
+- **`lint DIR` and `check` filter directories, not files.** `package_dirs_below` keeps or drops whole directories, and `collect_lints` then globs every `.odin` file of a kept directory, so a gitignored file inside a kept directory is linted, and the `DIR` given on the command line is never filtered. Filtering files in `collect_lints` would change `check` too.
+
 - **`check` and `tests` in a directory without `.odin` files cover every package of the root, with one `odin check` per package.** The run gets the 20 s of an editor check for each batch of cores packages, capped at 10 minutes (`gate_check_timeout`), and the packages share no cache, so a large repository takes long.
 - **`checker_skip_packages` compares the literal path.** The CLI resolves symlinks in its paths, so an entry that goes through a symlink such as macOS `/var` or `/tmp` never matches, and `ols query check` still checks the package. The smoke case `check-skipped-package` passed only because `check` always exited `0`.
 - **`find` parses every workspace `.odin` file on each call.** The LSP workspace symbols read the index, which parses each package once. `find_symbols` reads all files again, so a call on a large tree such as Odin's `core/` costs one parse of the tree. A cache across calls does not help a one-shot CLI process.
