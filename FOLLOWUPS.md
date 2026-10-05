@@ -122,6 +122,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **`#+build` project names are matched with an empty project name**, so a `#+build !name` line does not exclude anything.
 - **`move_decl` compares the OS and architecture suffix of file names and the `#+build` lines literally.** Two spellings of the same constraint count as different, so the move is refused: `#+build linux, darwin` against `#+build darwin, linux`, or `#+build linux` against a `_linux.odin` name.
 - **`move_decl` keeps a source import when any other identifier in the file is spelled like it.** `stale_imports` in `src/server/rols_move_decl.odin` counts names, not resolved uses, so a local `strings :: 1` elsewhere in the file keeps `import "core:strings"` after the only real user moves out. Resolving the remaining code with the declaration excluded would remove it.
+- **`move_decl` adds every import the moved declaration spells to the target, even one a local shadows.** `used_imports` in `src/server/rols_move_decl.odin` matches selector names, so moving `show :: proc(strings: T) { _ = strings.f }` writes an unused `import "core:strings"` into the target. The test `move_decl_keeps_import_unused_before_the_move` records it.
 
 ## Poly call result symbols (`src/server/rols_edit.odin`, `src/server/analysis.odin`)
 
