@@ -92,6 +92,8 @@ simplifications :: proc(document: ^Document) -> []Simplification {
 			for rule in rules {
 				// rols: dropping `== true` must not change the type of the expression.
 				if rule == simplify_bool_compare && compares_non_bool(w.document, node) do continue
+				// rols: merging would put a call with a deferred procedure inside `&&`.
+				if rule == simplify_nested_if && merges_deferred_if(w.document, node) do continue
 				rule(w.src, node, w.stack[:], &w.out)
 			}
 			append(&w.stack, node)
@@ -633,6 +635,12 @@ simplify_nested_if :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out: ^[
 		return
 	}
 	append(out, Simplification{if_stmt.pos.offset, if_stmt.end.offset, "nested-if", "Merge nested if", text})
+}
+
+@(private = "file")
+merges_deferred_if :: proc(document: ^Document, node: ^ast.Node) -> bool {
+	if_stmt := node.derived.(^ast.If_Stmt) or_return
+	return merge_calls_deferred(document, if_stmt)
 }
 
 @(private = "file")

@@ -35,6 +35,8 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **printf type checks stop at the first multi-value call.** `lint_printf` skips every argument from `spread_at` on. Mapping each format index to its expanded result would keep later arguments checked.
 - **printf misses a surplus after `*[n]`, and over-counts `{:*d}`.** `aprintf("%*[1]s", "ab", 6, 7)` is silent, but core:fmt reports `%!(EXTRA 7)`: any index below the argument count that is not in `used` is extra. `{:*d}` reads the same argument for `*` and the value in core:fmt, while the lint asks for two.
 
+- **The nested-if merge refuses a deferred callee only when it resolves.** `merge_calls_deferred` in `src/server/rols_action_split_merge_if.odin` reads the whole-file resolve map, so a call whose callee does not resolve, or a call through a procedure group, still merges even if the procedure has a `deferred_*` attribute. The other rewrites that write `&&` or `||` (the De Morgan rewrite in `rols_action_rewrite_expression.odin` and invert-if) only reshape an existing logical expression, so they cannot introduce the error.
+
 ## Safe-rename check (`src/server/rols_rename_check.odin`)
 
 - **Field renames still read every workspace file.** `check_embedders` passes `require_text = "using"` to `find_symbol_references`, so a file is parsed only when it mentions both the owner type and `using`. The search still reads every file to test that. On 200 files that mention the type, the dry-run `ols query rename` of a field took 0.50 s before and 0.33 s after. A cached word index of the workspace would remove the reads.

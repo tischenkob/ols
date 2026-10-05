@@ -1,5 +1,6 @@
 package tests
 
+import "core:strings"
 import "core:testing"
 
 import test "src:testing"
@@ -3261,4 +3262,164 @@ f :: proc(c: bool) {
 	}
 
 	test.expect_action_missing(t, &source, "Merge nested if")
+}
+
+// Odin rejects a call to a procedure with a deferred_* attribute inside `&&` or `||`.
+NESTED_IF_DEFERRED_SOURCE :: `package test
+
+import "draw"
+
+end :: proc(ok: bool) {}
+leave :: proc() {}
+
+@(deferred_out = end)
+begin :: proc() -> bool { return true }
+@(deferred_in = end)
+enter :: proc(ok: bool) -> bool { return ok }
+@(deferred_in_out = end)
+both :: proc(ok: bool) -> bool { return ok }
+@(deferred_none = leave)
+plain :: proc() -> bool { return true }
+check :: proc(ok: bool) -> bool { return ok }
+
+f :: proc(done: bool) {
+	if !done {
+		if begin() {
+		}
+	}
+	if enter(done) {
+		if done {
+		}
+	}
+	if done {
+		if !check(both(done)) {
+		}
+	}
+	if done {
+		if plain() || done {
+		}
+	}
+	if done {
+		if draw.pass(1) {
+		}
+	}
+	if done {
+		if check(done) {
+		}
+	}
+}
+`
+
+@(private = "file")
+draw_package :: proc() -> []test.Package {
+	packages := make([dynamic]test.Package, context.temp_allocator)
+	append(
+		&packages,
+		test.Package {
+			pkg = "draw",
+			source = `package draw
+
+end_pass :: proc(ok: bool) {}
+
+@(deferred_out = end_pass)
+pass :: proc(n: int) -> bool { return n > 0 }
+`,
+		},
+	)
+	return packages[:]
+}
+
+@(test)
+lint_simplify_nested_if_refuses_deferred_calls :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = NESTED_IF_DEFERRED_SOURCE,
+		packages = draw_package(),
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{38, "nested-if"}})
+}
+
+@(test)
+action_merge_nested_if_refuses_deferred_call :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+end :: proc(ok: bool) {}
+
+@(deferred_out = end)
+begin :: proc() -> bool { return true }
+
+f :: proc(done: bool) {
+	{*}if !done {
+		if begin() {
+			_ = 1
+		}
+	}
+}
+`,
+		config = {enable_code_action_split_merge_if = true},
+	}
+
+	test.expect_action_missing(t, &source, "Merge nested if")
+}
+
+@(test)
+modernize_nested_if_refuses_deferred_calls :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = NESTED_IF_DEFERRED_SOURCE,
+		packages = draw_package(),
+		config = {enable_lint_simplify = true},
+	}
+
+	merged, _ := strings.replace(
+		NESTED_IF_DEFERRED_SOURCE,
+		"if done {\n\t\tif check(done) {\n\t\t}\n\t}",
+		"if done && check(done) {\n\t}",
+		1,
+		context.temp_allocator,
+	)
+	test.expect_modernized(t, &source, {"nested-if"}, merged)
+}
+
+// The lint quick fix and the refactoring build the same edit under the same title.
+@(test)
+action_merge_nested_if_offered_once :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a, b: bool) {
+	{*}if a {
+		if b {
+			_ = 1
+		}
+	}
+}
+`,
+		config = {enable_lint_simplify = true, enable_code_action_split_merge_if = true},
+	}
+
+	test.expect_action(t, &source, {"Merge nested if"})
+}
+
+// Two merges at one position share a title but not an edit, so both stay, told apart by their code.
+@(test)
+action_merge_nested_if_keeps_distinct_merges :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a, b, c: bool) {
+	if a {
+		if b {
+			if {*}c {
+				_ = 1
+			}
+		}
+	}
+}
+`,
+		config = {enable_lint_simplify = true, enable_code_action_split_merge_if = true},
+	}
+
+	test.expect_action(t, &source, {"Merge nested if (if a {)", "Merge nested if (if b {)"})
 }
