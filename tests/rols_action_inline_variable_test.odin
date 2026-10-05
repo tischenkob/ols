@@ -416,3 +416,248 @@ main :: proc() {
 		{"a + b)", "value :="},
 	)
 }
+
+INLINE_ORDER_PRELUDE :: `package test
+
+counter: int
+
+bump :: proc() -> int {
+	counter += 1
+	return counter
+}
+
+reset :: proc() {
+	counter = 100
+}
+`
+
+@(test)
+action_inline_variable_refused_call_moved_past_statement :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, INLINE_ORDER_PRELUDE + `
+f :: proc() -> int {
+	v{*} := bump()
+	reset()
+	return v
+}
+`)
+}
+
+@(test)
+action_inline_variable_call_into_next_statement :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		INLINE_ORDER_PRELUDE + `
+f :: proc() -> int {
+	reset()
+	v{*} := bump()
+	return v + 1
+}
+`,
+		INLINE_ORDER_PRELUDE + `
+f :: proc() -> int {
+	reset()
+	return bump() + 1
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_call_after_earlier_call :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, INLINE_ORDER_PRELUDE + `
+f :: proc() {
+	v{*} := bump()
+	foo(bump(), v)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_call_into_condition :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, INLINE_ORDER_PRELUDE + `
+f :: proc(c: bool) {
+	v{*} := bump()
+	if c {
+		foo(v)
+	}
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_call_into_short_circuit :: proc(t: ^testing.T) {
+	expect_no_inline_variable(
+		t,
+		INLINE_ORDER_PRELUDE + `
+f :: proc(c: bool) -> bool {
+	v{*} := bump()
+	return c && v > 1
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_call_into_loop :: proc(t: ^testing.T) {
+	expect_no_inline_variable(
+		t,
+		INLINE_ORDER_PRELUDE + `
+f :: proc() {
+	v{*} := bump()
+	for i in 0 ..< 3 {
+		foo(v)
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_pure_past_statements :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		INLINE_ORDER_PRELUDE + `
+f :: proc() {
+	a, b := 1, 2
+	v{*} := a + b
+	reset()
+	foo(v)
+}
+`,
+		INLINE_ORDER_PRELUDE + `
+f :: proc() {
+	a, b := 1, 2
+	reset()
+	foo(a + b)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_global_read_past_call :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, INLINE_ORDER_PRELUDE + `
+f :: proc() -> int {
+	v{*} := counter
+	reset()
+	return v
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_input_written_later_in_loop :: proc(t: ^testing.T) {
+	expect_no_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	a := 1
+	v{*} := a
+	for i in 0 ..< 3 {
+		foo(v)
+		a += 1
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_input_address_taken_before :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	a := 1
+	p := &a
+	v{*} := a
+	p^ = 2
+	foo(v)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_index_read_past_call :: proc(t: ^testing.T) {
+	expect_no_inline_variable(
+		t,
+		`package test
+
+clear_first :: proc(s: []int) {
+	s[0] = 0
+}
+
+main :: proc() {
+	s := []int{1}
+	v{*} := s[0]
+	clear_first(s)
+	foo(v)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_call_into_next_declaration :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		INLINE_ORDER_PRELUDE + `
+f :: proc() -> int {
+	v{*} := bump()
+	y := v * 2
+	return y
+}
+`,
+		INLINE_ORDER_PRELUDE + `
+f :: proc() -> int {
+	y := bump() * 2
+	return y
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_call_after_earlier_read :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, INLINE_ORDER_PRELUDE + `
+f :: proc() -> int {
+	v{*} := bump()
+	return counter + v
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_parameter_field_read_past_call :: proc(t: ^testing.T) {
+	expect_no_inline_variable(
+		t,
+		`package test
+
+Point :: struct {
+	y: int,
+}
+
+clear_point :: proc(p: ^Point) {
+	p.y = 0
+}
+
+main :: proc(p: ^Point) {
+	v{*} := p.y
+	clear_point(p)
+	foo(v)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_call_into_compound_assignment :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, INLINE_ORDER_PRELUDE + `
+f :: proc() -> int {
+	total := 1
+	v{*} := bump()
+	total += v
+	return total
+}
+`)
+}
