@@ -80,18 +80,16 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	strings.write_byte(&sb, '(')
 	strings.write_string(&sb, strings.join(args, ", ", context.temp_allocator))
 	strings.write_string(&sb, ")\n")
+	checks := strings.builder_make(context.temp_allocator)
 	for name, i in names {
 		if results[i].collection {
 			fmt.sbprintf(&sb, "%sdefer delete(%s)\n", unit, name)
-		}
-	}
-	for name, i in names {
-		if results[i].collection {
-			fmt.sbprintf(&sb, "%stesting.expect(t, len(%s) == 0)\n", unit, name)
+			fmt.sbprintf(&checks, "%stesting.expect(t, len(%s) == 0)\n", unit, name)
 		} else {
-			fmt.sbprintf(&sb, "%stesting.expect_value(t, %s, %s)\n", unit, name, results[i].zero)
+			fmt.sbprintf(&checks, "%stesting.expect_value(t, %s, %s)\n", unit, name, results[i].zero)
 		}
 	}
+	strings.write_string(&sb, strings.to_string(checks))
 	strings.write_string(&sb, "}\n")
 
 	uri := common.create_uri(test_path, context.temp_allocator)
@@ -113,8 +111,8 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	)
 }
 
-// Zero values for the parameters without a default value. A parameter after a skipped one is passed
-// by name, since its position no longer matches.
+// Zero values for the parameters without a default value and not variadic. A parameter after a
+// skipped one is passed by name, since its position no longer matches.
 call_arguments :: proc(ctx: ^ActionContext, fields: ^ast.Field_List) -> []string {
 	args := make([dynamic]string, context.temp_allocator)
 	if fields == nil {
@@ -122,23 +120,26 @@ call_arguments :: proc(ctx: ^ActionContext, fields: ^ast.Field_List) -> []string
 	}
 	named := false
 	for field in fields.list {
-		if field.default_value != nil {
+		if field.default_value != nil || field.type == nil || is_variadic(field.type) {
 			named = true
 			continue
 		}
 		symbol, resolved := resolve_type_expression(ctx.ast_context, field.type)
 		value := zero_value_text(symbol, resolved)
-		if !named || len(field.names) == 0 {
-			for _ in 0 ..< max(len(field.names), 1) {
+		for i in 0 ..< max(len(field.names), 1) {
+			if named && i < len(field.names) {
+				append(&args, fmt.tprintf("%s = %s", node_text(ctx.document.ast.src, field.names[i]), value))
+			} else {
 				append(&args, value)
 			}
-			continue
-		}
-		for name in field.names {
-			append(&args, fmt.tprintf("%s = %s", node_text(ctx.document.ast.src, name), value))
 		}
 	}
 	return args[:]
+}
+
+is_variadic :: proc(type: ^ast.Expr) -> bool {
+	_, ok := type.derived.(^ast.Ellipsis)
+	return ok
 }
 
 Result_Check :: struct {
@@ -165,6 +166,10 @@ result_checks :: proc(ctx: ^ActionContext, fields: ^ast.Field_List) -> (checks: 
 		if resolved && symbol.pointers == 0 {
 			#partial switch _ in symbol.value {
 			case SymbolSliceValue, SymbolDynamicArrayValue, SymbolMapValue:
+				// `delete` has no overload for a fixed-capacity dynamic array.
+				if v, fixed := symbol.value.(SymbolDynamicArrayValue); fixed && v.cap != nil {
+					return nil, false
+				}
 				checks[i].collection = true
 				continue
 			}
@@ -184,13 +189,14 @@ result_checks :: proc(ctx: ^ActionContext, fields: ^ast.Field_List) -> (checks: 
 	return checks, true
 }
 
-// intrinsics.type_is_comparable: false for a slice, dynamic array, map or `any`, and for an aggregate
-// holding one. A field type that does not resolve counts as not comparable.
+// intrinsics.type_is_comparable: false for a slice, dynamic array, map, `any`, #soa type or
+// #raw_union struct, and for an aggregate holding one. A #raw_union struct is comparable only with
+// simple fields, which this does not check. A field type that does not resolve counts as not comparable.
 is_comparable :: proc(ast_context: ^AstContext, symbol: Symbol, depth: int) -> bool {
 	if symbol.pointers > 0 {
 		return true
 	}
-	if depth > 16 {
+	if depth > 16 || .Soa in symbol.flags {
 		return false
 	}
 	element_types: []^ast.Expr
@@ -200,6 +206,9 @@ is_comparable :: proc(ast_context: ^AstContext, symbol: Symbol, depth: int) -> b
 	case SymbolBasicValue:
 		return v.ident.name != "any"
 	case SymbolStructValue:
+		if .Is_Raw_Union in v.tags {
+			return false
+		}
 		element_types = v.types
 	case SymbolUnionValue:
 		element_types = v.types

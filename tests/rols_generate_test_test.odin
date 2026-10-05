@@ -332,3 +332,104 @@ f{*} :: proc() -> any {
 `)
 	test.expect_action_missing(t, &any_result, "Generate test for f")
 }
+
+// Corpus: review of the comparable fix. Neither `delete` nor `expect_value` accepts a fixed-capacity
+// dynamic array, a #soa fixed array or a #raw_union struct.
+@(test)
+generate_test_refused_for_uncomparable_special_types :: proc(t: ^testing.T) {
+	fixed_capacity := generate_source(`package test
+
+f{*} :: proc() -> [dynamic; 4]int {
+	return {}
+}
+`)
+	test.expect_action_missing(t, &fixed_capacity, "Generate test for f")
+
+	soa := generate_source(`package test
+
+P :: struct {
+	x: int,
+}
+
+f{*} :: proc() -> #soa[4]P {
+	return {}
+}
+`)
+	test.expect_action_missing(t, &soa, "Generate test for f")
+
+	raw_union := generate_source(`package test
+
+R :: struct #raw_union {
+	i: int,
+	f: f64,
+}
+
+f{*} :: proc() -> R {
+	return {}
+}
+`)
+	test.expect_action_missing(t, &raw_union, "Generate test for f")
+}
+
+// A variadic parameter accepts no arguments, so the call leaves it out.
+@(test)
+generate_test_omits_variadic_parameters :: proc(t: ^testing.T) {
+	source := generate_source(`package test
+
+f{*} :: proc(n: int, xs: ..int) {
+}
+`)
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Generate test for f",
+		{
+			{
+				"main_test.odin",
+				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tf(0)\n}\n",
+			},
+		},
+	)
+}
+
+@(test)
+generate_test_poly_struct_result :: proc(t: ^testing.T) {
+	source := generate_source(`package test
+
+Box :: struct($T: typeid) {
+	v: T,
+}
+
+f{*} :: proc() -> Box(int) {
+	return {}
+}
+`)
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Generate test for f",
+		{
+			{
+				"main_test.odin",
+				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tresult := f()\n\ttesting.expect_value(t, result, Box(int){})\n}\n",
+			},
+		},
+	)
+}
+
+// Corpus: host sweep, host_gentest. The indentation comes from code, not from the lines of a raw string.
+@(test)
+generate_test_ignores_raw_string_indentation :: proc(t: ^testing.T) {
+	source := generate_source("package test\n\nMSG :: `header\n  indented line\n`\n\nfo{*}o :: proc(x: int) -> int {\n\treturn x\n}\n")
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Generate test for foo",
+		{
+			{
+				"main_test.odin",
+				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tresult := foo(0)\n\ttesting.expect_value(t, result, 0)\n}\n",
+			},
+		},
+	)
+}
