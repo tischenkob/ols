@@ -75,7 +75,7 @@ add_if_to_switch_action :: proc(ctx: ^ActionContext) {
 
 	ind := get_line_indentation(src, if_stmt.pos.offset)
 	sb := strings.builder_make(context.temp_allocator)
-	if else_body == nil && is_enum_or_union(ctx, subject) {
+	if needs_partial(ctx, subject, branches[:]) {
 		strings.write_string(&sb, "#partial ")
 	}
 	strings.write_string(&sb, "switch ")
@@ -160,16 +160,41 @@ pair_value :: proc(src: string, pair: [2]^ast.Expr, subject: ^ast.Expr) -> (^ast
 	return left_is ? pair[1] : pair[0], true
 }
 
-is_enum_or_union :: proc(ctx: ^ActionContext, subject: ^ast.Expr) -> bool {
+// Odin rejects an enum switch that leaves a member out, even with a default case, and rejects #partial on any other type.
+// #partial on an enum is always legal, so a case value that names no member keeps it.
+needs_partial :: proc(ctx: ^ActionContext, subject: ^ast.Expr, branches: []Branch) -> bool {
 	// Resolving a global type turns locals off and leaves them off.
 	ctx.ast_context.use_locals = true
 	symbol, ok := resolve_type_expression(ctx.ast_context, subject)
 	if !ok {
+		// An implicit selector compares only against an enum, so it marks an unresolved subject as one.
+		for branch in branches {
+			for value in branch.values {
+				if _, is_implicit := value.derived.(^ast.Implicit_Selector_Expr); is_implicit {
+					return true
+				}
+			}
+		}
 		return false
 	}
-	#partial switch _ in symbol.value {
-	case SymbolEnumValue, SymbolUnionValue:
-		return true
+	members, is_enum := symbol.value.(SymbolEnumValue)
+	if !is_enum {
+		return false
+	}
+	covered := make(map[string]struct{}, context.temp_allocator)
+	for branch in branches {
+		for value in branch.values {
+			name, named := get_used_switch_name(value)
+			if !named {
+				return true
+			}
+			covered[name] = {}
+		}
+	}
+	for name in members.names {
+		if name not_in covered {
+			return true
+		}
 	}
 	return false
 }

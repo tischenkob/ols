@@ -70,7 +70,7 @@ Kind :: enum { A, B, C, D }
 
 main :: proc() {
 	k := Kind.A
-	#partial switch k {
+	switch k {
 	case .A:
 		foo()
 	case .B, .C:
@@ -243,6 +243,156 @@ main :: proc() {
 	} else if v := f(); v == 2 {
 		bar()
 	}
+}
+`)
+}
+
+// Odin rejects a plain enum switch that leaves a member out, even with a default case.
+@(test)
+if_to_switch_enum_with_else_is_partial :: proc(t: ^testing.T) {
+	expect_switch(t, `package test
+
+Layout :: enum { SPRITE, SHAPE, TEXT }
+
+f :: proc(l: Layout) -> int {
+	{*}if l == .SHAPE {
+		return 1
+	} else {
+		return 2
+	}
+}
+`, `package test
+
+Layout :: enum { SPRITE, SHAPE, TEXT }
+
+f :: proc(l: Layout) -> int {
+	#partial switch l {
+	case .SHAPE:
+		return 1
+	case:
+		return 2
+	}
+}
+`)
+}
+
+@(test)
+if_to_switch_enum_all_members_is_plain :: proc(t: ^testing.T) {
+	expect_switch(t, `package test
+
+Layout :: enum { SPRITE, SHAPE, TEXT }
+
+f :: proc(l: Layout) -> int {
+	{*}if l == .SHAPE || l == Layout.TEXT {
+		return 1
+	} else if l == .SPRITE {
+		return 2
+	}
+	return 3
+}
+`, `package test
+
+Layout :: enum { SPRITE, SHAPE, TEXT }
+
+f :: proc(l: Layout) -> int {
+	switch l {
+	case .SHAPE, Layout.TEXT:
+		return 1
+	case .SPRITE:
+		return 2
+	}
+	return 3
+}
+`)
+}
+
+@(test)
+if_to_switch_distinct_enum_from_package_is_partial :: proc(t: ^testing.T) {
+	packages := make([dynamic]test.Package, context.temp_allocator)
+	append(&packages, test.Package{pkg = "gfx", source = `package gfx
+Layout :: enum { SPRITE, SHAPE, TEXT }
+`})
+	source := test.Source {
+		main     = `package test
+import "gfx"
+
+My_Layout :: distinct gfx.Layout
+
+f :: proc(l: My_Layout) -> int {
+	{*}if l == .SHAPE {
+		return 1
+	} else {
+		return 2
+	}
+}
+`,
+		packages = packages[:],
+		config   = {enable_code_action_if_to_switch = true},
+	}
+	test.expect_action_applied(t, &source, TO_SWITCH_ACTION, `package test
+import "gfx"
+
+My_Layout :: distinct gfx.Layout
+
+f :: proc(l: My_Layout) -> int {
+	#partial switch l {
+	case .SHAPE:
+		return 1
+	case:
+		return 2
+	}
+}
+`)
+}
+
+// An implicit selector only compares against an enum, so an unresolved subject still gets #partial.
+@(test)
+if_to_switch_unresolved_enum_subject_is_partial :: proc(t: ^testing.T) {
+	expect_switch(t, `package test
+
+f :: proc() -> int {
+	l := missing()
+	{*}if l == .SHAPE {
+		return 1
+	}
+	return 2
+}
+`, `package test
+
+f :: proc() -> int {
+	l := missing()
+	#partial switch l {
+	case .SHAPE:
+		return 1
+	}
+	return 2
+}
+`)
+}
+
+// #partial is only legal on an enum, so a union value switch stays plain.
+@(test)
+if_to_switch_union_value_is_plain :: proc(t: ^testing.T) {
+	expect_switch(t, `package test
+
+Value :: union { int, f32 }
+
+f :: proc(v: Value) -> int {
+	{*}if v == 1 {
+		return 1
+	}
+	return 2
+}
+`, `package test
+
+Value :: union { int, f32 }
+
+f :: proc(v: Value) -> int {
+	switch v {
+	case 1:
+		return 1
+	}
+	return 2
 }
 `)
 }
