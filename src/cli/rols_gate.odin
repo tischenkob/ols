@@ -130,3 +130,82 @@ gate_targets :: proc(changed: []File_State, importers: []string, reasons: ^[dyna
 	}
 	return targets[:]
 }
+
+// The package directories that the gate checks with one `-target:` value, empty for the current target.
+Gate_Check :: struct {
+	target: string,
+	dirs:   []string,
+}
+
+// failure, naming target unless it is the current one.
+gate_failure :: proc(failure, target: string) -> string {
+	return failure if target == "" else fmt.tprintf("%s (target %s)", failure, target)
+}
+
+// The `odin check` errors of checks before the write. On an extra target, a package whose check names an
+// error in a file outside the workspace does not build there: the edit cannot change that file, and odin
+// can report a different error set on each run, such as core:os panicking on js_wasm32. The package leaves
+// the dirs of that check with a warning, and the check runs again without it, so the after-check compares
+// the same packages. Errors in workspace files alone keep the gate, as on the current target.
+gate_baseline :: proc(
+	checks: []Gate_Check,
+	reasons: ^[dynamic]string,
+) -> (
+	errors: []Check_Error,
+	reason: string,
+	ok: bool,
+) {
+	all := make([dynamic]Check_Error, context.temp_allocator)
+	for &c in checks {
+		paths := checkable_paths(c.dirs)
+		if len(paths) == 0 {
+			continue
+		}
+		found, failure, ran := check_errors_for(paths, c.target)
+		if !ran {
+			return {}, gate_failure(failure, c.target), false
+		}
+		if c.target != "" {
+			kept := make([dynamic]string, context.temp_allocator)
+			for dir in c.dirs {
+				files := server.check_run.error_files[dir]
+				if outside, has := outside_error_file(files[:]); has {
+					warn(
+						reasons,
+						fmt.tprintf(
+							"%s does not build on target %s: odin check there reports errors in %s, outside the workspace, so the gate does not check it on that target",
+							workspace_relative(dir),
+							c.target,
+							outside,
+						),
+					)
+				} else {
+					append(&kept, dir)
+				}
+			}
+			if len(kept) < len(c.dirs) {
+				c.dirs = kept[:]
+				rerun := checkable_paths(c.dirs)
+				found = {}
+				if len(rerun) > 0 {
+					if found, failure, ran = check_errors_for(rerun, c.target); !ran {
+						return {}, gate_failure(failure, c.target), false
+					}
+				}
+			}
+		}
+		append(&all, ..found)
+	}
+	return all[:], "", true
+}
+
+// The first of files that lies outside the workspace.
+@(private = "file")
+outside_error_file :: proc(files: []string) -> (file: string, found: bool) {
+	for f in files {
+		if _, inside := in_workspace(f); !inside {
+			return f, true
+		}
+	}
+	return "", false
+}

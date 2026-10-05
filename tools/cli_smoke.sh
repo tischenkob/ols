@@ -584,6 +584,16 @@ if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
 	expect importer-without-a-host-file-is-checked "^attr add: 1 edit in 1 file written, 2 packages checked$" "$OLS" query attr add "$dir/ig/lib.L" cold --apply
 	expect_exit 4 importer-without-a-host-file-rolled-back "$OLS" query attr add "$dir/ig/lib.L" private --apply
 	rm -rf "$dir/ig"
+	# An importer whose js_wasm32 check fails in core (core:os panics there) does not build on that target,
+	# so the gate skips it there with a warning. An importer that builds on js_wasm32 keeps its gate.
+	mkdir -p "$dir/jw/wl" "$dir/jw/nat" "$dir/jw/web"
+	printf 'package wl\n\nH :: proc() -> int {\n\treturn 1\n}\n' > "$dir/jw/wl/wl.odin"
+	printf 'package wl\n\nJ :: proc() -> int {\n\treturn 2\n}\n' > "$dir/jw/wl/wl_js.odin"
+	printf 'package nat\n\nimport "core:os"\nimport "../wl"\n\nmain :: proc() {\n\t_ = wl.H()\n\t_, _ = os.read_entire_file("x", context.allocator)\n}\n' > "$dir/jw/nat/nat.odin"
+	printf 'package web\n\nimport "../wl"\n\nmain :: proc() {\n\t_ = wl.J()\n}\n' > "$dir/jw/web/web_js.odin"
+	expect native-importer-skipped-on-js "^warning: jw/nat does not build on target js_wasm32: odin check there reports errors in .*core/os/" sh -c "\"$OLS\" query attr add \"$dir/jw/wl/wl_js.odin:3:1\" cold --apply 2>&1"
+	expect_exit 4 js-importer-keeps-its-gate "$OLS" query attr add "$dir/jw/wl/wl_js.odin:4:1" private --apply
+	rm -rf "$dir/jw"
 fi
 mkdir "$dir/pre"
 printf 'package pre\n\nx: int = "s"\n\nhelper :: proc() -> int {\n\treturn 1\n}\n' > "$dir/pre/pre.odin"
