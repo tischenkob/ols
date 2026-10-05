@@ -160,6 +160,11 @@ expect_exit() {
 	fi
 	echo "ok $name"
 }
+# An empty outline is an answer: exit 0, and `[]` with --json.
+mkdir "$dir/symempty" && printf 'package symempty\n' > "$dir/symempty/e.odin"
+expect_exit 0 symbols-empty "$OLS" query symbols "$dir/symempty/e.odin"
+expect_exit 0 symbols-empty-json-exit "$OLS" query symbols "$dir/symempty/e.odin" --json
+expect symbols-empty-json '^\[\]$' "$OLS" query symbols "$dir/symempty/e.odin" --json
 mkdir "$dir/safe"
 cat > "$dir/safe/a.odin" <<'ODIN'
 package safe

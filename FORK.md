@@ -94,6 +94,7 @@ Small fixes:
 - `src/server/generics.odin`: keep procedure tags when solving a generic.
 - `src/server/writer.odin`: framed write of one message.
 - `src/server/diagnostics.odin`: fork producers, a file-private mutex, and the merge that runs under the lock.
+- `src/server/document_symbols.odin`: a value declaration, a compound literal or `#config` included, is a Variable when mutable and a Constant otherwise; the literal's field map lives in temp memory.
 - `src/server/hover.odin`: struct layout and field offsets.
 - `src/server/inlay_hints.odin`: fork hint kinds, enclosing procedure tracking, and a resolve context built only when a kind needs it.
 - `src/server/check.odin`: never block the request thread, drain the pipe incrementally, reap killed processes, vet findings as warnings, and a `Syntax Error` that `-json-errors` types as a warning, such as a missing import path, as an error.
