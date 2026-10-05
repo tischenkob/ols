@@ -289,6 +289,8 @@ find_symbol_references :: proc(
 	require_text := "",
 	// rols: a file must hold a procedure group literal (`proc{`), else the search skips it without parsing
 	require_proc_group := false,
+	// rols: platform variants of symbol (declaration_variants) count as symbol, and their declarations are added
+	variants: []Symbol = {},
 ) -> (
 	[]common.Location,
 	bool,
@@ -300,11 +302,12 @@ find_symbol_references :: proc(
 	symbols_and_nodes := resolve_entire_file_for_references(document, ast_context.allocator, resolve_flag, target_name)
 
 	for k, v in symbols_and_nodes {
-		if strings.equal_fold(v.symbol.uri, symbol.uri) && v.symbol.range == symbol.range {
+		// rols: match a variant too, and skip the declaration of the one matched
+		if matched, is_match := reference_target(v.symbol^, symbol, variants); is_match {
 			node_uri := common.create_uri(v.node.pos.file, ast_context.allocator)
 			range := common.get_token_range(v.node^, ast_context.file.src)
 
-			if !include_declaration && v.symbol.range == range && strings.equal_fold(node_uri.uri, symbol.uri) {
+			if !include_declaration && matched.range == range && strings.equal_fold(node_uri.uri, matched.uri) {
 				// This is the declaration and so we skip it
 				continue
 			}
@@ -432,13 +435,14 @@ find_symbol_references :: proc(
 		if in_pkg || symbol.pkg == document.package_name {
 			symbols_and_nodes := resolve_entire_file_for_references(&document, context.allocator, resolve_flag, target_name)
 			for k, v in symbols_and_nodes {
-				if strings.equal_fold(v.symbol.uri, symbol.uri) && v.symbol.range == symbol.range {
+				// rols: match a variant too, and skip the declaration of the one matched
+				if matched, is_match := reference_target(v.symbol^, symbol, variants); is_match {
 					node_uri := common.create_uri(v.node.pos.file, ast_context.allocator)
 					range := common.get_token_range(v.node^, string(document.text))
 
 					if !include_declaration &&
-					   v.symbol.range == range &&
-					   strings.equal_fold(node_uri.uri, symbol.uri) {
+					   matched.range == range &&
+					   strings.equal_fold(node_uri.uri, matched.uri) {
 						// This is the declaration and so we skip it
 						continue
 					}
@@ -454,6 +458,11 @@ find_symbol_references :: proc(
 				}
 			}
 		}
+	}
+
+	// rols: the declared names of the variants, once each
+	if len(variants) > 0 {
+		add_variant_declarations(&locations, variants if include_declaration else nil)
 	}
 
 	return locations[:], true

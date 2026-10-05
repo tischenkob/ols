@@ -38,8 +38,8 @@ get_rename :: proc(
 	get_globals(document.ast, &ast_context)
 	get_locals(&ast_context, &position_context)
 
-	// rols: pass the files on
-	locations, ok2 := resolve_references(document, &ast_context, &position_context, files = files)
+	// rols: pass the files on, and rename the platform variants of a package-level declaration too
+	locations, ok2 := rename_locations(document, &ast_context, &position_context, files)
 
 	changes := make(map[string][dynamic]TextEdit, 0, context.temp_allocator)
 
