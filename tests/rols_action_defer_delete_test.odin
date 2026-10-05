@@ -448,6 +448,7 @@ defer_delete_escapes_through_an_alias :: proc(t: ^testing.T) {
 		"x := Box{data = s}\n\t_ = x",
 		"x := keep(s)\n\t_ = x",
 		"return Box{s}.data",
+		"other := make([]int, 2)\n\ts = other",
 	}) {
 		expect_no_defer_delete(t, "Add defer delete(s)", strings.concatenate({`package test
 ` + BUILTINS + `
@@ -475,6 +476,8 @@ main :: proc() -> int {
 	s[0] = 1
 	n := len(s)
 	x := s[1]
+	m: map[int]bool
+	m[s[0]] = true
 	show(s)
 	if show(s) == false || s[0] > 0 {
 		return 0
@@ -495,6 +498,8 @@ main :: proc() -> int {
 	s[0] = 1
 	n := len(s)
 	x := s[1]
+	m: map[int]bool
+	m[s[0]] = true
 	show(s)
 	if show(s) == false || s[0] > 0 {
 		return 0
@@ -531,6 +536,19 @@ main :: proc() {
 	defer strings.builder_destroy(&b)
 	strings.write_string(&b, "x")
 	print(strings.to_string(b))
+}
+`)
+}
+
+@(test)
+defer_delete_pointer_as_map_key :: proc(t: ^testing.T) {
+	expect_no_defer_delete(t, "Add defer free(p)", `package test
+` + BUILTINS + `
+Point :: struct { x, y: int }
+
+main :: proc(m: map[^Point]bool) {
+	p := ne{*}w(Point)
+	m[p] = true
 }
 `)
 }
