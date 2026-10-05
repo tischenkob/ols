@@ -75,6 +75,10 @@ get_switch_cases_info :: proc(
 
 	for stmt in switch_block.stmts {
 		if case_clause, ok := stmt.derived.(^ast.Case_Clause); ok {
+			// rols: a default clause already runs for every missing case, so listing them would change behaviour.
+			if len(case_clause.list) == 0 {
+				return {}, false
+			}
 			for clause in case_clause.list {
 				if is_enum {
 					if name, ok := get_used_switch_name(clause); ok && name != "" {
@@ -103,8 +107,10 @@ get_switch_cases_info :: proc(
 		if !unwrap_ok {
 			return {}, false
 		}
+		// rols: list only members whose value no case covers yet, so an alias such as `FIRST = A` gets no case.
+		uncovered := uncovered_enum_members(ast_context, enum_value, existing_cases)
 		return SwitchBlockInfo {
-				names = enum_value.names,
+				names = uncovered,
 				existing_cases = existing_cases,
 				switch_indentation = switch_indentation,
 				is_enum = !was_super_enum,
@@ -190,7 +196,15 @@ add_populate_switch_cases_action :: proc(
 	info, ok := get_switch_cases_info(ast_context, position_context)
 	if !ok {return}
 
-	if len(info.existing_cases) == len(info.names) {return} 	//action not needed
+	// rols: offer the action only when a name is missing, since aliases make counting cases unreliable.
+	missing := false
+	for name in info.names {
+		if name not_in info.existing_cases {
+			missing = true
+			break
+		}
+	}
+	if !missing {return}
 	edit, edit_ok := create_populate_switch_cases_edit(position_context, info)
 	if !edit_ok {return}
 	textEdits := make([dynamic]TextEdit, context.temp_allocator)

@@ -1,6 +1,7 @@
 package server
 
 import "core:odin/ast"
+import "core:slice"
 
 import "src:common"
 
@@ -45,13 +46,9 @@ redundant_partial :: proc(
 	subject: ^ast.Expr,
 	diags: ^[dynamic]Diagnostic,
 ) {
-	members, has_members := switch_members(ctx, subject)
-	if !has_members do return
 	cases, all_named := case_names(body)
-	if !all_named || len(cases) != len(members) do return
-	for member in members {
-		if member not_in cases do return
-	}
+	if !all_named do return
+	if !switch_is_complete(ctx, subject, cases) do return
 
 	start, is_partial := partial_start(ctx.src, node.pos.offset)
 	if !is_partial do return
@@ -81,28 +78,58 @@ partial_start :: proc(src: string, switch_offset: int) -> (int, bool) {
 	return start, true
 }
 
-// Enum member names, or the type names of a union's variants.
+// Whether the cases cover every enum value, or name every type of a union's variants.
 @(private = "file")
-switch_members :: proc(ctx: ^LintContext, subject: ^ast.Expr) -> (names: []string, ok: bool) {
+switch_is_complete :: proc(ctx: ^LintContext, subject: ^ast.Expr, cases: map[string]struct{}) -> bool {
 	#partial switch _ in subject.derived {
 	case ^ast.Ident, ^ast.Selector_Expr:
 	case:
-		return
+		return false
 	}
 	resolved := lint_symbols(ctx)[uintptr(subject)] or_return
-	if resolved.is_unresolved || resolved.symbol == nil do return
+	if resolved.is_unresolved || resolved.symbol == nil do return false
 
 	#partial switch v in resolved.symbol.value {
 	case SymbolEnumValue:
-		return v.names, true
-	case SymbolUnionValue:
-		names = make([]string, len(v.types), context.temp_allocator)
-		for type, i in v.types {
-			names[i] = get_used_switch_name(type) or_return
+		for name in cases {
+			if !slice.contains(v.names, name) do return false
 		}
-		return names, true
+		// Member values may name constants of the enum's own package.
+		ast_context := make_ast_context(
+			ctx.document.ast,
+			ctx.document.imports,
+			ctx.document.package_name,
+			ctx.document.uri.uri,
+			ctx.document.fullpath,
+			context.temp_allocator,
+		)
+		get_globals(ctx.document.ast, &ast_context)
+		set_ast_package_set_scoped(&ast_context, resolved.symbol.pkg)
+		return len(uncovered_enum_members(&ast_context, v, cases)) == 0
+	case SymbolUnionValue:
+		if len(cases) != len(v.types) do return false
+		for type in v.types {
+			name := get_used_switch_name(type) or_return
+			if name not_in cases do return false
+		}
+		return true
 	}
-	return
+	return false
+}
+
+// The members a switch still needs a case for: the first member of each value class that no case names.
+// An alias such as `FIRST = A` shares A's class, so a case on either covers both.
+uncovered_enum_members :: proc(ast_context: ^AstContext, v: SymbolEnumValue, cases: map[string]struct{}) -> []string {
+	_, classes := enum_member_values(ast_context, v)
+	covered := make([]bool, len(v.names), context.temp_allocator)
+	for name, i in v.names {
+		if name in cases do covered[classes[i]] = true
+	}
+	uncovered := make([dynamic]string, context.temp_allocator)
+	for name, i in v.names {
+		if classes[i] == i && !covered[i] do append(&uncovered, name)
+	}
+	return uncovered[:]
 }
 
 // The name of every case value, or ok = false when a clause is a default or a form we cannot name.
