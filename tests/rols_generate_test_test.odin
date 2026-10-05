@@ -253,3 +253,82 @@ se{*}nd :: proc(ctx: ^Ctx($Msg), m: Msg) {
 `)
 	test.expect_action_missing(t, &source, "Generate test for send")
 }
+
+// Corpus: framework sweep, gen/a.odin. testing.expect_value needs a comparable type, which a slice,
+// dynamic array or map is not, so the test checks the length and frees the result.
+@(test)
+generate_test_collection_results_check_length :: proc(t: ^testing.T) {
+	source := generate_source(
+		`package test
+
+f{*} :: proc(n: int) -> ([]int, [dynamic]int, map[string]int) {
+	return make([]int, n), nil, nil
+}
+`,
+	)
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Generate test for f",
+		{
+			{
+				"main_test.odin",
+				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\ta, b, c := f(0)\n\tdefer delete(a)\n\tdefer delete(b)\n\tdefer delete(c)\n\ttesting.expect(t, len(a) == 0)\n\ttesting.expect(t, len(b) == 0)\n\ttesting.expect(t, len(c) == 0)\n}\n",
+			},
+		},
+	)
+}
+
+// Corpus: framework sweep. A parameter with a default value, such as an allocator, is left out of the
+// call, and a later parameter without one is passed by name.
+@(test)
+generate_test_omits_defaulted_parameters :: proc(t: ^testing.T) {
+	source := generate_source(
+		`package test
+
+f{*} :: proc(s: string, allocator := context.allocator, n: int, flag := false) {
+}
+`,
+	)
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Generate test for f",
+		{
+			{
+				"main_test.odin",
+				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tf(\"\", n = 0)\n}\n",
+			},
+		},
+	)
+}
+
+// A struct holding a slice is not comparable, and no zero-value assertion compiles for it.
+@(test)
+generate_test_refused_for_non_comparable_result :: proc(t: ^testing.T) {
+	source := generate_source(
+		`package test
+
+Inner :: struct {
+	xs: []int,
+}
+
+Outer :: struct {
+	inner: [2]Inner,
+}
+
+f{*} :: proc() -> Outer {
+	return {}
+}
+`,
+	)
+	test.expect_action_missing(t, &source, "Generate test for f")
+
+	any_result := generate_source(`package test
+
+f{*} :: proc() -> any {
+	return nil
+}
+`)
+	test.expect_action_missing(t, &any_result, "Generate test for f")
+}
