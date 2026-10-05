@@ -892,7 +892,7 @@ g :: proc(p: proc()) {}
 i: int
 
 f :: proc(n: int) {
-	for _ in 0..<n {
+	for _ in 0 ..< n {
 		g(proc() {
 			_ = i
 		})
@@ -946,7 +946,7 @@ E :: enum {
 
 f :: proc(s: ^S, n: int) -> E {
 	e := E.a
-	for _ in 0..<n {
+	for _ in 0 ..< n {
 		s.i += 1
 		e = .i
 	}
@@ -985,7 +985,7 @@ package test
 
 f :: proc(n: int) -> int {
 	total := 0
-	for i in 0..<n {
+	for i in 0 ..< n {
 		m := map[int]int{i = 1}
 		total += len(m)
 		delete(m)
@@ -1052,7 +1052,7 @@ package test
 M :: map[int]int
 
 f :: proc(out: []M, n: int) {
-	for i in 0..<n {
+	for i in 0 ..< n {
 		out[0] = M{i + 1 = 1}
 	}
 }
@@ -1597,7 +1597,7 @@ f :: proc(xs: []int) {
 		`package test
 
 f :: proc(xs: []int) {
-	for i in 0..<len(xs) {
+	for i in 0 ..< len(xs) {
 		g(xs[i])
 	}
 }
@@ -1625,7 +1625,7 @@ f :: proc(n: int) {
 		`package test
 
 f :: proc(n: int) {
-	for _ in 1..=n {
+	for _ in 1 ..= n {
 	}
 }
 `,
@@ -2925,7 +2925,7 @@ f :: proc(xs: []int) {
 	}
 }
 `,
-		"0..<len(xs)",
+		"0 ..< len(xs)",
 	},
 	{
 		"or-else",

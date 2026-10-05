@@ -480,7 +480,7 @@ expand_range_round_trip :: proc(t: ^testing.T) {
 	expect_round_trip(t, C_STYLE_FOR, "Use range loop", "i < len", `package test
 
 f :: proc(xs: []int) {
-	for i {*}in 0..<len(xs) {
+	for i {*}in 0 ..< len(xs) {
 		g(xs[i])
 	}
 }
@@ -627,7 +627,7 @@ main :: proc() -> My_Error {
 
 @(test)
 expand_range_round_trip_bounds :: proc(t: ^testing.T) {
-	for bounds in ([?]string{"0..<n", "0..=n", "a..<b"}) {
+	for bounds in ([?]string{"0 ..< n", "0 ..= n", "a ..< b"}) {
 		main := strings.concatenate({`package test
 
 f :: proc(n, a, b: int) {
@@ -645,7 +645,7 @@ expand_range_do_body_round_trip :: proc(t: ^testing.T) {
 	expect_round_trip(t, C_STYLE_FOR, "Use range loop", "i <", `package test
 
 f :: proc(n: int) {
-	for i {*}in 0..<n do g(i)
+	for i {*}in 0 ..< n do g(i)
 }
 `)
 }
