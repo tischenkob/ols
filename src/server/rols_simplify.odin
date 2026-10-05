@@ -67,7 +67,8 @@ simplify_rule_count :: proc() -> int {
 	return len(rules)
 }
 
-// Every rule is syntactic; none resolves a symbol, except that bool-compare is skipped on a non-bool operand. Results are in walk order.
+// Every rule is syntactic; none resolves a symbol, except that bool-compare is skipped on a non-bool
+// operand and nested-if on a condition that calls a deferred procedure. Results are in walk order.
 simplifications :: proc(document: ^Document) -> []Simplification {
 	Walker :: struct {
 		document: ^Document,
@@ -93,7 +94,7 @@ simplifications :: proc(document: ^Document) -> []Simplification {
 				// rols: dropping `== true` must not change the type of the expression.
 				if rule == simplify_bool_compare && compares_non_bool(w.document, node) do continue
 				// rols: merging would put a call with a deferred procedure inside `&&`.
-				if rule == simplify_nested_if && merges_deferred_if(w.document, node) do continue
+				if rule == simplify_nested_if && merge_calls_deferred(w.document, node) do continue
 				rule(w.src, node, w.stack[:], &w.out)
 			}
 			append(&w.stack, node)
@@ -635,12 +636,6 @@ simplify_nested_if :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out: ^[
 		return
 	}
 	append(out, Simplification{if_stmt.pos.offset, if_stmt.end.offset, "nested-if", "Merge nested if", text})
-}
-
-@(private = "file")
-merges_deferred_if :: proc(document: ^Document, node: ^ast.Node) -> bool {
-	if_stmt := node.derived.(^ast.If_Stmt) or_return
-	return merge_calls_deferred(document, if_stmt)
 }
 
 @(private = "file")
