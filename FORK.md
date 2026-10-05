@@ -123,6 +123,10 @@ The fork formatter differs from upstream OLS in these cases. Each has a `tools/o
 - A comment on the operator's line in a binary chain stays on that line, and a comment above the first call argument stays above it (`rols_idempotent_binary_trailing_comment`, `rols_idempotent_call_arg_comments`).
 - `odinfmt` prints a trailing line comment with a space before it even when the document queued it without one (`flush_line_suffix` in `src/odin/printer/document.odin`).
 
+## Changed odinfmt exit status
+
+`odinfmt FILE` exits 1 and prints `Failed to format FILE` when the file does not parse. Upstream prints the parse error and exits 0 with empty stdout, so `odinfmt f > tmp && mv tmp f` empties the file. The `-w`, `-stdin` and directory modes already exited 1. Every `Failed to …` error line now ends with a newline. `tools/odinfmt/tests.sh` checks the exit status and output of the stdout, `-w` and `-stdin` modes.
+
 ## Fork-only config keys
 
 Regenerate with:
