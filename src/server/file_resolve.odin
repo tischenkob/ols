@@ -641,6 +641,8 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 	case ^ast.Foreign_Import_Decl:
 		resolve_nodes(n.attributes[:], data)
 		resolve_node(n.name, data)
+		// rols: a foreign import path can name a constant of an imported package
+		resolve_nodes(n.fullpaths, data)
 	case ^ast.Proc_Group:
 		resolve_nodes(n.args, data)
 	case ^ast.Attribute:
@@ -714,6 +716,8 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 		data.position_context.union_type = n
 		resolve_node(n.poly_params, data)
 		resolve_node(n.align, data)
+		// rols: walk the where clauses as the Struct_Type case does
+		resolve_nodes(n.where_clauses, data)
 		local_scope_poly(data, n.poly_params)
 		resolve_nodes(n.variants, data)
 	case ^ast.Enum_Type:

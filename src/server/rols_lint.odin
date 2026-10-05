@@ -848,6 +848,10 @@ has_fixed_signature_attribute :: proc(attributes: []^ast.Attribute) -> bool {
 	return false
 }
 
+has_attribute :: proc(attributes: []^ast.Attribute, name: string) -> bool {
+	return slice.contains(attribute_names(attributes), name)
+}
+
 attribute_names :: proc(attributes: []^ast.Attribute) -> []string {
 	names := make([dynamic]string, context.temp_allocator)
 	for attribute in attributes {
