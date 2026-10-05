@@ -188,6 +188,22 @@ writes_through :: proc(target: ^ast.Expr, parents: []^ast.Node) -> bool {
 	return false
 }
 
+// `&x`, `&x.f`, `&x[i]` or `using x`, for a use that is_write already reports.
+address_taken :: proc(use: IdentUse) -> bool {
+	#reverse for parent in use.parents {
+		#partial switch p in parent.derived {
+		case ^ast.Selector_Expr, ^ast.Index_Expr, ^ast.Slice_Expr, ^ast.Deref_Expr, ^ast.Paren_Expr:
+			continue
+		case ^ast.Unary_Expr:
+			return p.op.kind == .And
+		case ^ast.Using_Stmt:
+			return true
+		}
+		return false
+	}
+	return false
+}
+
 // Byte offset of the local declaration the ident refers to. symbols comes from
 // resolve_entire_file_for_references(document, allocator, .Identifier, "").
 local_decl_offset :: proc(ctx: ^ActionContext, symbols: SymbolAndNodeMap, ident: ^ast.Ident) -> (int, bool) {

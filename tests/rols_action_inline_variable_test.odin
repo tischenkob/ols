@@ -661,3 +661,122 @@ f :: proc() -> int {
 }
 `)
 }
+
+@(test)
+action_inline_variable_refused_input_written_before_deferred_use :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	a := 1
+	v{*} := a
+	defer foo(v)
+	a = 2
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_using_pointer_field :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+Point :: struct {
+	y: int,
+}
+
+clear_point :: proc(p: ^Point) {
+	p.y = 0
+}
+
+main :: proc(using p: ^Point) {
+	v{*} := y
+	clear_point(p)
+	foo(v)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_using_local_field :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+S :: struct {
+	y: int,
+}
+
+main :: proc() {
+	using s: S
+	v{*} := y
+	s.y = 2
+	foo(v)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_literal_with_two_uses :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+clear_first :: proc(s: []int) {
+	s[0] = 0
+}
+
+main :: proc() {
+	v{*} := []int{1}
+	clear_first(v)
+	foo(v[0])
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_input_sliced :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	arr := [2]int{1, 2}
+	s := arr[:]
+	v{*} := arr
+	s[0] = 9
+	foo(v)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_input_ranged_by_reference :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	arr := [2]int{1, 2}
+	v{*} := arr
+	for &e in arr {
+		e = 0
+	}
+	foo(v)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_context_read :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	v{*} := context
+	context.user_index = 3
+	foo(v)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_unresolved_read :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	v{*} := unknown_global
+	reset()
+	foo(v)
+}
+`)
+}
