@@ -28,33 +28,46 @@ workspace_package_dirs :: proc(config: ^common.Config, allocator := context.temp
 	dirs := make([dynamic]string, allocator)
 	for workspace in config.workspace_folders {
 		uri := common.parse_uri(workspace.uri, context.temp_allocator) or_continue
-		filter := common.workspace_filter_make(uri.path, config, context.temp_allocator)
-
-		candidates := make([dynamic]string, context.temp_allocator)
-		append(&candidates, uri.path)
-		w := os.walker_create(uri.path)
-		defer os.walker_destroy(&w)
-		for info in os.walker_walk(&w) {
-			if info.type != .Directory do continue
-			dir, _ := filepath.replace_separators(info.fullpath, '/', context.temp_allocator)
-			name := filepath.base(dir)
-			hidden := strings.has_prefix(name, ".")
-			if hidden || slice.contains(dir_blacklist, name) || common.workspace_filter_skip_dir(&filter, info.fullpath) {
-				os.walker_skip_dir(&w)
-				continue
-			}
-			append(&candidates, dir)
-		}
-
-		for dir in candidates {
-			matches, _ := filepath.glob(fmt.tprintf("%v/*.odin", dir), context.temp_allocator)
-			if len(matches) > 0 && !excluded_by_profile(config, dir) {
-				append(&dirs, strings.clone(dir, allocator))
-			}
-		}
+		append(&dirs, ..package_dirs_below(uri.path, uri.path, config, allocator))
 	}
 	slice.sort(dirs[:])
 	return slice.unique(dirs[:])
+}
+
+// The directories below start, and start itself, that hold .odin files, sorted, left out as for
+// workspace_package_dirs. root is the workspace folder whose filter applies.
+package_dirs_below :: proc(
+	start, root: string,
+	config: ^common.Config,
+	allocator := context.temp_allocator,
+) -> []string {
+	dirs := make([dynamic]string, allocator)
+	filter := common.workspace_filter_make(root, config, context.temp_allocator)
+
+	candidates := make([dynamic]string, context.temp_allocator)
+	append(&candidates, start)
+	w := os.walker_create(start)
+	defer os.walker_destroy(&w)
+	for info in os.walker_walk(&w) {
+		if info.type != .Directory do continue
+		dir, _ := filepath.replace_separators(info.fullpath, '/', context.temp_allocator)
+		name := filepath.base(dir)
+		hidden := strings.has_prefix(name, ".")
+		if hidden || slice.contains(dir_blacklist, name) || common.workspace_filter_skip_dir(&filter, info.fullpath) {
+			os.walker_skip_dir(&w)
+			continue
+		}
+		append(&candidates, dir)
+	}
+
+	for dir in candidates {
+		matches, _ := filepath.glob(fmt.tprintf("%v/*.odin", dir), context.temp_allocator)
+		if len(matches) > 0 && !excluded_by_profile(config, dir) {
+			append(&dirs, strings.clone(dir, allocator))
+		}
+	}
+	slice.sort(dirs[:])
+	return dirs[:]
 }
 
 @(private = "file")

@@ -33,8 +33,8 @@ USAGE :: `usage: ols query <command> [--root DIR] [--json] [--help]
                                            exits 1 on an error. Without DIR: the cwd package, else the packages
                                            below the root that an ols.json defines
   lint    FILE|DIR... [--fail-on CODE,...] lints only, works on code that does not compile; paths in order,
-                                           a DIR with every package below it; --fail-on exits 1 when a listed
-                                           code is reported
+                                           a DIR with every package below it, as check walks them; --fail-on
+                                           exits 1 when a listed code is reported
   tests   [DIR|FILE...]                    list @(test) procedures that odin test runs on this target; without
                                            an argument as check does
   test    DIR [NAME,...]                   odin test with the collections and defines of ols.json; NAME is
@@ -84,7 +84,7 @@ json_output: bool
 
 run :: proc(args: []string) -> int {
 	// The server logs what an editor log would show, such as a file the indexer cannot parse; the commands
-	// report what matters to them on stderr themselves. read_ols_json logs the config errors.
+	// report what matters to them on stderr themselves. setup logs the config and builtin folder errors.
 	context.logger = log.nil_logger()
 
 	root, apply_title, order_text, move_to := "", "", "", ""
@@ -557,6 +557,9 @@ setup :: proc(root: string) {
 	server.apply_default_config(config)
 	config.client_create_file_support = true
 
+	// Config errors and a missing builtin folder reach stderr; the rest of the server's log does not.
+	logger := context.logger
+	context.logger = log.create_console_logger(.Error)
 	root_uri := common.create_uri(root, context.allocator)
 	config.workspace_folders = make([dynamic]common.WorkspaceFolder)
 	append(&config.workspace_folders, common.WorkspaceFolder{uri = root_uri.uri})
@@ -569,6 +572,7 @@ setup :: proc(root: string) {
 	}
 
 	config.builtin_path = server.get_builtin_path()
+	context.logger = logger
 	server.setup_index(config.builtin_path)
 	for pkg in server.indexer.builtin_packages {
 		server.try_build_package(pkg)
@@ -578,7 +582,6 @@ setup :: proc(root: string) {
 
 // Also called for a missing file: read_ols_initialize_options adds the core, base and vendor collections.
 read_ols_json :: proc(file: string, uri: common.Uri) {
-	context.logger = log.create_console_logger(.Error)
 	ols_config: server.OlsConfig
 	if data, err := os.read_entire_file(file, context.temp_allocator); err == nil {
 		if json_err := json.unmarshal(data, &ols_config, allocator = context.temp_allocator); json_err != nil {
@@ -722,13 +725,15 @@ tests :: proc(targets: []string) -> int {
 	slice.sort_by(found[:], proc(a, b: server.Test_Proc) -> bool {
 		return a.file < b.file if a.file != b.file else a.line < b.line
 	})
+	// A file inside a directory that is also a target lists its tests once.
+	unique := slice.unique(found[:])
 	if json_output {
-		return print_nonempty(found[:])
+		return print_nonempty(unique)
 	}
-	for test in found {
+	for test in unique {
 		fmt.printfln("%s:%d:%d: %s", test.file, test.line, test.col, test.name)
 	}
-	return 0 if len(found) > 0 else 1
+	return 0 if len(unique) > 0 else 1
 }
 
 // Runs odin test on dir. A name that no test of dir has is refused, since odin only reports it and exits 0.
@@ -817,51 +822,37 @@ Call :: struct {
 	fromRanges: []common.Range,
 }
 
-// Lints each of targets in order, and a file that two targets share once. A directory is walked like modernize
-// walks it, and each package below it is linted on its own. fail_on lists diagnostic codes, comma separated; any
-// of them in the output makes the exit code 1.
+// Lints each of targets in order, and a file that two targets share once. A directory covers the packages below
+// it that check walks. fail_on lists diagnostic codes, comma separated; any of them in the output makes the exit
+// code 1.
 lint :: proc(targets: []string, fail_on: string, root: string) -> int {
-	entries := make([dynamic]Entry, context.temp_allocator)
-	seen := make(map[string]struct{}, context.temp_allocator)
+	// Temp memory is freed after each package, so whatever outlives one lives on the heap.
+	targets := slice.clone(targets)
+	for &target in targets {
+		target = strings.clone(target)
+	}
+	root := strings.clone(root)
+	entries := make([dynamic]Entry)
 	for target in targets {
-		lints := make([dynamic]Entry, context.temp_allocator)
-		if !os.is_directory(target) {
-			found, ok := lint_files({target})
-			if !ok {
-				return 1
-			}
-			append(&lints, ..found)
-		} else {
-			files := modernize_files({target}, root)
-			if len(files) == 0 {
+		packages := []string{target}
+		if os.is_directory(target) {
+			packages = server.package_dirs_below(target, root, &common.config, context.allocator)
+			if len(packages) == 0 {
 				fmt.eprintfln("error: no package in %s", target)
 				return 1
 			}
-			packages := make(map[string][dynamic]string, context.temp_allocator)
-			for file in files {
-				dir := path.dir(file, context.temp_allocator)
-				if dir not_in packages {
-					packages[dir] = make([dynamic]string, context.temp_allocator)
-				}
-				append(&packages[dir], file)
-			}
-			for _, package_files in packages {
-				found, ok := lint_files(package_files[:])
-				if !ok {
-					return 1
-				}
-				append(&lints, ..found)
-			}
 		}
-		sort_entries(lints[:])
-		for entry in lints {
-			if entry.uri not_in seen {
-				append(&entries, entry)
+		first := len(entries)
+		for dir in packages {
+			lints, ok := collect_lints(dir, context.allocator)
+			server.clear_index_cache()
+			free_all(context.temp_allocator)
+			if !ok {
+				return 1
 			}
+			append(&entries, ..lints)
 		}
-		for entry in lints {
-			seen[entry.uri] = {}
-		}
+		sort_entries(entries[first:])
 	}
 	print_entries(entries[:], sorted = true)
 	if fail_on == "" {
@@ -876,12 +867,13 @@ lint :: proc(targets: []string, fail_on: string, root: string) -> int {
 	return 0
 }
 
-// The documents collect_lints opened, by uri, so a later target reuses them.
+// The uris collect_lints linted, so a later target skips them.
 @(private)
-linted_documents: map[string]^server.Document
+linted: map[string]struct{}
 
-// Per-file lints, unused imports and unused private declarations of one file or a package directory.
-collect_lints :: proc(target: string) -> ([]Entry, bool) {
+// Per-file lints, unused imports and unused private declarations of one file or a package directory, in
+// allocator. A file an earlier call linted is left out. The documents are closed again.
+collect_lints :: proc(target: string, allocator := context.temp_allocator) -> ([]Entry, bool) {
 	files := []string{target}
 	if os.is_directory(target) {
 		err: os.Error
@@ -891,41 +883,37 @@ collect_lints :: proc(target: string) -> ([]Entry, bool) {
 			return {}, false
 		}
 	}
-	return lint_files(files)
-}
 
-// The lints of files, which are one file or the files of one package directory.
-lint_files :: proc(files: []string) -> ([]Entry, bool) {
-	// document_open runs the per-file lints; the unused import check runs per open, as didOpen does.
-	uris := make(map[string]struct{}, context.temp_allocator)
+	// document_open runs the per-file lints; the unused import check runs per open, as didOpen does. The
+	// documents live in a map that moves as it grows, so a ^Document is good only until the next open.
+	opened := make([dynamic]string, context.temp_allocator)
+	defer for uri in opened {
+		server.document_close(uri)
+	}
 	document: ^server.Document
 	for file in files {
-		// A file that an earlier target opened is already linted, and opening it again fails.
 		uri := common.create_uri(file, context.temp_allocator).uri
-		if opened, found := linted_documents[uri]; found {
-			document = opened
-			uris[document.uri.uri] = {}
-			continue
-		}
-		ok: bool
+		if uri in linted do continue
 		reason: string
+		ok: bool
 		document, _, _, reason, ok = open(Target{file = file, start = {1, 1}, end = {1, 1}})
 		if !ok {
 			fmt.eprintln(reason)
 			return {}, false
 		}
+		append(&opened, strings.clone(document.uri.uri, context.temp_allocator))
 		server.check_unused_imports(document, &common.config)
-		uris[document.uri.uri] = {}
-		linted_documents[strings.clone(uri)] = document
+		linted[strings.clone(uri)] = {}
 	}
 	if document != nil {
 		server.lint_unused_declarations(document, &common.config)
 	}
 
-	entries := make([dynamic]Entry, context.temp_allocator)
-	for uri in uris {
+	entries := make([dynamic]Entry, allocator)
+	for opened_uri in opened {
+		uri := strings.clone(opened_uri, allocator)
 		for type in ([]server.DiagnosticType{.Lint, .Unused, .Unused_Decl}) {
-			for diagnostic in server.diagnostics_of(type, uri, context.temp_allocator) {
+			for diagnostic in server.diagnostics_of(type, uri, allocator) {
 				append(&entries, Entry{uri, diagnostic})
 			}
 		}

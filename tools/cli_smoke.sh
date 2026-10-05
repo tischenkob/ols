@@ -437,6 +437,14 @@ expect_exit 2 find-extra-arg "$OLS" query find add extra
 mkdir -p "$dir/lintdeep/sub" "$dir/lintnone/empty"
 printf 'package sub\n\nlower_sub :: 1\n' > "$dir/lintdeep/sub/s.odin"
 expect lint-recursive "lintdeep/sub/s.odin:3:1: .*\[naming\]" "$OLS" query lint "$dir/lintdeep"
+# The walk skips what check skips: hidden directories such as .claude/worktrees copies.
+mkdir -p "$dir/lintdeep/.hidden/copy"
+printf 'package copy\n\nlower_copy :: 1\n' > "$dir/lintdeep/.hidden/copy/c.odin"
+if "$OLS" query lint "$dir/lintdeep" | grep -q "lower_copy"; then echo "FAIL lint-skips-hidden"; exit 1; fi
+echo "ok lint-skips-hidden"
+# check DIR DIR reports each lint once.
+[[ "$("$OLS" query check "$dir/lint" "$dir/lint" | grep -c '\[self-assignment\]')" -eq 1 ]] || { echo "FAIL check-twice-once"; exit 1; }
+echo "ok check-twice-once"
 expect_exit 1 lint-no-package "$OLS" query lint "$dir/lintnone"
 # The indexer's log lines, such as a file of an imported package that does not parse, stay off stderr.
 mkdir -p "$dir/logq/z" "$dir/logq/use"
@@ -444,6 +452,9 @@ printf 'x := 1\n' > "$dir/logq/z/bad.odin"
 printf 'package use\n\nimport "../z"\n\nmain :: proc() {\n\t_ = z.x\n}\n' > "$dir/logq/use/u.odin"
 if "$OLS" query lint "$dir/logq/use" 2>&1 >/dev/null | grep -q '\[ERROR\]'; then echo "FAIL cli-no-index-log"; exit 1; fi
 echo "ok cli-no-index-log"
+# The CLI still reports a missing builtin folder: a copy of the binary has no builtin/ beside it.
+mkdir "$dir/nobuiltin" && cp "$OLS" "$dir/nobuiltin/ols"
+expect missing-builtin "Failed to find the builtin folder" sh -c "OLS_BUILTIN_FOLDER=\"$dir/no-such-dir\" \"$dir/nobuiltin/ols\" query symbols \"$dir/main.odin\" 2>&1 || true"
 expect check-multi "\[naming\]" "$OLS" query check "$dir/lint" "$dir/lint2"
 expect check-lints "\[self-assignment\]" "$OLS" query check "$dir/lint"
 mdir="$dir/mod"
@@ -558,6 +569,8 @@ fails :: proc(t: ^testing.T) {
 }
 ODIN
 expect tests "t_test.odin:6:1: passes" "$OLS" query tests "$dir/t"
+[[ "$("$OLS" query tests "$dir/t" "$dir/t/t_test.odin" | grep -c ': passes$')" -eq 1 ]] || { echo "FAIL tests-overlap-once"; exit 1; }
+echo "ok tests-overlap-once"
 expect test-one "1 test.* success" sh -c "\"$OLS\" query test \"$dir/t\" passes 2>&1"
 if "$OLS" query test "$dir/t" >/dev/null 2>&1; then echo "FAIL test exit code"; exit 1; fi
 echo "ok test failure exit"
