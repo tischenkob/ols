@@ -169,7 +169,7 @@ main :: proc() {
 }
 
 @(test)
-action_unwrap_for :: proc(t: ^testing.T) {
+action_unwrap_not_offered_on_for :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
 
@@ -184,13 +184,7 @@ main :: proc() {
 		config = {enable_code_action_unwrap = true},
 	}
 
-	test.expect_action_applied(t, &source, UNWRAP_ACTION, `package test
-
-main :: proc() {
-	n := 0
-	n += 1
-}
-`)
+	test.expect_action_missing(t, &source, UNWRAP_ACTION)
 }
 
 @(test)
@@ -216,7 +210,7 @@ main :: proc() {
 }
 
 @(test)
-action_unwrap_for_nested_break :: proc(t: ^testing.T) {
+action_unwrap_not_offered_on_for_with_nested_break :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
 
@@ -234,16 +228,7 @@ main :: proc() {
 		config = {enable_code_action_unwrap = true},
 	}
 
-	test.expect_action_applied(t, &source, UNWRAP_ACTION, `package test
-
-main :: proc() {
-	n := 0
-	for {
-		break
-	}
-	n += 1
-}
-`)
+	test.expect_action_missing(t, &source, UNWRAP_ACTION)
 }
 
 @(test)
@@ -775,4 +760,72 @@ f :: proc(xs: []P) {
 	}
 
 	test.expect_action_missing(t, &source, UNWRAP_ACTION)
+}
+
+// A loop runs its body any number of times, so replacing it with one copy changes behavior even
+// when the loop variable is blank.
+@(test)
+action_unwrap_not_offered_on_blank_range_loop :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(n: int) -> int {
+	s := 0
+	{*}for _ in 0 ..< n {
+		s += 1
+	}
+	return s
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_missing(t, &source, UNWRAP_ACTION)
+}
+
+@(test)
+action_unwrap_not_offered_on_c_style_loop :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(n: int) -> int {
+	s := 0
+	{*}for k := 0; k < n; k += 1 {
+		s += 1
+	}
+	return s
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_missing(t, &source, UNWRAP_ACTION)
+}
+
+@(test)
+action_unwrap_bare_block_inside_loop :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(n: int) {
+	for i in 0 ..< n {
+		{*}{
+			y := i
+			_ = y
+		}
+	}
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_applied(t, &source, UNWRAP_ACTION, `package test
+
+f :: proc(n: int) {
+	for i in 0 ..< n {
+		y := i
+		_ = y
+	}
+}
+`)
 }

@@ -147,7 +147,7 @@ Options:
 
 - `enable_code_action_ternary`: Enables the code actions converting between an if/else and a ternary expression. Defaults to true.
 
-- `enable_code_action_unwrap`: Enables the code actions to unwrap a block, if or loop body and to remove a redundant else. Defaults to true.
+- `enable_code_action_unwrap`: Enables the code actions to unwrap a bare block or an if body and to remove a redundant else. Loops are never unwrapped, since that runs the body once. Defaults to true.
 
 - `enable_code_action_do_block`: Enables the code actions converting a one-statement block to a `do` body and back. Defaults to true.
 

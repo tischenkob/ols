@@ -42,16 +42,6 @@ add_unwrap_action :: proc(ctx: ^ActionContext) {
 				unwrap_body(ctx, n, n)
 				return
 			}
-		case ^ast.For_Stmt:
-			if n.label == nil && n.body != nil && ctx.range.start < n.body.pos.offset && !has_dangling_branch(n.body) {
-				unwrap_body(ctx, n, n.body)
-			}
-			return
-		case ^ast.Range_Stmt:
-			if n.label == nil && n.body != nil && ctx.range.start < n.body.pos.offset && !has_dangling_branch(n.body) {
-				unwrap_body(ctx, n, n.body)
-			}
-			return
 		}
 	}
 }
@@ -78,7 +68,7 @@ add_remove_else :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt) {
 // the statement's lines.
 unwrap_body :: proc(ctx: ^ActionContext, stmt: ^ast.Node, body: ^ast.Stmt) {
 	block, is_block := body.derived.(^ast.Block_Stmt)
-	if !is_block || block.uses_do || loop_variable_used(stmt, block) {
+	if !is_block || block.uses_do {
 		return
 	}
 	if unwrap_redeclares(ctx, stmt, block) || unwrap_leaves_dead_code(ctx, stmt, block) {
@@ -135,28 +125,6 @@ unwrap_redeclares :: proc(ctx: ^ActionContext, stmt: ^ast.Node, block: ^ast.Bloc
 	return false
 }
 
-// A loop header declares names that the body may use, and unwrapping deletes the header.
-loop_variable_used :: proc(stmt: ^ast.Node, body: ^ast.Block_Stmt) -> bool {
-	names := make([dynamic]string, context.temp_allocator)
-	#partial switch n in stmt.derived {
-	case ^ast.Range_Stmt:
-		for val in n.vals {
-			val := val
-			// `for &v in xs` stores &v.
-			if unary, is_unary := val.derived.(^ast.Unary_Expr); is_unary {
-				val = unary.expr
-			}
-			if ident, ok := val.derived.(^ast.Ident); ok {
-				append(&names, ident.name)
-			}
-		}
-		append_decl_names(&names, n.init)
-	case ^ast.For_Stmt:
-		append_decl_names(&names, n.init)
-	}
-	return len(names) > 0 && mentions_any(body, ..names[:])
-}
-
 // A return, break, continue, fallthrough or goto in the body would leave the statements after
 // the unwrapped statement, or after it in the body, unreachable. Without a known enclosing list the
 // edit is refused.
@@ -196,52 +164,4 @@ enclosing_stmts :: proc(ctx: ^ActionContext, stmt: ^ast.Node) -> []^ast.Stmt {
 		}
 	}
 	return nil
-}
-
-// An unlabeled break or continue that targets the loop being unwrapped.
-has_dangling_branch :: proc(body: ^ast.Stmt) -> bool {
-	Data :: struct {
-		dangling: bool,
-		depth:    int, // loops and switches opened inside the body
-		stack:    [dynamic]bool, // whether each open node counts toward depth
-	}
-
-	data := Data {
-		stack = make([dynamic]bool, context.temp_allocator),
-	}
-
-	visitor := ast.Visitor {
-		data = &data,
-		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
-			data := (^Data)(visitor.data)
-			if node == nil {
-				if pop(&data.stack) {
-					data.depth -= 1
-				}
-				return nil
-			}
-			if data.dangling {
-				return nil
-			}
-
-			opens := false
-			#partial switch n in node.derived {
-			case ^ast.Proc_Lit:
-				return nil
-			case ^ast.Branch_Stmt:
-				if n.label == nil && data.depth == 0 && (n.tok.kind == .Break || n.tok.kind == .Continue) {
-					data.dangling = true
-					return nil
-				}
-			case ^ast.For_Stmt, ^ast.Range_Stmt, ^ast.Unroll_Range_Stmt, ^ast.Switch_Stmt, ^ast.Type_Switch_Stmt:
-				opens = true
-				data.depth += 1
-			}
-			append(&data.stack, opens)
-			return visitor
-		},
-	}
-
-	ast.walk(&visitor, body)
-	return data.dangling
 }

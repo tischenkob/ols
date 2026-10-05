@@ -256,12 +256,19 @@ add_c_style_for :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 		if !ok {
 			continue
 		}
-		if loop.reverse || loop.init != nil || loop.expr == nil || loop.body == nil || len(loop.vals) != 1 {
+		if loop.reverse || loop.init != nil || loop.expr == nil || loop.body == nil || len(loop.vals) > 1 {
 			return
 		}
-		name, is_ident := loop.vals[0].derived.(^ast.Ident)
+		value: ^ast.Ident
+		if len(loop.vals) == 1 {
+			ident, is_ident := loop.vals[0].derived.(^ast.Ident)
+			if !is_ident {
+				return
+			}
+			value = ident
+		}
 		bounds, is_binary := loop.expr.derived.(^ast.Binary_Expr)
-		if !is_ident || !is_binary {
+		if !is_binary {
 			return
 		}
 		cmp: string
@@ -283,20 +290,24 @@ add_c_style_for :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 		if type_text != "int" {
 			decl = strings.concatenate({": ", type_text, " = "}, context.temp_allocator)
 		}
+		counter := value.name if value != nil && value.name != "_" else blank_loop_counter(ctx, loop)
+		if counter == "" {
+			return
+		}
 		text := strings.concatenate(
 			{
 				"for ",
-				name.name,
+				counter,
 				decl,
 				lo,
 				"; ",
-				name.name,
+				counter,
 				" ",
 				cmp,
 				" ",
 				hi,
 				"; ",
-				name.name,
+				counter,
 				" += 1 ",
 				do_keyword(loop.body),
 			},
@@ -305,6 +316,17 @@ add_c_style_for :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 		append_replace_range(ctx, loop.for_pos.offset, loop.body.pos.offset, "Convert to C-style for", text)
 		return
 	}
+}
+
+// A counter name for a range loop whose value is blank or absent: free at the loop and not named
+// in the body, so it neither captures an outer name nor is shadowed. "" when none of i, j, k fits.
+blank_loop_counter :: proc(ctx: ^ActionContext, loop: ^ast.Range_Stmt) -> string {
+	for base in ([]string{"i", "j", "k"}) {
+		if name := fresh_name(ctx, base, loop.pos); !mentions_any(loop.body, name) {
+			return name
+		}
+	}
+	return ""
 }
 
 // The written type of the range, which is that of its typed bound. An untyped range is an int. ok is false

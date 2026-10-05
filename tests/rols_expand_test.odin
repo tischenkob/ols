@@ -353,6 +353,88 @@ f :: proc(n: int) {
 `)
 }
 
+// `_` cannot be read, so a blank loop value gets a fresh counter name and the body stays as it is.
+@(test)
+expand_range_blank_value :: proc(t: ^testing.T) {
+	expect_expand(t, C_STYLE_FOR, `package test
+
+f :: proc(n: int) -> int {
+	s := 0
+	for _ {*}in 0 ..< n {
+		s += 1
+	}
+	return s
+}
+`, `package test
+
+f :: proc(n: int) -> int {
+	s := 0
+	for i := 0; i < n; i += 1 {
+		s += 1
+	}
+	return s
+}
+`)
+}
+
+// `i` is taken before the loop and `i2` inside the body, so the counter is `j`.
+@(test)
+expand_range_blank_value_avoids_taken_names :: proc(t: ^testing.T) {
+	expect_expand(t, C_STYLE_FOR, `package test
+
+f :: proc(n: int) -> int {
+	i := 0
+	for _ {*}in 0 ..< n {
+		i2 := i
+		i += i2
+	}
+	return i
+}
+`, `package test
+
+f :: proc(n: int) -> int {
+	i := 0
+	for j := 0; j < n; j += 1 {
+		i2 := i
+		i += i2
+	}
+	return i
+}
+`)
+}
+
+@(test)
+expand_range_no_value :: proc(t: ^testing.T) {
+	expect_expand(t, C_STYLE_FOR, `package test
+
+f :: proc(n: int) {
+	for {*}in 0 ..< n {
+		g()
+	}
+}
+`, `package test
+
+f :: proc(n: int) {
+	for i := 0; i < n; i += 1 {
+		g()
+	}
+}
+`)
+}
+
+// The index of an interval counts from 0 whatever the low bound, so it is not a counter.
+@(test)
+expand_range_blank_value_with_index :: proc(t: ^testing.T) {
+	expect_no_expand(t, C_STYLE_FOR, `package test
+
+f :: proc(n: int) {
+	for _, i {*}in 1 ..< n {
+		g(i)
+	}
+}
+`)
+}
+
 @(test)
 expand_range_two_vals :: proc(t: ^testing.T) {
 	expect_no_expand(t, C_STYLE_FOR, `package test
