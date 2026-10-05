@@ -99,12 +99,17 @@ main :: proc() {
 			if data, ok := format_file(args.path, config, arena_allocator); ok {
 				write_formatted_file(args.path, data)
 			} else {
-				fmt.eprintf("Failed to write %v", args.path)
+				// rols: end the error line with a newline
+				fmt.eprintfln("Failed to write %v", args.path)
 				write_failure = true
 			}
 		} else {
+			// rols: exit 1 when the file does not format, so `odinfmt f > tmp && mv tmp f` keeps the file
 			if data, ok := format_file(args.path, config, arena_allocator); ok {
 				fmt.print(data)
+			} else {
+				fmt.eprintfln("Failed to format %v", args.path)
+				write_failure = true
 			}
 		}
 	} else if os.is_dir(args.path) {
@@ -133,7 +138,8 @@ main :: proc() {
 					fmt.println(data)
 				}
 			} else {
-				fmt.eprintf("Failed to format %v", file)
+				// rols: end the error line with a newline
+				fmt.eprintfln("Failed to format %v", file)
 				write_failure = true
 			}
 
