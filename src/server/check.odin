@@ -243,6 +243,8 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, t
 	pending_reruns := make([dynamic]CheckProcess, context.temp_allocator)
 	parsed := 0
 	budget := timeout
+	// rols: the files each package's errors name, filled as outputs parse, for the CLI compile gate
+	check_run.error_files = make(map[string][dynamic]string, context.temp_allocator)
 
 	for running_count > 0 || next_index < len(paths) || len(pending_reruns) > 0 {
 		for first in pending_reruns {
@@ -345,6 +347,8 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, t
 					continue
 				}
 				parsed += 1
+				// rols: record the files that this package's errors name
+				note_error_files(p.path, json_errors)
 				// rols: the rerun merges with the first run, a Syntax Error of a style check starts the rerun
 				if p.rerun {
 					json_errors = merge_style_rerun(p.first, json_errors)

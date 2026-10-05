@@ -591,7 +591,7 @@ if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
 	printf 'package wl\n\nJ :: proc() -> int {\n\treturn 2\n}\n' > "$dir/jw/wl/wl_js.odin"
 	printf 'package nat\n\nimport "core:os"\nimport "../wl"\n\nmain :: proc() {\n\t_ = wl.H()\n\t_, _ = os.read_entire_file("x", context.allocator)\n}\n' > "$dir/jw/nat/nat.odin"
 	printf 'package web\n\nimport "../wl"\n\nmain :: proc() {\n\t_ = wl.J()\n}\n' > "$dir/jw/web/web_js.odin"
-	expect native-importer-skipped-on-js "^warning: jw/nat does not build on target js_wasm32: odin check there reports errors in .*core/os/" sh -c "\"$OLS\" query attr add \"$dir/jw/wl/wl_js.odin:3:1\" cold --apply 2>&1"
+	expect native-importer-skipped-on-js "^warning: jw/nat does not build on target js_wasm32: odin check there reports errors in .*, outside the workspace" sh -c "\"$OLS\" query attr add \"$dir/jw/wl/wl_js.odin:3:1\" cold --apply 2>&1"
 	expect_exit 4 js-importer-keeps-its-gate "$OLS" query attr add "$dir/jw/wl/wl_js.odin:4:1" private --apply
 	rm -rf "$dir/jw"
 fi

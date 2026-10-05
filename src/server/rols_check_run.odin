@@ -1,15 +1,17 @@
 package server
 
-import "core:encoding/json"
 import "core:os"
+import "core:path/filepath"
 import "core:slice"
 import "core:strings"
+
+import "src:common"
 
 // How the last `check` on this thread went, so a caller can tell "no errors" from "the checker did not
 // run". failure is empty when every package check finished with output that parsed; ran is false when
 // `check` returned before starting any process. The CLI's compile gate resets it before each check.
-// error_files holds, per package check path, the files that its errors name; it lives in the temp memory
-// of the check.
+// error_files holds, per package check path, the files that its errors name; `check` makes it in its temp
+// memory, and record_check_run keeps it.
 Check_Run :: struct {
 	ran:         bool,
 	failure:     string,
@@ -37,16 +39,7 @@ record_check_run :: proc(path_count: int, processes: []CheckProcess, parsed: int
 	defer clear(&failed_exits)
 	check_run = {
 		ran         = true,
-		error_files = make(map[string][dynamic]string, context.temp_allocator),
-	}
-	for p in processes {
-		note_error_files(p.path, p.first)
-		if len(p.buffer) > 0 {
-			output: Json_Errors
-			if json.unmarshal(p.buffer[:], &output, json.DEFAULT_SPECIFICATION, context.temp_allocator) == nil {
-				note_error_files(p.path, output)
-			}
-		}
+		error_files = check_run.error_files,
 	}
 	with_output := 0
 	started := 0
@@ -76,21 +69,27 @@ record_check_run :: proc(path_count: int, processes: []CheckProcess, parsed: int
 	}
 }
 
-// Adds the files that the errors of output name to the error files of the check path. An error without a
-// position names no file.
-@(private = "file")
+// Called by `check` as each output parses: adds the files that the errors of output name to the error files
+// of the check path, spelled as `check` spells diagnostic paths. An error without a position names no file.
 note_error_files :: proc(check_path: string, output: Json_Errors) {
 	files := check_run.error_files[check_path]
 	for e in output.errors {
-		message := strings.join(e.msgs, "\n", context.temp_allocator)
-		if e.pos.file != "" &&
-		   map_diagnostic_severity(e.type, message) == .Error &&
-		   !slice.contains(files[:], e.pos.file) {
-			if files == nil {
-				files = make([dynamic]string, context.temp_allocator)
-			}
-			append(&files, e.pos.file)
+		if e.pos.file == "" {
+			continue
 		}
+		file := e.pos.file
+		when ODIN_OS == .Windows {
+			file = common.get_case_sensitive_path(file, context.temp_allocator)
+			file, _ = filepath.replace_separators(file, '/', context.temp_allocator)
+		}
+		if slice.contains(files[:], file) ||
+		   map_diagnostic_severity(e.type, strings.join(e.msgs, "\n", context.temp_allocator)) != .Error {
+			continue
+		}
+		if files == nil {
+			files = make([dynamic]string, context.temp_allocator)
+		}
+		append(&files, file)
 	}
 	check_run.error_files[check_path] = files
 }
