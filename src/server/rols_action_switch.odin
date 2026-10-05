@@ -163,33 +163,38 @@ pair_value :: proc(src: string, pair: [2]^ast.Expr, subject: ^ast.Expr) -> (^ast
 // Odin rejects an enum switch that leaves a member out, even with a default case, and rejects #partial on any other type.
 // #partial on an enum is always legal, so a case value that names no member keeps it.
 needs_partial :: proc(ctx: ^ActionContext, subject: ^ast.Expr, branches: []Branch) -> bool {
+	covered := make(map[string]struct{}, context.temp_allocator)
+	has_implicit := false
+	for branch in branches {
+		for value in branch.values {
+			if name, named := get_used_switch_name(value); named {
+				covered[name] = {}
+			}
+			_, is_implicit := value.derived.(^ast.Implicit_Selector_Expr)
+			has_implicit ||= is_implicit
+		}
+	}
 	// Resolving a global type turns locals off and leaves them off.
 	ctx.ast_context.use_locals = true
 	symbol, ok := resolve_type_expression(ctx.ast_context, subject)
 	if !ok {
 		// An implicit selector compares only against an enum, so it marks an unresolved subject as one.
-		for branch in branches {
+		if has_implicit {
+			return true
+		}
+		// A qualified value such as `Kind.A` resolves to its enum, which is the subject's type too.
+		values: for branch in branches {
 			for value in branch.values {
-				if _, is_implicit := value.derived.(^ast.Implicit_Selector_Expr); is_implicit {
-					return true
+				ctx.ast_context.use_locals = true
+				if symbol, ok = resolve_type_expression(ctx.ast_context, value); ok {
+					break values
 				}
 			}
 		}
-		return false
 	}
 	members, is_enum := symbol.value.(SymbolEnumValue)
-	if !is_enum {
+	if !ok || !is_enum {
 		return false
-	}
-	covered := make(map[string]struct{}, context.temp_allocator)
-	for branch in branches {
-		for value in branch.values {
-			name, named := get_used_switch_name(value)
-			if !named {
-				return true
-			}
-			covered[name] = {}
-		}
 	}
 	for name in members.names {
 		if name not_in covered {
