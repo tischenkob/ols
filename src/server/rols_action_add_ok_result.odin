@@ -41,18 +41,25 @@ add_add_ok_result_action :: proc(ctx: ^ActionContext) {
 	if !on_target {
 		return
 	}
+	types: []^ast.Expr
+	if results != nil {
+		// An empty `-> ()` has no result to extend and no spot for ` -> bool`.
+		if len(results.list) == 0 {
+			return
+		}
+		types = field_types(results.list)
+	}
+	// A last bool result is already the ok flag, and a second one would only shadow it.
+	if len(types) > 0 && result_kind(types[len(types) - 1]) == .Bool {
+		return
+	}
 
 	// or_return assigns its operand's end value to the last result, which would become the bool.
 	if has_or_return(lit.body) {
 		return
 	}
 
-	old_count := 0
-	if results != nil {
-		for field in results.list {
-			old_count += max(len(field.names), 1)
-		}
-	}
+	old_count := len(types)
 	changes := make(Changes, context.temp_allocator)
 	if !add_ok_to_callers(ctx, &changes, decl, lit, old_count) {
 		return

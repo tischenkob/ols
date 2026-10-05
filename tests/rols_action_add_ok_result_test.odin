@@ -224,16 +224,11 @@ f :: proc(x: int) -> (int, bool) {
 }
 
 @(test)
-add_ok_result_appends_to_an_existing_bool :: proc(t: ^testing.T) {
-	expect_add_ok_result(t, `package test
+add_ok_result_refused_on_a_bool_result :: proc(t: ^testing.T) {
+	expect_no_add_ok_result(t, `package test
 
 f{*} :: proc() -> bool {
 	return true
-}
-`, `package test
-
-f :: proc() -> (bool, bool) {
-	return true, true
 }
 `)
 }
@@ -260,26 +255,6 @@ add_ok_result_refused_optional_ok :: proc(t: ^testing.T) {
 
 f{*} :: proc() -> (int, bool) #optional_ok {
 	return 1, true
-}
-`)
-}
-
-@(test)
-add_ok_result_twice_appends_a_second_bool :: proc(t: ^testing.T) {
-	source := test.Source {
-		main = `package test
-
-f{*} :: proc() -> int {
-	return 1
-}
-`,
-		config = {enable_code_action_add_ok_result = true},
-	}
-
-	test.expect_action_chain(t, &source, {ADD_OK_RESULT_ACTION, ADD_OK_RESULT_ACTION}, `package test
-
-f :: proc() -> (int, bool, bool) {
-	return 1, true, true
 }
 `)
 }
@@ -579,6 +554,48 @@ g :: proc(x: int) -> Err {
 h{*} :: proc(x: int) -> (err: Err) {
 	g(x) or_return
 	return .None
+}
+`)
+}
+
+@(test)
+add_ok_result_already_named_ok :: proc(t: ^testing.T) {
+	expect_no_add_ok_result(t, `package test
+
+named{*} :: proc(h: int) -> (v: int, ok: bool) {
+	return h, true
+}
+`)
+}
+
+@(test)
+add_ok_result_already_unnamed_bool :: proc(t: ^testing.T) {
+	expect_no_add_ok_result(t, `package test
+
+Entry :: struct {}
+
+find :: proc(h: int) -> (^Entry, b{*}ool) {
+	return nil, false
+}
+`)
+}
+
+@(test)
+add_ok_result_already_b32 :: proc(t: ^testing.T) {
+	expect_no_add_ok_result(t, `package test
+
+check{*} :: proc(h: int) -> (v: int, found: b32) {
+	return h, true
+}
+`)
+}
+
+@(test)
+add_ok_result_refused_on_empty_results :: proc(t: ^testing.T) {
+	expect_no_add_ok_result(t, `package test
+
+f{*} :: proc() -> () {
+	return
 }
 `)
 }

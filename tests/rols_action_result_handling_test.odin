@@ -611,3 +611,120 @@ main :: proc() -> (int, My_Error) {
 }
 `)
 }
+
+@(test)
+result_or_return_binds_ok :: proc(t: ^testing.T) {
+	expect_no_result_action(t, OR_RETURN_ACTION, `package test
+
+make_it :: proc() -> (int, bool) { return 1, true }
+
+use :: proc() -> (n: int, ok: bool) {
+	v, vok := make_{*}it()
+	if !vok { return 0, false }
+	return v, true
+}
+`)
+}
+
+@(test)
+result_or_else_binds_ok :: proc(t: ^testing.T) {
+	expect_no_result_action(t, OR_ELSE_ACTION, `package test
+
+make_it :: proc() -> (int, bool) { return 1, true }
+
+use :: proc() -> int {
+	v, vok := make_{*}it()
+	if !vok { return 0 }
+	return v
+}
+`)
+}
+
+@(test)
+result_or_return_assign_binds_ok :: proc(t: ^testing.T) {
+	expect_no_result_action(t, OR_RETURN_ACTION, `package test
+
+make_it :: proc() -> (int, bool) { return 1, true }
+
+use :: proc() -> (n: int, ok: bool) {
+	v: int
+	vok: bool
+	v, vok = make_{*}it()
+	if !vok { return 0, false }
+	return v, true
+}
+`)
+}
+
+@(test)
+result_or_return_parenthesized_binds_ok :: proc(t: ^testing.T) {
+	expect_no_result_action(t, OR_RETURN_ACTION, `package test
+
+make_it :: proc() -> (int, bool) { return 1, true }
+
+use :: proc() -> (n: int, ok: bool) {
+	v, vok := (make_{*}it())
+	if !vok { return 0, false }
+	return v, true
+}
+`)
+}
+
+@(test)
+result_or_else_several_values :: proc(t: ^testing.T) {
+	expect_result_action(t, OR_ELSE_ACTION, `package test
+
+make_it :: proc() -> (int, bool) { return 1, true }
+
+use :: proc() -> int {
+	a, b := make_{*}it(), 2
+	return a + b
+}
+`, `package test
+
+make_it :: proc() -> (int, bool) { return 1, true }
+
+use :: proc() -> int {
+	a, b := make_it() or_else 0, 2
+	return a + b
+}
+`)
+}
+
+@(test)
+result_or_return_b32_through_bool :: proc(t: ^testing.T) {
+	expect_no_result_action(t, OR_RETURN_ACTION, `package test
+
+f :: proc() -> (int, b32) { return 1, true }
+
+main :: proc() -> bool {
+	x := f({*})
+	return x > 0
+}
+`)
+}
+
+@(test)
+result_discard_parenthesized_statement :: proc(t: ^testing.T) {
+	expect_no_result_action(t, DISCARD_ACTION, `package test
+
+f :: proc() -> (int, bool) { return 1, true }
+
+main :: proc() {
+	(f({*}))
+}
+`)
+}
+
+@(test)
+result_if_parenthesized_value :: proc(t: ^testing.T) {
+	expect_no_result_action(t, HANDLE_IF_ACTION, `package test
+
+f :: proc() -> (int, bool) { return 1, true }
+
+main :: proc() {
+	x := (f({*}))
+	_ = x
+}
+`)
+}
