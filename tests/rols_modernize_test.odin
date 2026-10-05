@@ -846,3 +846,31 @@ f :: proc(grid: [2][3]int) -> int {
 
 	test.expect_modernized(t, &src, {}, src.main)
 }
+
+@(test)
+modernize_unused_parameter_keeps_a_named_argument :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+f :: proc(a: int, b: int, hidden := false) -> int {
+	return a
+}
+
+g :: proc() -> int {
+	return f(1, 2, hidden = true)
+}
+`,
+		config = {enable_lint_unused_parameter = true},
+	}
+
+	test.expect_modernized(t, &src, {"unused-parameter"}, `package test
+
+f :: proc(a: int, _: int, hidden := false) -> int {
+	return a
+}
+
+g :: proc() -> int {
+	return f(1, 2, hidden = true)
+}
+`)
+}
