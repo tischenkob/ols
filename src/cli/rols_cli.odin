@@ -195,7 +195,8 @@ run :: proc(args: []string) -> int {
 			targets[i] = absolute(arg)
 		}
 		first := targets[0]
-		root_dir := root if root != "" else find_root(first if os.is_directory(first) else path.dir(first, context.temp_allocator))
+		root_dir :=
+			root if root != "" else find_root(first if os.is_directory(first) else path.dir(first, context.temp_allocator))
 		setup(root_dir)
 		switch command {
 		case "check":
