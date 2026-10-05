@@ -106,6 +106,8 @@ find_unused_imports :: proc(document: ^Document, allocator := context.temp_alloc
 
 	pkgs := make(map[string]struct{}, context.temp_allocator)
 	for _, v in symbols {
+		// rols: only a package name written in the file uses an import, a value of one of its types does not
+		if _, is_pkg := v.symbol.value.(SymbolPackageValue); !is_pkg do continue
 		pkgs[v.symbol.pkg] = {}
 	}
 
