@@ -79,9 +79,7 @@ takes_testing_t :: proc(ctx: ^LintContext, lit: ^ast.Proc_Lit) -> bool {
 	if params == nil || len(params.list) != 1 || len(params.list[0].names) != 1 || params.list[0].type == nil do return false
 	for imp in ctx.document.ast.imports {
 		if imp.fullpath != `"core:testing"` do continue
-		name := imp.name.text
-		if name == "" do name = "testing"
-		return node_text(ctx.src, params.list[0].type) == fmt.tprintf("^%s.T", name)
+		return node_text(ctx.src, params.list[0].type) == fmt.tprintf("^%s.T", pattern_import_name(imp))
 	}
 	return false
 }

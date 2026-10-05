@@ -21,8 +21,7 @@ add_split_merge_if_action :: proc(ctx: ^ActionContext) {
 	}
 
 	add_split_if(ctx, if_stmt, body)
-	if merge_calls_deferred(ctx.document, if_stmt) do return
-	if text, ok := merge_if_text(ctx.document.ast.src, if_stmt); ok {
+	if text, ok := merge_if_text(ctx.document.ast.src, if_stmt); ok && !merge_calls_deferred(ctx.document, if_stmt) {
 		append_replace(ctx, if_stmt, "Merge nested if", text)
 	}
 }
@@ -123,7 +122,8 @@ merge_if_text :: proc(src: string, if_stmt: ^ast.If_Stmt) -> (string, bool) {
 // when either condition of `if a { if b { … } }` makes one. merge_if_text is syntactic; this
 // resolves the callees. An unresolved callee does not count.
 @(private = "package")
-merge_calls_deferred :: proc(document: ^Document, if_stmt: ^ast.If_Stmt) -> bool {
+merge_calls_deferred :: proc(document: ^Document, node: ^ast.Node) -> bool {
+	if_stmt := node.derived.(^ast.If_Stmt) or_return
 	if if_stmt.body == nil do return false
 	body := if_stmt.body.derived.(^ast.Block_Stmt) or_return
 	if len(body.stmts) != 1 do return false
