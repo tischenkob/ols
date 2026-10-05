@@ -345,7 +345,7 @@ stale_imports :: proc(document: ^Document, decl: ^ast.Value_Decl, used: []Packag
 
 	stale := make([dynamic]Package, context.temp_allocator)
 	for imp in used {
-		if imp.base != "_" && imp.base not_in names {
+		if imp.base not_in names {
 			append(&stale, imp)
 		}
 	}
@@ -354,28 +354,24 @@ stale_imports :: proc(document: ^Document, decl: ^ast.Value_Decl, used: []Packag
 	}
 	unused_before := find_unused_imports(document, context.temp_allocator)
 	#reverse for imp, i in stale {
-		for before in unused_before {
-			if before.import_decl == imp.import_decl {
-				unordered_remove(&stale, i)
-				break
-			}
-		}
+		if slice.contains(unused_before, imp) do unordered_remove(&stale, i)
 	}
 	return stale[:]
 }
 
 // The byte ranges move deletes from its file, sorted and merged: the declaration and the lines of
-// its stale imports. A stale import line between blank lines takes one of them along.
+// its stale imports with their doc comments. A stale import between blank lines takes one of them along.
 @(private = "file")
 source_cuts :: proc(move: Move) -> [][2]int {
 	src := move.document.ast.src
 	cuts := make([dynamic][2]int, context.temp_allocator)
 	append(&cuts, [2]int{move.del_start, move.del_end})
-	if len(move.stale_imports) == 0 {
-		return cuts[:]
-	}
 	for imp in move.stale_imports {
-		start := strings.last_index_byte(src[:imp.import_decl.pos.offset], '\n') + 1
+		start := imp.import_decl.pos.offset
+		if imp.import_decl.docs != nil {
+			start = min(start, imp.import_decl.docs.pos.offset)
+		}
+		start = strings.last_index_byte(src[:start], '\n') + 1
 		end := imp.import_decl.end.offset
 		if nl := strings.index_byte(src[end:], '\n'); nl >= 0 {
 			end += nl + 1
@@ -395,11 +391,7 @@ source_cuts :: proc(move: Move) -> [][2]int {
 		}
 	}
 	for &cut in merged {
-		if cut == {move.del_start, move.del_end} {
-			continue
-		}
-		blank_before := cut[0] >= 2 && src[cut[0] - 1] == '\n' && src[cut[0] - 2] == '\n'
-		if !blank_before {
+		if cut == {move.del_start, move.del_end} || cut[0] < 2 || src[cut[0] - 1] != '\n' || src[cut[0] - 2] != '\n' {
 			continue
 		}
 		if cut[1] == len(src) {

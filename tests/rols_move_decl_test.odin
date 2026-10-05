@@ -429,15 +429,19 @@ moved :: proc(s: []int) {
 	)
 }
 
+// A local that shadows the import makes the moved declaration spell the import without using it.
 @(test)
 move_decl_keeps_import_unused_before_the_move :: proc(t: ^testing.T) {
 	source := move_source(`package test
 
-import "core:fmt"
-import "core:slice"
+import "core:strings"
 
-sh{*}ow :: proc() {
-	fmt.println("x")
+T :: struct {
+	f: int,
+}
+
+sh{*}ow :: proc(strings: T) {
+	_ = strings.f
 }
 
 main :: proc() {}
@@ -448,15 +452,58 @@ main :: proc() {}
 		"b.odin",
 		{{"main.odin", `package test
 
-import "core:slice"
+import "core:strings"
+
+T :: struct {
+	f: int,
+}
 
 main :: proc() {}
 `}, {"b.odin", `package test
 
+import "core:strings"
+
+show :: proc(strings: T) {
+	_ = strings.f
+}
+`}},
+	)
+}
+
+// The doc comment of a dropped import goes with it.
+@(test)
+move_decl_drops_import_with_its_doc_comment :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+import "core:fmt"
+// Upper-casing.
+import "core:strings"
+
+keep :: proc() {
+	fmt.println("x")
+}
+
+u{*}p :: proc(s: string) -> string {
+	return strings.to_upper(s)
+}
+`, {{"b.odin", "package test\n"}})
+	test.expect_move_declaration(
+		t,
+		&source,
+		"b.odin",
+		{{"main.odin", `package test
+
 import "core:fmt"
 
-show :: proc() {
+keep :: proc() {
 	fmt.println("x")
+}
+`}, {"b.odin", `package test
+
+import "core:strings"
+
+up :: proc(s: string) -> string {
+	return strings.to_upper(s)
 }
 `}},
 	)
