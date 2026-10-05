@@ -160,7 +160,7 @@ add_defer_delete_action :: proc(ctx: ^ActionContext) {
 			}
 		}
 	}
-	if escapes(ctx, function.body, name.name) {
+	if escapes(function.body, name.name) {
 		return
 	}
 
@@ -180,34 +180,118 @@ add_defer_delete_action :: proc(ctx: ^ActionContext) {
 	append_insert(ctx, at, title, "refactor.rewrite", text)
 }
 
-// Ownership leaves the scope when the variable is returned, appended, stored in a field or
-// assigned to anything but a local. Shadowing is ignored.
-escapes :: proc(ctx: ^ActionContext, body: ^ast.Stmt, name: string) -> bool {
+// Ownership leaves the scope when the variable, or any value derived from it, can outlive the
+// procedure: returned, stored in a variable, field or literal, appended, or passed to a call whose
+// result is kept. Uses this walk does not know count as escapes. Shadowing is ignored.
+escapes :: proc(body: ^ast.Stmt, name: string) -> bool {
 	for use in collect_ident_uses(body) {
 		if use.ident.name != name || len(use.parents) == 0 {
 			continue
 		}
-		target: ^ast.Expr = use.ident
-		#partial switch p in use.parents[len(use.parents) - 1].derived {
-		case ^ast.Return_Stmt:
+		if !is_name_use(use) && escapes_from(use.ident, use.parents) {
 			return true
-		case ^ast.Field_Value:
-			if p.value == target {
-				return true
-			}
-		case ^ast.Call_Expr:
-			if final_name(p.expr) == "append" && slice.contains(p.args, target) {
-				return true
-			}
-		case ^ast.Assign_Stmt:
-			if !slice.contains(p.rhs, target) {
-				continue
-			}
-			lhs := p.lhs[0].derived.(^ast.Ident) or_else nil
-			if lhs == nil || lhs.name in ctx.ast_context.globals {
-				return true
-			}
 		}
 	}
 	return false
 }
+
+// A field, a selector member or a declared name spells the variable's name without reading it.
+is_name_use :: proc(use: IdentUse) -> bool {
+	#partial switch p in use.parents[len(use.parents) - 1].derived {
+	case ^ast.Selector_Expr:
+		return p.field == use.ident
+	case ^ast.Field_Value:
+		return p.field == use.ident
+	case ^ast.Implicit_Selector_Expr, ^ast.Field:
+		return true
+	case ^ast.Value_Decl:
+		return slice.contains(p.names, use.ident)
+	}
+	return false
+}
+
+// value is an expression that may share the allocation; parents are its ancestors, outermost first.
+// An element read (index or deref) copies out of the allocation, so it only shares it through a
+// later `&` or slice.
+escapes_from :: proc(value: ^ast.Expr, parents: []^ast.Node) -> bool {
+	value := value
+	element := false
+	for i := len(parents) - 1; i >= 0; i -= 1 {
+		#partial switch p in parents[i].derived {
+		case ^ast.Paren_Expr, ^ast.Selector_Expr:
+		case ^ast.Index_Expr:
+			if p.expr != value {
+				return false
+			}
+			element = true
+		case ^ast.Matrix_Index_Expr:
+			if p.expr != value {
+				return false
+			}
+			element = true
+		case ^ast.Deref_Expr:
+			element = true
+		case ^ast.Unary_Expr:
+			if p.op.kind != .And {
+				return false
+			}
+			element = false
+		case ^ast.Slice_Expr:
+			if p.expr != value {
+				return false
+			}
+			element = false
+		case:
+			if element {
+				return false
+			}
+			#partial switch q in parents[i].derived {
+			case ^ast.Ternary_If_Expr,
+			     ^ast.Ternary_When_Expr,
+			     ^ast.Or_Else_Expr,
+			     ^ast.Or_Return_Expr,
+			     ^ast.Type_Assertion,
+			     ^ast.Type_Cast,
+			     ^ast.Auto_Cast,
+			     ^ast.Selector_Call_Expr:
+			case ^ast.Binary_Expr:
+				if .B_Comparison_Begin < q.op.kind && q.op.kind < .B_Comparison_End {
+					return false
+				}
+				if q.op.kind == .In || q.op.kind == .Not_In {
+					return false
+				}
+			case ^ast.Call_Expr:
+				// A call on the value, or with it as an argument, may return memory it owns.
+				if q.expr != value {
+					callee := final_name(q.expr)
+					if callee == "len" || callee == "cap" {
+						return false
+					}
+					// The first argument of these is the container that grows; the others go into it.
+					if slice.contains(stores, callee) && len(q.args) > 0 && q.args[0] != value {
+						return true
+					}
+				}
+			case ^ast.Assign_Stmt:
+				return !slice.contains(q.lhs, value)
+			case ^ast.Expr_Stmt,
+			     ^ast.If_Stmt,
+			     ^ast.When_Stmt,
+			     ^ast.For_Stmt,
+			     ^ast.Range_Stmt,
+			     ^ast.Switch_Stmt,
+			     ^ast.Type_Switch_Stmt,
+			     ^ast.Case_Clause:
+				return false
+			case:
+				return true
+			}
+		}
+		// Every case that gets here is an expression whose value may share the allocation.
+		value = (^ast.Expr)(parents[i])
+	}
+	return false
+}
+
+stores := []string{"append", "append_elem", "append_elems", "inject_at", "assign_at", "map_insert"}

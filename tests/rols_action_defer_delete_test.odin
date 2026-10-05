@@ -14,6 +14,8 @@ packages :: proc() -> []test.Package {
 Builder :: struct { buf: [dynamic]u8 }
 builder_make :: proc(allocator := context.allocator) -> Builder { return {} }
 builder_destroy :: proc(b: ^Builder) {}
+to_string :: proc(b: Builder) -> string { return "" }
+write_string :: proc(b: ^Builder, s: string) -> int { return 0 }
 clone :: proc(s: string, allocator := context.allocator) -> string { return s }
 `})
 	append(&packages, test.Package{pkg = "os", source = `package os
@@ -420,4 +422,115 @@ main :: proc() {
 		config      = {enable_code_action_defer_delete = true},
 	}
 	test.expect_action_missing(t, &again, "Add defer delete(s)")
+}
+
+@(test)
+defer_delete_returned_through_a_call :: proc(t: ^testing.T) {
+	expect_no_defer_delete(t, "Add defer strings.builder_destroy(&b)", `package test
+
+import "core:strings"
+
+main :: proc() -> string {
+	b := strings.builder_ma{*}ke()
+	return strings.to_string(b)
+}
+`)
+}
+
+@(test)
+defer_delete_escapes_through_an_alias :: proc(t: ^testing.T) {
+	for body in ([]string {
+		"t := s[1:]\n\treturn t",
+		"t := &s[0]\n\treturn t^",
+		"p := &s\n\t_ = p",
+		"t: []int\n\tt = s",
+		"x := Box{s}\n\t_ = x",
+		"x := Box{data = s}\n\t_ = x",
+		"x := keep(s)\n\t_ = x",
+		"return Box{s}.data",
+	}) {
+		expect_no_defer_delete(t, "Add defer delete(s)", strings.concatenate({`package test
+` + BUILTINS + `
+Box :: struct { data: []int }
+keep :: proc(s: []int) -> []int { return s }
+
+main :: proc() -> []int {
+	s{*} := make([]int, 4)
+	`, body, `
+	return nil
+}
+`}, context.temp_allocator))
+	}
+}
+
+@(test)
+defer_delete_safe_uses :: proc(t: ^testing.T) {
+	expect_defer_delete(t, "Add defer delete(s)", `package test
+` + BUILTINS + `
+len :: proc(s: []int) -> int { return 0 }
+show :: proc(s: []int) -> bool { return true }
+
+main :: proc() -> int {
+	s{*} := make([]int, 4)
+	s[0] = 1
+	n := len(s)
+	x := s[1]
+	show(s)
+	if show(s) == false || s[0] > 0 {
+		return 0
+	}
+	for e in s {
+		x += e
+	}
+	return n + x + s[2]
+}
+`, `package test
+` + BUILTINS + `
+len :: proc(s: []int) -> int { return 0 }
+show :: proc(s: []int) -> bool { return true }
+
+main :: proc() -> int {
+	s := make([]int, 4)
+	defer delete(s)
+	s[0] = 1
+	n := len(s)
+	x := s[1]
+	show(s)
+	if show(s) == false || s[0] > 0 {
+		return 0
+	}
+	for e in s {
+		x += e
+	}
+	return n + x + s[2]
+}
+`)
+}
+
+@(test)
+defer_delete_builder_written_and_printed :: proc(t: ^testing.T) {
+	expect_defer_delete(t, "Add defer strings.builder_destroy(&b)", `package test
+
+import "core:strings"
+
+print :: proc(s: string) {}
+
+main :: proc() {
+	b := strings.builder_ma{*}ke()
+	strings.write_string(&b, "x")
+	print(strings.to_string(b))
+}
+`, `package test
+
+import "core:strings"
+
+print :: proc(s: string) {}
+
+main :: proc() {
+	b := strings.builder_make()
+	defer strings.builder_destroy(&b)
+	strings.write_string(&b, "x")
+	print(strings.to_string(b))
+}
+`)
 }
