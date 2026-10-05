@@ -472,7 +472,7 @@ loops :: proc(xs: []int) -> int {
 
 // Corpus: tina src/extensions/http/server/body.odin:841, see docs/corpus-validation.md.
 @(test)
-modernize_fill_slices_fixed_array :: proc(t: ^testing.T) {
+modernize_fill_broadcasts_fixed_array :: proc(t: ^testing.T) {
 	src := test.Source {
 		main = `package test
 
@@ -500,14 +500,13 @@ g :: proc() -> [E]int {
 		config = {enable_lint_use_stdlib = true},
 	}
 
-	// An enumerated array cannot be sliced, so its loop stays.
+	// A fixed array takes the value by broadcast. An enumerated array cannot be sliced, nor
+	// broadcast an untyped constant, so its loop stays.
 	test.expect_modernized(
 		t,
 		&src,
 		{},
 		`package test
-
-import "core:slice"
 
 E :: enum {
 	A,
@@ -516,7 +515,7 @@ E :: enum {
 
 f :: proc() -> [8]u8 {
 	buf: [8]u8
-	slice.fill(buf[:], 'a')
+	buf = 'a'
 	return buf
 }
 
@@ -873,4 +872,204 @@ g :: proc() -> int {
 	return f(1, 2, hidden = true)
 }
 `)
+}
+
+// Sweep: an untyped value assigned to every element of a fixed array names the element type.
+@(test)
+modernize_fill_broadcasts_untyped_values :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+S :: struct {
+	a: int,
+}
+
+E :: enum {
+	A,
+	B,
+}
+
+U :: union {
+	int,
+	f32,
+}
+
+arr: [4]S
+es: [4]E
+ps: [4]^int
+us: [4]U
+ms: [4]matrix[2, 2]f32
+
+f :: proc() {
+	sizes: [4][2]int
+	for &s in sizes {
+		s = {1, 2}
+	}
+	for &c in arr {
+		c = {}
+	}
+	for &c in es {
+		c = .B
+	}
+	for &p in ps {
+		p = nil
+	}
+	for &u in us {
+		u = nil
+	}
+	for &m in ms {
+		m = 1
+	}
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	// Odin does not broadcast nil into a union, nor an untyped constant into a matrix.
+	test.expect_modernized(
+		t,
+		&src,
+		{},
+		`package test
+
+import "core:slice"
+
+S :: struct {
+	a: int,
+}
+
+E :: enum {
+	A,
+	B,
+}
+
+U :: union {
+	int,
+	f32,
+}
+
+arr: [4]S
+es: [4]E
+ps: [4]^int
+us: [4]U
+ms: [4]matrix[2, 2]f32
+
+f :: proc() {
+	sizes: [4][2]int
+	sizes = [2]int{1, 2}
+	arr = S{}
+	es = E.B
+	ps = nil
+	slice.fill(us[:], nil)
+	slice.fill(ms[:], 1)
+}
+`,
+	)
+}
+
+// Sweep: slice.fill takes its value as the element type, so an untyped value names it, or the
+// loop stays when the type has no name.
+@(test)
+modernize_fill_types_untyped_values :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+E :: enum {
+	A,
+	B,
+}
+
+f :: proc(sizes: [][2]int, es: []E, anon: []struct {
+		a: int,
+	}, ptrs: []^int) {
+	for &s in sizes {
+		s = {1, 2}
+	}
+	for &c in es {
+		c = .B
+	}
+	for &c in anon {
+		c = {}
+	}
+	for &p in ptrs {
+		p = {}
+	}
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_modernized(
+		t,
+		&src,
+		{},
+		`package test
+
+import "core:slice"
+
+E :: enum {
+	A,
+	B,
+}
+
+f :: proc(sizes: [][2]int, es: []E, anon: []struct {
+		a: int,
+	}, ptrs: []^int) {
+	slice.fill(sizes, [2]int{1, 2})
+	slice.fill(es, E.B)
+	for &c in anon {
+		c = {}
+	}
+	for &p in ptrs {
+		p = {}
+	}
+}
+`,
+	)
+}
+
+// Sweep: a new core import goes among the core imports in sorted order, not after the last import.
+@(test)
+modernize_import_joins_its_collection :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+import "core:fmt"
+import "core:testing"
+
+import "vendor:raylib"
+
+f :: proc(s: []int, x: int) -> bool {
+	fmt.println(raylib.WHITE)
+	_ = testing.T
+	for e in s {
+		if e == x {
+			return true
+		}
+	}
+	return false
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_modernized(
+		t,
+		&src,
+		{},
+		`package test
+
+import "core:fmt"
+import "core:slice"
+import "core:testing"
+
+import "vendor:raylib"
+
+f :: proc(s: []int, x: int) -> bool {
+	fmt.println(raylib.WHITE)
+	_ = testing.T
+	return slice.contains(s, x)
+}
+`,
+	)
 }

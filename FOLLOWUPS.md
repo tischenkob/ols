@@ -15,6 +15,9 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 ## Edits (stage S9)
 
 - **Only the simplify and use-stdlib rules skip a range that holds a comment.** `lint_fixes`, `migration_fixes` and the recipe fixes in `rols_modernize.odin` still replace their range without looking for comments, so a comment inside can be deleted. `comments_overlapping` in `rols_action_comment.odin` is the shared check.
+- **`symbol_type_text` writes the keyword for an anonymous aggregate.** An anonymous struct, union, enum or bit_field symbol is named `struct`, `union`, `enum` or `bit_field` (`make_symbol_*_from_ast` in `analysis.odin`), and `symbol_type_text` in `rols_edit.odin` passes that through as a type name. `fill_args` in `rols_lint_use_stdlib.odin` refuses `.Anonymous` itself. Other callers, such as "Add explicit type", may write `: struct =`. Unverified for them.
+- **Organize imports still adds imports above the first import.** `organize_import_edits` in `action.odin` (upstream) does not use `import_group_offset`, which the code actions and modernize now share.
+- **The fill broadcast is withheld for element types where Odin may reject an untyped value.** `broadcasts` in `rols_lint_use_stdlib.odin` keeps `slice.fill` for matrix and enumerated-array elements and for `nil` into a union, even when the value is typed and a broadcast would compile.
 - **A type-switch binding is probably not refused by `slice_arg_text`.** In `switch v in u { case [3]int: … }` the value `v` is likely not addressable without `&`, but the check does not look for it. Unverified.
 
 ## Lints (`src/server/rols_lint*.odin`)

@@ -232,9 +232,9 @@ run :: proc() -> bool {
 }
 `,
 		`package test
-import "core:runtime"
 
 import "core:os"
+import "core:runtime"
 
 run :: proc() -> union {union {runtime.Allocator_Error, os.Error}, bool} {
 	n := os.load("a") or_return
@@ -476,9 +476,9 @@ load :: proc(name: string) -> (^Shader, union {}) {
 }
 `,
 		`package test
-import "core:runtime"
 
 import "core:os"
+import "core:runtime"
 
 Shader :: struct {}
 
@@ -1970,9 +1970,9 @@ load :: proc() -> (shader: ^os.File, err: union {}) {
 }
 `,
 		`package test
-import "core:runtime"
 
 import "core:os"
+import "core:runtime"
 
 load :: proc() -> (shader: ^os.File, err: union {runtime.Allocator_Error, os.Error}) {
 	path := os.join("a") or_return
@@ -2497,9 +2497,9 @@ run :: proc() -> union {} {
 }
 `,
 		`package test
-import "core:runtime"
 
 import "core:os"
+import "core:runtime"
 
 run :: proc() -> union {bool, runtime.Allocator_Error} {
 	os.wait() or_return
