@@ -196,7 +196,7 @@ prepare_references :: proc(
 		}
 
 		// rols: the member of `offset_of(T, member)` is the field of T, and nothing when T lacks the field
-		if _, _, is_member := offset_of_member_at_cursor(position_context); is_member {
+		if _, _, is_member := offset_of_member_at_cursor(ast_context, position_context); is_member {
 			symbol = resolve_location_offset_of_member(ast_context, position_context) or_return
 			resolve_flag = .Field
 		} else if position_context.identifier != nil {

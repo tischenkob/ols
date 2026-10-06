@@ -104,3 +104,24 @@ inlay_variable_type_of_unimported_package :: proc(t: ^testing.T) {
 
 	test.expect_inlay_hints(t, &source)
 }
+
+// A local copied from a variable of an inline struct type has no type name, so it gets no type hint.
+@(test)
+inlay_variable_type_skips_inline_struct :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+		main :: proc() {
+			p: struct {
+				a: int,
+			}
+			x := p
+			y[[: int]] := p.a
+		}
+		`,
+		packages = {},
+		config = {enable_inlay_hints_variable_types = true},
+	}
+
+	test.expect_inlay_hints(t, &source)
+}

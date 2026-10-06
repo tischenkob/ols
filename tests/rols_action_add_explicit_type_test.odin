@@ -641,6 +641,26 @@ main :: proc() {
 	test.expect_action_missing(t, &source, ADD_EXPLICIT_TYPE_ACTION)
 }
 
+// A local declared with an inline aggregate type has no type name to write, so the action is refused rather than
+// writing the variable name as the type.
+@(test)
+action_add_explicit_type_refused_for_local_of_inline_struct :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	p: struct {
+		a: int,
+	}
+	x{*} := p
+	_ = x
+}
+`,
+		config = {enable_code_action_add_explicit_type = true},
+	}
+	test.expect_action_missing(t, &source, ADD_EXPLICIT_TYPE_ACTION)
+}
+
 // A procedure named like a builtin type is no type, so the builtin result is written unqualified.
 @(test)
 action_add_explicit_type_builtin_result_beside_proc_of_its_name :: proc(t: ^testing.T) {
