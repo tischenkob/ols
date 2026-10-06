@@ -290,32 +290,22 @@ add_c_style_for :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 		if type_text != "int" {
 			decl = strings.concatenate({": ", type_text, " = "}, context.temp_allocator)
 		}
-		counter := value.name if value != nil && value.name != "_" else loop_local_name(ctx, loop, {"i", "j", "k"}, "")
+		counter := value.name if value != nil && value.name != "_" else blank_loop_counter(ctx, loop)
 		if counter == "" {
 			return
-		}
-		// A range loop evaluates its bounds once, so a bound that may change is held in a local.
-		names, values, limit := counter, lo, hi
-		if !stable_bound(ctx, bounds.right) {
-			limit = loop_local_name(ctx, loop, {"n", "end", "limit"}, counter)
-			if limit == "" {
-				return
-			}
-			names = strings.concatenate({counter, ", ", limit}, context.temp_allocator)
-			values = strings.concatenate({lo, ", ", hi}, context.temp_allocator)
 		}
 		text := strings.concatenate(
 			{
 				"for ",
-				names,
+				counter,
 				decl,
-				values,
+				lo,
 				"; ",
 				counter,
 				" ",
 				cmp,
 				" ",
-				limit,
+				hi,
 				"; ",
 				counter,
 				" += 1 ",
@@ -328,39 +318,11 @@ add_c_style_for :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 	}
 }
 
-// A bound the loop body cannot change: a constant, a parameter (Odin does not let the body assign
-// one) or a constant of another package.
-stable_bound :: proc(ctx: ^ActionContext, expr: ^ast.Expr) -> bool {
-	if is_constant(ctx, expr) {
-		return true
-	}
-	#partial switch e in expr.derived {
-	case ^ast.Ident:
-		ctx.ast_context.use_locals = true
-		symbol, ok := resolve_type_identifier(ctx.ast_context, e^)
-		return ok && .Parameter in symbol.flags
-	case ^ast.Selector_Expr:
-		pkg, is_ident := e.expr.derived.(^ast.Ident)
-		if !is_ident {
-			return false
-		}
-		ctx.ast_context.use_locals = true
-		owner, ok := resolve_type_identifier(ctx.ast_context, pkg^)
-		if _, is_package := owner.value.(SymbolPackageValue); !ok || !is_package {
-			return false
-		}
-		symbol, found := resolve_type_expression(ctx.ast_context, e)
-		return found && .Mutable not_in symbol.flags
-	}
-	return false
-}
-
-// A name for a local the loop header declares, such as the counter of a loop whose value is blank or
-// absent: free at the loop, not named in its bounds or body and not taken, so it neither captures an
-// outer name nor is shadowed. "" when no base fits.
-loop_local_name :: proc(ctx: ^ActionContext, loop: ^ast.Range_Stmt, bases: []string, taken: string) -> string {
-	for base in bases {
-		if name := fresh_name(ctx, base, loop.pos); name != taken && !mentions_any(loop, name) {
+// A counter name for a range loop whose value is blank or absent: free at the loop and not named
+// in its bounds or body, so it neither captures an outer name nor is shadowed. "" when none of i, j, k fits.
+blank_loop_counter :: proc(ctx: ^ActionContext, loop: ^ast.Range_Stmt) -> string {
+	for base in ([]string{"i", "j", "k"}) {
+		if name := fresh_name(ctx, base, loop.pos); !mentions_any(loop, name) {
 			return name
 		}
 	}

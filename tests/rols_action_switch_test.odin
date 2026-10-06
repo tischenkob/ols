@@ -513,7 +513,12 @@ f :: proc(xs: []int) {
 // An `or_break` in a nested loop or switch header, other than a `for` init or condition, exits the outer loop.
 @(test)
 if_to_switch_refuses_or_break_in_nested_header :: proc(t: ^testing.T) {
-	headers := []string{"for y in g() or_break {}", "switch g() or_break {}", "for i := 0; i < 1; i += g() or_break {}"}
+	headers := []string{
+		"for y in g() or_break {}",
+		"for v := g() or_break; y in xs {}",
+		"switch g() or_break {}",
+		"for i := 0; i < 1; i += g() or_break {}",
+	}
 	for header in headers {
 		expect_no_switch(t, strings.concatenate({`package test
 

@@ -144,8 +144,6 @@ ends_flow :: proc(stmt: ^ast.Stmt) -> bool {
 		return true
 	}
 	#partial switch s in stmt.derived {
-	case ^ast.Branch_Stmt:
-		return true
 	case ^ast.Expr_Stmt:
 		call := s.expr.derived.(^ast.Call_Expr) or_return
 		callee := call.expr.derived.(^ast.Selector_Expr) or_return
