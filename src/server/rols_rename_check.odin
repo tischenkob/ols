@@ -414,16 +414,10 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 		if found {
 			if home := hierarchy_document(&target.h, other.uri); home != nil {
 				text := string(home.text[:home.used_text])
-				together := false
+				found = false
 				for scan in scanned[:renamed] {
-					together ||= builds_together(
-						scan.fullpath,
-						string(scan.text[:scan.used_text]),
-						home.fullpath,
-						text,
-					)
+					found ||= builds_together(scan.fullpath, string(scan.text[:scan.used_text]), home.fullpath, text)
 				}
-				found = together
 			}
 		}
 		if found {
@@ -598,6 +592,7 @@ check_embedders :: proc(scan: ^Embed_Scan, target: ^Rename_Target, document: ^Do
 						via.name,
 						{lit.body.pos.offset, lit.body.end.offset},
 						{lit.pos.offset, lit.end.offset},
+						lit.body.pos.offset,
 					)
 				}
 			}
@@ -659,7 +654,7 @@ check_using_in_block :: proc(scan: ^Embed_Scan, stmts: []^ast.Stmt, block: [2]in
 					)
 				}
 			}
-			field_captures(scan, scan.site, via, {using_stmt.end.offset, block[1]}, block)
+			field_captures(scan, scan.site, via, {using_stmt.end.offset, block[1]}, block, block[0])
 		}
 	}
 }
@@ -681,9 +676,10 @@ carries_field :: proc(scan: ^Embed_Scan, expr: ^ast.Expr) -> bool {
 }
 
 // Appends a cause for each use of new_name in the offsets of uses that means a declaration outside the
-// offsets of scope, since the field that `using via` brings in would capture it after the rename.
+// offsets of scope, since the field that `using via` brings in would capture it after the rename. block is
+// the offset of the block whose scope `using via` enters; a procedure's parameters share its body's scope.
 @(private = "file")
-field_captures :: proc(scan: ^Embed_Scan, site: ^Document, via: string, uses, scope: [2]int) {
+field_captures :: proc(scan: ^Embed_Scan, site: ^Document, via: string, uses, scope: [2]int, block: int) {
 	out, new_name := scan.out, scan.new_name
 	hits, cached := scan.resolved[site]
 	if !cached {
@@ -711,9 +707,18 @@ field_captures :: proc(scan: ^Embed_Scan, site: ^Document, via: string, uses, sc
 		}
 		other := hit.symbol^
 		at := common.get_token_range(ident^, site.ast.src)
-		// A field that another `using` brings in is captured too, by the inner `using`.
 		if other.range == at && strings.equal_fold(other.uri, site.uri.uri) {
 			continue
+		}
+		// Odin resolves a field that a `using` of a nested block brings in before the renamed field. A field
+		// from a `using` of the same scope or an outer one is captured.
+		if other.type == .Field {
+			if range, is_using := using_range_at(site, at.start, ident.pos.offset, new_name); is_using {
+				start, ok := common.get_absolute_position(range.start, text)
+				if ok && in_nested_block(site, start, block) {
+					continue
+				}
+			}
 		}
 		// A declaration inside the scope shadows the field, which the collision check reports.
 		if strings.equal_fold(other.uri, site.uri.uri) {
@@ -733,6 +738,29 @@ field_captures :: proc(scan: ^Embed_Scan, site: ^Document, via: string, uses, sc
 			),
 		)
 	}
+}
+
+// Whether offset lies in a block or case clause nested inside the block that starts at block. A `when`
+// body is no scope of its own.
+@(private = "file")
+in_nested_block :: proc(document: ^Document, offset, block: int) -> bool {
+	for at in nodes_at(document.ast.decls[:], offset) {
+		if at.node.pos.offset <= block {
+			continue
+		}
+		#partial switch _ in at.node.derived {
+		case ^ast.Block_Stmt:
+			if at.parent != nil {
+				if _, in_when := at.parent.derived.(^ast.When_Stmt); in_when {
+					continue
+				}
+			}
+			return true
+		case ^ast.Case_Clause:
+			return true
+		}
+	}
+	return false
 }
 
 // The names that stmts declare at any depth: declarations, loop values and type switch variables, but

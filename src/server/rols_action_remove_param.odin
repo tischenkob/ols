@@ -34,7 +34,8 @@ add_remove_param_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	// The action edits one declaration, so the targets that build a platform variant would break.
-	if len(top_level_variants(ctx.document, decl, ctx.files)) > 0 {
+	h := Call_Hierarchy{ctx.files, make(map[string]^Document, context.temp_allocator)}
+	if len(top_level_variants(&h, ctx.document, decl)) > 0 {
 		return
 	}
 	sites, _, sites_ok := find_call_sites(ctx.document, decl, len(params), ctx.files)

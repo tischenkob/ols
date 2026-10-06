@@ -99,9 +99,8 @@ declaration_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> []Decl_Varia
 	return variants[:]
 }
 
-// The variants of decl, a top-level declaration of document; files stands in for the workspace.
-top_level_variants :: proc(document: ^Document, decl: ^ast.Value_Decl, files: []Package_File) -> []Decl_Variant {
-	h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
+// The variants of decl, a top-level declaration of document, read through h, which then holds document.
+top_level_variants :: proc(h: ^Call_Hierarchy, document: ^Document, decl: ^ast.Value_Decl) -> []Decl_Variant {
 	h.documents[document.uri.uri] = document
 	symbol := Symbol {
 		uri   = document.uri.uri,
@@ -109,22 +108,7 @@ top_level_variants :: proc(document: ^Document, decl: ^ast.Value_Decl, files: []
 		pkg   = document.package_name,
 		name  = final_name(decl.names[0]),
 	}
-	return declaration_variants(&h, symbol)
-}
-
-// The locations a rename at the position changes: the references of the symbol there and, for a package-level
-// declaration, of its variants, with the declared name of each variant. These are the references the
-// references request finds.
-rename_locations :: proc(
-	document: ^Document,
-	ast_context: ^AstContext,
-	position_context: ^DocumentPositionContext,
-	files: []Package_File,
-) -> (
-	[]common.Location,
-	bool,
-) {
-	return resolve_references(document, ast_context, position_context, files = files)
+	return declaration_variants(h, symbol)
 }
 
 // The symbols of variants, for find_symbol_references.

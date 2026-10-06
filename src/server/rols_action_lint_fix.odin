@@ -10,8 +10,13 @@ add_lint_fix_action :: proc(ctx: ^ActionContext) {
 		if fix.start > ctx.range.start || ctx.range.end > fix.end {
 			continue
 		}
-		if fix.code == "unused-parameter" && named_elsewhere(ctx, fix) {
-			continue
+		// Renaming the parameter to `_` could break a call in another file, which the lint does not see.
+		if fix.code == "unused-parameter" {
+			function := ctx.position_context.function
+			name := ctx.document.ast.src[fix.start:fix.end]
+			if function == nil || param_named_elsewhere(ctx.document, function, name, ctx.files) {
+				continue
+			}
 		}
 		edits := make([]TextEdit, 1, context.temp_allocator)
 		edits[0] = TextEdit {
@@ -20,16 +25,6 @@ add_lint_fix_action :: proc(ctx: ^ActionContext) {
 		}
 		append(ctx.actions, make_code_action(ctx, fix.title, "quickfix", edits))
 	}
-}
-
-// Whether renaming the parameter under fix to `_` could break a call in another file, which the lint does
-// not see.
-named_elsewhere :: proc(ctx: ^ActionContext, fix: Lint_Fix) -> bool {
-	function := ctx.position_context.function
-	if function == nil {
-		return true
-	}
-	return param_named_elsewhere(ctx.document, function, ctx.document.ast.src[fix.start:fix.end], ctx.files)
 }
 
 // Whether renaming the parameter name of lit, a procedure of document, to `_` could break a call in another
@@ -43,10 +38,9 @@ param_named_elsewhere :: proc(document: ^Document, lit: ^ast.Proc_Lit, name: str
 		return false
 	}
 	h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
-	h.documents[document.uri.uri] = document
 	checked := make(map[^Document]struct{}, context.temp_allocator)
 	checked[document] = {}
-	variants := variant_symbols(top_level_variants(document, decl, files))
+	variants := variant_symbols(top_level_variants(&h, document, decl))
 	for location in proc_references(document, decl, files, variants) {
 		caller := hierarchy_document(&h, location.uri)
 		if caller == nil {

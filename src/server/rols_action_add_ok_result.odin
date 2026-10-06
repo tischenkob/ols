@@ -214,7 +214,8 @@ add_ok_to_callers :: proc(
 		return true
 	}
 	// The action edits one declaration, so the targets that build a platform variant would break.
-	if len(top_level_variants(ctx.document, decl, ctx.files)) > 0 {
+	h := Call_Hierarchy{ctx.files, make(map[string]^Document, context.temp_allocator)}
+	if len(top_level_variants(&h, ctx.document, decl)) > 0 {
 		return false
 	}
 	sites, _, found := find_call_sites(ctx.document, decl, len(param_names(lit)), ctx.files)
