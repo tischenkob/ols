@@ -33,12 +33,20 @@ add_remove_param_action :: proc(ctx: ^ActionContext) {
 	if !slice.contains(unused_params(function), target.name) {
 		return
 	}
-	// The action edits one declaration, so the targets that build a platform variant would break.
+	// The platform variants of the procedure lose the parameter too, so each must have the same parameters and
+	// leave it unused.
 	h := Call_Hierarchy{ctx.files, make(map[string]^Document, context.temp_allocator)}
-	if len(top_level_variants(&h, ctx.document, decl)) > 0 {
-		return
+	variants := top_level_variants(&h, ctx.document, decl)
+	for variant in variants {
+		if variant_problem(variant, params, ctx.document.ast.src) != "" {
+			return
+		}
+		lit := variant.decl.values[0].derived.(^ast.Proc_Lit)
+		if !slice.contains(unused_param_names(lit), target.name.name) {
+			return
+		}
 	}
-	sites, _, sites_ok := find_call_sites(ctx.document, decl, len(params), ctx.files)
+	sites, _, sites_ok := find_call_sites(ctx.document, decl, len(params), ctx.files, variant_symbols(variants))
 	if !sites_ok {
 		return
 	}
@@ -50,12 +58,9 @@ add_remove_param_action :: proc(ctx: ^ActionContext) {
 	}
 
 	changes := make(Changes, context.temp_allocator)
-	fields := function.type.params.list
-	if len(target.field.names) == 1 {
-		remove_list_item(&changes, ctx.document, fields, slice.linear_search(fields, target.field) or_else 0)
-	} else {
-		names := target.field.names
-		remove_list_item(&changes, ctx.document, names, slice.linear_search(names, cast(^ast.Expr)target.name) or_else 0)
+	remove_param(&changes, ctx.document, function, index)
+	for variant in variants {
+		remove_param(&changes, variant.document, variant.decl.values[0].derived.(^ast.Proc_Lit), index)
 	}
 	for site in sites {
 		remove_list_item(&changes, site.document, site.call.args, index)
@@ -68,4 +73,24 @@ add_remove_param_action :: proc(ctx: ^ActionContext) {
 			edit = workspace_edit(changes),
 		},
 	)
+}
+
+// The names of the parameters of lit that its body never reads.
+unused_param_names :: proc(lit: ^ast.Proc_Lit) -> []string {
+	unused := unused_params(lit)
+	names := make([]string, len(unused), context.temp_allocator)
+	for ident, i in unused do names[i] = ident.name
+	return names
+}
+
+// Removes the parameter at index from the parameter list of lit in document.
+remove_param :: proc(changes: ^Changes, document: ^Document, lit: ^ast.Proc_Lit, index: int) {
+	target := param_names(lit)[index]
+	fields := lit.type.params.list
+	if len(target.field.names) == 1 {
+		remove_list_item(changes, document, fields, slice.linear_search(fields, target.field) or_else 0)
+	} else {
+		names := target.field.names
+		remove_list_item(changes, document, names, slice.linear_search(names, cast(^ast.Expr)target.name) or_else 0)
+	}
 }

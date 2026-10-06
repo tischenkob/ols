@@ -311,6 +311,25 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 				)
 			}
 		}
+		// The rename changes the member of each platform variant of the type too.
+		for variant in field_variants(&target.h, symbol) {
+			document := hierarchy_document(&target.h, variant.uri)
+			if document == nil do continue
+			offset := common.get_absolute_position(variant.range.start, document.text[:document.used_text]) or_continue
+			variant_members, _, _, _ := sibling_members(document, offset)
+			for ident in variant_members {
+				if ident.name == new_name {
+					append(
+						out,
+						fmt.tprintf(
+							"`%s` is already a member of the same type at %s",
+							new_name,
+							ident_text(document, ident),
+						),
+					)
+				}
+			}
+		}
 		struct_type, is_struct := owner.derived.(^ast.Struct_Type)
 		if !is_struct {
 			return
@@ -391,6 +410,15 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 			append(&scanned, variant.document)
 		}
 		renamed := len(scanned)
+		sites := make([dynamic]Rename_Site, context.temp_allocator)
+		append(&sites, Rename_Site{decl_document, decl_offset})
+		for variant in target.variants {
+			variant_offset := common.get_absolute_position(
+				variant.symbol.range.start,
+				variant.document.text[:variant.document.used_text],
+			) or_continue
+			append(&sites, Rename_Site{variant.document, variant_offset})
+		}
 		// A sibling that mentions new_name and that some target builds with one of those files, where only its
 		// declarations visible to the package count.
 		siblings: for sibling in package_siblings(decl_document, target.h.files) {
@@ -418,6 +446,10 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 				}
 				for name in decl.names {
 					if ident, ok := name.derived.(^ast.Ident); ok && ident.name == new_name {
+						// A sibling's declaration under a `when` that no target takes together with a renamed one.
+						if i >= renamed && !builds_with_sites(sites[:], scan, ident.pos.offset) {
+							continue
+						}
 						// The index's declaration is reported here.
 						found = found && !strings.equal_fold(other.uri, scan.uri.uri)
 						append(
@@ -436,10 +468,9 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 		// The index holds the files the host builds, which need not build with the renamed declaration.
 		if found {
 			if home := hierarchy_document(&target.h, other.uri); home != nil {
-				text := string(home.text[:home.used_text])
-				found = false
-				for scan in scanned[:renamed] {
-					found ||= builds_together(scan.fullpath, string(scan.text[:scan.used_text]), home.fullpath, text)
+				if offset, offset_ok := common.get_absolute_position(other.range.start, home.text[:home.used_text]);
+				   offset_ok {
+					found = builds_with_sites(sites[:], home, offset)
 				}
 			}
 		}
@@ -447,6 +478,33 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 			append(out, fmt.tprintf("`%s` is already declared in the package at %s", new_name, declared_at(other)))
 		}
 	}
+}
+
+// A declaration that a rename gives the new name: the renamed one or a variant, at offset in document.
+@(private = "file")
+Rename_Site :: struct {
+	document: ^Document,
+	offset:   int,
+}
+
+// Whether some target builds document with one of sites, and takes both the `when` branch around offset and the
+// one around that site.
+@(private = "file")
+builds_with_sites :: proc(sites: []Rename_Site, document: ^Document, offset: int) -> bool {
+	text := string(document.text[:document.used_text])
+	for site in sites {
+		if builds_together(
+			site.document.fullpath,
+			string(site.document.text[:site.document.used_text]),
+			document.fullpath,
+			text,
+			{&site.document.ast, site.offset},
+			{&document.ast, offset},
+		) {
+			return true
+		}
+	}
+	return false
 }
 
 // What the check of a field rename learns about the types that carry the field through `using`.

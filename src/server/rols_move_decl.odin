@@ -208,20 +208,14 @@ PRIVACY_NAMES := [parser.Private_Flag]string {
 	.File    = "#+private file",
 }
 
-// Whether two files differ in `#+build ignore`, in the `#+build` project names, or in the OS and architecture pairs
-// that their names and `#+build` lines allow.
+// Whether two files differ in `#+build ignore`, or in the OS, architecture and project name triples that their
+// names, `#+build` lines and `#+build-project-name` lines allow.
 @(private = "file")
 build_constraints_differ :: proc(a, b: ^Document) -> bool {
 	tags_a := parser.parse_file_tags(a.ast, context.temp_allocator)
 	tags_b := parser.parse_file_tags(b.ast, context.temp_allocator)
 	if tags_a.ignore != tags_b.ignore {
 		return true
-	}
-	if len(tags_a.build_project_name) != len(tags_b.build_project_name) {
-		return true
-	}
-	for group, i in tags_a.build_project_name {
-		if !slice.equal(group, tags_b.build_project_name[i]) do return true
 	}
 	return !same_build_targets(a.fullpath, tags_a, b.fullpath, tags_b)
 }
@@ -353,54 +347,61 @@ is_file_private :: proc(attributes: []^ast.Attribute) -> bool {
 	return false
 }
 
-// The imports of document that decl names as the package of a selector. A base that a moved procedure declares as
-// a parameter or local names that value, not the import.
+// The imports of document that decl names as the package of a selector.
 used_imports :: proc(document: ^Document, decl: ^ast.Value_Decl) -> []Package {
-	names := make(map[string]struct{}, context.temp_allocator)
-	add_selector_bases(&names, decl)
-
+	inside, _ := import_uses(document, decl)
 	used := make([dynamic]Package, context.temp_allocator)
-	imports: for imp in document.imports {
-		if imp.base not_in names do continue
-		for value in decl.values {
-			if _, is_proc := value.derived.(^ast.Proc_Lit); is_proc && declares_inside(value, imp.base) do continue imports
-		}
-		append(&used, imp)
+	for imp in document.imports {
+		if imp.base in inside do append(&used, imp)
 	}
 	return used[:]
 }
 
-// Adds the name of every identifier under root that is the base of a selector, like `strings` in `strings.f`.
+// The names of the selector bases of document that name an import, inside decl and outside it. A base names an
+// import unless it resolves to something else, such as a parameter or a local spelled like the import. A base that
+// does not resolve still counts, so an import is kept rather than lost.
 @(private = "file")
-add_selector_bases :: proc(names: ^map[string]struct{}, root: ^ast.Node) {
+import_uses :: proc(document: ^Document, decl: ^ast.Value_Decl) -> (inside, outside: map[string]struct{}) {
+	Uses :: struct {
+		resolved: SymbolAndNodeMap,
+		skip:     ^ast.Node, // decl, while the walk collects the uses outside it
+		names:    ^map[string]struct{},
+	}
+	inside = make(map[string]struct{}, context.temp_allocator)
+	outside = make(map[string]struct{}, context.temp_allocator)
+	uses := Uses{resolve_entire_file(document), nil, &inside}
 	visitor := ast.Visitor {
-		data = names,
+		data = &uses,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
-			if node == nil do return nil
+			uses := (^Uses)(visitor.data)
+			if node == nil || node == uses.skip do return nil
+			if _, is_import := node.derived.(^ast.Import_Decl); is_import do return nil
 			selector, is_selector := node.derived.(^ast.Selector_Expr)
 			if !is_selector do return visitor
-			if ident, is_ident := selector.expr.derived.(^ast.Ident); is_ident {
-				(^map[string]struct{})(visitor.data)[ident.name] = {}
+			ident, is_ident := selector.expr.derived.(^ast.Ident)
+			if !is_ident do return visitor
+			if resolved, found := uses.resolved[uintptr(ident)];
+			   found && !resolved.is_unresolved && resolved.symbol != nil {
+				if _, is_package := resolved.symbol.value.(SymbolPackageValue); !is_package do return visitor
 			}
+			uses.names[ident.name] = {}
 			return visitor
 		},
 	}
-	ast.walk(&visitor, root)
+	ast.walk(&visitor, decl)
+	uses.skip, uses.names = decl, &outside
+	for stmt in document.ast.decls do ast.walk(&visitor, stmt)
+	return
 }
 
 // The imports in used that no other code of document names as the package of a selector, leaving out those the
-// file already left unused. A selector on a local spelled like the import still counts as a use.
+// file already left unused.
 @(private = "file")
 stale_imports :: proc(document: ^Document, decl: ^ast.Value_Decl, used: []Package) -> []Package {
 	if len(used) == 0 || document.ast.syntax_error_count > 0 {
 		return nil
 	}
-	names := make(map[string]struct{}, context.temp_allocator)
-	for stmt in document.ast.decls {
-		if stmt == decl do continue
-		if _, is_import := stmt.derived.(^ast.Import_Decl); is_import do continue
-		add_selector_bases(&names, stmt)
-	}
+	_, names := import_uses(document, decl)
 
 	stale := make([dynamic]Package, context.temp_allocator)
 	for imp in used {

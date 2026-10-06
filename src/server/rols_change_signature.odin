@@ -354,9 +354,8 @@ reorder_param_list :: proc(changes: ^Changes, document: ^Document, lit: ^ast.Pro
 	)
 }
 
-// Why the variant cannot take the reorder of a procedure with params, declared in src, or "" when it can:
-// it must be a procedure whose signature may change, with the same parameter names and type texts.
-@(private = "file")
+// Why the variant cannot take the signature change of a procedure with params, declared in src, or "" when it
+// can: it must be a procedure whose signature may change, with the same parameter names and type texts.
 variant_problem :: proc(variant: Decl_Variant, params: []Param_Name, src: string) -> string {
 	decl := variant.decl
 	if len(decl.names) != 1 || len(decl.values) != 1 {

@@ -260,12 +260,16 @@ resolve_references :: proc(
 		return {}, true
 	}
 
-	// rols: delegates to the reusable search, with the platform variants of a package-level declaration
+	// rols: delegates to the reusable search, with the platform variants of a declaration or of a member's type
 	variants: []Symbol
-	if resolve_flag == .Identifier && !current_file_only {
+	if (resolve_flag == .Identifier || resolve_flag == .Field) && !current_file_only {
 		h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
 		h.documents[document.uri.uri] = document
-		variants = variant_symbols(declaration_variants(&h, symbol))
+		if resolve_flag == .Identifier {
+			variants = variant_symbols(declaration_variants(&h, symbol))
+		} else {
+			variants = field_variants(&h, symbol)
+		}
 	}
 	return find_symbol_references(
 		document,

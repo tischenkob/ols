@@ -111,6 +111,50 @@ top_level_variants :: proc(h: ^Call_Hierarchy, document: ^Document, decl: ^ast.V
 	return declaration_variants(h, symbol)
 }
 
+// The members named like the member that symbol names in the platform variants of its type, as references to them
+// resolve. The member must belong directly to the struct, enum or bit_field type of a package-level declaration,
+// else there are none. A variant without such a member is left out.
+field_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> []Symbol {
+	home := hierarchy_document(h, symbol.uri)
+	if home == nil {
+		return {}
+	}
+	home_src := string(home.text[:home.used_text])
+	for decl in top_level_value_decls(home.ast) {
+		for value, i in decl.values {
+			if i >= len(decl.names) do break
+			members := type_members(value) or_continue
+			for member in members {
+				if common.get_token_range(member^, home_src) != symbol.range do continue
+				type_symbol := Symbol {
+					uri   = home.uri.uri,
+					range = common.get_token_range(decl.names[i], home_src),
+					pkg   = home.package_name,
+					name  = final_name(decl.names[i]),
+				}
+				fields := make([dynamic]Symbol, context.temp_allocator)
+				for variant in declaration_variants(h, type_symbol) {
+					src := string(variant.document.text[:variant.document.used_text])
+					for name, j in variant.decl.names {
+						if j >= len(variant.decl.values) || common.get_token_range(name, src) != variant.symbol.range {
+							continue
+						}
+						for other in type_members(variant.decl.values[j]) or_continue {
+							if other.name != member.name do continue
+							field := symbol
+							field.uri = variant.symbol.uri
+							field.range = common.get_token_range(other^, src)
+							append(&fields, field)
+						}
+					}
+				}
+				return fields[:]
+			}
+		}
+	}
+	return {}
+}
+
 // The symbols of variants, for find_symbol_references.
 variant_symbols :: proc(variants: []Decl_Variant) -> []Symbol {
 	symbols := make([]Symbol, len(variants), context.temp_allocator)

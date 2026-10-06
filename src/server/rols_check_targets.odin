@@ -118,7 +118,8 @@ build_facts :: proc(name, text: string) -> (facts: Build_Facts) {
 }
 
 // Whether odin builds the file with these facts for target: its name suffix and its `#+build` tags both
-// allow it. A `#+build ignore` file is built nowhere.
+// allow it. A `#+build ignore` file is built nowhere. An empty target.project_name matches every
+// `#+build-project-name` tag.
 @(private = "file")
 facts_build_on :: proc(facts: Build_Facts, target: parser.Build_Target) -> bool {
 	named := facts.named
@@ -130,8 +131,9 @@ facts_build_on :: proc(facts: Build_Facts, target: parser.Build_Target) -> bool 
 	return !facts.tags.ignore && parser.match_build_tags(facts.tags, target)
 }
 
-// Whether the files called name_a and name_b, with tags_a and tags_b, build on the same OS and architecture
-// pairs. Two spellings of one constraint, such as `#+build linux` and a `_linux.odin` name, agree.
+// Whether the files called name_a and name_b, with tags_a and tags_b, build on the same OS, architecture and
+// project name triples. Two spellings of one constraint, such as `#+build linux` and a `_linux.odin` name, or
+// `#+build-project-name a, b` and `#+build-project-name b, a`, agree.
 same_build_targets :: proc(
 	name_a: string,
 	tags_a: parser.File_Tags,
@@ -146,36 +148,181 @@ same_build_targets :: proc(
 	}
 	a.named, a.hidden = file_name_target(filepath.base(name_a))
 	b.named, b.hidden = file_name_target(filepath.base(name_b))
-	for os in runtime.Odin_OS_Type {
-		if os == .Unknown do continue
-		for arch in runtime.Odin_Arch_Type {
-			if arch == .Unknown do continue
-			target := parser.Build_Target {
-				os   = os,
-				arch = arch,
+	for project in project_names(a, b) {
+		for os in runtime.Odin_OS_Type {
+			if os == .Unknown do continue
+			for arch in runtime.Odin_Arch_Type {
+				if arch == .Unknown do continue
+				target := parser.Build_Target {
+					os           = os,
+					arch         = arch,
+					project_name = project,
+				}
+				if facts_build_on(a, target) != facts_build_on(b, target) do return false
 			}
-			if facts_build_on(a, target) != facts_build_on(b, target) do return false
 		}
 	}
 	return true
 }
 
-// Whether some OS and architecture pair builds both the file called name_a with text_a and the file called
-// name_b with text_b.
-builds_together :: proc(name_a, text_a, name_b, text_b: string) -> bool {
+// Whether some OS, architecture and project name builds both the file called name_a with text_a and the file
+// called name_b with text_b, and can take both the `when` branch of at_a and that of at_b.
+builds_together :: proc(name_a, text_a, name_b, text_b: string, at_a: When_Site = {}, at_b: When_Site = {}) -> bool {
 	a, b := build_facts(name_a, text_a), build_facts(name_b, text_b)
-	for os in runtime.Odin_OS_Type {
-		if os == .Unknown do continue
-		for arch in runtime.Odin_Arch_Type {
-			if arch == .Unknown do continue
-			target := parser.Build_Target {
-				os   = os,
-				arch = arch,
+	for project in project_names(a, b) {
+		for os in runtime.Odin_OS_Type {
+			if os == .Unknown do continue
+			for arch in runtime.Odin_Arch_Type {
+				if arch == .Unknown do continue
+				target := parser.Build_Target {
+					os           = os,
+					arch         = arch,
+					project_name = project,
+				}
+				if facts_build_on(a, target) &&
+				   facts_build_on(b, target) &&
+				   site_possible_on(at_a, target) &&
+				   site_possible_on(at_b, target) {
+					return true
+				}
 			}
-			if facts_build_on(a, target) && facts_build_on(b, target) do return true
 		}
 	}
 	return false
+}
+
+// A project name that no `#+build-project-name` tag can list, since a tag name never holds a space.
+@(private = "file")
+UNLISTED_PROJECT :: " "
+
+// The project names that can tell where a and b build apart: each name their `#+build-project-name` tags
+// list, with or without `!`, and UNLISTED_PROJECT for every other name. A build always has a project name,
+// the name of its output, so the empty name, which matches every tag, is not one of them.
+@(private = "file")
+project_names :: proc(a, b: Build_Facts) -> []string {
+	names := make([dynamic]string, context.temp_allocator)
+	append(&names, UNLISTED_PROJECT)
+	for facts in ([2]Build_Facts{a, b}) {
+		for group in facts.tags.build_project_name {
+			for name in group do append(&names, strings.trim_prefix(name, "!"))
+		}
+	}
+	return names[:]
+}
+
+// A position in a parsed file, whose enclosing `when` branches decide whether a target builds it. A nil file
+// stands for no position: every target can take it.
+When_Site :: struct {
+	file:   ^ast.File,
+	offset: int,
+}
+
+@(private = "file")
+site_possible_on :: proc(site: When_Site, target: parser.Build_Target) -> bool {
+	return site.file == nil || branch_possible_on(site.file^, site.offset, target)
+}
+
+// Whether target can take every `when` branch around offset in file: no condition on the way is known to rule
+// it out. Only comparisons of ODIN_OS or ODIN_ARCH with an implicit selector such as `.Linux`, the literals
+// true and false, `!`, `&&`, `||` and parentheses are known. Any other condition can go either way.
+branch_possible_on :: proc(file: ast.File, offset: int, target: parser.Build_Target) -> bool {
+	for stmt in file.decls {
+		if !stmt_possible_on(stmt, offset, target) do return false
+	}
+	return true
+}
+
+@(private = "file")
+stmt_possible_on :: proc(stmt: ^ast.Stmt, offset: int, target: parser.Build_Target) -> bool {
+	if stmt == nil || offset < stmt.pos.offset || offset >= stmt.end.offset do return true
+	#partial switch s in stmt.derived {
+	case ^ast.When_Stmt:
+		value := condition_on(s.cond, target)
+		if s.body != nil && s.body.pos.offset <= offset && offset < s.body.end.offset {
+			return value != .False && stmt_possible_on(s.body, offset, target)
+		}
+		if s.else_stmt != nil && s.else_stmt.pos.offset <= offset && offset < s.else_stmt.end.offset {
+			return value != .True && stmt_possible_on(s.else_stmt, offset, target)
+		}
+	case ^ast.Block_Stmt:
+		for inner in s.stmts {
+			if !stmt_possible_on(inner, offset, target) do return false
+		}
+	case ^ast.Foreign_Block_Decl:
+		return stmt_possible_on(s.body, offset, target)
+	}
+	return true
+}
+
+@(private = "file")
+Condition :: enum {
+	Unknown,
+	False,
+	True,
+}
+
+// The value of a `when` condition on target, as far as branch_possible_on knows it.
+@(private = "file")
+condition_on :: proc(expr: ^ast.Expr, target: parser.Build_Target) -> Condition {
+	if expr == nil do return .Unknown
+	#partial switch e in expr.derived {
+	case ^ast.Paren_Expr:
+		return condition_on(e.expr, target)
+	case ^ast.Ident:
+		switch e.name {
+		case "true":
+			return .True
+		case "false":
+			return .False
+		}
+	case ^ast.Unary_Expr:
+		if e.op.kind == .Not {
+			switch condition_on(e.expr, target) {
+			case .True:
+				return .False
+			case .False:
+				return .True
+			case .Unknown:
+			}
+		}
+	case ^ast.Binary_Expr:
+		#partial switch e.op.kind {
+		case .Cmp_And:
+			left, right := condition_on(e.left, target), condition_on(e.right, target)
+			if left == .False || right == .False do return .False
+			if left == .True && right == .True do return .True
+		case .Cmp_Or:
+			left, right := condition_on(e.left, target), condition_on(e.right, target)
+			if left == .True || right == .True do return .True
+			if left == .False && right == .False do return .False
+		case .Cmp_Eq, .Not_Eq:
+			equal, known := target_comparison(e.left, e.right, target)
+			if !known {
+				equal, known = target_comparison(e.right, e.left, target)
+			}
+			if known {
+				return .True if equal == (e.op.kind == .Cmp_Eq) else .False
+			}
+		}
+	}
+	return .Unknown
+}
+
+// Whether the target's OS or architecture, named by the identifier constant, equals the implicit selector value.
+@(private = "file")
+target_comparison :: proc(constant, value: ^ast.Expr, target: parser.Build_Target) -> (equal, known: bool) {
+	ident := constant.derived.(^ast.Ident) or_return
+	selector := value.derived.(^ast.Implicit_Selector_Expr) or_return
+	name := selector.field.name
+	switch ident.name {
+	case "ODIN_OS":
+		os, _ := parser.get_build_os_from_string(name)
+		return os == target.os, os != .Unknown
+	case "ODIN_ARCH":
+		arch := parser.get_build_arch_from_string(name)
+		return arch == target.arch, arch != .Unknown
+	}
+	return false, false
 }
 
 // Whether odin builds the file called name with the source text for target.
