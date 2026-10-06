@@ -5,6 +5,8 @@ package server
 import "core:odin/ast"
 import "core:strings"
 
+import "src:common"
+
 @(private = "package")
 add_split_merge_if_action :: proc(ctx: ^ActionContext) {
 	if !ctx.config.enable_code_action_split_merge_if {
@@ -169,6 +171,19 @@ callee_deferred :: proc(document: ^Document, resolved_map: SymbolAndNodeMap, cal
 		}
 	}
 	// A group call whose overload does not resolve: without a call, the resolve returns every member.
+	// The locals at the callee find a group declared inside a procedure.
+	ast_context: AstContext
+	position_context: DocumentPositionContext
+	if ast_context_at(
+		document,
+		common.get_token_range(callee^, document.ast.src).start,
+		&ast_context,
+		&position_context,
+	) {
+		if symbol, found := resolve_type_expression(&ast_context, callee); found {
+			return symbol_deferred(symbol)
+		}
+	}
 	symbol, found := resolve_type_in_package(document, document.package_name, callee)
 	if !found do return true
 	return symbol_deferred(symbol)
