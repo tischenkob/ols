@@ -125,6 +125,8 @@ run_edit :: proc(
 	// The packages are checked at their old paths before the write and at their new paths after it.
 	dirs := package_dirs(changed, renames)
 	checks: []Gate_Check
+	// The targets besides the current one, for the summary.
+	also: []string
 	if check {
 		// An edit can break a package that imports a touched one, directly or not, without touching it.
 		importers := server.importer_dirs(dirs, &common.config)
@@ -152,6 +154,12 @@ run_edit :: proc(
 				return finish(name, .Refused, edit, {}, reasons[:])
 			}
 			checked = len(paths)
+			// The baseline drops the packages that do not build on an extra target, maybe all of them.
+			also_on := make([dynamic]string, context.temp_allocator)
+			for c in checks[1:] {
+				if len(checkable_paths(c.dirs)) > 0 do append(&also_on, c.target)
+			}
+			also = also_on[:]
 			warn_existing_errors(&reasons, before)
 		}
 	}
@@ -184,10 +192,10 @@ run_edit :: proc(
 			for e in fresh {
 				append(&reasons, fmt.tprintf("%s:%d:%d: %s", e.file, e.line, e.column, e.message))
 			}
-			return roll_back(name, .Check_Failed, edit, changed, renames, &reasons, plan.edits, checked)
+			return roll_back(name, .Check_Failed, edit, changed, renames, &reasons, plan.edits, checked, also)
 		}
 	}
-	return finish(name, .Applied, edit, changed, reasons[:], plan.edits, renames, checked = checked)
+	return finish(name, .Applied, edit, changed, reasons[:], plan.edits, renames, checked = checked, also = also)
 }
 
 // Warns once per directory that already has `odin check` errors: a parse error stops the check there, and
@@ -234,13 +242,14 @@ roll_back :: proc(
 	reasons: ^[dynamic]string,
 	edits: int,
 	checked := 0,
+	also: []string = {},
 ) -> int {
 	failures, left_files, left_dirs := undo_edit(files, renames)
 	if len(failures) > 0 {
 		append(reasons, ..failures)
 		return finish(name, .Refused, edit, files, reasons[:], edits, left_files = left_files, left_dirs = left_dirs)
 	}
-	return finish(name, status, edit, files, reasons[:], edits, checked = checked)
+	return finish(name, status, edit, files, reasons[:], edits, checked = checked, also = also)
 }
 
 // Runs each rename in order; on failure, renamed counts the renames already done.
@@ -703,8 +712,9 @@ relative_inside :: proc(root, file: string) -> (string, bool) {
 }
 
 // Prints the result of a refactor command and returns its exit code. renames name the moved paths,
-// left_files and left_dirs count the files and directories a failed rollback could not restore, and
-// checked counts the packages `odin check` ran on.
+// left_files and left_dirs count the files and directories a failed rollback could not restore,
+// checked counts the packages `odin check` ran on, and also names the targets it checked them on besides the
+// current one.
 @(private = "file")
 finish :: proc(
 	name: string,
@@ -717,6 +727,7 @@ finish :: proc(
 	left_files := 0,
 	left_dirs := 0,
 	checked := 0,
+	also: []string = {},
 ) -> int {
 	summary: string
 	counts := fmt.tprintf(
@@ -757,6 +768,9 @@ finish :: proc(
 	}
 	if checked > 0 && (status == .Applied || status == .Check_Failed) {
 		summary = fmt.tprintf("%s, %d package%s checked", summary, checked, "" if checked == 1 else "s")
+		if len(also) > 0 {
+			summary = fmt.tprintf("%s, also on %s", summary, strings.join(also, ", ", context.temp_allocator))
+		}
 	}
 
 	exit_codes := STATUS_EXIT

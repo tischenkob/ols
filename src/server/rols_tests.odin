@@ -17,7 +17,8 @@ Test_Proc :: struct {
 
 // Every @(test) procedure of the package at dir, or of one .odin file, in file then line order. Only the
 // files that `odin test` builds count: not `#+build ignore`, and not those that name or tag another target
-// than the one of checker_args, else the host.
+// than the one of checker_args, else the host. A test in a `when` branch that the editor's target does not take
+// (see inactive_when_decls) does not count either.
 find_tests :: proc(target: string, config: ^common.Config) -> []Test_Proc {
 	// The parsed files are not freed.
 	context.allocator = context.temp_allocator
@@ -34,8 +35,9 @@ find_tests :: proc(target: string, config: ^common.Config) -> []Test_Proc {
 		if !builds_on(file, string(data), built_on) do continue
 		// Only the syntax tree counts: parse_package_file would also index the packages the file imports.
 		parsed := parse_syntax(file, string(data)) or_continue
+		inactive := inactive_when_decls(&parsed)
 		for decl, attributes in top_level_decls(parsed) {
-			if !slice.contains(attribute_names(attributes), "test") do continue
+			if decl in inactive || !slice.contains(attribute_names(attributes), "test") do continue
 			for name in decl.names {
 				append(&tests, Test_Proc{node_to_string(name), file, name.pos.line, name.pos.column, parsed.pkg_name})
 			}
