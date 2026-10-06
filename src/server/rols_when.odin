@@ -66,42 +66,80 @@ restore_hidden_fallbacks :: proc(collection: ^SymbolCollection) {
 }
 
 // rols: folds the value of constant `symbol` of package `pkg` for a `when` condition. A name in it folds to a
-// constant of the same package. A selector in it, which reads a third package, is unknown. A name whose value does
-// not fold, through such a selector or a cycle, reads as false.
+// constant of the same package, and a selector `other.NAME` to a constant of package `other`. The value is unknown
+// when it reads a mutable or fallback global, a constant that does not fold, or a cycle of constants. A name that no
+// constant declares reads as false, like in any `when` condition, because it can be `true`, `ODIN_OS` or a define.
 // The caller clears `when_ast_context` so that a selector does not read the open file's imports.
 fold_package_when_const :: proc(symbol: Symbol, pkg: string) -> (When_Expr, bool) {
-	consts := make_when_expr_map()
-	return fold_package_const(&consts, symbol, pkg)
+	fold := Package_Fold {
+		envs    = make(map[string]^map[string]When_Expr, context.temp_allocator),
+		unknown = new(ast.Expr, context.temp_allocator),
+	}
+	return fold_package_const(&fold, symbol, pkg)
 }
 
-// Each name is folded once and stored as a value. It reads false while it folds and stays false when it fails, so a
-// cycle of constants ends instead of recursing forever.
+// The folded constants of each package, keyed by name, and by `path.NAME` for a selector into package `path`.
+// `unknown` has no derived node, so `resolve_when_expr` reads a name stored as it as unknown. A name stores it while
+// it folds and keeps it when the fold fails, so a cycle of constants ends instead of recursing forever.
 @(private = "file")
-fold_package_const :: proc(consts: ^map[string]When_Expr, symbol: Symbol, pkg: string) -> (When_Expr, bool) {
+Package_Fold :: struct {
+	envs:    map[string]^map[string]When_Expr,
+	unknown: ^ast.Expr,
+}
+
+@(private = "file")
+fold_package_const :: proc(fold: ^Package_Fold, symbol: Symbol, pkg: string) -> (When_Expr, bool) {
 	generic, is_generic := symbol.value.(SymbolGenericValue)
 	if !is_generic do return {}, false
+	consts := fold.envs[pkg]
+	if consts == nil {
+		consts = new(map[string]When_Expr, context.temp_allocator)
+		consts^ = make_when_expr_map()
+		fold.envs[pkg] = consts
+	}
 	uri, _ := common.parse_uri(symbol.uri, context.temp_allocator)
-	names := make([dynamic]string, context.temp_allocator)
+	refs := make([dynamic]^ast.Expr, context.temp_allocator)
 	visitor := ast.Visitor {
-		data = &names,
+		data = &refs,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
 			if node == nil do return nil
 			#partial switch n in node.derived {
 			case ^ast.Ident:
-				append((^[dynamic]string)(visitor.data), n.name)
-			case ^ast.Selector_Expr, ^ast.Implicit_Selector_Expr:
+				append((^[dynamic]^ast.Expr)(visitor.data), n)
+			case ^ast.Selector_Expr:
+				// The index replaced an import alias with the package path, which no other name contains.
+				base, is_ident := n.expr.derived.(^ast.Ident)
+				if is_ident && strings.contains(base.name, "/") do append((^[dynamic]^ast.Expr)(visitor.data), n)
+				return nil
+			case ^ast.Implicit_Selector_Expr:
 				return nil
 			}
 			return visitor
 		},
 	}
 	ast.walk(&visitor, generic.expr)
-	for name in names {
-		if name in consts do continue
-		named, found := lookup(name, pkg, uri.path)
+	for ref in refs {
+		key, name, ref_pkg: string
+		#partial switch r in ref.derived {
+		case ^ast.Ident:
+			key, name, ref_pkg = r.name, r.name, pkg
+		case ^ast.Selector_Expr:
+			ref_pkg = r.expr.derived.(^ast.Ident).name
+			key, name = when_selector_key(ref_pkg, r.field.name), r.field.name
+		}
+		if key in consts do continue
+		if ref_pkg != pkg do try_build_package(ref_pkg)
+		named, found := lookup(name, ref_pkg, uri.path)
+		// A name stays unset and reads as false, but a selector reads a declaration of the package or nothing.
+		if !found && ref_pkg == pkg do continue
+		consts[key] = fold.unknown
 		if !found || .Mutable in named.flags || .Fallback in named.flags do continue
-		consts[name] = false
-		consts[name] = fold_package_const(consts, named, pkg) or_continue
+		consts[key] = fold_package_const(fold, named, ref_pkg) or_continue
 	}
 	return resolve_when_expr(consts^, generic.expr)
+}
+
+// rols: the key under which a fold of a package constant stores the value of `pkg.name`, where `pkg` is a full path.
+when_selector_key :: proc(pkg, name: string) -> string {
+	return strings.concatenate({pkg, ".", name}, context.temp_allocator)
 }

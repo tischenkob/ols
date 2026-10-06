@@ -200,10 +200,15 @@ resolve_when_expr :: proc(
 			// rols: only `#config` calls fold.
 			return resolve_config_directive(when_expr_map, odin_expr, common.config.profile.defines)
 		case ^ast.Selector_Expr:
-			// rols: `pkg.NAME` reads an immutable, active constant of an imported package.
+			// rols: `pkg.NAME` reads an immutable, active constant of an imported package, or a value a fold stored.
 			ctx := when_ast_context
 			pkg_ident, is_ident := odin_expr.expr.derived.(^ast.Ident)
-			if ctx == nil || !is_ident do return {}, false
+			if !is_ident do return {}, false
+			if ctx == nil {
+				value, folded := when_expr_map[when_selector_key(pkg_ident.name, odin_expr.field.name)]
+				if !folded do return {}, false
+				return resolve_when_expr(when_expr_map, value)
+			}
 			for imp in ctx.imports {
 				if imp.base != pkg_ident.name do continue
 				symbol, found := lookup(odin_expr.field.name, imp.name, ctx.fullpath)
