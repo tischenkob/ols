@@ -304,6 +304,11 @@ print_file :: proc(p: ^Printer, file: ^ast.File) -> string {
 	p.src = file.src
 	context.allocator = p.allocator
 
+	// rols: an empty file stays empty, since the parser rejects a file that holds only a newline
+	if len(file.src) == 0 {
+		return ""
+	}
+
 	if p.config.tabs {
 		p.indentation = "\t"
 		p.indentation_width = p.config.tabs_width
