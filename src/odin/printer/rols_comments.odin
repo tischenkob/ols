@@ -1,5 +1,6 @@
 package odin_printer
 
+import "core:odin/ast"
 import "core:odin/tokenizer"
 import "core:strings"
 
@@ -91,4 +92,72 @@ is_leading_comment :: proc(p: ^Printer, comment: tokenizer.Token, pos: tokenizer
 	}
 
 	return true
+}
+
+// Moves to the line of `pos` like move_line, but a block comment that leads the node at `pos` prints before it
+// with one space after it, as visit_comments_split prints it.
+// visit_comment would print such a comment as trailing code on its line, with no space after it.
+@(private)
+move_line_leading :: proc(p: ^Printer, pos: tokenizer.Pos) -> ^Document {
+	lines := pos.line - p.source_position.line
+	if lines < 0 {
+		return empty()
+	}
+
+	above := empty()
+	leading := empty()
+	newlined := 0
+	for comment_before_position(p, pos) {
+		for comment in p.comments[p.latest_comment_index].list {
+			if is_leading_comment(p, comment, pos) {
+				leading = cons(leading, text(comment.text), text(" "))
+			} else {
+				n, document := visit_comment(p, comment)
+				newlined += n
+				above = cons(above, document)
+			}
+		}
+		next_comment_group(p)
+	}
+
+	p.source_position = pos
+
+	return cons(above, newline(max(min(lines - newlined, p.config.newline_limit + 1), 0)), leading)
+}
+
+// Where a field's text starts: its first flag, such as `using` or `#any_int`, when the flags sit on the name's line.
+// Field.pos is the position of the first name, after the flags.
+@(private)
+field_start :: proc(p: ^Printer, field: ^ast.Field) -> tokenizer.Pos {
+	pos := field.pos
+	if field.flags == {} || pos.offset > len(p.src) {
+		return pos
+	}
+
+	start := pos.offset
+	for {
+		i := start
+		for i > 0 && (p.src[i - 1] == ' ' || p.src[i - 1] == '\t') {
+			i -= 1
+		}
+		j := i
+		for j > 0 {
+			c := p.src[j - 1]
+			if c != '_' && !(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z') && !(c >= '0' && c <= '9') {
+				break
+			}
+			j -= 1
+		}
+		word := p.src[j:i]
+		if j > 0 && p.src[j - 1] == '#' && word != "" {
+			j -= 1
+		} else if word != "using" {
+			break
+		}
+		start = j
+	}
+
+	pos.column -= pos.offset - start
+	pos.offset = start
+	return pos
 }

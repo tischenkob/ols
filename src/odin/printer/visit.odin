@@ -256,7 +256,8 @@ visit_decl :: proc(p: ^Printer, decl: ^ast.Decl, called_in_stmt := false) -> ^Do
 	case ^ast.Assign_Stmt:
 		return visit_stmt(p, v)
 	case ^ast.Expr_Stmt:
-		document := move_line(p, decl.pos)
+		// rols: a block comment before the node on its line prints before it with a space
+		document := move_line_leading(p, decl.pos)
 		return cons(document, visit_expr(p, v.expr))
 	case ^ast.When_Stmt:
 		return visit_stmt(p, cast(^ast.Stmt)decl)
@@ -266,7 +267,8 @@ visit_decl :: proc(p: ^Printer, decl: ^ast.Decl, called_in_stmt := false) -> ^Do
 			document = cons(document, visit_attributes(p, &v.attributes, v.pos))
 		}
 
-		document = cons(document, move_line(p, decl.pos))
+		// rols: a block comment before the node on its line prints before it with a space
+		document = cons(document, move_line_leading(p, decl.pos))
 		document = cons(document, cons_with_opl(text(v.foreign_tok.text), text(v.import_tok.text)))
 
 		if v.name != nil {
@@ -299,7 +301,8 @@ visit_decl :: proc(p: ^Printer, decl: ^ast.Decl, called_in_stmt := false) -> ^Do
 			document = cons(document, visit_attributes(p, &v.attributes, v.pos))
 		}
 
-		document = cons(document, move_line(p, decl.pos))
+		// rols: a block comment before the node on its line prints before it with a space
+		document = cons(document, move_line_leading(p, decl.pos))
 		document = cons(document, cons_with_opl(text("foreign"), visit_expr(p, v.foreign_library)))
 
 		if v.body != nil && is_foreign_block_only_procedures(v.body) {
@@ -317,7 +320,8 @@ visit_decl :: proc(p: ^Printer, decl: ^ast.Decl, called_in_stmt := false) -> ^Do
 			document = cons(document, visit_attributes(p, &v.attributes, v.pos))
 		}
 
-		document = cons(document, move_line(p, decl.pos))
+		// rols: a block comment before the node on its line prints before it with a space
+		document = cons(document, move_line_leading(p, decl.pos))
 
 		if v.name.text != "" {
 			document = cons(
@@ -338,7 +342,8 @@ visit_decl :: proc(p: ^Printer, decl: ^ast.Decl, called_in_stmt := false) -> ^Do
 			document = cons(document, visit_attributes(p, &v.attributes, v.pos))
 		}
 
-		document = cons(document, move_line(p, decl.pos), visit_state_flags(p, v.state_flags))
+		// rols: a block comment before the node on its line prints before it with a space
+		document = cons(document, move_line_leading(p, decl.pos), visit_state_flags(p, v.state_flags))
 
 		lhs := empty()
 		rhs := empty()
@@ -936,7 +941,8 @@ visit_attributes :: proc(p: ^Printer, attributes: ^[dynamic]^ast.Attribute, pos:
 		return i.pos.offset < j.pos.offset
 	})
 
-	document = cons(document, move_line(p, attributes[0].pos))
+	// rols: a block comment before the node on its line prints before it with a space
+	document = cons(document, move_line_leading(p, attributes[0].pos))
 
 	//Ensure static is not forced newline, but until if the width is full
 	if len(attributes) == 1 && len(attributes[0].elems) == 1 {
@@ -1030,7 +1036,8 @@ visit_stmt :: proc(
 	}
 
 	document := visit_state_flags(p, stmt.state_flags)
-	comments := move_line(p, stmt.pos)
+	// rols: a block comment before the node on its line prints before it with a space
+	comments := move_line_leading(p, stmt.pos)
 
 	#partial switch v in stmt.derived {
 	case ^ast.Tag_Stmt:
@@ -1050,8 +1057,12 @@ visit_stmt :: proc(
 
 		// rols: a one-line block of `;` joined statements opens a normal block when it does not fit; a switch body keeps its layout
 		chain_id := chain_block_id(p, v, block_type)
-		then_chain_id := p.else_chain_id
-		p.else_chain_id = ""
+		then_chain_id := ""
+		// rols: only the paired `else` block takes the pairing, not a block in an `else if` header
+		if stmt == p.else_chain.target {
+			then_chain_id = p.else_chain.id
+			p.else_chain = {}
+		}
 
 		if !uses_do {
 			// rols: pass the closing brace so the Indent option stays inside the braces
@@ -1110,6 +1121,9 @@ visit_stmt :: proc(
 			document = cons(document, visit_end_brace(p, v.end))
 		}
 	case ^ast.If_Stmt:
+		// rols: the body of a paired `else if` breaks with the block before it
+		chained := v.body == p.else_chain.target
+
 		if v.label != nil {
 			document = cons(document, visit_expr(p, v.label), text(":"), break_with_space())
 		}
@@ -1149,7 +1163,18 @@ visit_stmt :: proc(
 			document = cons(document, group(hang(3, cons(begin_document, end_document))))
 		}
 
+		// rols: the fit check of the block before a paired `else if` measures this header flat
+		if chained {
+			document = group(document, Document_Group_Options{rest_flat = true})
+		}
+
 		set_source_position(p, v.body.pos)
+
+		// rols: a one-line then-block that pairs with its `else` block takes a chain group, even with one statement
+		paired := pairs_with_else(p, v.body, v.else_stmt, chained)
+		if paired {
+			p.chain_then = v.body
+		}
 
 		document = cons_with_nopl(document, visit_stmt(p, v.body, .If_Stmt))
 
@@ -1170,9 +1195,9 @@ visit_stmt :: proc(
 				document = cons(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
 			} else {
 				// rols: a one-line `else` chain block breaks with the then-block
-				pair_else_chain(p, v.body, .If_Stmt, v.else_stmt)
+				saved := pair_else_chain(p, paired, v.body, v.else_stmt)
 				document = cons_with_opl(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
-				p.else_chain_id = ""
+				p.else_chain = saved
 			}
 
 
@@ -1296,7 +1321,9 @@ visit_stmt :: proc(
 		if v.post != nil {
 			set_source_position(p, v.post.pos)
 			for_document = cons(for_document, text(";"))
-			for_document = cons_with_opl(for_document, group(visit_stmt(p, v.post)))
+			// rols: a block comment before the post statement on its line leads it, since the `;` before it is already printed
+			above, leading, _ := visit_comments_split(p, v.post.pos, code_between = true)
+			for_document = cons_with_opl(for_document, cons(above, leading, group(visit_stmt(p, v.post))))
 		} else if v.post == nil && v.cond != nil && v.init != nil {
 			for_document = cons(for_document, text(";"))
 		}
@@ -1411,9 +1438,20 @@ visit_stmt :: proc(
 		document = cons(document, text("defer"))
 		document = cons_with_nopl(document, visit_stmt(p, v.stmt))
 	case ^ast.When_Stmt:
+		// rols: the body of a paired `else when` breaks with the block before it
+		chained := v.body == p.else_chain.target
 		document = cons(document, cons_with_nopl(text("when"), visit_expr(p, v.cond)))
+		// rols: the fit check of the block before a paired `else when` measures this header flat
+		if chained {
+			document = group(document, Document_Group_Options{rest_flat = true})
+		}
 
 		set_source_position(p, v.body.pos)
+		// rols: a one-line then-block that pairs with its `else` block takes a chain group, even with one statement
+		paired := pairs_with_else(p, v.body, v.else_stmt, chained)
+		if paired {
+			p.chain_then = v.body
+		}
 		document = cons_with_nopl(document, visit_stmt(p, v.body))
 		set_source_position(p, v.body.end)
 
@@ -1434,9 +1472,9 @@ visit_stmt :: proc(
 				document = cons(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
 			} else {
 				// rols: a one-line `else` chain block breaks with the then-block
-				pair_else_chain(p, v.body, .Generic, v.else_stmt)
+				saved := pair_else_chain(p, paired, v.body, v.else_stmt)
 				document = cons_with_nopl(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
-				p.else_chain_id = ""
+				p.else_chain = saved
 			}
 		}
 
@@ -2232,7 +2270,8 @@ visit_block_stmts :: proc(p: ^Printer, stmts: []^ast.Stmt, chain_id := "") -> ^D
 			document = cons(document, run)
 			run = empty()
 			if chain_id == "" && next_on_line && stmt.pos.line not_in p.disabled_lines {
-				document = cons(document, move_line(p, stmt_start(stmt)))
+				// rols: a block comment before the node on its line prints before it with a space
+				document = cons(document, move_line_leading(p, stmt_start(stmt)))
 			}
 		}
 		// rols: adjacent backtick tokens with no `;` between them (the ``` raw string quirk) stay glued; inside a broken one-line block each statement gets its own line
@@ -2338,9 +2377,9 @@ visit_struct_field_list :: proc(p: ^Printer, list: ^ast.Field_List, options := L
 		}
 
 		if i == 0 && .Enforce_Newline in options {
-			// rols: a block comment before the first field on its line leads the field
+			// rols: a block comment before the first field on its line leads the field and its flags
 			comment, leading: ^Document
-			comment, leading, leading_width = visit_comments_split(p, list.list[i].pos)
+			comment, leading, leading_width = visit_comments_split(p, field_start(p, list.list[i]))
 			if _, is_nil := comment.(Document_Nil); !is_nil {
 				comment = cons(comment, newline(1))
 			}
@@ -2401,12 +2440,13 @@ visit_struct_field_list :: proc(p: ^Printer, list: ^ast.Field_List, options := L
 
 		if i != len(list.list) - 1 && .Enforce_Newline in options {
 			if p.config.preserve_struct_blank_lines {
-				document = cons(document, move_line(p, list.list[i + 1].pos))
+				// rols: the field starts at its first flag
+				document = cons(document, move_line(p, field_start(p, list.list[i + 1])))
 				leading_width = 0
 			} else {
-				// rols: a block comment before the next field on its line leads that field
+				// rols: a block comment before the next field on its line leads that field and its flags
 				comment, leading: ^Document
-				comment, leading, leading_width = visit_comments_split(p, list.list[i + 1].pos)
+				comment, leading, leading_width = visit_comments_split(p, field_start(p, list.list[i + 1]))
 				document = cons(document, comment, newline(1), leading)
 			}
 		} else {
@@ -2728,8 +2768,8 @@ visit_signature_list :: proc(
 		}
 
 		if (i != len(list.list) - 1 && .Enforce_Newline in options) {
-			// rols: a block comment before the next field on its line leads that field
-			comment, leading, _ := visit_comments_split(p, list.list[i + 1].pos)
+			// rols: a block comment before the next field on its line leads that field and its flags
+			comment, leading, _ := visit_comments_split(p, field_start(p, list.list[i + 1]))
 			document = cons(document, comment, newline(1), leading)
 		} else if .Enforce_Newline in options {
 			comment, _ := visit_comments(p, list.list[i].end)

@@ -1182,7 +1182,7 @@ threading_example :: proc() {
 		}
 
 		for len(threads) > 0 {
-			for i := 0; i < len(threads);  /**/{
+			for i := 0; i < len(threads); /**/ {
 				if t := threads[i]; thread.is_done(t) {
 					fmt.printf("Thread %d is done\n", t.user_index)
 					thread.destroy(t)
