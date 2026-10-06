@@ -39,3 +39,60 @@ main :: proc() {
 	}
 	test.expect_hover(t, &source, "test.r: struct {\n\ta: int,\n}")
 }
+
+// A copy of an inline struct variable has no type expression of its own, so T comes from the copied variable.
+@(test)
+hover_poly_param_of_inline_struct_copy :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+foo :: proc(v: $T) -> T { return v }
+main :: proc() {
+	p: struct {
+		a: int,
+	}
+	x := p
+	r{*} := foo(x)
+}
+`,
+	}
+	test.expect_hover(t, &source, "test.r: struct {\n\ta: int,\n}")
+}
+
+@(test)
+completion_poly_result_of_inline_struct_copy :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+foo :: proc(v: $T) -> T { return v }
+main :: proc() {
+	p: struct {
+		a: int,
+	}
+	x := p
+	r := foo(x)
+	r.{*}
+}
+`,
+	}
+	test.expect_completion_labels(t, &source, ".", {"a"})
+}
+
+@(test)
+hover_poly_param_of_inline_union_copy :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+foo :: proc(v: $T) -> T { return v }
+main :: proc() {
+	p: union {
+		int,
+		f32,
+	}
+	x := p
+	r{*} := foo(x)
+}
+`,
+	}
+	test.expect_hover(t, &source, "test.r: union {\n\tint,\n\tf32,\n}")
+}
