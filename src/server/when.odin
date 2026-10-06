@@ -126,6 +126,8 @@ register_when_consts_from_globals :: proc(
 }
 
 resolve_when_ident :: proc(when_expr_map: map[string]When_Expr, ident: string) -> (When_Expr, bool) {
+	// rols: the CLI evaluates ODIN_OS and ODIN_ARCH for the -target: of checker_args (set_when_target).
+	if value, ok := when_target_ident(ident); ok do return value, true
 	switch ident {
 	case "ODIN_OS":
 		if common.config.profile.os != "" {

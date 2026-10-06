@@ -183,6 +183,14 @@ builds_on :: proc(name, text: string, target: parser.Build_Target) -> bool {
 	return facts_build_on(build_facts(name, text), target)
 }
 
+// Whether odin builds the file with the source text for target when the command line names it with -file: only
+// its `#+build` tags count, not its name.
+tags_build_on :: proc(name, text: string, target: parser.Build_Target) -> bool {
+	facts := build_facts(name, text)
+	facts.named, facts.hidden = {}, false
+	return facts_build_on(facts, target)
+}
+
 // The `-target:` value to check the file called name with the source text on, when base does not build
 // it: the first candidate that does, as Other. Nowhere when none does and the file is not `#+build ignore`.
 target_for_file :: proc(name, text: string, base: parser.Build_Target) -> (target: string, need: Target_Need) {

@@ -35,14 +35,23 @@ workspace_package_dirs :: proc(config: ^common.Config, allocator := context.temp
 }
 
 // The directories below start, and start itself, that hold .odin files, sorted, left out as for
-// workspace_package_dirs. root is the workspace folder whose filter applies.
+// workspace_package_dirs. root is the workspace folder whose filter applies; a caller that already built that
+// filter passes it as filter. When the filter skips start itself, which only a directory named on the command line
+// can be, the walk below it ignores the filter.
 package_dirs_below :: proc(
 	start, root: string,
 	config: ^common.Config,
 	allocator := context.temp_allocator,
+	filter: ^common.Workspace_Filter = nil,
 ) -> []string {
 	dirs := make([dynamic]string, allocator)
-	filter := common.workspace_filter_make(root, config, context.temp_allocator)
+	filter := filter
+	if filter == nil {
+		filter = new_clone(common.workspace_filter_make(root, config, context.temp_allocator), context.temp_allocator)
+	}
+	if common.workspace_filter_skip_dir(filter, start) {
+		filter = nil
+	}
 
 	candidates := make([dynamic]string, context.temp_allocator)
 	append(&candidates, start)
@@ -53,7 +62,9 @@ package_dirs_below :: proc(
 		dir, _ := filepath.replace_separators(info.fullpath, '/', context.temp_allocator)
 		name := filepath.base(dir)
 		hidden := strings.has_prefix(name, ".")
-		if hidden || slice.contains(dir_blacklist, name) || common.workspace_filter_skip_dir(&filter, info.fullpath) {
+		if hidden ||
+		   slice.contains(dir_blacklist, name) ||
+		   filter != nil && common.workspace_filter_skip_dir(filter, info.fullpath) {
 			os.walker_skip_dir(&w)
 			continue
 		}
@@ -94,25 +105,36 @@ Find_Hit :: struct {
 // The declarations of the workspace whose names match query, best match first, at most limit. Unlike the
 // workspace symbols of the LSP, which come from the index of the current target, it reads every .odin file, so
 // it also reports private declarations and those of files that only another target builds. A file that no
-// target builds (`#+build ignore`) and one that does not parse are left out.
+// target builds (`#+build ignore`) and one that does not parse are left out. `when` conditions evaluate for the
+// `-target:` of checker_args when it has one.
 find_symbols :: proc(query: string, config: ^common.Config, limit := 100) -> []Find_Symbol {
 	matchers := make([dynamic]^common.FuzzyMatcher, context.temp_allocator)
 	for field in strings.fields(query, context.temp_allocator) {
 		append(&matchers, common.make_fuzzy_matcher(field))
 	}
 	base := base_target(config.checker_args)
+	saved_target := set_when_target(config.checker_args)
+	defer restore_when_target(saved_target)
 
-	arena: virtual.Arena
+	// One arena holds a parsed file, the other the `when` tables of the package directory.
+	arena, package_arena: virtual.Arena
 	if virtual.arena_init_growing(&arena) != nil do return {}
 	defer virtual.arena_destroy(&arena)
+	if virtual.arena_init_growing(&package_arena) != nil do return {}
+	defer virtual.arena_destroy(&package_arena)
 
 	hits := make([dynamic]Find_Hit, context.temp_allocator)
 	for dir in workspace_package_dirs(config) {
 		files, _ := filepath.glob(fmt.tprintf("%v/*.odin", dir), context.temp_allocator)
+		pkg := When_Package {
+			files     = files,
+			allocator = virtual.arena_allocator(&package_arena),
+		}
 		for file in files {
 			data, err := os.read_entire_file(file, context.temp_allocator)
 			if err != nil do continue
 			text := string(data)
+			if !mentions_match(matchers[:], text) do continue
 			other_platform := false
 			if !builds_on(file, text, base) {
 				if _, need := target_for_file(file, text, base); need != .Other do continue
@@ -123,13 +145,14 @@ find_symbols :: proc(query: string, config: ^common.Config, limit := 100) -> []F
 			if parsed, parsed_ok := parse_syntax(file, text); parsed_ok {
 				private_file := parser.parse_file_tags(parsed, context.allocator).private != .Public
 				uri := common.create_uri(file, context.temp_allocator).uri
-				inactive := inactive_when_decls(&parsed)
+				inactive := inactive_when_decls(&parsed, &pkg)
 				for stmt in parsed.decls {
 					collect_find_hits(&hits, matchers[:], stmt, &parsed, uri, private_file, other_platform, inactive)
 				}
 			}
 			virtual.arena_free_all(&arena)
 		}
+		virtual.arena_free_all(&package_arena)
 	}
 
 	slice.sort_by(hits[:], proc(a, b: Find_Hit) -> bool {
@@ -143,6 +166,51 @@ find_symbols :: proc(query: string, config: ^common.Config, limit := 100) -> []F
 		symbol = hits[i].symbol
 	}
 	return result
+}
+
+// Whether some identifier of text, comments and strings included, matches every matcher, as score_name decides.
+// A file without one declares no match, so find_symbols need not parse it.
+@(private = "file")
+mentions_match :: proc(matchers: []^common.FuzzyMatcher, text: string) -> bool {
+	if len(matchers) == 0 do return true
+	is_word_byte :: proc(c: u8) -> bool {
+		return c == '_' || c >= 0x80 || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9'
+	}
+	for i := 0; i < len(text); {
+		if !is_word_byte(text[i]) {
+			i += 1
+			continue
+		}
+		start := i
+		ascii := true
+		for i < len(text) && is_word_byte(text[i]) {
+			ascii &&= text[i] < 0x80
+			i += 1
+		}
+		word := text[start:i]
+		// fuzzy_match first requires the lowered pattern as a subsequence of the lowered word; checking that
+		// without allocating skips score_name for nearly every word. A non-ASCII word goes to score_name as is.
+		if ascii && !all_subsequences(matchers, word) do continue
+		if _, ok := score_name(matchers, word); ok do return true
+	}
+	return false
+}
+
+@(private = "file")
+all_subsequences :: proc(matchers: []^common.FuzzyMatcher, word: string) -> bool {
+	word := word[:min(len(word), common.max_word)]
+	for matcher in matchers {
+		pattern := matcher.lower_pattern
+		if len(pattern) > len(word) do return false
+		p := 0
+		for w := 0; w < len(word) && p < len(pattern); w += 1 {
+			c := word[w]
+			if 'A' <= c && c <= 'Z' do c += 'a' - 'A'
+			if c == pattern[p] do p += 1
+		}
+		if p < len(pattern) do return false
+	}
+	return true
 }
 
 @(private = "file")

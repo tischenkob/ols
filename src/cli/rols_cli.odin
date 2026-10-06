@@ -833,10 +833,11 @@ lint :: proc(targets: []string, fail_on: string, root: string) -> int {
 	}
 	root := strings.clone(root)
 	entries := make([dynamic]Entry)
+	filter := workspace_lint_filter()
 	for target in targets {
 		packages := []string{target}
 		if os.is_directory(target) {
-			packages = server.package_dirs_below(target, root, &common.config, context.allocator)
+			packages = server.package_dirs_below(target, root, &common.config, context.allocator, filter)
 			if len(packages) == 0 {
 				fmt.eprintfln("error: no package in %s", target)
 				return 1
@@ -871,15 +872,26 @@ lint :: proc(targets: []string, fail_on: string, root: string) -> int {
 @(private)
 linted: map[string]struct{}
 
-// The workspace filter of the run, built on the first collect_lints call, on the heap.
+// The workspace filter of the run, built on the first workspace_lint_filter call, on the heap.
 @(private)
 lint_filter: Maybe(common.Workspace_Filter)
+
+// The workspace filter of the first workspace folder, nil without one. lint and collect_lints share it.
+@(private)
+workspace_lint_filter :: proc() -> ^common.Workspace_Filter {
+	if lint_filter == nil && len(common.config.workspace_folders) > 0 {
+		root := common.uri_to_path(common.config.workspace_folders[0].uri, context.temp_allocator)
+		lint_filter = common.workspace_filter_make(root, &common.config, context.allocator)
+	}
+	if filter, ok := &lint_filter.?; ok do return filter
+	return nil
+}
 
 // Per-file lints, unused imports and unused private declarations of one file or a package directory, in
 // allocator. A file an earlier call linted is left out, and so is a file of the directory that the workspace
 // filter skips, unless the filter skips the directory itself, which only a directory named on the command line
-// can be. The documents are closed again. With note_unparsed, a file that does not parse is noted on stderr and its
-// diagnostics are left out.
+// can be. The documents are closed again. With note_unparsed, a file that does not parse is noted on stderr; its
+// lints still run on the partial tree, as in the server.
 collect_lints :: proc(target: string, allocator := context.temp_allocator, note_unparsed := false) -> ([]Entry, bool) {
 	files := []string{target}
 	if os.is_directory(target) {
@@ -889,11 +901,7 @@ collect_lints :: proc(target: string, allocator := context.temp_allocator, note_
 			fmt.eprintfln("cannot list %s: %v", target, err)
 			return {}, false
 		}
-		if lint_filter == nil && len(common.config.workspace_folders) > 0 {
-			root := common.uri_to_path(common.config.workspace_folders[0].uri, context.temp_allocator)
-			lint_filter = common.workspace_filter_make(root, &common.config, context.allocator)
-		}
-		if filter, ok := &lint_filter.?; ok && !common.workspace_filter_skip_dir(filter, target) {
+		if filter := workspace_lint_filter(); filter != nil && !common.workspace_filter_skip_dir(filter, target) {
 			kept := make([dynamic]string, context.temp_allocator)
 			for file in files {
 				if !common.workspace_filter_skip_file(filter, file) do append(&kept, file)
@@ -908,7 +916,6 @@ collect_lints :: proc(target: string, allocator := context.temp_allocator, note_
 	defer for uri in opened {
 		server.document_close(uri)
 	}
-	unparsed := make(map[string]struct{}, context.temp_allocator)
 	document: ^server.Document
 	for file in files {
 		uri := common.create_uri(file, context.temp_allocator).uri
@@ -922,8 +929,7 @@ collect_lints :: proc(target: string, allocator := context.temp_allocator, note_
 		}
 		append(&opened, strings.clone(document.uri.uri, context.temp_allocator))
 		if note_unparsed && document.ast.syntax_error_count > 0 {
-			fmt.eprintfln("%s: skipped, the file does not parse", file)
-			unparsed[opened[len(opened) - 1]] = {}
+			fmt.eprintfln("%s: the file does not parse, its lints may be incomplete", file)
 		}
 		server.check_unused_imports(document, &common.config)
 		linted[strings.clone(uri)] = {}
@@ -934,7 +940,6 @@ collect_lints :: proc(target: string, allocator := context.temp_allocator, note_
 
 	entries := make([dynamic]Entry, allocator)
 	for opened_uri in opened {
-		if opened_uri in unparsed do continue
 		uri := strings.clone(opened_uri, allocator)
 		for type in ([]server.DiagnosticType{.Lint, .Unused, .Unused_Decl}) {
 			for diagnostic in server.diagnostics_of(type, uri, allocator) {
