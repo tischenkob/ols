@@ -597,3 +597,85 @@ main :: proc() -> int {
 }
 `)
 }
+
+// A field read out of the single value that `free` releases is a copy.
+@(test)
+defer_delete_field_copy_of_new :: proc(t: ^testing.T) {
+	expect_defer_delete(t, "Add defer free(p)", `package test
+` + BUILTINS + `
+Point :: struct { x, y: int }
+
+main :: proc() -> int {
+	p := ne{*}w(Point)
+	y := p.x
+	return y
+}
+`, `package test
+` + BUILTINS + `
+Point :: struct { x, y: int }
+
+main :: proc() -> int {
+	p := new(Point)
+	defer free(p)
+	y := p.x
+	return y
+}
+`)
+}
+
+// A field of a builder holds the allocation itself.
+@(test)
+defer_delete_builder_field_escapes :: proc(t: ^testing.T) {
+	expect_no_defer_delete(t, "Add defer strings.builder_destroy(&b)", `package test
+
+import "core:strings"
+
+main :: proc() -> [dynamic]u8 {
+	b := strings.builder_ma{*}ke()
+	buf := b.buf
+	return buf
+}
+`)
+}
+
+@(test)
+defer_delete_scalar_result_shares_nothing :: proc(t: ^testing.T) {
+	expect_defer_delete(t, "Add defer delete(s)", `package test
+` + BUILTINS + `
+count :: proc(s: []int) -> int { return 0 }
+
+main :: proc() -> int {
+	s{*} := make([]int, 4)
+	n := count(s)
+	return n
+}
+`, `package test
+` + BUILTINS + `
+count :: proc(s: []int) -> int { return 0 }
+
+main :: proc() -> int {
+	s := make([]int, 4)
+	defer delete(s)
+	n := count(s)
+	return n
+}
+`)
+}
+
+@(test)
+defer_delete_range_alias_of_an_element_stored :: proc(t: ^testing.T) {
+	for body in ([]string {
+		"for &e in s[0] {\n\t\tg = &e\n\t}",
+		"for &e in s {\n\t\tfor &f in e {\n\t\t\tg = &f\n\t\t}\n\t}",
+	}) {
+		expect_no_defer_delete(t, "Add defer delete(s)", strings.concatenate({`package test
+` + BUILTINS + `
+g: ^int
+
+main :: proc() {
+	s{*} := make([][4]int, 4)
+	`, body, `
+}
+`}, context.temp_allocator))
+	}
+}

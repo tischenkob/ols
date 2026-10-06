@@ -1033,6 +1033,38 @@ f :: proc(a, b: int) -> int {
 `,
 			{},
 		},
+		{
+			"range value by reference named max",
+			`package test
+
+f :: proc(a, b: int, xs: []int) -> int {
+	for &max in xs {
+		_ = max
+	}
+	if a > b {
+		return a
+	}
+	return b
+}
+`,
+			{},
+		},
+		{
+			"unrolled range value named max",
+			`package test
+
+f :: proc(a, b: int) -> int {
+	#unroll for max in 0 ..< 2 {
+		_ = max
+	}
+	if a > b {
+		return a
+	}
+	return b
+}
+`,
+			{},
+		},
 	}
 
 	expect_lint_cases(t, cases, {enable_lint_use_stdlib = true})

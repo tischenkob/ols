@@ -31,6 +31,18 @@ add_unwrap_action :: proc(ctx: ^ActionContext) {
 	if function == nil || function.body == nil {
 		return
 	}
+	// The lookup above skips an `else if`, whose head is then the innermost candidate.
+	#reverse for at in nodes_at({function.body}, ctx.range.start) {
+		inner, is_if := at.node.derived.(^ast.If_Stmt)
+		if !is_if do continue
+		if at.parent != nil && inner.body != nil && ctx.range.start < inner.body.pos.offset {
+			if outer, is_outer := at.parent.derived.(^ast.If_Stmt); is_outer && outer.else_stmt == inner {
+				unwrap_else_if(ctx, inner)
+				return
+			}
+		}
+		break
+	}
 	#reverse for at in nodes_at({function.body}, ctx.range.start) {
 		n, is_block := at.node.derived.(^ast.Block_Stmt)
 		if !is_block || at.parent == nil do continue
@@ -58,6 +70,19 @@ add_remove_else :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt) {
 		return
 	}
 	append_replace_range(ctx, s.start, s.end, s.title, s.text)
+}
+
+// Turns `else if c {X}` into `else {X}`. The body stays a block, so no declaration moves and no
+// statement after it changes reachability.
+unwrap_else_if :: proc(ctx: ^ActionContext, if_stmt: ^ast.If_Stmt) {
+	if if_stmt.label != nil || if_stmt.init != nil || if_stmt.else_stmt != nil {
+		return
+	}
+	block, is_block := if_stmt.body.derived.(^ast.Block_Stmt)
+	if !is_block || block.uses_do {
+		return
+	}
+	append_replace_range(ctx, if_stmt.pos.offset, block.pos.offset, UNWRAP_TITLE, "")
 }
 
 // Replaces stmt with the contents of body, one indentation level up. An empty body deletes
@@ -130,28 +155,34 @@ unwrap_leaves_dead_code :: proc(ctx: ^ActionContext, stmt: ^ast.Node, block: ^as
 	}
 	followed := outer[len(outer) - 1].pos.offset != stmt.pos.offset
 	for inner, i in block.stmts {
-		if ends_flow(inner) && (followed || i < len(block.stmts) - 1) {
+		if ends_flow(ctx.document, inner) && (followed || i < len(block.stmts) - 1) {
 			return true
 		}
 	}
 	return false
 }
 
-// A return, branch, panic or exit call, or a block or `if` whose every path ends in one. Counting
-// too much only refuses the edit.
-ends_flow :: proc(stmt: ^ast.Stmt) -> bool {
+// A return, branch, panic or diverging call, or a block or `if` whose every path ends in one. A callee
+// that does not resolve to a procedure counts when it is a selector named `exit`, such as `os.exit(1)`.
+// Counting too much only refuses the edit.
+ends_flow :: proc(document: ^Document, stmt: ^ast.Stmt) -> bool {
 	if terminates(stmt) {
 		return true
 	}
 	#partial switch s in stmt.derived {
 	case ^ast.Expr_Stmt:
 		call := s.expr.derived.(^ast.Call_Expr) or_return
+		if resolved, found := resolve_entire_file(document)[uintptr(call.expr)]; found && !resolved.is_unresolved {
+			if callee, is_proc := resolved.symbol.value.(SymbolProcedureValue); is_proc {
+				return callee.diverging
+			}
+		}
 		callee := call.expr.derived.(^ast.Selector_Expr) or_return
 		return callee.field != nil && callee.field.name == "exit"
 	case ^ast.Block_Stmt:
-		return s.label == nil && len(s.stmts) > 0 && ends_flow(s.stmts[len(s.stmts) - 1])
+		return s.label == nil && len(s.stmts) > 0 && ends_flow(document, s.stmts[len(s.stmts) - 1])
 	case ^ast.If_Stmt:
-		return s.else_stmt != nil && ends_flow(s.body) && ends_flow(s.else_stmt)
+		return s.else_stmt != nil && ends_flow(document, s.body) && ends_flow(document, s.else_stmt)
 	}
 	return false
 }

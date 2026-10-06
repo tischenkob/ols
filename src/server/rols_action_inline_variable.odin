@@ -65,7 +65,9 @@ add_inline_variable_action :: proc(ctx: ^ActionContext) {
 	// Inlining keeps behaviour only when the initializer still runs once, at the same point, or
 	// when it has no side effects and reads nothing the code it moves past can change.
 	typed := resolve_entire_file(ctx.document)
-	if !evaluated_in_place(typed, function.body, decl, uses[:]) && reads_state(typed, value, max(int), true) {
+	stable := stable_locals(ctx, symbols, all_uses)
+	if !evaluated_in_place(typed, stable, function.body, decl, uses[:]) &&
+	   reads_state(typed, stable, value, max(int), true) {
 		return
 	}
 	// Each copy of a literal is a fresh value: copies no longer share storage, and a [dynamic] or
@@ -174,9 +176,41 @@ has_side_effect :: proc(value: ^ast.Expr) -> bool {
 	return found
 }
 
+// Uses of locals whose address is never taken, aliased or passed to a `->` call, so no call can
+// change them. An `any` or `#by_ptr` argument also passes an address, which this does not see.
+stable_locals :: proc(ctx: ^ActionContext, symbols: SymbolAndNodeMap, uses: []IdentUse) -> map[^ast.Ident]struct{} {
+	unstable := make(map[int]struct{}, context.temp_allocator)
+	for use in uses {
+		offset := local_decl_offset(ctx, symbols, use.ident) or_continue
+		method := false
+		if len(use.parents) > 0 {
+			selector, is_selector := use.parents[len(use.parents) - 1].derived.(^ast.Selector_Expr)
+			method = is_selector && selector.expr == use.ident && selector.op.kind == .Arrow_Right
+		}
+		if method || address_taken(use) || aliases(use) {
+			unstable[offset] = {}
+		}
+	}
+	stable := make(map[^ast.Ident]struct{}, context.temp_allocator)
+	for use in uses {
+		offset := local_decl_offset(ctx, symbols, use.ident) or_continue
+		if offset not_in unstable {
+			stable[use.ident] = {}
+		}
+	}
+	return stable
+}
+
 // The single use sits in the statement right after the declaration, runs exactly once whenever
-// that statement runs, and nothing evaluated before it in that statement calls or reads a variable.
-evaluated_in_place :: proc(typed: SymbolAndNodeMap, body: ^ast.Stmt, decl: ^ast.Value_Decl, uses: []IdentUse) -> bool {
+// that statement runs, and nothing evaluated before it in that statement calls, reads a global or
+// reads a local that a call could change. A plain `=` target is written after every operand.
+evaluated_in_place :: proc(
+	typed: SymbolAndNodeMap,
+	stable: map[^ast.Ident]struct{},
+	body: ^ast.Stmt,
+	decl: ^ast.Value_Decl,
+	uses: []IdentUse,
+) -> bool {
 	if len(uses) != 1 {
 		return false
 	}
@@ -226,21 +260,63 @@ evaluated_in_place :: proc(typed: SymbolAndNodeMap, body: ^ast.Stmt, decl: ^ast.
 			}
 		}
 	}
-	return inside_next && !reads_state(typed, next, use.ident.pos.offset, false)
+	return inside_next && !reads_state(typed, stable, next, use.ident.pos.offset, false)
+}
+
+Builtin_Call :: enum {
+	Other,
+	Pure, // reads only its arguments
+	Static, // reads only the types of its arguments
+}
+
+// How a call of a runtime builtin reads state. len or cap of a pointer reads through it, so it counts as .Other.
+builtin_call :: proc(typed: SymbolAndNodeMap, call: ^ast.Call_Expr) -> Builtin_Call {
+	callee, is_ident := call.expr.derived.(^ast.Ident)
+	if !is_ident {
+		return .Other
+	}
+	resolved, found := typed[uintptr(callee)]
+	if !found || resolved.is_unresolved || resolved.symbol.pkg != "$builtin" {
+		return .Other
+	}
+	switch callee.name {
+	case "size_of", "align_of", "offset_of", "type_of", "typeid_of":
+		return .Static
+	case "min", "max", "abs", "clamp":
+		return .Pure
+	case "len", "cap":
+		for arg in call.args {
+			symbol, arg_found := typed[uintptr(arg)]
+			if !arg_found || symbol.is_unresolved || symbol.symbol.pointers != 0 {
+				return .Other
+			}
+		}
+		return .Pure
+	}
+	return .Other
 }
 
 // Whether the part of root before offset limit calls, reads through an indirection, or reads a
-// global variable. Locals count too unless allow_locals is set, except plain assignment targets.
-reads_state :: proc(typed: SymbolAndNodeMap, root: ^ast.Node, limit: int, allow_locals: bool) -> bool {
+// global variable. Locals count too unless allow_locals is set, except plain assignment targets
+// and the stable locals. A pure builtin call counts only by its arguments.
+reads_state :: proc(
+	typed: SymbolAndNodeMap,
+	stable: map[^ast.Ident]struct{},
+	root: ^ast.Node,
+	limit: int,
+	allow_locals: bool,
+) -> bool {
 	Data :: struct {
-		typed: SymbolAndNodeMap,
-		limit: int,
-		found: bool,
+		typed:  SymbolAndNodeMap,
+		limit:  int,
+		found:  bool,
+		static: [dynamic]^ast.Node, // builtin calls that read only the types of their arguments
 	}
 
 	data := Data {
-		typed = typed,
-		limit = limit,
+		typed  = typed,
+		limit  = limit,
+		static = make([dynamic]^ast.Node, context.temp_allocator),
 	}
 	visitor := ast.Visitor {
 		data = &data,
@@ -253,8 +329,18 @@ reads_state :: proc(typed: SymbolAndNodeMap, root: ^ast.Node, limit: int, allow_
 				return visitor
 			}
 			#partial switch n in node.derived {
-			case ^ast.Call_Expr,
-			     ^ast.Or_Return_Expr,
+			case ^ast.Call_Expr:
+				switch builtin_call(data.typed, n) {
+				case .Static:
+					append(&data.static, n)
+					return nil
+				case .Pure:
+					return visitor
+				case .Other:
+					data.found = true
+					return nil
+				}
+			case ^ast.Or_Return_Expr,
 			     ^ast.Or_Else_Expr,
 			     ^ast.Or_Branch_Expr,
 			     ^ast.Deref_Expr,
@@ -279,9 +365,14 @@ reads_state :: proc(typed: SymbolAndNodeMap, root: ^ast.Node, limit: int, allow_
 		return true
 	}
 
-	for use in collect_ident_uses(root) {
+	uses: for use in collect_ident_uses(root) {
 		if limit <= use.ident.pos.offset || is_member_name(use) {
 			continue
+		}
+		for call in data.static {
+			if call.pos.offset <= use.ident.pos.offset && use.ident.end.offset <= call.end.offset {
+				continue uses
+			}
 		}
 		// Fail closed on a name the resolver missed, except a callee: compiling code calls a procedure.
 		if _, resolved := typed[uintptr(use.ident)]; !resolved && !is_callee(use) {
@@ -290,10 +381,13 @@ reads_state :: proc(typed: SymbolAndNodeMap, root: ^ast.Node, limit: int, allow_
 		if !is_variable(typed, use.ident) {
 			continue
 		}
+		if !allow_locals && is_plain_target(use) {
+			continue
+		}
 		if .Local not_in typed[uintptr(use.ident)].symbol.flags {
 			return true
 		}
-		if !allow_locals && !is_plain_target(use) {
+		if !allow_locals && use.ident not_in stable {
 			return true
 		}
 	}
