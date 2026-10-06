@@ -1903,6 +1903,13 @@ request_rename :: proc(params: json.Value, id: RequestId, config: ^common.Config
 		return .InternalError
 	}
 
+	// rols: a refused import rename answers with its causes
+	if _, _, reasons, found := rename_import(document, rename_param.position, rename_param.newName);
+	   found && len(reasons) > 0 {
+		message := strings.join(reasons, "\n", context.temp_allocator)
+		send_error(make_response_message_error(id = id, error = {code = .RequestFailed, message = message}), writer)
+		return .None
+	}
 	workspace_edit: WorkspaceEdit
 	workspace_edit, ok = get_rename(document, rename_param.newName, rename_param.position)
 

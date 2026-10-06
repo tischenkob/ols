@@ -16,6 +16,8 @@ Error :: enum {
 	UnknownErrorCode     = -32001,
 	RequestCancelled     = -32800,
 	ContentModified      = -32801,
+	// rols: the LSP code for a valid request that failed, which a refused import rename answers with
+	RequestFailed        = -32803,
 }
 
 WorkspaceFolder :: struct {

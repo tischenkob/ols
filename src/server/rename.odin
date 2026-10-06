@@ -18,6 +18,10 @@ get_rename :: proc(
 	WorkspaceEdit,
 	bool,
 ) {
+	// rols: an import name renames in this file only; a refused import rename fails
+	if edit, _, reasons, found := rename_import(document, position, new_text); found {
+		return edit, len(reasons) == 0
+	}
 	ast_context := make_ast_context(
 		document.ast,
 		document.imports,
@@ -70,6 +74,10 @@ get_rename :: proc(
 
 
 get_prepare_rename :: proc(document: ^Document, position: common.Position) -> (common.Range, bool) {
+	// rols: an import name, at its alias or at a qualifier, prepares the token under the cursor
+	if _, range, found := import_name_at(document, position); found {
+		return range, true
+	}
 	ast_context := make_ast_context(
 		document.ast,
 		document.imports,

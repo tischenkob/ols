@@ -53,6 +53,10 @@ check_rename :: proc(
 	}
 	target.h.documents[document.uri.uri] = document
 
+	if _, _, on_import_name := import_name_at(document, position); on_import_name {
+		_, warnings, reasons, _ := rename_import(document, position, new_name)
+		return reasons, warnings
+	}
 	if reason, is_import := import_at(document, position); is_import {
 		append(&out, reason)
 		return out[:], {}
