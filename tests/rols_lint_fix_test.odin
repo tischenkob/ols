@@ -349,3 +349,20 @@ f :: proc(a: int, _ := false) -> int {
 }
 `)
 }
+
+// The quick fix would delete the comment, so it is not offered.
+@(test)
+lint_fix_not_offered_over_comment :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(x: int) -> int {
+	y := x{*} + /* pad */ 0
+	return y
+}
+`,
+		config = {enable_lint_no_op = true},
+	}
+
+	test.expect_action_missing(t, &source, "Remove no-op arithmetic")
+}
