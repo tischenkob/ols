@@ -71,8 +71,8 @@ Document_Group_Mode :: enum {
 }
 
 Document_Group_Options :: struct {
+	// rols: `measure` marks a group that is measured even in a flat region, where only the first group after a newline is
 	id:      string,
-	// rols: a group that is measured even in a flat region, where only the first group after a newline is
 	measure: bool,
 }
 
@@ -410,8 +410,8 @@ fits :: proc(width: int, list: ^[dynamic]Tuple, rest: []Tuple) -> bool {
 				)
 			}
 		case Document_Group:
-			// rols: a later `measure` group decides its own mode, so its first break may end the measured line
-			parent_mode := in_rest && v.options.measure ? Document_Group_Mode.Break : data.mode
+			// rols: a later `measure` group in a flat region decides its own mode, so its first break may end the measured line
+			parent_mode := in_rest && v.options.measure && data.mode == .Flat ? Document_Group_Mode.Break : data.mode
 			append(
 				list,
 				Tuple {

@@ -33,4 +33,9 @@ f :: proc() {
 	}
 	if x {a(); b()} else {c(); d()}
 	for i in 0 ..< 3 {a(); b()}
+	switch v {
+	case 1:
+		x := 1
+		if c {a(); long_call(aaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbb, cccccccccccccccc)}
+	}
 }
