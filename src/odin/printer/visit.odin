@@ -1009,10 +1009,9 @@ visit_stmt :: proc(
 		}
 
 		// rols: a one-line block of `;` joined statements opens a normal block when it does not fit; a switch body keeps its layout
-		chain_id := ""
-		if !uses_do && is_single_line && len(v.stmts) > 1 && block_type != .Switch_Stmt {
-			chain_id = fmt.aprintf("chain@%d", v.pos.offset, allocator = p.allocator)
-		}
+		chain_id := chain_block_id(p, v, block_type)
+		then_chain_id := p.else_chain_id
+		p.else_chain_id = ""
 
 		if !uses_do {
 			// rols: pass the closing brace so the Indent option stays inside the braces
@@ -1036,7 +1035,17 @@ visit_stmt :: proc(
 
 		comment_end, _ := visit_comments(p, tokenizer.Pos{line = v.end.line, offset = v.end.offset})
 
-		if chain_id != "" {
+		if chain_id != "" && then_chain_id != "" {
+			// rols: an `else` chain block breaks when its then-block breaks, and the then-block's fit check measures it flat
+			edge := break_with(p.config.space_single_line_blocks ? " " : "", true)
+			content := cons(nest(cons(edge, block, comment_end)), edge, visit_end_brace(p, v.end))
+			paired := if_break_or(
+				enforce_break(content, Document_Group_Options{id = chain_id, measure = true}),
+				group(content, Document_Group_Options{id = chain_id}),
+				then_chain_id,
+			)
+			document = cons(document, group(paired, Document_Group_Options{rest_flat = true}))
+		} else if chain_id != "" {
 			edge := break_with(p.config.space_single_line_blocks ? " " : "", true)
 			document = cons(
 				document,
@@ -1120,7 +1129,10 @@ visit_stmt :: proc(
 			if else_on_newline {
 				document = cons(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
 			} else {
+				// rols: a one-line `else` chain block breaks with the then-block
+				pair_else_chain(p, v.body, .If_Stmt, v.else_stmt)
 				document = cons_with_opl(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
+				p.else_chain_id = ""
 			}
 
 
@@ -1381,7 +1393,10 @@ visit_stmt :: proc(
 			if else_on_newline {
 				document = cons(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
 			} else {
+				// rols: a one-line `else` chain block breaks with the then-block
+				pair_else_chain(p, v.body, .Generic, v.else_stmt)
 				document = cons_with_nopl(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
+				p.else_chain_id = ""
 			}
 		}
 

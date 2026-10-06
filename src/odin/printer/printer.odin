@@ -29,6 +29,8 @@ Printer :: struct {
 	disabled_until_line:  int,
 	group_modes:          map[string]Document_Group_Mode,
 	force_statement_fit:  bool,
+	// rols: the group id of the then-block that the next `else` chain block breaks with (rols_chain.odin)
+	else_chain_id:        string,
 	src:                  string,
 	errored_out:          bool,
 	render_line:          int, //Output line counter, used to group aligned comments.
