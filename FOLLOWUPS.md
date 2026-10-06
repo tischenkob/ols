@@ -115,6 +115,8 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## Whole-file resolve (`src/server/file_resolve.odin`)
 
+- **A failed overload resolution is cached for the rest of its declaration.** `resolve_function_overload` keeps a failed result in `ast_context.call_expr_recursion_cache`, which the whole-file walker clears between top-level declarations. Every later resolution of the same call inside that declaration returns the failure, even where it would resolve.
+- **The binary walker leaves `binary` on the last nested expression it popped.** `resolve_binary_expr` pushes both operands and pops the right one first, so in `.X == a + b` the implicit selector `.X` is resolved with `binary` set to `a + b`. `resolve_implicit_selector` then finds the cursor outside that expression, and `.X` does not resolve, so references of `X` miss it. `a + b == .X` resolves.
 - **The whole-file resolve now allocates its temp memory from the document cache arena.** This keeps the cached symbols valid after the request frees temp memory. It also retains the resolve scratch until the document is reparsed or caches are invalidated. Measured `symbol_cache_arena.total_used` after `resolve_entire_file`: 23.9 MB without the swap and 29.1 MB with it for a 100 KB file (+5.2 MB, +22%), and 57.7 MB and 70.5 MB for a 250 KB file (+12.9 MB, +22%). A targeted copy of the escaping data (`pkg` strings, docs, synthesized nodes such as `wrap_pointer`) would remove the extra share. It needs an audit of every default `context.temp_allocator` that a cached symbol can point to.
 
 ## Overload resolution and hover (`src/server/analysis.odin`, `src/server/hover.odin`)

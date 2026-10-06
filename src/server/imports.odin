@@ -104,30 +104,20 @@ find_unused_imports :: proc(document: ^Document, allocator := context.temp_alloc
 
 	symbols := resolve_entire_file(document)
 
-	pkgs := make(map[string]struct{}, context.temp_allocator)
 	// rols: only a package name written in the file uses an import, a value of one of its types does not.
-	// `names` holds the names written, which tell two imports of one path apart.
+	// A name, not a path, so of two imports of one path only the one the file writes is used.
 	names := make(map[string]struct{}, context.temp_allocator)
 	for _, v in symbols {
-		if _, is_pkg := v.symbol.value.(SymbolPackageValue); is_pkg {
-			pkgs[v.symbol.pkg] = {}
-			if ident, is_ident := v.node.derived.(^ast.Ident); is_ident do names[ident.name] = {}
-		}
+		if _, is_pkg := v.symbol.value.(SymbolPackageValue); !is_pkg || v.node == nil do continue
+		if ident, is_ident := v.node.derived.(^ast.Ident); is_ident do names[ident.name] = {}
 	}
 
 	unused := make([dynamic]Package, allocator)
 	for imp in document.imports {
 		// rols: an `@(require)` import exists for its side effects, like `import _`
 		if imp.import_decl != nil && has_attribute(imp.import_decl.attributes[:], "require") do continue
-		// rols: of two imports of one path, one is used only when the file writes its own name
-		if imp.base != "_" &&
-		   imp.name in pkgs &&
-		   imp.base not_in names &&
-		   import_path_repeated(document.imports, imp) {
-			append(&unused, imp)
-			continue
-		}
-		if imp.base != "_" && imp.name not_in pkgs {
+		// rols: an import is used where the file writes its name
+		if imp.base != "_" && imp.base not_in names {
 			append(&unused, imp)
 		}
 	}

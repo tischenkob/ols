@@ -51,11 +51,3 @@ lint_imports :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagno
 		return
 	}
 }
-
-// Whether the file imports the package path of imp under another name too.
-import_path_repeated :: proc(imports: []Package, imp: Package) -> bool {
-	for other in imports {
-		if other.name == imp.name && other.base != imp.base do return true
-	}
-	return false
-}
