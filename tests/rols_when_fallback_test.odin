@@ -246,13 +246,36 @@ reindex_restores_hidden_fallback :: proc(t: ^testing.T) {
 	}
 }
 
-// A `when` condition reads another package's constant whose value names further constants of that package. A cycle
-// of constants reads as false instead of recursing.
+// A `when` condition reads another package's constant whose value names further constants of that package, or of
+// a package it imports. A mutable global, a cycle of constants and a constant that does not fold make it unknown, so
+// the `else` branch holds.
 @(test)
 when_condition_folds_names_in_other_package :: proc(t: ^testing.T) {
-	cases := [2][2]string {
-		{"package cfg\n\nBASE :: 2\nLEVEL :: BASE\nON :: LEVEL >= 2 && !OFF\nOFF :: false\n", "test.X :: 1"},
-		{"package cfg\n\nON :: A\nA :: B\nB :: A\n", "test.X :: 2"},
+	other_false := test.Package {
+		pkg    = "other",
+		source = "package other\n\nX :: false\n",
+	}
+	other_true := test.Package {
+		pkg    = "other",
+		source = "package other\n\nX :: true\n",
+	}
+	Case :: struct {
+		cfg:      string,
+		other:    test.Package,
+		expected: string,
+	}
+	cases := [?]Case {
+		{
+			"package cfg\n\nBASE :: 2\nLEVEL :: BASE\nON :: LEVEL >= 2 && !OFF\nOFF :: false\n",
+			other_false,
+			"test.X :: 1",
+		},
+		{"package cfg\n\nON :: A\nA :: B\nB :: A\n", other_false, "test.X :: 2"},
+		{"package cfg\n\nimport \"core:other\"\n\nON :: !MID\nMID :: other.X\n", other_false, "test.X :: 1"},
+		{"package cfg\n\nimport \"core:other\"\n\nON :: !MID\nMID :: other.X\n", other_true, "test.X :: 2"},
+		{"package cfg\n\nimport \"core:other\"\n\nON :: !MID\nMID :: other.Y\n", other_true, "test.X :: 2"},
+		{"package cfg\n\nON :: !V\nV := true\n", other_false, "test.X :: 2"},
+		{"package cfg\n\nON :: !A\nA :: B\nB :: A\n", other_false, "test.X :: 2"},
 	}
 	for c in cases {
 		source := test.Source {
@@ -270,9 +293,9 @@ main :: proc() {
 	y := X{*}
 }
 `,
-			packages = {{pkg = "cfg", source = c[0]}},
+			packages = {{pkg = "cfg", source = c.cfg}, c.other},
 			collections = {"core" = "test"},
 		}
-		test.expect_hover(t, &source, c[1])
+		test.expect_hover(t, &source, c.expected)
 	}
 }
