@@ -156,8 +156,9 @@ proc_references :: proc(
 	return locations
 }
 
-// The call whose callee holds the reference at location, or nil when the reference is not a callee.
-// ok is false when the location lies outside the document text.
+// The call whose callee is the name at location, or nil when the reference is not a callee. A name
+// inside a callee expression, such as `f` in `h(f)()`, is not one. ok is false when the location lies
+// outside the document text.
 call_at_reference :: proc(caller: ^Document, location: common.Location) -> (call: ^ast.Call_Expr, ok: bool) {
 	offset := common.get_absolute_position(location.range.start, caller.text[:caller.used_text]) or_return
 	for at in nodes_at(caller.ast.decls[:], offset) {
@@ -166,7 +167,16 @@ call_at_reference :: proc(caller: ^Document, location: common.Location) -> (call
 			call = c
 		}
 	}
-	return call, true
+	if call == nil {
+		return nil, true
+	}
+	#partial switch c in ast.unparen_expr(call.expr).derived {
+	case ^ast.Ident:
+		if c.pos.offset == offset do return call, true
+	case ^ast.Selector_Expr:
+		if c.field != nil && c.field.pos.offset == offset do return call, true
+	}
+	return nil, true
 }
 
 // FILE:LINE:COL of a location in document, 1-based with the column in bytes, as the CLI prints positions.

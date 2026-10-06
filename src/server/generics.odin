@@ -704,7 +704,7 @@ resolve_generic_function_symbol :: proc(
 
 
 	symbol := proc_symbol
-	// rols: keep the procedure tags when solving the generic
+	// rols: keep the procedure tags and the diverging flag when solving the generic
 	orig := proc_symbol.value.(SymbolProcedureValue) or_else {}
 	symbol.value = SymbolProcedureValue {
 		return_types       = return_types[:],
@@ -713,6 +713,7 @@ resolve_generic_function_symbol :: proc(
 		orig_return_types  = results[:],
 		inlining           = inlining,
 		tags               = orig.tags,
+		diverging          = orig.diverging,
 	}
 
 	return symbol, true

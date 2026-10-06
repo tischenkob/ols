@@ -587,3 +587,23 @@ main :: proc() {
 		},
 	)
 }
+
+// In `h(f)(1)` the outer call is not a call of f, so its argument must stay.
+@(test)
+action_remove_param_refused_procedure_inside_callee :: proc(t: ^testing.T) {
+	expect_no_remove_param(t, "Remove parameter x", `package test
+
+f :: proc({*}x: int) -> int {
+	return 1
+}
+
+h :: proc(g: proc(x: int) -> int) -> proc(x: int) -> int {
+	return g
+}
+
+main :: proc() {
+	v := h(f)(1)
+	_ = v
+}
+`)
+}

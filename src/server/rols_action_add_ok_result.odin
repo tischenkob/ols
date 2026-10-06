@@ -7,8 +7,6 @@ import "core:odin/ast"
 import "core:slice"
 import "core:strings"
 
-import "src:common"
-
 @(private = "package")
 add_add_ok_result_action :: proc(ctx: ^ActionContext) {
 	if !ctx.config.enable_code_action_add_ok_result {
@@ -233,7 +231,7 @@ add_ok_to_callers :: proc(
 			return false
 		}
 		call, ok := call_at_reference(caller, location)
-		if !ok || call == nil || !calls_reference(caller, call, location) {
+		if !ok || call == nil {
 			return false
 		}
 		append(&sites, Call_Site{caller, call})
@@ -269,23 +267,6 @@ add_ok_to_callers :: proc(
 		append_edit(changes, site.document, last.end.offset, last.end.offset, ", _")
 	}
 	return true
-}
-
-// Whether the callee of call is the name at location itself, not a name inside a callee
-// expression such as `h(f)()`.
-calls_reference :: proc(caller: ^Document, call: ^ast.Call_Expr, location: common.Location) -> bool {
-	offset, ok := common.get_absolute_position(location.range.start, caller.text[:caller.used_text])
-	if !ok {
-		return false
-	}
-	callee := ast.unparen_expr(call.expr)
-	#partial switch c in callee.derived {
-	case ^ast.Ident:
-		return c.pos.offset == offset
-	case ^ast.Selector_Expr:
-		return c.field != nil && c.field.pos.offset == offset
-	}
-	return false
 }
 
 // Returns of this procedure, skipping those of nested procedure literals.

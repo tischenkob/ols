@@ -65,7 +65,7 @@ add_inline_variable_action :: proc(ctx: ^ActionContext) {
 	// Inlining keeps behaviour only when the initializer still runs once, at the same point, or
 	// when it has no side effects and reads nothing the code it moves past can change.
 	typed := resolve_entire_file(ctx.document)
-	stable := stable_locals(ctx, symbols, all_uses)
+	stable := stable_locals(ctx, symbols, function.body, all_uses)
 	if !evaluated_in_place(typed, stable, function.body, decl, uses[:]) &&
 	   reads_state(typed, stable, value, max(int), true) {
 		return
@@ -176,9 +176,20 @@ has_side_effect :: proc(value: ^ast.Expr) -> bool {
 	return found
 }
 
-// Uses of locals whose address is never taken, aliased or passed to a `->` call, so no call can
-// change them. An `any` or `#by_ptr` argument also passes an address, which this does not see.
-stable_locals :: proc(ctx: ^ActionContext, symbols: SymbolAndNodeMap, uses: []IdentUse) -> map[^ast.Ident]struct{} {
+// Uses of locals mapped to true when the address of the local is never taken, aliased or passed to
+// a `->` call, so no call can change it. Uses of a `@(static)` local map to false: a recursive call
+// writes the same variable, so it counts as a global. An `any` or `#by_ptr` argument also passes an
+// address, which this does not see.
+stable_locals :: proc(
+	ctx: ^ActionContext,
+	symbols: SymbolAndNodeMap,
+	body: ^ast.Stmt,
+	uses: []IdentUse,
+) -> map[^ast.Ident]bool {
+	statics := make(map[int]struct{}, context.temp_allocator)
+	for offset in static_local_offsets(body) {
+		statics[offset] = {}
+	}
 	unstable := make(map[int]struct{}, context.temp_allocator)
 	for use in uses {
 		offset := local_decl_offset(ctx, symbols, use.ident) or_continue
@@ -191,14 +202,39 @@ stable_locals :: proc(ctx: ^ActionContext, symbols: SymbolAndNodeMap, uses: []Id
 			unstable[offset] = {}
 		}
 	}
-	stable := make(map[^ast.Ident]struct{}, context.temp_allocator)
+	stable := make(map[^ast.Ident]bool, context.temp_allocator)
 	for use in uses {
 		offset := local_decl_offset(ctx, symbols, use.ident) or_continue
-		if offset not_in unstable {
-			stable[use.ident] = {}
+		if offset in statics {
+			stable[use.ident] = false
+		} else if offset not_in unstable {
+			stable[use.ident] = true
 		}
 	}
 	return stable
+}
+
+// Name offsets of the `@(static)` locals declared in body.
+static_local_offsets :: proc(body: ^ast.Stmt) -> []int {
+	offsets := make([dynamic]int, context.temp_allocator)
+	visitor := ast.Visitor {
+		data = &offsets,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil {
+				return nil
+			}
+			if decl, is_decl := node.derived.(^ast.Value_Decl); is_decl {
+				if slice.contains(attribute_names(decl.attributes[:]), "static") {
+					for name in decl.names {
+						append((^[dynamic]int)(visitor.data), name.pos.offset)
+					}
+				}
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, body)
+	return offsets[:]
 }
 
 // The single use sits in the statement right after the declaration, runs exactly once whenever
@@ -206,7 +242,7 @@ stable_locals :: proc(ctx: ^ActionContext, symbols: SymbolAndNodeMap, uses: []Id
 // reads a local that a call could change. A plain `=` target is written after every operand.
 evaluated_in_place :: proc(
 	typed: SymbolAndNodeMap,
-	stable: map[^ast.Ident]struct{},
+	stable: map[^ast.Ident]bool,
 	body: ^ast.Stmt,
 	decl: ^ast.Value_Decl,
 	uses: []IdentUse,
@@ -269,7 +305,8 @@ Builtin_Call :: enum {
 	Static, // reads only the types of its arguments
 }
 
-// How a call of a runtime builtin reads state. len or cap of a pointer reads through it, so it counts as .Other.
+// How a call of a runtime builtin reads state. len or cap of a pointer or a cstring reads through it,
+// so it counts as .Other.
 builtin_call :: proc(typed: SymbolAndNodeMap, call: ^ast.Call_Expr) -> Builtin_Call {
 	callee, is_ident := call.expr.derived.(^ast.Ident)
 	if !is_ident {
@@ -285,10 +322,16 @@ builtin_call :: proc(typed: SymbolAndNodeMap, call: ^ast.Call_Expr) -> Builtin_C
 	case "min", "max", "abs", "clamp":
 		return .Pure
 	case "len", "cap":
+		// The length of a cstring is found by reading the bytes it points to.
 		for arg in call.args {
 			symbol, arg_found := typed[uintptr(arg)]
 			if !arg_found || symbol.is_unresolved || symbol.symbol.pointers != 0 {
 				return .Other
+			}
+			if basic, is_basic := symbol.symbol.value.(SymbolBasicValue); is_basic && basic.ident != nil {
+				if basic.ident.name == "cstring" || basic.ident.name == "cstring16" {
+					return .Other
+				}
 			}
 		}
 		return .Pure
@@ -297,11 +340,11 @@ builtin_call :: proc(typed: SymbolAndNodeMap, call: ^ast.Call_Expr) -> Builtin_C
 }
 
 // Whether the part of root before offset limit calls, reads through an indirection, or reads a
-// global variable. Locals count too unless allow_locals is set, except plain assignment targets
-// and the stable locals. A pure builtin call counts only by its arguments.
+// global variable or a static local. Other locals count too unless allow_locals is set, except plain
+// assignment targets and the stable locals. A pure builtin call counts only by its arguments.
 reads_state :: proc(
 	typed: SymbolAndNodeMap,
-	stable: map[^ast.Ident]struct{},
+	stable: map[^ast.Ident]bool,
 	root: ^ast.Node,
 	limit: int,
 	allow_locals: bool,
@@ -384,10 +427,11 @@ reads_state :: proc(
 		if !allow_locals && is_plain_target(use) {
 			continue
 		}
-		if .Local not_in typed[uintptr(use.ident)].symbol.flags {
+		is_stable, known := stable[use.ident]
+		if .Local not_in typed[uintptr(use.ident)].symbol.flags || known && !is_stable {
 			return true
 		}
-		if !allow_locals && use.ident not_in stable {
+		if !allow_locals && !is_stable {
 			return true
 		}
 	}
