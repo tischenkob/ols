@@ -187,8 +187,21 @@ builds_on :: proc(name, text: string, target: parser.Build_Target) -> bool {
 NO_TESTING_OSES :: bit_set[runtime.Odin_OS_Type]{.JS, .WASI, .Orca, .Freestanding}
 
 // The operating systems that odin builds the file called name with the source text for, on some architecture.
-build_oses :: proc(name, text: string) -> (oses: bit_set[runtime.Odin_OS_Type]) {
-	facts := build_facts(name, text)
+build_oses :: proc(name, text: string) -> bit_set[runtime.Odin_OS_Type] {
+	return facts_oses(build_facts(name, text))
+}
+
+// build_oses for a file whose tags are already parsed.
+tags_oses :: proc(name: string, tags: parser.File_Tags) -> bit_set[runtime.Odin_OS_Type] {
+	facts := Build_Facts {
+		tags = tags,
+	}
+	facts.named, facts.hidden = file_name_target(filepath.base(name))
+	return facts_oses(facts)
+}
+
+@(private = "file")
+facts_oses :: proc(facts: Build_Facts) -> (oses: bit_set[runtime.Odin_OS_Type]) {
 	for os in runtime.Odin_OS_Type {
 		if os == .Unknown do continue
 		for arch in runtime.Odin_Arch_Type {
