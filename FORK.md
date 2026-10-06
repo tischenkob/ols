@@ -140,6 +140,7 @@ The fork formatter differs from upstream OLS in these cases. Each has a `tools/o
 - A one-line block of `;` joined statements that does not fit opens a normal block (`rols_when_block_semicolon_line`).
 - A `;` joined line after the first line of a block breaks at its `; ` when it does not fit, and a statement between two `; ` counts in full when the line is measured (`rols_semicolon_line_wraps_after_first_line`, `rols_semicolon_line_over_width_late_statement`).
 - A one-line `if` or `when` with `;` joined statements in both blocks breaks both blocks when either one does not fit (`rols_if_else_one_line_else_overflows`).
+- A block comment before an item on its line, such as a struct field, a parameter, an argument, an enum or union member, a composite literal element or an expression, stays before the item with one space after it. Upstream prints it as a trailing comment of the previous token, which moves it to its own line or drops the space after it. A struct field's alignment counts the comment (`rols_block_comment_first_item`, `rols_block_comment_after_line_comment`, `rols_block_comment_later_item`).
 - A comment on the operator's line in a binary chain stays on that line, and a comment above the first call argument stays above it (`rols_idempotent_binary_trailing_comment`, `rols_idempotent_call_arg_comments`).
 - `odinfmt` prints a trailing line comment with a space before it even when the document queued it without one (`flush_line_suffix` in `src/odin/printer/document.odin`).
 

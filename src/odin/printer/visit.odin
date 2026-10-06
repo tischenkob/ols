@@ -610,8 +610,9 @@ visit_exprs :: proc(
 		}
 
 		if (i != len(list) - 1 && .Enforce_Newline in options) {
-			comment, _ := visit_comments(p, list[i + 1].pos)
-			document = cons(document, comment, newline(1))
+			// rols: a block comment before the next item on its line leads that item
+			above, leading, _ := visit_comments_split(p, list[i + 1].pos)
+			document = cons(document, above, newline(1), leading)
 		} else if .Enforce_Newline in options {
 			comment, _ := visit_comments(p, list[i].end)
 			document = cons(document, comment)
@@ -637,11 +638,12 @@ visit_enum_exprs :: proc(p: ^Printer, enum_type: ast.Enum_Type, options := List_
 
 	for expr, i in enum_type.fields {
 		if i == 0 && .Enforce_Newline in options {
-			comment, _ := visit_comments(p, enum_type.fields[i].pos)
+			// rols: a block comment before the first item on its line leads the item
+			comment, leading, _ := visit_comments_split(p, enum_type.fields[i].pos)
 			if _, is_nil := comment.(Document_Nil); !is_nil {
 				comment = cons(comment, newline(1))
 			}
-			document = cons(comment, document)
+			document = cons(comment, document, leading)
 		}
 
 		if (.Enforce_Newline in options) {
@@ -672,8 +674,9 @@ visit_enum_exprs :: proc(p: ^Printer, enum_type: ast.Enum_Type, options := List_
 		}
 
 		if (i != len(enum_type.fields) - 1 && .Enforce_Newline in options) {
-			comment, _ := visit_comments(p, enum_type.fields[i + 1].pos)
-			document = cons(document, comment, newline(1))
+			// rols: a block comment before the next item on its line leads that item
+			comment, leading, _ := visit_comments_split(p, enum_type.fields[i + 1].pos)
+			document = cons(document, comment, newline(1), leading)
 		} else if .Enforce_Newline in options {
 			comment, _ := visit_comments(p, enum_type.end)
 			document = cons(document, comment)
@@ -699,11 +702,12 @@ visit_bit_field_fields :: proc(
 
 	for field, i in bit_field_type.fields {
 		if i == 0 && .Enforce_Newline in options {
-			comment, _ := visit_comments(p, bit_field_type.fields[i].pos)
+			// rols: a block comment before the first item on its line leads the item
+			comment, leading, _ := visit_comments_split(p, bit_field_type.fields[i].pos)
 			if _, is_nil := comment.(Document_Nil); !is_nil {
 				comment = cons(comment, newline(1))
 			}
-			document = cons(comment, document)
+			document = cons(comment, document, leading)
 		}
 
 		if (.Enforce_Newline in options) {
@@ -749,8 +753,9 @@ visit_bit_field_fields :: proc(
 		}
 
 		if (i != len(bit_field_type.fields) - 1 && .Enforce_Newline in options) {
-			comment, _ := visit_comments(p, bit_field_type.fields[i + 1].pos)
-			document = cons(document, comment, newline(1))
+			// rols: a block comment before the next item on its line leads that item
+			comment, leading, _ := visit_comments_split(p, bit_field_type.fields[i + 1].pos)
+			document = cons(document, comment, newline(1), leading)
 		} else if .Enforce_Newline in options {
 			comment, _ := visit_comments(p, bit_field_type.end)
 			document = cons(document, comment)
@@ -776,11 +781,12 @@ visit_union_exprs :: proc(p: ^Printer, union_type: ast.Union_Type, options := Li
 
 	for expr, i in union_type.variants {
 		if i == 0 && .Enforce_Newline in options {
-			comment, _ := visit_comments(p, union_type.variants[i].pos)
+			// rols: a block comment before the first item on its line leads the item
+			comment, leading, _ := visit_comments_split(p, union_type.variants[i].pos)
 			if _, is_nil := comment.(Document_Nil); !is_nil {
 				comment = cons(comment, newline(1))
 			}
-			document = cons(comment, document)
+			document = cons(comment, document, leading)
 		}
 
 		if (.Enforce_Newline in options) {
@@ -811,8 +817,9 @@ visit_union_exprs :: proc(p: ^Printer, union_type: ast.Union_Type, options := Li
 		}
 
 		if (i != len(union_type.variants) - 1 && .Enforce_Newline in options) {
-			comment, _ := visit_comments(p, union_type.variants[i + 1].pos)
-			document = cons(document, comment, newline(1))
+			// rols: a block comment before the next item on its line leads that item
+			comment, leading, _ := visit_comments_split(p, union_type.variants[i + 1].pos)
+			document = cons(document, comment, newline(1), leading)
 		} else if .Enforce_Newline in options {
 			comment, _ := visit_comments(p, union_type.end)
 			document = cons(document, comment)
@@ -840,11 +847,12 @@ visit_comp_lit_exprs :: proc(p: ^Printer, comp_lit: ast.Comp_Lit, options := Lis
 
 	for expr, i in comp_lit.elems {
 		if i == 0 && .Enforce_Newline in options {
-			comment, _ := visit_comments(p, comp_lit.elems[i].pos)
+			// rols: a block comment before the first item on its line leads the item
+			comment, leading, _ := visit_comments_split(p, comp_lit.elems[i].pos)
 			if _, is_nil := comment.(Document_Nil); !is_nil {
 				comment = cons(comment, newline(1))
 			}
-			document = cons(comment, document)
+			document = cons(comment, document, leading)
 		}
 
 		if (.Enforce_Newline in options) {
@@ -874,8 +882,9 @@ visit_comp_lit_exprs :: proc(p: ^Printer, comp_lit: ast.Comp_Lit, options := Lis
 		}
 
 		if (i != len(comp_lit.elems) - 1 && .Enforce_Newline in options) {
-			comment, _ := visit_comments(p, comp_lit.elems[i + 1].pos)
-			document = cons(document, comment, newline(1))
+			// rols: a block comment before the next item on its line leads that item
+			comment, leading, _ := visit_comments_split(p, comp_lit.elems[i + 1].pos)
+			document = cons(document, comment, newline(1), leading)
 		} else if .Enforce_Newline in options {
 			comment, _ := visit_comments(p, comp_lit.end)
 			document = cons(document, comment)
@@ -1548,7 +1557,9 @@ visit_expr :: proc(
 		set_source_position(p, expr.end)
 	}
 
-	comments, _ := visit_comments(p, expr.pos)
+	// rols: a block comment before the expression on its line leads it
+	above, leading, _ := visit_comments_split(p, expr.pos)
+	comments := cons(above, leading)
 	document := empty()
 
 	#partial switch v in expr.derived {
@@ -1986,8 +1997,12 @@ visit_expr :: proc(
 			document = cons_with_nopl(document, visit_begin_brace(p, v.pos, .Comp_Lit, v.end))
 			inner_document := empty()
 			if len(v.elems) > 0 {
+				// rols: a block comment before the first element on its line leads it
+				above, leading, _ := visit_comments_split(p, v.elems[0].pos)
 				inner_document = cons(
-					newline_position(p, 1, v.elems[0].pos),
+					above,
+					newline(1),
+					leading,
 					visit_comp_lit_exprs(p, v^, {.Add_Comma, .Trailing, .Enforce_Newline}),
 				)
 			} else {
@@ -2279,6 +2294,9 @@ visit_struct_field_list :: proc(p: ^Printer, list: ^ast.Field_List, options := L
 	// section_end is exclusive. Reaching it starts the next alignment group.
 	section_end := 0
 
+	// rols: the width of the block comments that lead the current field, which its alignment takes away
+	leading_width := 0
+
 	for field, i in list.list {
 		align := empty()
 		declaration_align := empty()
@@ -2310,11 +2328,13 @@ visit_struct_field_list :: proc(p: ^Printer, list: ^ast.Field_List, options := L
 		}
 
 		if i == 0 && .Enforce_Newline in options {
-			comment, ok := visit_comments(p, list.list[i].pos)
+			// rols: a block comment before the first field on its line leads the field
+			comment, leading: ^Document
+			comment, leading, leading_width = visit_comments_split(p, list.list[i].pos)
 			if _, is_nil := comment.(Document_Nil); !is_nil {
 				comment = cons(comment, newline(1))
 			}
-			document = cons(comment, document)
+			document = cons(comment, document, leading)
 		}
 
 		if .Using in field.flags {
@@ -2329,11 +2349,13 @@ visit_struct_field_list :: proc(p: ^Printer, list: ^ast.Field_List, options := L
 
 		if (.Enforce_Newline in options) {
 			if align_field_types && section_name_width > 0 {
-				align = repeat_space(section_name_width - get_struct_field_name_width(field))
+				// rols: a leading block comment counts toward the name's width
+				align = repeat_space(section_name_width - get_struct_field_name_width(field) - leading_width)
 			}
 
 			if align_declarations && section_name_width > 0 {
-				name_width := get_struct_field_name_width(field)
+				// rols: a leading block comment counts toward the name's width
+				name_width := get_struct_field_name_width(field) + leading_width
 				if name_width > 0 && name_width < section_name_width {
 					declaration_align = repeat_space(section_name_width - name_width)
 				}
@@ -2370,9 +2392,12 @@ visit_struct_field_list :: proc(p: ^Printer, list: ^ast.Field_List, options := L
 		if i != len(list.list) - 1 && .Enforce_Newline in options {
 			if p.config.preserve_struct_blank_lines {
 				document = cons(document, move_line(p, list.list[i + 1].pos))
+				leading_width = 0
 			} else {
-				comment, _ := visit_comments(p, list.list[i + 1].pos)
-				document = cons(document, comment, newline(1))
+				// rols: a block comment before the next field on its line leads that field
+				comment, leading: ^Document
+				comment, leading, leading_width = visit_comments_split(p, list.list[i + 1].pos)
+				document = cons(document, comment, newline(1), leading)
 			}
 		} else {
 			comment, _ := visit_comments(p, list.end)
@@ -2585,8 +2610,9 @@ visit_call_exprs :: proc(p: ^Printer, call_expr: ^ast.Call_Expr) -> ^Document {
 			// the break after the opening parenthesis already starts the line of the first comment
 			p.source_position.line = p.comments[p.latest_comment_index].pos.line
 			p.source_position.column = 1
-			comments, _ := visit_comments(p, expr.pos)
-			document = cons(document, comments, newline(1))
+			// rols: a block comment on the line of the first argument leads it
+			comments, leading, _ := visit_comments_split(p, expr.pos)
+			document = cons(document, comments, newline(1), leading)
 		}
 
 		document = cons(document, group(visit_expr(p, expr, .Call_Expr)))
@@ -2595,9 +2621,10 @@ visit_call_exprs :: proc(p: ^Printer, call_expr: ^ast.Call_Expr) -> ^Document {
 			document = cons(document, text(","))
 
 			//need to look for comments before we write the comma with break
-			comments, _ := visit_comments(p, call_expr.args[i + 1].pos)
+			// rols: a block comment before the next argument on its line leads that argument
+			comments, leading, _ := visit_comments_split(p, call_expr.args[i + 1].pos)
 
-			document = cons(document, comments, break_with_space())
+			document = cons(document, comments, break_with_space(), leading)
 		} else {
 			comments, _ := visit_comments(p, call_expr.close)
 			document = cons(document, if_break(","), comments)
@@ -2661,9 +2688,9 @@ visit_signature_list :: proc(
 		if i == 0 && .Enforce_Newline in options {
 			// the caller already broke the line, so each comment starts on the current one
 			for comment_before_position(p, field.pos) {
-				above := p.comments[p.latest_comment_index].pos.line < field.pos.line
 				for comment in p.comments[p.latest_comment_index].list {
 					// only a block comment can sit before the field on its line
+					above := !is_leading_comment(p, comment, field.pos)
 					document = cons(document, text(comment.text), above ? newline(1) : text(" "))
 					p.source_position = comment.pos
 					p.source_position.line += strings.count(comment.text, "\n")
@@ -2691,8 +2718,9 @@ visit_signature_list :: proc(
 		}
 
 		if (i != len(list.list) - 1 && .Enforce_Newline in options) {
-			comment, _ := visit_comments(p, list.list[i + 1].pos)
-			document = cons(document, comment, newline(1))
+			// rols: a block comment before the next field on its line leads that field
+			comment, leading, _ := visit_comments_split(p, list.list[i + 1].pos)
+			document = cons(document, comment, newline(1), leading)
 		} else if .Enforce_Newline in options {
 			comment, _ := visit_comments(p, list.list[i].end)
 			document = cons(document, comment)
