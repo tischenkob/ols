@@ -449,7 +449,7 @@ is_field_name :: proc(use: IdentUse, document: ^Document = nil) -> bool {
 			}
 			if symbol, ok := resolve_type_in_package(document, document.package_name, lit.type); ok {
 				#partial switch _ in symbol.value {
-				case SymbolMapValue, SymbolFixedArrayValue:
+				case SymbolMapValue, SymbolFixedArrayValue, SymbolSliceValue, SymbolDynamicArrayValue:
 					return false
 				}
 			}

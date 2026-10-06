@@ -691,14 +691,23 @@ use :: proc() -> int {
 `)
 }
 
+// Odin converts between boolean types within or_return.
 @(test)
 result_or_return_b32_through_bool :: proc(t: ^testing.T) {
-	expect_no_result_action(t, OR_RETURN_ACTION, `package test
+	expect_result_action(t, OR_RETURN_ACTION, `package test
 
 f :: proc() -> (int, b32) { return 1, true }
 
 main :: proc() -> bool {
 	x := f({*})
+	return x > 0
+}
+`, `package test
+
+f :: proc() -> (int, b32) { return 1, true }
+
+main :: proc() -> bool {
+	x := f() or_return
 	return x > 0
 }
 `)
@@ -750,6 +759,20 @@ f :: proc() -> (int, My_Ok) { return 1, true }
 main :: proc() -> My_Ok {
 	x := f() or_return
 	return x > 0
+}
+`)
+}
+
+// A boolean result has nothing to pass through a procedure that returns no boolean.
+@(test)
+result_or_return_bool_through_slice :: proc(t: ^testing.T) {
+	expect_no_result_action(t, OR_RETURN_ACTION, `package test
+
+f :: proc() -> (int, distinct bool) { return 1, true }
+
+main :: proc() -> []int {
+	x := f({*})
+	return nil
 }
 `)
 }

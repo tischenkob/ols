@@ -1054,3 +1054,63 @@ main :: proc() {
 `)
 	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
 }
+
+// The caller's x and i are other bindings than the parameter x and the loop's i, so the copy keeps its meaning.
+@(test)
+action_inline_proc_caller_and_callee_bind_the_same_name :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+draw :: proc(x: int) {
+	for i in 0 ..< x {
+		_ = i
+	}
+}
+
+main :: proc() {
+	x := 1
+	for i in 0 ..< 2 {
+		dr{*}aw(x)
+		_ = i
+	}
+}
+`, `package test
+
+draw :: proc(x: int) {
+	for i in 0 ..< x {
+		_ = i
+	}
+}
+
+main :: proc() {
+	x := 1
+	for i in 0 ..< 2 {
+		{
+			for i in 0 ..< x {
+				_ = i
+			}
+		}
+		_ = i
+	}
+}
+`)
+}
+
+// A named slice type makes LIMIT an index, which main's local would capture.
+@(test)
+action_inline_proc_refused_slice_index_shadowed :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+LIMIT :: 1
+Ints :: []int
+
+draw :: proc(x: int) {
+	s := Ints{LIMIT = x}
+	_ = s
+}
+
+main :: proc() {
+	LIMIT := 10
+	dr{*}aw(LIMIT)
+}
+`)
+}
