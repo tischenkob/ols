@@ -5,6 +5,7 @@ import "base:runtime"
 
 import "core:fmt"
 import "core:odin/ast"
+import "core:odin/parser"
 import "core:odin/tokenizer"
 import "core:os"
 import path "core:path/slashpath"
@@ -44,7 +45,7 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	// odin builds a `_test.odin` file in every build, and core:testing does not compile on some targets.
-	source_oses := build_oses(document.fullpath, document.ast.src)
+	source_oses := tags_oses(document.fullpath, parser.parse_file_tags(document.ast, context.temp_allocator))
 	if source_oses != {} && source_oses <= NO_TESTING_OSES {
 		return
 	}
@@ -54,7 +55,8 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 		{document.package_name, strings.concatenate({stem, "_test", suffix, ".odin"}, context.temp_allocator)},
 		context.temp_allocator,
 	)
-	if !ctx.config.client_create_file_support && !package_file_exists(test_path, ctx.files) {
+	test_exists := package_file_exists(test_path, ctx.files)
+	if !ctx.config.client_create_file_support && !test_exists {
 		return
 	}
 
@@ -105,7 +107,7 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	// A new test file builds on the targets of its source, less those without core:testing that the package
 	// targets, and keeps its `#+private` and `#+vet` tags.
 	tags := make([dynamic]tokenizer.Token, context.temp_allocator)
-	if !package_file_exists(test_path, ctx.files) {
+	if !test_exists {
 		for excluded in excluded_test_oses(ctx, source_oses) {
 			name := strings.to_lower(fmt.tprint(excluded), context.temp_allocator)
 			append(&tags, tokenizer.Token{text = fmt.tprintf("#+build !%s", name)})
@@ -144,19 +146,27 @@ excluded_test_oses :: proc(
 	if candidates == {} {
 		return {}
 	}
-	for sibling in package_siblings(ctx.document, ctx.files) {
-		text := ""
-		if len(ctx.files) > 0 {
-			for file in ctx.files {
-				if file.fullpath == sibling do text = file.text
-			}
-		} else if data, err := os.read_entire_file(sibling, context.temp_allocator); err == nil {
-			text = string(data)
-		} else {
-			continue
+	note :: proc(
+		excluded: ^bit_set[runtime.Odin_OS_Type],
+		candidates: bit_set[runtime.Odin_OS_Type],
+		name, text: string,
+	) {
+		if oses := build_oses(name, text); oses != {} && oses <= NO_TESTING_OSES {
+			excluded^ += oses & candidates
 		}
-		if oses := build_oses(sibling, text); oses != {} && oses <= NO_TESTING_OSES {
-			excluded += oses & candidates
+	}
+	if len(ctx.files) > 0 {
+		for file in ctx.files {
+			if file.fullpath != ctx.document.fullpath &&
+			   path.dir(file.fullpath, context.temp_allocator) == ctx.document.package_name {
+				note(&excluded, candidates, file.fullpath, file.text)
+			}
+		}
+		return excluded
+	}
+	for sibling in package_siblings(ctx.document, ctx.files) {
+		if data, err := os.read_entire_file(sibling, context.temp_allocator); err == nil {
+			note(&excluded, candidates, sibling, string(data))
 		}
 	}
 	return excluded
