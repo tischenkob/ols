@@ -114,7 +114,7 @@ find_symbols :: proc(query: string, config: ^common.Config, limit := 100) -> []F
 	}
 	base := base_target(config.checker_args)
 	saved_target := set_when_target(config.checker_args)
-	defer restore_when_target(saved_target)
+	defer when_target = saved_target
 
 	// One arena holds a parsed file, the other the `when` tables of the package directory.
 	arena, package_arena: virtual.Arena

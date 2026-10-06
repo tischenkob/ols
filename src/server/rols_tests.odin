@@ -24,7 +24,7 @@ find_tests :: proc(target: string, config: ^common.Config) -> []Test_Proc {
 	// The parsed files are not freed.
 	context.allocator = context.temp_allocator
 	saved_target := set_when_target(config.checker_args)
-	defer restore_when_target(saved_target)
+	defer when_target = saved_target
 	files := []string{target}
 	// `odin test FILE -file` builds the file alone, so only a directory brings the constants of other files.
 	pkg: ^When_Package

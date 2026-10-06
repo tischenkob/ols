@@ -37,6 +37,15 @@ when ODIN_OS == .Windows {
 	OTHER_OS_MEMBER :: "Windows"
 }
 
+// A file of package p with the @(test) procedure name, after the tag lines tags.
+@(private = "file")
+test_file :: proc(name: string, tags := "") -> string {
+	return strings.concatenate(
+		{tags, "package p\n\nimport \"core:testing\"\n\n@(test)\n", name, " :: proc(t: ^testing.T) {}\n"},
+		context.temp_allocator,
+	)
+}
+
 @(test)
 cli_relative_inside_reads_dotdot_as_a_whole_segment :: proc(t: ^testing.T) {
 	for file in ([]string{"/ws/a.odin", "/ws/..x.odin", "/ws/pkg/..y/b.odin", "/ws/.hidden"}) {
@@ -53,9 +62,6 @@ cli_relative_inside_reads_dotdot_as_a_whole_segment :: proc(t: ^testing.T) {
 
 @(test)
 cli_find_tests_lists_only_what_odin_test_builds :: proc(t: ^testing.T) {
-	test_file := proc(name: string, tags := "") -> string {
-		return strings.concatenate({tags, "package p\n\nimport \"core:testing\"\n\n@(test)\n", name, " :: proc(t: ^testing.T) {}\n"}, context.temp_allocator)
-	}
 	other := strings.concatenate({"c_", OTHER_OS, ".odin"}, context.temp_allocator)
 	dir, ok := fixture(
 		t,
@@ -107,12 +113,6 @@ cli_find_symbols_reports_private_and_other_platform_declarations :: proc(t: ^tes
 // odin test FILE -file ignores the name of the file but not its #+build tags.
 @(test)
 cli_find_tests_reads_a_named_file_by_its_tags_only :: proc(t: ^testing.T) {
-	test_file := proc(name: string, tags := "") -> string {
-		return strings.concatenate(
-			{tags, "package p\n\nimport \"core:testing\"\n\n@(test)\n", name, " :: proc(t: ^testing.T) {}\n"},
-			context.temp_allocator,
-		)
-	}
 	named := strings.concatenate({"x_", OTHER_OS, ".odin"}, context.temp_allocator)
 	tagged := strings.concatenate({"#+build ", OTHER_OS, "\n"}, context.temp_allocator)
 	dir, ok := fixture(t, {{named, test_file("t_named")}, {"y.odin", test_file("t_tagged", tagged)}})
