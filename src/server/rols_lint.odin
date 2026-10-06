@@ -10,20 +10,22 @@ import "core:strings"
 import "src:common"
 
 LintContext :: struct {
-	document:    ^Document,
-	config:      ^common.Config,
-	src:         string,
-	symbols:     Maybe(SymbolAndNodeMap),
+	document:       ^Document,
+	config:         ^common.Config,
+	src:            string,
+	symbols:        Maybe(SymbolAndNodeMap),
 	// Names the file uses as values (see `value_names`), built on first use.
-	value_names: Maybe(map[string]struct{}),
+	value_names:    Maybe(map[string]struct{}),
 	// Names the file's calls give their arguments (see `named_arguments`), built on first use.
-	named_args:  Maybe(map[string]struct{}),
+	named_args:     Maybe(map[string]struct{}),
 	// Nodes a lint excluded while visiting their parent: deferred statements, proc literals whose signature
 	// an attribute fixes, callback literals, and procedures the file uses as values.
-	skip:        map[^ast.Node]struct{},
-	fixes:       [dynamic]Lint_Fix,
+	skip:           map[^ast.Node]struct{},
+	fixes:          [dynamic]Lint_Fix,
 	// The node being linted is in code the host does not build: an inactive `when` branch or an excluded file.
-	inactive:    bool,
+	inactive:       bool,
+	// Whether the file has a `foreign import` (see `check_c_name` in rols_lint_naming.odin), found on first use.
+	foreign_import: Maybe(bool),
 }
 
 // A single-edit fix for one diagnostic, offered as a quick fix at the cursor.

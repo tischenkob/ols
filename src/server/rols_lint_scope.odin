@@ -12,7 +12,8 @@ Visible_Decl :: struct {
 }
 
 // The last declaration of name in root at or before offset whose scope is still open at offset: a
-// value declaration, a range value, a type-switch variable or a parameter of an enclosing procedure.
+// value declaration, a range value, a type-switch variable, or a parameter or named result of an
+// enclosing procedure.
 // A `when` body opens no scope, so its declarations count while the `when` encloses the declaration.
 visible_declaration :: proc(root: ^ast.Node, name: string, offset: int) -> Visible_Decl {
 	Data :: struct {
@@ -53,6 +54,9 @@ visible_declaration :: proc(root: ^ast.Node, name: string, offset: int) -> Visib
 			case ^ast.Proc_Lit:
 				if n.type != nil && n.type.params != nil {
 					for field in n.type.params.list do declares(data, field.names)
+				}
+				if n.type != nil && n.type.results != nil {
+					for field in n.type.results.list do declares(data, field.names)
 				}
 			}
 			return visitor
