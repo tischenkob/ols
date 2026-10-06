@@ -247,7 +247,9 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, t
 	check_run.error_files = make(map[string][dynamic]string, context.temp_allocator)
 
 	for running_count > 0 || next_index < len(paths) || len(pending_reruns) > 0 {
-		for first in pending_reruns {
+		// rols: reruns take the free slots first; the rest wait until a check finishes
+		for running_count < max_concurrent_checks && len(pending_reruns) > 0 {
+			first := pop_front(&pending_reruns)
 			p, ok := start_check_process(first.path, collections[:], config, true)
 			if ok {
 				p.first = first.first
@@ -258,7 +260,6 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, t
 				append(&errors, first.first)
 			}
 		}
-		clear(&pending_reruns)
 		for running_count < max_concurrent_checks && next_index < len(paths) {
 			p, ok := start_check_process(paths[next_index], collections[:], config)
 			next_index += 1

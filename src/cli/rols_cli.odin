@@ -844,7 +844,7 @@ lint :: proc(targets: []string, fail_on: string, root: string) -> int {
 		}
 		first := len(entries)
 		for dir in packages {
-			lints, ok := collect_lints(dir, context.allocator)
+			lints, ok := collect_lints(dir, context.allocator, note_unparsed = true)
 			server.clear_index_cache()
 			free_all(context.temp_allocator)
 			if !ok {
@@ -871,9 +871,16 @@ lint :: proc(targets: []string, fail_on: string, root: string) -> int {
 @(private)
 linted: map[string]struct{}
 
+// The workspace filter of the run, built on the first collect_lints call, on the heap.
+@(private)
+lint_filter: Maybe(common.Workspace_Filter)
+
 // Per-file lints, unused imports and unused private declarations of one file or a package directory, in
-// allocator. A file an earlier call linted is left out. The documents are closed again.
-collect_lints :: proc(target: string, allocator := context.temp_allocator) -> ([]Entry, bool) {
+// allocator. A file an earlier call linted is left out, and so is a file of the directory that the workspace
+// filter skips, unless the filter skips the directory itself, which only a directory named on the command line
+// can be. The documents are closed again. With note_unparsed, a file that does not parse is noted on stderr and its
+// diagnostics are left out.
+collect_lints :: proc(target: string, allocator := context.temp_allocator, note_unparsed := false) -> ([]Entry, bool) {
 	files := []string{target}
 	if os.is_directory(target) {
 		err: os.Error
@@ -881,6 +888,17 @@ collect_lints :: proc(target: string, allocator := context.temp_allocator) -> ([
 		if err != nil {
 			fmt.eprintfln("cannot list %s: %v", target, err)
 			return {}, false
+		}
+		if lint_filter == nil && len(common.config.workspace_folders) > 0 {
+			root := common.uri_to_path(common.config.workspace_folders[0].uri, context.temp_allocator)
+			lint_filter = common.workspace_filter_make(root, &common.config, context.allocator)
+		}
+		if filter, ok := &lint_filter.?; ok && !common.workspace_filter_skip_dir(filter, target) {
+			kept := make([dynamic]string, context.temp_allocator)
+			for file in files {
+				if !common.workspace_filter_skip_file(filter, file) do append(&kept, file)
+			}
+			files = kept[:]
 		}
 	}
 
@@ -890,6 +908,7 @@ collect_lints :: proc(target: string, allocator := context.temp_allocator) -> ([
 	defer for uri in opened {
 		server.document_close(uri)
 	}
+	unparsed := make(map[string]struct{}, context.temp_allocator)
 	document: ^server.Document
 	for file in files {
 		uri := common.create_uri(file, context.temp_allocator).uri
@@ -902,6 +921,10 @@ collect_lints :: proc(target: string, allocator := context.temp_allocator) -> ([
 			return {}, false
 		}
 		append(&opened, strings.clone(document.uri.uri, context.temp_allocator))
+		if note_unparsed && document.ast.syntax_error_count > 0 {
+			fmt.eprintfln("%s: skipped, the file does not parse", file)
+			unparsed[opened[len(opened) - 1]] = {}
+		}
 		server.check_unused_imports(document, &common.config)
 		linted[strings.clone(uri)] = {}
 	}
@@ -911,6 +934,7 @@ collect_lints :: proc(target: string, allocator := context.temp_allocator) -> ([
 
 	entries := make([dynamic]Entry, allocator)
 	for opened_uri in opened {
+		if opened_uri in unparsed do continue
 		uri := strings.clone(opened_uri, allocator)
 		for type in ([]server.DiagnosticType{.Lint, .Unused, .Unused_Decl}) {
 			for diagnostic in server.diagnostics_of(type, uri, allocator) {

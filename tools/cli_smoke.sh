@@ -451,6 +451,41 @@ echo "ok lint-skips-hidden"
 [[ "$("$OLS" query check "$dir/lint" "$dir/lint" | grep -c '\[self-assignment\]')" -eq 1 ]] || { echo "FAIL check-twice-once"; exit 1; }
 echo "ok check-twice-once"
 expect_exit 1 lint-no-package "$OLS" query lint "$dir/lintnone"
+# lint and check filter the files of a kept directory too; a file named on the command line is linted.
+if command -v git >/dev/null; then
+	mkdir -p "$dir/lintgi/sub"
+	printf 'package sub
+
+lower_kept :: 1
+' > "$dir/lintgi/sub/kept.odin"
+	printf 'package sub
+
+lower_ignored :: 1
+' > "$dir/lintgi/sub/ignored.odin"
+	echo 'lintgi/sub/ignored.odin' >> "$dir/.gitignore"
+	out="$("$OLS" query lint "$dir/lintgi")"
+	[[ "$out" == *lower_kept* && "$out" != *lower_ignored* ]] || { echo "FAIL lint-gitignored-file: $out"; exit 1; }
+	echo "ok lint-gitignored-file"
+	out="$("$OLS" query check "$dir/lintgi/sub")"
+	[[ "$out" == *lower_kept* && "$out" != *lower_ignored* ]] || { echo "FAIL check-gitignored-file: $out"; exit 1; }
+	echo "ok check-gitignored-file"
+	expect lint-named-gitignored-file "lower_ignored" "$OLS" query lint "$dir/lintgi/sub/ignored.odin"
+	sed -i.bak '/lintgi/d' "$dir/.gitignore" && rm -f "$dir/.gitignore.bak"
+	rm -rf "$dir/lintgi"
+fi
+# lint notes a file that does not parse on stderr and keeps its exit code.
+mkdir "$dir/lintbroken"
+printf 'package lintbroken
+
+lower_ok :: 1
+' > "$dir/lintbroken/ok.odin"
+printf 'package lintbroken
+
+f :: proc( {
+' > "$dir/lintbroken/broken.odin"
+expect lint-unparsed-note "broken.odin: skipped, the file does not parse$" sh -c "\"$OLS\" query lint \"$dir/lintbroken\" 2>&1 >/dev/null"
+expect_exit 0 lint-unparsed-exit "$OLS" query lint "$dir/lintbroken"
+rm -rf "$dir/lintbroken"
 # The indexer's log lines, such as a file of an imported package that does not parse, stay off stderr.
 mkdir -p "$dir/logq/z" "$dir/logq/use"
 printf 'x := 1\n' > "$dir/logq/z/bad.odin"
@@ -630,7 +665,7 @@ if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
 	mkdir -p "$dir/ig/lib" "$dir/ig/use"
 	printf 'package lib\n\nL :: proc() -> int {\n\treturn 1\n}\n' > "$dir/ig/lib/lib.odin"
 	printf '#+build windows\npackage use\n\nimport "../lib"\n\nmain :: proc() {\n\t_ = lib.L()\n}\n' > "$dir/ig/use/use_win.odin"
-	expect importer-without-a-host-file-is-checked "^attr add: 1 edit in 1 file written, 2 packages checked$" "$OLS" query attr add "$dir/ig/lib.L" cold --apply
+	expect importer-without-a-host-file-is-checked "^attr add: 1 edit in 1 file written, 2 packages checked, also on windows_amd64$" "$OLS" query attr add "$dir/ig/lib.L" cold --apply
 	expect_exit 4 importer-without-a-host-file-rolled-back "$OLS" query attr add "$dir/ig/lib.L" private --apply
 	rm -rf "$dir/ig"
 	# An importer whose js_wasm32 check fails in core (core:os panics there) does not build on that target,
@@ -667,8 +702,8 @@ mkdir "$dir/dupe"
 printf 'package dupe\n\nf :: proc() {\n\tx: int = "s"\n\t_ = x\n}\n' > "$dir/dupe/d.odin"
 echo '{"checker_args": "-no-entry-point"}' > "$dir/ols.json"
 expect_exit1 dupe-flag-reports-the-error "d.odin:4:11: error: Cannot convert" "$OLS" query check "$dir/dupe"
-# The skip list compares the literal path, and the CLI resolves symlinks in its paths (/var on macOS).
-echo '{"checker_skip_packages": ["'"$(cd "$dir/dupe" && pwd -P)"'"]}' > "$dir/ols.json"
+# The skip list also holds each path with symlinks resolved, since the CLI resolves its paths (/var on macOS).
+echo '{"checker_skip_packages": ["'"$dir/dupe"'"]}' > "$dir/ols.json"
 expect_exit 0 check-skipped-package "$OLS" query check "$dir/dupe"
 echo '{"odin_command": "/nonexistent/odin"}' > "$dir/ols.json"
 expect_exit 1 check-without-odin "$OLS" query check "$dir/dupe"
@@ -791,6 +826,33 @@ out="$("$OLS" query --root "$dir/cli" find marker_hidden || true)"
 [[ -z "$out" ]] || { echo "FAIL find-hidden-dir: $out"; exit 1; }
 echo "ok find-hidden-dir"
 expect find-json-flags '"otherPlatform": true' "$OLS" query --root "$dir/cli" find marker_other --json
+# find marks a declaration in a when branch the target does not take; an unknown condition marks nothing.
+printf 'package plat
+
+import "core:testing"
+
+when ODIN_OS == .JS {
+	marker_when_js :: proc() {}
+	@(test)
+	js_only :: proc(t: ^testing.T) {}
+} else {
+	marker_when_else :: proc() {}
+}
+
+when ODIN_TEST {
+	marker_when_test :: proc() {}
+	@(test)
+	in_test :: proc(t: ^testing.T) {}
+}
+' > "$dir/cli/plat/h_test.odin"
+expect find-when-inactive "h_test.odin:6:2: Function marker_when_js (other platform)$" "$OLS" query --root "$dir/cli" find marker_when
+expect find-when-active "h_test.odin:10:2: Function marker_when_else$" "$OLS" query --root "$dir/cli" find marker_when
+expect find-when-unknown "h_test.odin:14:2: Function marker_when_test$" "$OLS" query --root "$dir/cli" find marker_when
+out="$("$OLS" query tests "$dir/cli/plat")"
+[[ "$out" == *in_test* && "$out" != *js_only* ]] || { echo "FAIL tests-when: $out"; exit 1; }
+echo "ok tests-when"
+expect test-when-inactive-name '^error: no test "js_only" in ' sh -c "\"$OLS\" query test \"$dir/cli/plat\" js_only 2>&1 || true"
+rm "$dir/cli/plat/h_test.odin"
 # reorder-params names the one cause that applies.
 printf 'package plat\n\nvariadic :: proc(a: int, b: ..int) {}\n\nwith_default :: proc(a: int, b: int = 1) {}\n' > "$dir/cli/plat/f.odin"
 expect reorder-params-variadic "^error: the procedure is variadic$" sh -c "\"$OLS\" query reorder-params \"$dir/cli/plat/f.odin:3:1\" --order 1,0 2>&1 || true"

@@ -13,7 +13,7 @@ import "src:common"
 
 // One match of `ols query find`: the LSP WorkspaceSymbol fields, and whether the declaration is private
 // (`@(private)`, `@(private = "file")` or a `#+private` file) or sits in a file that the current target does
-// not build.
+// not build or in a `when` branch that the editor's target does not take (see inactive_when_decls).
 Find_Symbol :: struct {
 	name:          string,
 	kind:          SymbolKind,
@@ -123,8 +123,9 @@ find_symbols :: proc(query: string, config: ^common.Config, limit := 100) -> []F
 			if parsed, parsed_ok := parse_syntax(file, text); parsed_ok {
 				private_file := parser.parse_file_tags(parsed, context.allocator).private != .Public
 				uri := common.create_uri(file, context.temp_allocator).uri
+				inactive := inactive_when_decls(&parsed)
 				for stmt in parsed.decls {
-					collect_find_hits(&hits, matchers[:], stmt, &parsed, uri, private_file, other_platform)
+					collect_find_hits(&hits, matchers[:], stmt, &parsed, uri, private_file, other_platform, inactive)
 				}
 			}
 			virtual.arena_free_all(&arena)
@@ -152,6 +153,7 @@ collect_find_hits :: proc(
 	file: ^ast.File,
 	uri: string,
 	private_file, other_platform: bool,
+	inactive: map[^ast.Value_Decl]struct{},
 ) {
 	if stmt == nil do return
 	#partial switch s in stmt.derived {
@@ -169,21 +171,21 @@ collect_find_hits :: proc(
 						kind = find_kind(s, i),
 						location = {uri = uri, range = common.get_token_range(ident, file.src)},
 						private = private,
-						otherPlatform = other_platform,
+						otherPlatform = other_platform || s in inactive,
 					},
 					score = score,
 				},
 			)
 		}
 	case ^ast.When_Stmt:
-		collect_find_hits(hits, matchers, s.body, file, uri, private_file, other_platform)
-		collect_find_hits(hits, matchers, s.else_stmt, file, uri, private_file, other_platform)
+		collect_find_hits(hits, matchers, s.body, file, uri, private_file, other_platform, inactive)
+		collect_find_hits(hits, matchers, s.else_stmt, file, uri, private_file, other_platform, inactive)
 	case ^ast.Block_Stmt:
 		for inner in s.stmts {
-			collect_find_hits(hits, matchers, inner, file, uri, private_file, other_platform)
+			collect_find_hits(hits, matchers, inner, file, uri, private_file, other_platform, inactive)
 		}
 	case ^ast.Foreign_Block_Decl:
-		collect_find_hits(hits, matchers, s.body, file, uri, private_file, other_platform)
+		collect_find_hits(hits, matchers, s.body, file, uri, private_file, other_platform, inactive)
 	}
 }
 

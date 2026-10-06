@@ -620,6 +620,11 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 				full_path = path.join({uri.path, pkg}, context.allocator)
 			}
 			config.checker_skip_packages[full_path] = {}
+			// rols: also the path with symlinks resolved, the form the CLI compares, such as /private/var for /var
+			if real, err := os.get_absolute_path(full_path, context.temp_allocator); err == nil {
+				real_slashed, _ := filepath.replace_separators(real, '/', context.allocator)
+				config.checker_skip_packages[real_slashed] = {}
+			}
 		}
 	}
 
