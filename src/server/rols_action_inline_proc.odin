@@ -11,6 +11,7 @@ import "src:common"
 Param :: struct {
 	name:      string,
 	type:      string, // in the callee's source, empty when the parameter is `d := 0`
+	type_expr: ^ast.Expr, // the node of type, nil when type is empty
 	arg:       ^ast.Expr,
 	defaulted: bool, // the call omits the argument and `arg` is the default, in the callee's source
 }
@@ -103,35 +104,7 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	callee_src := target.ast.src
-	roots := make([dynamic]^ast.Node, context.temp_allocator)
-	append(&roots, body)
-	if lit.type.params != nil {
-		for field in lit.type.params.list {
-			if field.type != nil do append(&roots, field.type)
-			if field.default_value != nil do append(&roots, field.default_value)
-		}
-	}
-	// An untyped literal result is copied with the result type in front.
-	result_type: ^ast.Expr
-	if lit.type.results != nil && len(lit.type.results.list) == 1 && len(body.stmts) == 1 {
-		if ret, is_return := body.stmts[0].derived.(^ast.Return_Stmt); is_return && len(ret.results) == 1 {
-			if comp, is_comp := ret.results[0].derived.(^ast.Comp_Lit); is_comp && comp.type == nil {
-				result_type = lit.type.results.list[0].type
-				if result_type == nil {
-					return
-				}
-				append(&roots, result_type)
-			}
-		}
-	}
-	imports, borrows := borrows_from_file(ctx, target, lit, call, roots[:])
-	if borrows {
-		return
-	}
-	import_edits := make([dynamic]TextEdit, context.temp_allocator)
-	for imp in imports {
-		append(&import_edits, import_edit(ctx, strings.trim(imp.fullpath, "\"`"), imp.name.text))
-	}
+	origin := Copy{target, lit, call}
 
 	params := make([dynamic]Param, context.temp_allocator)
 	if lit.type.params != nil {
@@ -150,7 +123,10 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 					return
 				}
 				type_text := node_text(callee_src, field.type) if field.type != nil else ""
-				append(&params, Param{name = ident.name, type = type_text, arg = field.default_value})
+				append(
+					&params,
+					Param{name = ident.name, type = type_text, type_expr = field.type, arg = field.default_value},
+				)
 			}
 		}
 	}
@@ -168,7 +144,7 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 	}
 
 	if stmt, is_stmt := parent.derived.(^ast.Expr_Stmt); is_stmt {
-		inline_statement(ctx, stmt, body, params[:], target, import_edits[:])
+		inline_statement(ctx, stmt, body, params[:], origin)
 		return
 	}
 	if len(field_types(callee.return_types)) != 1 || len(body.stmts) != 1 {
@@ -178,7 +154,36 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 	if !is_return || len(ret.results) != 1 {
 		return
 	}
-	inline_expression(ctx, call, parent, ret.results[0], result_type, params[:], target, import_edits[:])
+	// An untyped literal result is copied with the result type in front.
+	result_type: ^ast.Expr
+	if comp, is_comp := ret.results[0].derived.(^ast.Comp_Lit); is_comp && comp.type == nil {
+		if lit.type.results == nil || len(lit.type.results.list) != 1 || lit.type.results.list[0].type == nil {
+			return
+		}
+		result_type = lit.type.results.list[0].type
+	}
+	inline_expression(ctx, call, parent, ret.results[0], result_type, params[:], origin)
+}
+
+// Where the copied text comes from: the callee's file and procedure literal, inlined at call.
+Copy :: struct {
+	callee: ^Document,
+	lit:    ^ast.Proc_Lit,
+	call:   ^ast.Call_Expr,
+}
+
+// The import edits that the text of written, copied from the callee's file, needs in the caller's
+// file. False when the text would mean something else there.
+copy_imports :: proc(ctx: ^ActionContext, origin: Copy, written: []^ast.Node) -> ([]TextEdit, bool) {
+	imports, borrows := borrows_from_file(ctx, origin.callee, origin.lit, origin.call, written)
+	if borrows {
+		return nil, false
+	}
+	edits := make([dynamic]TextEdit, context.temp_allocator)
+	for imp in imports {
+		append(&edits, import_edit(ctx, strings.trim(imp.fullpath, "\"`"), imp.name.text))
+	}
+	return edits[:], true
 }
 
 // Every parameter occurrence becomes its argument. An argument with a call is passed through
@@ -191,11 +196,14 @@ inline_expression :: proc(
 	expr: ^ast.Expr,
 	result_type: ^ast.Expr,
 	params: []Param,
-	callee: ^Document,
-	import_edits: []TextEdit,
+	origin: Copy,
 ) {
 	src := ctx.document.ast.src
+	callee := origin.callee
 	callee_src := callee.ast.src
+	written := make([dynamic]^ast.Node, context.temp_allocator)
+	append(&written, expr)
+	if result_type != nil do append(&written, result_type)
 	counts := make([]int, len(params), context.temp_allocator)
 
 	Replacement :: struct {
@@ -227,7 +235,11 @@ inline_expression :: proc(
 		}
 		counts[i] += 1
 		text := node_text(callee_src if params[i].defaulted else src, params[i].arg)
-		text = typed_arg_text(params[i], text)
+		if params[i].defaulted do append(&written, params[i].arg)
+		if typed := typed_arg_text(params[i], text); typed != text {
+			text = typed
+			append(&written, params[i].type_expr)
+		}
 		if !is_atom(params[i].arg) {
 			text = strings.concatenate({"(", text, ")"}, context.temp_allocator)
 		}
@@ -255,6 +267,10 @@ inline_expression :: proc(
 	if needs_parens(expr, parent, call) {
 		text = strings.concatenate({"(", text, ")"}, context.temp_allocator)
 	}
+	import_edits, fits := copy_imports(ctx, origin, written[:])
+	if !fits {
+		return
+	}
 	edits := make([dynamic]TextEdit, context.temp_allocator)
 	append(&edits, ..import_edits)
 	append(&edits, TextEdit{range = range_of(ctx, call.pos.offset, call.end.offset), newText = text})
@@ -268,14 +284,16 @@ inline_statement :: proc(
 	stmt: ^ast.Expr_Stmt,
 	body: ^ast.Block_Stmt,
 	params: []Param,
-	callee: ^Document,
-	import_edits: []TextEdit,
+	origin: Copy,
 ) {
 	if !plain_body(body) {
 		return
 	}
 	src := ctx.document.ast.src
+	callee := origin.callee
 	callee_src := callee.ast.src
+	written := make([dynamic]^ast.Node, context.temp_allocator)
+	append(&written, body)
 
 	used := make([]bool, len(params), context.temp_allocator)
 	for use in collect_ident_uses(body) {
@@ -318,6 +336,8 @@ inline_statement :: proc(
 				return
 			}
 		}
+		if param.type_expr != nil do append(&written, param.type_expr)
+		if param.defaulted do append(&written, param.arg)
 		strings.write_string(&sb, inner)
 		strings.write_string(&sb, param.name)
 		if param.type == "" {
@@ -336,6 +356,10 @@ inline_statement :: proc(
 	strings.write_string(&sb, ind)
 	strings.write_byte(&sb, '}')
 
+	import_edits, fits := copy_imports(ctx, origin, written[:])
+	if !fits {
+		return
+	}
 	edits := make([dynamic]TextEdit, context.temp_allocator)
 	append(&edits, ..import_edits)
 	append(&edits, TextEdit{range = range_of(ctx, stmt.pos.offset, stmt.end.offset), newText = strings.to_string(sb)})
@@ -394,10 +418,6 @@ borrows_from_file :: proc(
 	for root in roots {
 		for use in collect_ident_uses(root) {
 			name := use.ident.name
-			kind := use_kind(use, callee)
-			if kind == .Field {
-				continue
-			}
 			private := !same_file && name in private_names
 			missing_import := !same_file && unmatched_import(callee.ast.imports[:], caller.ast.imports[:], name)
 			_, captured := get_local(caller_locals, ast.Ident{name = name, pos = call.pos})
@@ -406,6 +426,10 @@ borrows_from_file :: proc(
 				captured ||= unmatched_import(caller.ast.imports[:], callee.ast.imports[:], name)
 			}
 			if !private && !missing_import && !captured {
+				continue
+			}
+			kind := use_kind(use, callee)
+			if kind == .Field {
 				continue
 			}
 			// Only a use that a local of lit binds keeps its meaning in the copy.
@@ -417,13 +441,8 @@ borrows_from_file :: proc(
 				return nil, true
 			}
 			imp := import_named(callee.ast.imports[:], name)
-			if imp == nil {
+			if imp == nil || !import_fits(ctx, callee, imp, name, call.pos.offset) {
 				return nil, true
-			}
-			for other in caller.ast.imports {
-				if other.fullpath == imp.fullpath {
-					return nil, true
-				}
 			}
 			if import_named(added[:], name) == nil {
 				append(&added, imp)
@@ -431,6 +450,29 @@ borrows_from_file :: proc(
 		}
 	}
 	return added[:], false
+}
+
+// Whether the caller's file can take imp of the callee's file under name: it does not import the
+// same path, nothing in the file or the package binds name, and it builds only where the callee's
+// file does.
+import_fits :: proc(ctx: ^ActionContext, callee: ^Document, imp: ^ast.Import_Decl, name: string, offset: int) -> bool {
+	caller := ctx.document
+	for other in caller.ast.imports {
+		if other.fullpath == imp.fullpath {
+			return false
+		}
+	}
+	if name_taken(caller, offset, name, strings.trim(imp.fullpath, "\"`")) {
+		return false
+	}
+	if _, declared := memory_index_lookup(&indexer.index, name, ctx.ast_context.document_package); declared {
+		return false
+	}
+	// A file restricted by build tags or a name suffix may import a package other targets lack.
+	callee_tags := parser.parse_file_tags(callee.ast, context.temp_allocator)
+	restricted := !same_build_targets(callee.fullpath, callee_tags, "x.odin", {})
+	caller_tags := parser.parse_file_tags(caller.ast, context.temp_allocator)
+	return !restricted || same_build_targets(callee.fullpath, callee_tags, caller.fullpath, caller_tags)
 }
 
 // The import that binds name, or nil.

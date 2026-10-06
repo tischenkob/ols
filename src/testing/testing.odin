@@ -1099,7 +1099,7 @@ expect_save_imports_applied :: proc(t: ^testing.T, src: ^Source, expected: strin
 		context.temp_allocator,
 	)
 
-	edits := server.organize_import_edits(src.document, &ast_context, &src.config, true, grouped = true)
+	edits := server.organize_import_edits(src.document, &ast_context, &src.config, true)
 
 	text, applied := common.apply_text_edits(edits, string(src.document.text))
 	testing.expectf(t, applied, "Invalid or overlapping edit range in %v", edits)
@@ -1404,14 +1404,7 @@ Unused_Expect :: struct {
 expect_unused_declarations :: proc(t: ^testing.T, src: ^Source, expected: []Unused_Expect) {
 	spall.trace(#procedure)
 
-	setup(src)
-	defer teardown(src)
-
-	// The saved document is in the index on save; setup only parses it.
-	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
-
-	diagnostics, ok := server.unused_declarations("test", package_files(src), &src.config)
-	testing.expect(t, ok, "unused_declarations failed")
+	diagnostics := unused_declaration_diagnostics(t, src)
 
 	got := make([dynamic]Unused_Expect, context.temp_allocator)
 	for uri, diags in diagnostics {
@@ -1434,13 +1427,7 @@ expect_unused_declarations :: proc(t: ^testing.T, src: ^Source, expected: []Unus
 expect_unused_declaration_messages :: proc(t: ^testing.T, src: ^Source, expected: []string) {
 	spall.trace(#procedure)
 
-	setup(src)
-	defer teardown(src)
-
-	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
-
-	diagnostics, ok := server.unused_declarations("test", package_files(src), &src.config)
-	testing.expect(t, ok, "unused_declarations failed")
+	diagnostics := unused_declaration_diagnostics(t, src)
 
 	got := make([dynamic]string, context.temp_allocator)
 	for _, diags in diagnostics {
@@ -1451,6 +1438,20 @@ expect_unused_declaration_messages :: proc(t: ^testing.T, src: ^Source, expected
 	slice.sort(expected)
 
 	testing.expectf(t, slice.equal(expected, got[:]), "\nExpected %v but received %v", expected, got[:])
+}
+
+// The unused-declaration diagnostics of the test package, in temp memory that outlives the teardown.
+@(private)
+unused_declaration_diagnostics :: proc(t: ^testing.T, src: ^Source) -> map[string][dynamic]server.Diagnostic {
+	setup(src)
+	defer teardown(src)
+
+	// The saved document is in the index on save; setup only parses it.
+	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+
+	diagnostics, ok := server.unused_declarations("test", package_files(src), &src.config)
+	testing.expect(t, ok, "unused_declarations failed")
+	return diagnostics
 }
 
 @(private)

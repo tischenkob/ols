@@ -195,7 +195,7 @@ Options:
 
 - `enable_code_action_rewrite_expression`: Enables the code actions to flip a comparison, apply De Morgan's law and convert between compound and plain assignment. Defaults to true.
 
-- `enable_organize_imports_on_save`: Removes unused imports and adds missing ones on save through `workspace/applyEdit`. A new import goes among the kept imports of its collection. Defaults to true.
+- `enable_organize_imports_on_save`: Removes unused imports and adds missing ones on save through `workspace/applyEdit`. A new import goes among the kept imports of its collection when the file keeps one. Otherwise it goes after the first import, or at the top of the import block when that import is removed. Defaults to true.
 
 - `struct_fields_underscore_visibility`: Controls visibility of struct fields starting with `_`:
   - `""` (default): no hiding, all fields are visible

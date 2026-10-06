@@ -119,3 +119,48 @@ main :: proc() {
 `,
 	)
 }
+
+// The new import goes before a kept import whose line directly follows a removed import.
+@(test)
+save_imports_adds_import_before_kept_import_after_removed_one :: proc(t: ^testing.T) {
+	packages := make([dynamic]test.Package, context.temp_allocator)
+	append(&packages, test.Package{pkg = "a", source = `package a
+f :: proc() {}
+`})
+	append(&packages, test.Package{pkg = "m", source = `package m
+g :: proc() -> int { return 1 }
+`})
+	append(&packages, test.Package{pkg = "z", source = `package z
+h :: proc() {}
+`})
+
+	source := test.Source {
+		main = `package main
+
+import "core:a"
+import "core:z"
+
+main :: proc() {
+	z.h()
+	_ = m.g()
+}
+`,
+		packages = packages[:],
+		collections = {"core" = "test"},
+	}
+
+	test.expect_save_imports_applied(
+		t,
+		&source,
+		`package main
+
+import "core:m"
+import "core:z"
+
+main :: proc() {
+	z.h()
+	_ = m.g()
+}
+`,
+	)
+}
