@@ -253,6 +253,10 @@ local_scope_enum :: proc(data: ^FileResolveData, enum_type: ^ast.Enum_Type) {
 
 @(private = "file")
 resolve_binary_expr :: proc(binary: ^ast.Binary_Expr, data: ^FileResolveData) {
+	// rols: restore the binary fields after this expression, so they never leak to a later node
+	old_binary, old_parent_binary := data.position_context.binary, data.position_context.parent_binary
+	defer data.position_context.binary, data.position_context.parent_binary = old_binary, old_parent_binary
+
 	if data.position_context.parent_binary == nil {
 		data.position_context.parent_binary = binary
 	}
@@ -395,6 +399,9 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 
 
 	case ^ast.Field_Value:
+		// rols: restore the field value after this node, so it never leaks to a later node
+		old_field_value := data.position_context.field_value
+		defer data.position_context.field_value = old_field_value
 		data.position_context.field_value = n
 
 		if data.flag != .None && data.position_context.comp_lit != nil {
@@ -557,6 +564,9 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 			resolve_node(arg, data)
 		}
 	case ^ast.Index_Expr:
+		// rols: restore the index fields after this node, a stale index decides a later implicit selector
+		old_index, old_previous_index := data.position_context.index, data.position_context.previous_index
+		defer data.position_context.index, data.position_context.previous_index = old_index, old_previous_index
 		data.position_context.previous_index = data.position_context.index
 		data.position_context.index = n
 		resolve_node(n.expr, data)

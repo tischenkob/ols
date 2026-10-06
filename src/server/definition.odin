@@ -146,6 +146,14 @@ get_definition_location :: proc(document: ^Document, position: common.Position, 
 			return {}, false
 		}
 	} else if position_context.identifier != nil {
+		// rols: the member of `offset_of(T, member)` is the field of T, not a package or global of the same name
+		if member, is_member := resolve_location_offset_of_member(&ast_context, &position_context); is_member {
+			append(
+				&locations,
+				common.Location{range = member.range, uri = member.uri != "" ? member.uri : document.uri.uri},
+			)
+			return locations[:], true
+		}
 		if resolved, ok := resolve_location_identifier(
 			&ast_context,
 			position_context.identifier.derived.(^ast.Ident)^,

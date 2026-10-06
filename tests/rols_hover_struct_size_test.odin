@@ -109,3 +109,49 @@ hover_mixed_struct_size :: proc(t: ^testing.T) {
 
 	test.expect_hover(t, &source, "Mixed.m: map[string]int\n---\noffset: 48, size: 32")
 }
+
+// The offset of a promoted field lays out the `using` type in the package that declares it, not in the
+// hover's package, which declares a `Local` of another size.
+@(test)
+hover_promoted_field_offset_from_another_package :: proc(t: ^testing.T) {
+	packages := make([dynamic]test.Package, context.temp_allocator)
+	append(
+		&packages,
+		test.Package {
+			pkg = "b",
+			source = `package b
+
+Local :: struct {
+	x, y: int,
+}
+
+Inner :: struct {
+	pad: Local,
+	val: int,
+}
+`,
+		},
+	)
+	source := test.Source {
+		main = `package test
+
+import "b"
+
+Local :: u8
+
+Outer :: struct {
+	tag: u8,
+	using inner: b.Inner,
+}
+
+main :: proc() {
+	o: Outer
+	o.va{*}l
+}
+`,
+		packages = packages[:],
+		config = {enable_hover_struct_size = true},
+	}
+
+	test.expect_hover(t, &source, "Outer.val: int\n---\noffset: 24, size: 8")
+}

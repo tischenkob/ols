@@ -211,3 +211,38 @@ O :: offset_of(S, other)
 		},
 	)
 }
+
+@(private = "file")
+OFFSET_OF_GLOBAL :: `package test
+
+bar :: 3
+
+S :: struct {
+	pad: u8,
+	bar: int,
+}
+
+#assert(offset_of(S, ba{*}r) == 8)
+`
+
+// Hover on the member shows the field of T, not the global of the same name.
+@(test)
+offset_of_member_hover_shows_the_field :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = OFFSET_OF_GLOBAL,
+	}
+	test.expect_hover(t, &source, "S.bar: int")
+}
+
+// Go-to-definition on the member goes to the field of T, not to the global of the same name.
+@(test)
+offset_of_member_definition_goes_to_the_field :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = OFFSET_OF_GLOBAL,
+	}
+	test.expect_definition_locations(
+		t,
+		&source,
+		{{range = {start = {line = 6, character = 1}, end = {line = 6, character = 4}}}},
+	)
+}

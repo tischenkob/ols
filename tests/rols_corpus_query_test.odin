@@ -657,3 +657,52 @@ config_directive_reads_define_before_default :: proc(t: ^testing.T) {
 	value, ok = server.resolve_config_directive({}, call, defines)
 	testing.expect(t, ok && value == true, "the define wins over the default")
 }
+
+// An untyped literal as a later argument takes its type from its parameter, so its implicit selector does too.
+@(test)
+references_enum_in_untyped_comp_lit_later_argument :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Kind :: enum { A, B{*} }
+Item :: struct { kind: Kind }
+take :: proc(n: int, it: Item) -> Kind { return it.kind }
+main :: proc() {
+	_ = take(1, {kind = .B})
+}
+`,
+	}
+	test.expect_reference_locations(
+		t,
+		&source,
+		{
+			{range = {start = {line = 2, character = 18}, end = {line = 2, character = 19}}},
+			{range = {start = {line = 6, character = 22}, end = {line = 6, character = 23}}},
+		},
+	)
+}
+
+// A literal nested in the argument's literal resolves its implicit selector against the inner field's type.
+@(test)
+references_enum_in_nested_comp_lit_argument :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Kind :: enum { A, B{*} }
+Inner :: struct { kind: Kind }
+Item :: struct { n: int, inner: Inner }
+take :: proc(it: Item) -> Kind { return it.inner.kind }
+main :: proc() {
+	_ = take(Item{n = 1, inner = {kind = .B}})
+}
+`,
+	}
+	test.expect_reference_locations(
+		t,
+		&source,
+		{
+			{range = {start = {line = 2, character = 18}, end = {line = 2, character = 19}}},
+			{range = {start = {line = 7, character = 39}, end = {line = 7, character = 40}}},
+		},
+	)
+}

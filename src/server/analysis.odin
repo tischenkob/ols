@@ -1203,6 +1203,8 @@ resolve_function_overload :: proc(ast_context: ^AstContext, group: ^ast.Proc_Gro
 	candidates := make([dynamic]Candidate, context.temp_allocator)
 	call_args, ok := expand_call_args(ast_context, call_expr)
 	if !ok {
+		// rols: drop the in-progress entry, a failure here must not decide a later resolution of the call
+		if call_expr != nil do delete_key(&ast_context.call_expr_recursion_cache, cast(rawptr)call_expr)
 		return {}, false
 	}
 
@@ -1457,11 +1459,14 @@ resolve_function_overload :: proc(ast_context: ^AstContext, group: ^ast.Proc_Gro
 	}
 
 	symbol, ok_canidate := get_candidate_symbol(candidates[:], resolve_all_possibilities)
-	if call_expr != nil {
+	// rols: cache only a success, a failure may resolve later in another scope
+	if call_expr != nil && ok_canidate {
 		ast_context.call_expr_recursion_cache[cast(rawptr)call_expr] = SymbolResult {
 			symbol = symbol,
 			ok     = ok_canidate,
 		}
+	} else if call_expr != nil {
+		delete_key(&ast_context.call_expr_recursion_cache, cast(rawptr)call_expr)
 	}
 	return symbol, ok_canidate
 }

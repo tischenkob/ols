@@ -133,3 +133,22 @@ required_import_is_never_unused :: proc(t: ^testing.T) {
 	}
 	test.expect_unused_imports(t, &source, {})
 }
+
+// Two imports of one path are separate names, so the one the file never writes is unused.
+@(test)
+second_import_of_one_path_is_unused :: proc(t: ^testing.T) {
+	source := test.Source {
+		main     = `package test
+
+import "a"
+import x "a"
+
+use :: proc() -> int {
+	f: a.Foo
+	return f.x
+}
+`,
+		packages = a_and_b_packages(),
+	}
+	test.expect_unused_imports(t, &source, {"x"})
+}
