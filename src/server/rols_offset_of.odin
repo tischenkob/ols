@@ -45,7 +45,6 @@ resolve_offset_of_member :: proc(data: ^FileResolveData, call: ^ast.Call_Expr, m
 }
 
 // The enclosing `offset_of` call and its member when the cursor is on the member.
-@(private = "file")
 offset_of_member_at_cursor :: proc(
 	position_context: ^DocumentPositionContext,
 ) -> (
@@ -69,18 +68,24 @@ resolve_location_offset_of_member :: proc(
 	ok: bool,
 ) {
 	call, member := offset_of_member_at_cursor(position_context) or_return
-	return resolve_location_selector(ast_context, offset_of_member_selector(call, member))
+	symbol = resolve_location_selector(ast_context, offset_of_member_selector(call, member)) or_return
+	// A missing field resolves to T itself.
+	if symbol.type != .Field do return {}, false
+	return symbol, true
 }
 
 // The hover of the member of an enclosing `offset_of` call at the cursor: the field of T, as a field hover shows it.
+// `is_member` is true whenever the cursor is on the member, and `ok` only when T has that field.
 hover_offset_of_member :: proc(
 	ast_context: ^AstContext,
 	position_context: ^DocumentPositionContext,
 ) -> (
 	content: MarkupContent,
+	is_member: bool,
 	ok: bool,
 ) {
 	call, member := offset_of_member_at_cursor(position_context) or_return
+	is_member = true
 	owner := resolve_type_expression(ast_context, call.args[0]) or_return
 	v := owner.value.(SymbolStructValue) or_return
 	set_ast_package_set_scoped(ast_context, owner.pkg)
@@ -89,7 +94,8 @@ hover_offset_of_member :: proc(
 		symbol := resolve_type_expression(ast_context, v.types[i]) or_return
 		construct_struct_field_symbol(&symbol, owner.name, v, i)
 		build_documentation(ast_context, &symbol, true)
-		return write_hover_content(ast_context, symbol, layout = struct_field_layout_hover(ast_context, v, i)), true
+		content = write_hover_content(ast_context, symbol, layout = struct_field_layout_hover(ast_context, v, i))
+		return content, true, true
 	}
 	return
 }

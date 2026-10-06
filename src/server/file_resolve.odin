@@ -108,6 +108,8 @@ resolve_entire_file_internal :: proc(
 			return nil, false
 		}
 		clear(&ast_context.locals)
+		// rols: a call that fails to resolve in one declaration may resolve in another
+		clear(&ast_context.call_expr_recursion_cache)
 	}
 
 	document.symbols = symbols
@@ -154,6 +156,8 @@ resolve_entire_file_for_references :: proc(
 			target_name = target_name,
 		)
 		clear(&ast_context.locals)
+		// rols: a call that fails to resolve in one declaration may resolve in another
+		clear(&ast_context.call_expr_recursion_cache)
 	}
 
 	return symbols

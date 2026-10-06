@@ -479,7 +479,8 @@ get_hover_information :: proc(
 		ast_context.current_package = ast_context.document_package
 
 		// rols: the member of `offset_of(T, member)` is the field of T, not a package or global of the same name
-		if contents, is_member := hover_offset_of_member(&ast_context, &position_context); is_member {
+		if contents, is_member, found := hover_offset_of_member(&ast_context, &position_context); is_member {
+			if !found do return {}, false, true
 			hover.contents = contents
 			hover.range = common.get_token_range(position_context.identifier^, document.ast.src)
 			return hover, true, true

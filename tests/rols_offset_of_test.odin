@@ -246,3 +246,42 @@ offset_of_member_definition_goes_to_the_field :: proc(t: ^testing.T) {
 		{{range = {start = {line = 6, character = 1}, end = {line = 6, character = 4}}}},
 	)
 }
+
+@(private = "file")
+OFFSET_OF_MISSING_FIELD :: `package test
+
+bar :: 3
+
+S :: struct {
+	pad: u8,
+}
+
+#assert(offset_of(S, ba{*}r) == 8)
+`
+
+// When T has no field of the member's name, hover shows nothing rather than the global of the same name.
+@(test)
+offset_of_missing_member_has_no_hover :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = OFFSET_OF_MISSING_FIELD,
+	}
+	test.expect_no_hover(t, &source)
+}
+
+// When T has no field of the member's name, go-to-definition goes nowhere rather than to the global.
+@(test)
+offset_of_missing_member_has_no_definition :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = OFFSET_OF_MISSING_FIELD,
+	}
+	test.expect_definition_locations(t, &source, {})
+}
+
+// When T has no field of the member's name, the member has no references, not those of T or of the global.
+@(test)
+offset_of_missing_member_has_no_references :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = OFFSET_OF_MISSING_FIELD,
+	}
+	test.expect_reference_locations(t, &source, {})
+}
