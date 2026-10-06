@@ -180,7 +180,7 @@ run_edit :: proc(
 		if fresh := new_errors(before, after, names, edited); len(fresh) > 0 {
 			// odin can report a different error set on each run. The original code is checked again where the
 			// fresh errors are, and an error that it reports there too is not new. An error that remains is new
-			// only when a second check after the write reports it again.
+			// only when a second check of every package after the write reports it again.
 			failures, left_files, left_dirs := undo_edit(changed, renames)
 			if len(failures) > 0 {
 				append(&reasons, ..failures)
@@ -207,7 +207,9 @@ run_edit :: proc(
 				return code
 			}
 			if len(fresh) > 0 {
-				if second, second_reason, second_ok := check_errors(recheck, renames); second_ok {
+				// Every check runs again: base counts the errors of every package, so a narrower run would let an
+				// existing error elsewhere hide a new one with the same message.
+				if second, second_reason, second_ok := check_errors(checks, renames); second_ok {
 					fresh = intersect_errors(fresh, new_errors(base, second, names, edited))
 				} else {
 					warn(&reasons, fmt.tprintf("%s after writing again", second_reason))

@@ -808,6 +808,40 @@ expect gate-rewrite-refuses-a-changed-file "^error: .*nd.odin changed on disk si
 grep -q '^// touched' "$dir/nd/nd.odin" && ! grep -q '@(cold)' "$dir/nd/nd.odin" || { echo "FAIL gate-rewrite-refuses-a-changed-file lost the change"; exit 1; }
 echo '{}' > "$dir/ols.json"
 rm -rf "$dir/nd" "$dir/nd.orig" "$dir/nd-odin" "$dir/nd.count"
+# The second check after the write covers every package. modernize edits packages a and c, which do not
+# import each other. c already reports `Undeclared name: one`, and the fake odin reports the same message in a
+# once its edit is written: always, or with `once` only on the first check that sees the edit.
+mkdir -p "$dir/mp/a" "$dir/mp/c"
+for p in a c; do
+	printf 'package %s\n\nf :: proc(x: int) {\n\tif (x > 0) {}\n}\n' "$p" > "$dir/mp/$p/$p.odin"
+	cp "$dir/mp/$p/$p.odin" "$dir/mp.$p.orig"
+done
+mp_odin() {
+	cat > "$dir/mp-odin" <<SH
+#!/usr/bin/env bash
+[[ "\$1" == check ]] || exec odin "\$@"
+case "\$2" in
+*/a)
+	grep -q 'if (x' "\$2/a.odin" && exit 0
+	if [[ "$1" == once ]]; then [[ -e "$dir/mp.seen" ]] && exit 0; touch "$dir/mp.seen"; fi;;
+*/c) ;;
+*) exit 0;;
+esac
+printf '{"error_count":1,"errors":[{"type":"error","pos":{"file":"%s/%s.odin","offset":0,"line":4,"column":2,"end_column":3},"msgs":["Undeclared name: one"]}]}' "\$2" "\$(basename "\$2")"
+exit 1
+SH
+	chmod +x "$dir/mp-odin"
+	rm -f "$dir/mp.seen"
+}
+echo '{"odin_command": "'"$dir/mp-odin"'"}' > "$dir/ols.json"
+mp_odin always
+expect_exit 4 gate-second-run-sees-a-new-copy-of-an-existing-error "$OLS" query modernize "$dir/mp" --apply
+cmp -s "$dir/mp/a/a.odin" "$dir/mp.a.orig" && cmp -s "$dir/mp/c/c.odin" "$dir/mp.c.orig" || { echo "FAIL gate-second-run-sees-a-new-copy-of-an-existing-error is not rolled back byte for byte"; exit 1; }
+mp_odin once
+expect_exit 0 gate-second-run-drops-a-one-off-copy "$OLS" query modernize "$dir/mp" --apply
+! grep -q 'if (x' "$dir/mp/a/a.odin" || { echo "FAIL gate-second-run-drops-a-one-off-copy did not write the edit"; exit 1; }
+echo '{}' > "$dir/ols.json"
+rm -rf "$dir/mp" "$dir/mp.a.orig" "$dir/mp.c.orig" "$dir/mp-odin" "$dir/mp.seen"
 # checker_variants adds a gate check with its args: require_results on L breaks only the SIM build.
 mkdir "$dir/vr"
 printf 'package vr\n\nSIM :: #config(SIM, false)\n\nL :: proc() -> int {\n\treturn 1\n}\n\nwhen SIM {\n\tsim_step :: proc() {\n\t\tL()\n\t}\n}\n' > "$dir/vr/vr.odin"
