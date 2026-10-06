@@ -126,8 +126,9 @@ prepare_move :: proc(document: ^Document, offset: int) -> (move: Move, reason: s
 		move.del_start -= 1
 	}
 
-	move.imports = used_imports(document, decl)
-	move.stale_imports = stale_imports(document, decl, move.imports)
+	inside, outside := import_uses(document, decl)
+	move.imports = used_imports(document, inside)
+	move.stale_imports = stale_imports(document, outside, move.imports)
 	return move, "", true
 }
 
@@ -153,7 +154,7 @@ move_edit :: proc(move: Move, target_uri: string, files: []Package_File) -> (Wor
 	// has the same `#+private` tag. A new file gets the tags of the source, and with them its name must allow the
 	// same OS and architecture pairs.
 	if !package_file_exists(target_path, files) {
-		tags := parser.parse_file_tags(document.ast, context.temp_allocator)
+		tags := build_tags(document.ast)
 		if !same_build_targets(document.fullpath, tags, target_path, tags) {
 			return {}, fmt.tprintf("%s has different build constraints", path.base(target_path)), false
 		}
@@ -212,8 +213,7 @@ PRIVACY_NAMES := [parser.Private_Flag]string {
 // names, `#+build` lines and `#+build-project-name` lines allow.
 @(private = "file")
 build_constraints_differ :: proc(a, b: ^Document) -> bool {
-	tags_a := parser.parse_file_tags(a.ast, context.temp_allocator)
-	tags_b := parser.parse_file_tags(b.ast, context.temp_allocator)
+	tags_a, tags_b := build_tags(a.ast), build_tags(b.ast)
 	if tags_a.ignore != tags_b.ignore {
 		return true
 	}
@@ -347,9 +347,9 @@ is_file_private :: proc(attributes: []^ast.Attribute) -> bool {
 	return false
 }
 
-// The imports of document that decl names as the package of a selector.
-used_imports :: proc(document: ^Document, decl: ^ast.Value_Decl) -> []Package {
-	inside, _ := import_uses(document, decl)
+// The imports of document whose names are in inside, the import uses of the moved declaration.
+@(private = "file")
+used_imports :: proc(document: ^Document, inside: map[string]struct{}) -> []Package {
 	used := make([dynamic]Package, context.temp_allocator)
 	for imp in document.imports {
 		if imp.base in inside do append(&used, imp)
@@ -394,18 +394,17 @@ import_uses :: proc(document: ^Document, decl: ^ast.Value_Decl) -> (inside, outs
 	return
 }
 
-// The imports in used that no other code of document names as the package of a selector, leaving out those the
-// file already left unused.
+// The imports in used whose names are not in outside, the import uses of document outside the moved declaration,
+// leaving out those the file already left unused.
 @(private = "file")
-stale_imports :: proc(document: ^Document, decl: ^ast.Value_Decl, used: []Package) -> []Package {
+stale_imports :: proc(document: ^Document, outside: map[string]struct{}, used: []Package) -> []Package {
 	if len(used) == 0 || document.ast.syntax_error_count > 0 {
 		return nil
 	}
-	_, names := import_uses(document, decl)
 
 	stale := make([dynamic]Package, context.temp_allocator)
 	for imp in used {
-		if imp.base not_in names {
+		if imp.base not_in outside {
 			append(&stale, imp)
 		}
 	}

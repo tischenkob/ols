@@ -2,6 +2,7 @@ package server
 
 import "core:fmt"
 import "core:odin/ast"
+import "core:odin/parser"
 import "core:odin/tokenizer"
 import "core:os"
 import "core:path/filepath"
@@ -295,60 +296,58 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 
 	switch {
 	case target.flag == .Field:
-		members, owner, type_name, found := sibling_members(decl_document, decl_offset)
-		if !found {
+		variants, problem := field_variants(&target.h, symbol)
+		if problem != "" {
+			append(out, problem)
 			return
 		}
-		for ident in members {
-			if ident.name == new_name {
-				append(
-					out,
-					fmt.tprintf(
-						"`%s` is already a member of the same type at %s",
-						new_name,
-						ident_text(decl_document, ident),
-					),
-				)
-			}
-		}
-		// The rename changes the member of each platform variant of the type too.
-		for variant in field_variants(&target.h, symbol) {
+		// The member and the same member of each platform variant of its type, which the rename changes too.
+		members_at := make([dynamic]Rename_Site, context.temp_allocator)
+		append(&members_at, Rename_Site{document = decl_document, offset = decl_offset})
+		for variant in variants {
 			document := hierarchy_document(&target.h, variant.uri)
 			if document == nil do continue
 			offset := common.get_absolute_position(variant.range.start, document.text[:document.used_text]) or_continue
-			variant_members, _, _, _ := sibling_members(document, offset)
-			for ident in variant_members {
+			append(&members_at, Rename_Site{document = document, offset = offset})
+		}
+		type_name: ^ast.Ident
+		for site, i in members_at {
+			members, owner, site_type_name, found := sibling_members(site.document, site.offset)
+			if !found {
+				if i == 0 do return
+				continue
+			}
+			for ident in members {
 				if ident.name == new_name {
 					append(
 						out,
 						fmt.tprintf(
 							"`%s` is already a member of the same type at %s",
 							new_name,
-							ident_text(document, ident),
+							ident_text(site.document, ident),
 						),
 					)
 				}
 			}
-		}
-		struct_type, is_struct := owner.derived.(^ast.Struct_Type)
-		if !is_struct {
-			return
-		}
-		for field in struct_type.fields.list {
-			if .Using not_in field.flags || len(field.names) == 0 {
-				continue
-			}
-			via := field.names[0].derived.(^ast.Ident) or_continue
-			if slice.contains(using_member_names(decl_document, field.type), new_name) {
-				append(
-					out,
-					fmt.tprintf(
-						"`%s` is already a member of the same type through `using %s` at %s",
-						new_name,
-						via.name,
-						ident_text(decl_document, via),
-					),
-				)
+			struct_type := owner.derived.(^ast.Struct_Type) or_continue
+			// Only a struct carries the field on to the types that embed it.
+			if i == 0 do type_name = site_type_name
+			for field in struct_type.fields.list {
+				if .Using not_in field.flags || len(field.names) == 0 {
+					continue
+				}
+				via := field.names[0].derived.(^ast.Ident) or_continue
+				if slice.contains(using_member_names(site.document, field.type), new_name) {
+					append(
+						out,
+						fmt.tprintf(
+							"`%s` is already a member of the same type through `using %s` at %s",
+							new_name,
+							via.name,
+							ident_text(site.document, via),
+						),
+					)
+				}
 			}
 		}
 		if type_name != nil {
@@ -411,13 +410,13 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 		}
 		renamed := len(scanned)
 		sites := make([dynamic]Rename_Site, context.temp_allocator)
-		append(&sites, Rename_Site{decl_document, decl_offset})
+		append(&sites, Rename_Site{decl_document, decl_offset, build_tags(decl_document.ast)})
 		for variant in target.variants {
 			variant_offset := common.get_absolute_position(
 				variant.symbol.range.start,
 				variant.document.text[:variant.document.used_text],
 			) or_continue
-			append(&sites, Rename_Site{variant.document, variant_offset})
+			append(&sites, Rename_Site{variant.document, variant_offset, build_tags(variant.document.ast)})
 		}
 		// A sibling that mentions new_name and that some target builds with one of those files, where only its
 		// declarations visible to the package count.
@@ -431,9 +430,9 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 			if document == nil || document.ast.pkg_name != decl_document.ast.pkg_name {
 				continue
 			}
-			text := string(document.text[:document.used_text])
-			for scan in scanned[:renamed] {
-				if builds_together(scan.fullpath, string(scan.text[:scan.used_text]), document.fullpath, text) {
+			tags := build_tags(document.ast)
+			for site in sites {
+				if builds_together(site.document.fullpath, site.tags, document.fullpath, tags) {
 					append(&scanned, document)
 					break
 				}
@@ -485,19 +484,20 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 Rename_Site :: struct {
 	document: ^Document,
 	offset:   int,
+	tags:     parser.File_Tags, // build_tags of document, when the build check needs them
 }
 
 // Whether some target builds document with one of sites, and takes both the `when` branch around offset and the
 // one around that site.
 @(private = "file")
 builds_with_sites :: proc(sites: []Rename_Site, document: ^Document, offset: int) -> bool {
-	text := string(document.text[:document.used_text])
+	tags := build_tags(document.ast)
 	for site in sites {
 		if builds_together(
 			site.document.fullpath,
-			string(site.document.text[:site.document.used_text]),
+			site.tags,
 			document.fullpath,
-			text,
+			tags,
 			{&site.document.ast, site.offset},
 			{&document.ast, offset},
 		) {

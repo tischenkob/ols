@@ -268,7 +268,8 @@ resolve_references :: proc(
 		if resolve_flag == .Identifier {
 			variants = variant_symbols(declaration_variants(&h, symbol))
 		} else {
-			variants = field_variants(&h, symbol)
+			// The variants the rename cannot reach are check_rename's to report; references list the rest.
+			variants, _ = field_variants(&h, symbol)
 		}
 	}
 	return find_symbol_references(
