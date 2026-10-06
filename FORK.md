@@ -115,7 +115,9 @@ Small fixes:
 - `src/server/analysis.odin`: `resolve_slice_expression` gives a slice an anonymous type, so hover and "Add explicit type" print `[]int` for `s.arr[:2]` where upstream printed the field name.
 - `src/server/requests.odin`: the Odin root lookup runs `<workspace>/odin` only when it is a file, so a package directory named `odin`, such as `core/odin`, is not run.
 - `src/server/locals.odin`: `get_local` skips a local for a name in another top-level declaration of the file (`in_local_top_level_decl` in `src/server/rols_resolve.odin`), so the initializer of a global does not see the locals of a procedure that uses the global.
-- `src/server/analysis.odin`: `resolve_function_overload` caches only a result, with the `OverloadMode` it resolved in (`src/server/rols_resolve.odin`), and ignores a cached result of another mode. It drops a member that takes fewer arguments than the call passes everywhere except in signature help. A tie between members whose results differ picks no member when the call result is wanted (`top_candidates_agree`).
+- `src/server/analysis.odin`: `resolve_function_overload` caches each result, failures included, with the `OverloadMode` it resolved in (`src/server/rols_resolve.odin`), and ignores a cached result of another mode. The in-progress marker hits in every mode. A tie between members whose results differ picks no member when the call result is wanted (`top_candidates_agree`).
+- `src/server/analysis.odin`, `src/server/file_resolve.odin`: the whole-file resolve sets `whole_file_resolve` on its `AstContext`, and `resolve_function_overload` then drops a member that takes fewer arguments than the call passes. Completion and signature help keep every member, as upstream does.
+- `src/server/hover.odin`: hover on the callee of a group call that picks no member, such as a tie between different results, shows the group.
 - `src/server/analysis.odin`: `get_proc_return_types` resolves the callee of a call that a builtin such as `max` returns against that call, so a group member is picked by its own arguments.
 
 Tests:
