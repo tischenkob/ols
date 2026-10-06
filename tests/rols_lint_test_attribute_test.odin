@@ -1,4 +1,3 @@
-#+feature dynamic-literals
 package tests
 
 import "core:testing"
@@ -310,6 +309,15 @@ bad :: proc() -> bool {
 	return true
 }
 `,
+		// Corpus: mirage examples/nebula/nebula_test.odin runs its tests with framework:playtest.
+		`package test
+
+import "framework:playtest"
+
+@(test)
+nebula_starts :: proc(t: ^playtest.T) {
+}
+`,
 	}
 	for main in sources {
 		source := test.Source {
@@ -318,27 +326,4 @@ bad :: proc() -> bool {
 		}
 		test.expect_lint_diagnostics(t, &source, {})
 	}
-}
-
-// Corpus: mirage examples/nebula/nebula_test.odin runs its tests with framework:playtest.
-@(test)
-lint_test_signature_allows_another_runner_t :: proc(t: ^testing.T) {
-	source := test.Source {
-		main = `package test
-
-import "framework:playtest"
-
-@(test)
-nebula_starts :: proc(t: ^playtest.T) {
-}
-`,
-		packages = {{pkg = "playtest", source = `package playtest
-T :: struct {
-	failed: bool,
-}
-`}},
-		collections = {"framework" = "test"},
-		config = {enable_lint_test_attribute = true},
-	}
-	test.expect_lint_diagnostics(t, &source, {})
 }
