@@ -65,7 +65,12 @@ main :: proc() {
 		config = {enable_lint_printf = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{10, "printf-arity"}, {11, "printf-arity"}})
+	// `{1:d}` and `%[0]d` leave argument 0 or 1 unread, which core:fmt prints as %!(EXTRA …).
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{9, "printf-arity"}, {10, "printf-arity"}, {11, "printf-arity"}, {12, "printf-arity"}},
+	)
 }
 
 @(test)
@@ -356,7 +361,7 @@ f :: proc() {
 
 @(test)
 printf_arity_star_with_explicit_index_still_counts :: proc(t: ^testing.T) {
-	// `*[1]` reads argument 1 and `s` the first unused one, so two arguments are needed.
+	// `*[1]` reads argument 1 and `s` the first unused one, so two arguments are needed and a third is extra.
 	source := test.Source {
 		main = `package test
 
@@ -371,5 +376,70 @@ f :: proc() {
 		config = {enable_lint_printf = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{4, "printf-arity"}})
+	test.expect_lint_diagnostics(t, &source, {{4, "printf-arity"}, {5, "printf-arity"}})
+}
+
+@(test)
+printf_brace_star_reads_the_value_argument :: proc(t: ^testing.T) {
+	// core:fmt picks the argument of `{` before its options, so `*` reads the same argument as the value.
+	source := test.Source {
+		main = `package test
+
+import "fmt"
+f :: proc(n: int) {
+	_ = fmt.aprintf("{:*d}", n)
+	_ = fmt.aprintf("{:*d}", n, n)
+}
+`,
+		packages = corpus_fmt,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{5, "printf-arity"}}, {"call has 1 extra argument"})
+}
+
+@(test)
+printf_checks_types_after_a_multi_value_call :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "fmt"
+two :: proc() -> (f32, int) { return 1, 2 }
+f :: proc(s: string) {
+	fmt.printfln("%v %v %d", two(), s)
+	fmt.printfln("%d %v", s, missing())
+}
+`,
+		packages = corpus_fmt,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{5, "printf-type"}, {6, "printf-type"}})
+}
+
+@(test)
+printf_arity_skips_unknown_result_counts :: proc(t: ^testing.T) {
+	// A group whose members disagree, or an unresolved callee, passes an unknown number of values.
+	source := test.Source {
+		main = `package test
+
+import "fmt"
+one :: proc() -> int { return 1 }
+two :: proc(x: int) -> (int, bool) { return x, true }
+mixed :: proc { one, two }
+pair_none :: proc() -> (int, bool) { return 1, true }
+pair_one :: proc(x: int) -> (int, bool) { return x, true }
+pair :: proc { pair_none, pair_one }
+f :: proc() {
+	fmt.printfln("%v %v", mixed())
+	fmt.printfln("%v %v", missing())
+	fmt.printfln("%v %v", pair())
+	fmt.printfln("%v", pair())
+}
+`,
+		packages = corpus_fmt,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{13, "printf-arity"}})
 }
