@@ -843,3 +843,100 @@ pick :: proc(c: bool) -> int {
 		test.expect_action_missing(t, &source, REMOVE_ELSE_ACTION)
 	}
 }
+
+@(test)
+action_unwrap_else_if :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(c, d: bool) -> int {
+	x := 0
+	if c {
+		x = 1
+	} else {*}if d {
+		x = 2
+	}
+	return x
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_applied(t, &source, UNWRAP_ACTION, `package test
+
+f :: proc(c, d: bool) -> int {
+	x := 0
+	if c {
+		x = 1
+	} else {
+		x = 2
+	}
+	return x
+}
+`)
+}
+
+// A procedure named `exit` that returns does not end the flow.
+@(test)
+action_unwrap_resolved_exit_that_returns :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "lib"
+
+x :: proc() {}
+
+f :: proc(c: bool) {
+	{*}if c {
+		lib.exit()
+	}
+	x()
+}
+`,
+		packages = {{pkg = "lib", source = `package lib
+
+exit :: proc() {}
+`}},
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_applied(t, &source, UNWRAP_ACTION, `package test
+
+import "lib"
+
+x :: proc() {}
+
+f :: proc(c: bool) {
+	lib.exit()
+	x()
+}
+`)
+}
+
+@(test)
+action_unwrap_not_offered_after_diverging_call :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "lib"
+
+x :: proc() {}
+
+f :: proc(c: bool) {
+	{*}if c {
+		lib.stop()
+	}
+	x()
+}
+`,
+		packages = {{pkg = "lib", source = `package lib
+
+stop :: proc() -> ! {
+	for {}
+}
+`}},
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_missing(t, &source, UNWRAP_ACTION)
+}

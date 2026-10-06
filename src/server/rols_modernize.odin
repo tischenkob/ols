@@ -509,6 +509,7 @@ declares_inside :: proc(root: ^ast.Node, name: string) -> bool {
 			if node == nil do return nil
 			search := (^Search)(visitor.data)
 			names: []^ast.Expr
+			unrolled: [2]^ast.Expr
 			#partial switch n in node.derived {
 			case ^ast.Value_Decl:
 				names = n.names
@@ -516,8 +517,17 @@ declares_inside :: proc(root: ^ast.Node, name: string) -> bool {
 				names = n.names
 			case ^ast.Range_Stmt:
 				names = n.vals
+			case ^ast.Unroll_Range_Stmt:
+				unrolled = {n.val0, n.val1}
+				names = unrolled[:]
 			}
-			for n in names do if ident_is(n, search.name) do search.found = true
+			for n in names {
+				if n == nil do continue
+				// `for &e in xs` declares e.
+				name := n
+				if ref, is_ref := n.derived.(^ast.Unary_Expr); is_ref && ref.op.kind == .And do name = ref.expr
+				if ident_is(name, search.name) do search.found = true
+			}
 			return visitor
 		},
 	}

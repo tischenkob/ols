@@ -821,6 +821,26 @@ mentions_any :: proc(node: ^ast.Node, names: ..string) -> bool {
 	return false
 }
 
+// mentions_any without field names after a selector and enum members after a dot, which a
+// declaration cannot shadow. A field name in a literal still counts, since it may be a map key.
+@(private = "file")
+mentions_variable :: proc(node: ^ast.Node, names: []string) -> bool {
+	for use in collect_ident_uses(node) {
+		if len(use.parents) > 0 {
+			#partial switch p in use.parents[len(use.parents) - 1].derived {
+			case ^ast.Selector_Expr:
+				if p.field == use.ident do continue
+			case ^ast.Implicit_Selector_Expr:
+				continue
+			}
+		}
+		for name in names {
+			if use.ident.name == name do return true
+		}
+	}
+	return false
+}
+
 @(private = "file")
 simplify_or_else :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out: ^[dynamic]Simplification) {
 	if_stmt, ok := node.derived.(^ast.If_Stmt)
@@ -1346,8 +1366,8 @@ redundant_else :: proc(src: string, if_stmt: ^ast.If_Stmt, parents: []^ast.Node)
 	// declare or use the name, or a using statement may bring it in. Its defers would run at the
 	// end of that block, so after the statements that follow the if.
 	followed := at < len(siblings) - 1
-	// An else that ends the flow leaves the statements after the if unreachable already;
-	// unwrapping it would put them right after its terminator.
+	// An else that ends the flow leaves the statements after the if unreachable already.
+	// Unwrapping it would put them right after its terminator, which `odin check` rejects.
 	if followed && terminates(else_block.stmts[len(else_block.stmts) - 1]) {
 		return
 	}
@@ -1366,7 +1386,7 @@ redundant_else :: proc(src: string, if_stmt: ^ast.If_Stmt, parents: []^ast.Node)
 		for stmt, i in siblings {
 			if i == at do continue
 			_, is_using := stmt.derived.(^ast.Using_Stmt)
-			if is_using || mentions_any(stmt, ..declared[:]) {
+			if is_using || mentions_variable(stmt, declared[:]) {
 				return
 			}
 		}

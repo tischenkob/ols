@@ -635,3 +635,76 @@ g :: proc() -> int {
 	}
 	test.expect_action_missing(t, &source, ADD_OK_RESULT_ACTION)
 }
+
+@(test)
+add_ok_result_local_procedure_ignores_other_declarations :: proc(t: ^testing.T) {
+	expect_add_ok_result(t, `package test
+
+main :: proc() {
+	f{*} :: proc() -> int {
+		return 1
+	}
+}
+
+other :: proc() {
+	f := 2
+	_ = f
+}
+`, `package test
+
+main :: proc() {
+	f :: proc() -> (int, bool) {
+		return 1, true
+	}
+}
+
+other :: proc() {
+	f := 2
+	_ = f
+}
+`)
+}
+
+@(test)
+add_ok_result_updates_named_argument_caller :: proc(t: ^testing.T) {
+	expect_add_ok_result(t, `package test
+
+f{*} :: proc(x: int, y := 2) -> int {
+	return x + y
+}
+
+main :: proc() {
+	v := f(x = 1)
+	_ = v
+}
+`, `package test
+
+f :: proc(x: int, y := 2) -> (int, bool) {
+	return x + y, true
+}
+
+main :: proc() {
+	v, _ := f(x = 1)
+	_ = v
+}
+`)
+}
+
+@(test)
+add_ok_result_refused_procedure_value_in_callee :: proc(t: ^testing.T) {
+	expect_no_add_ok_result(t, `package test
+
+f{*} :: proc() -> int {
+	return 1
+}
+
+h :: proc(g: proc() -> int) -> proc() -> int {
+	return g
+}
+
+main :: proc() {
+	v := h(f)()
+	_ = v
+}
+`)
+}

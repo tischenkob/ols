@@ -653,11 +653,9 @@ main :: proc(p: ^Point) {
 @(test)
 action_inline_variable_refused_call_into_compound_assignment :: proc(t: ^testing.T) {
 	expect_no_inline_variable(t, INLINE_ORDER_PRELUDE + `
-f :: proc() -> int {
-	total := 1
+f :: proc() {
 	v{*} := bump()
-	total += v
-	return total
+	counter += v
 }
 `)
 }
@@ -777,6 +775,113 @@ main :: proc() {
 	v{*} := unknown_global
 	reset()
 	foo(v)
+}
+`)
+}
+
+@(test)
+action_inline_variable_builtin_len_past_statement :: proc(t: ^testing.T) {
+	expect_inline_variable(t, `package test
+
+main :: proc() -> int {
+	s := []int{1, 2, 3}
+	n{*} := len(s)
+	x := 2
+	return n + x
+}
+`, `package test
+
+main :: proc() -> int {
+	s := []int{1, 2, 3}
+	x := 2
+	return len(s) + x
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_builtin_len_past_append :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() -> int {
+	d: [dynamic]int
+	n{*} := len(d)
+	append(&d, 1)
+	return n
+}
+`)
+}
+
+// align_of reads only the type of its argument, so a write to the global does not change it.
+@(test)
+action_inline_variable_align_of_global_past_write :: proc(t: ^testing.T) {
+	expect_inline_variable(t, `package test
+
+g: int
+
+main :: proc() -> int {
+	n{*} := align_of(g)
+	g = 2
+	return n
+}
+`, `package test
+
+g: int
+
+main :: proc() -> int {
+	g = 2
+	return align_of(g)
+}
+`)
+}
+
+// A local whose address is never taken cannot change in the call, so reading it first is safe.
+@(test)
+action_inline_variable_call_after_local_read :: proc(t: ^testing.T) {
+	expect_inline_variable(t, INLINE_ORDER_PRELUDE + `
+g :: proc(a, b: int) {}
+
+f :: proc() {
+	a := 1
+	v{*} := bump()
+	g(a, v)
+}
+`, INLINE_ORDER_PRELUDE + `
+g :: proc(a, b: int) {}
+
+f :: proc() {
+	a := 1
+	g(a, bump())
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_call_after_address_taken_local_read :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, INLINE_ORDER_PRELUDE + `
+g :: proc(a, b: int) {}
+
+f :: proc() {
+	a := 1
+	p := &a
+	_ = p
+	v{*} := bump()
+	g(a, v)
+}
+`)
+}
+
+// A plain `=` target is written after the value is computed, so a global target is safe too.
+@(test)
+action_inline_variable_call_into_global_assignment :: proc(t: ^testing.T) {
+	expect_inline_variable(t, INLINE_ORDER_PRELUDE + `
+f :: proc() {
+	v{*} := bump()
+	counter = v
+}
+`, INLINE_ORDER_PRELUDE + `
+f :: proc() {
+	counter = bump()
 }
 `)
 }

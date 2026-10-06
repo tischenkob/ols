@@ -2474,6 +2474,47 @@ shadows :: proc(a: bool) {
 	test.expect_lint_diagnostics(t, &source, {{8, "redundant-else"}})
 }
 
+// A field name after a selector or an enum member after a dot cannot be shadowed by the
+// unwrapped declaration. A field name in a literal may be a map key, so it still refuses.
+@(test)
+simplify_redundant_else_before_field_names :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Point :: struct { y: int }
+Dir :: enum { y }
+
+field :: proc(a: bool, p: Point) -> int {
+	x := 0
+	if a {
+		return 1
+	} else {
+		y := 2
+		x = y
+	}
+	d := Dir.y
+	e: Dir = .y
+	_, _ = d, e
+	return x + p.y
+}
+
+literal :: proc(a: bool) -> Point {
+	x := 0
+	if a {
+		return {}
+	} else {
+		y := 2
+		x = y
+	}
+	return Point{y = x}
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{9, "redundant-else"}})
+}
+
 // Unwrapping any of these changes behavior or leaves code Odin rejects.
 @(test)
 simplify_redundant_else_refused :: proc(t: ^testing.T) {

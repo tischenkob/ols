@@ -7,6 +7,8 @@ import "core:odin/ast"
 import "core:slice"
 import "core:strings"
 
+import "src:common"
+
 @(private = "package")
 add_add_ok_result_action :: proc(ctx: ^ActionContext) {
 	if !ctx.config.enable_code_action_add_ok_result {
@@ -202,9 +204,13 @@ add_ok_to_callers :: proc(
 		return false
 	}
 	if _, is_top := proc_decl_of(ctx.document, lit); !is_top {
-		// A local procedure's callers are not searched for, so it must have none.
+		// A local procedure's callers are not searched for, so it must have none. Only the top-level
+		// declaration that holds it can name it.
 		name := final_name(decl.names[0])
 		for top in ctx.document.ast.decls {
+			if decl.pos.offset < top.pos.offset || top.end.offset < decl.end.offset {
+				continue
+			}
 			for use in collect_ident_uses(top) {
 				if use.ident.name == name && use.ident.pos.offset != decl.names[0].pos.offset {
 					return false
@@ -218,9 +224,19 @@ add_ok_to_callers :: proc(
 	if len(top_level_variants(&h, ctx.document, decl)) > 0 {
 		return false
 	}
-	sites, _, found := find_call_sites(ctx.document, decl, len(param_names(lit)), ctx.files)
-	if !found {
-		return false
+	// Only the left side of each call changes, so named, defaulted and spread arguments do not matter.
+	sites := make([dynamic]Call_Site, context.temp_allocator)
+	h.documents[ctx.document.uri.uri] = ctx.document
+	for location in proc_references(ctx.document, decl, ctx.files) {
+		caller := hierarchy_document(&h, location.uri)
+		if caller == nil {
+			return false
+		}
+		call, ok := call_at_reference(caller, location)
+		if !ok || call == nil || !calls_reference(caller, call, location) {
+			return false
+		}
+		append(&sites, Call_Site{caller, call})
 	}
 	for site in sites {
 		parent: ^ast.Node
@@ -253,6 +269,23 @@ add_ok_to_callers :: proc(
 		append_edit(changes, site.document, last.end.offset, last.end.offset, ", _")
 	}
 	return true
+}
+
+// Whether the callee of call is the name at location itself, not a name inside a callee
+// expression such as `h(f)()`.
+calls_reference :: proc(caller: ^Document, call: ^ast.Call_Expr, location: common.Location) -> bool {
+	offset, ok := common.get_absolute_position(location.range.start, caller.text[:caller.used_text])
+	if !ok {
+		return false
+	}
+	callee := ast.unparen_expr(call.expr)
+	#partial switch c in callee.derived {
+	case ^ast.Ident:
+		return c.pos.offset == offset
+	case ^ast.Selector_Expr:
+		return c.field != nil && c.field.pos.offset == offset
+	}
+	return false
 }
 
 // Returns of this procedure, skipping those of nested procedure literals.

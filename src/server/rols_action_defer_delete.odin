@@ -160,7 +160,8 @@ add_defer_delete_action :: proc(ctx: ^ActionContext) {
 			}
 		}
 	}
-	if escapes(function.body, name) {
+	walk := Escape_Walk{ctx.document, strings.has_prefix(cleanup, "free(")}
+	if escapes(&walk, function.body, name) {
 		return
 	}
 
@@ -186,12 +187,12 @@ add_defer_delete_action :: proc(ctx: ^ActionContext) {
 // trusted not to keep its arguments, except the append family in `stores`. Uses this walk does not
 // know count as escapes. Shadowing is ignored. name is the variable the allocation statement assigns,
 // or with element an alias of one element, such as `e` in `for &e in s`.
-escapes :: proc(body: ^ast.Stmt, name: ^ast.Ident, element := false) -> bool {
+escapes :: proc(walk: ^Escape_Walk, body: ^ast.Stmt, name: ^ast.Ident, element := false) -> bool {
 	for use in collect_ident_uses(body) {
 		if use.ident.name != name.name || use.ident == name || len(use.parents) == 0 {
 			continue
 		}
-		if is_value_use(use) && escapes_from(use.ident, use.parents, element) {
+		if is_value_use(use) && escapes_from(walk, use.ident, use.parents, element) {
 			return true
 		}
 	}
@@ -201,11 +202,17 @@ escapes :: proc(body: ^ast.Stmt, name: ^ast.Ident, element := false) -> bool {
 // value is an expression that may share the allocation; parents are its ancestors, outermost first.
 // An element read (index or deref) copies out of the allocation, so it only shares it through a
 // later `&` or slice. element says that value itself already is such a read.
-escapes_from :: proc(value: ^ast.Expr, parents: []^ast.Node, element := false) -> bool {
+escapes_from :: proc(walk: ^Escape_Walk, value: ^ast.Expr, parents: []^ast.Node, element := false) -> bool {
 	value, element := value, element
 	for i := len(parents) - 1; i >= 0; i -= 1 {
 		#partial switch p in parents[i].derived {
-		case ^ast.Paren_Expr, ^ast.Selector_Expr:
+		case ^ast.Paren_Expr:
+		case ^ast.Selector_Expr:
+			// A field of the single value that `free` releases is a copy, like an element read. A field
+			// of a builder or another container may hold the allocation itself.
+			if walk.free && p.expr == value && p.op.kind == .Period {
+				element = true
+			}
 		case ^ast.Index_Expr:
 			// An allocation is never an integer, so in the index position it is a map key.
 			if p.expr != value {
@@ -225,6 +232,24 @@ escapes_from :: proc(value: ^ast.Expr, parents: []^ast.Node, element := false) -
 			}
 			element = false
 		case:
+			// `for &e in s` makes e an element of s in place, so `&e` shares the allocation, also when s
+			// itself is an element such as `s[0]` or an outer alias.
+			if q, is_range := parents[i].derived.(^ast.Range_Stmt); is_range {
+				if q.expr != value || q.body == nil {
+					return false
+				}
+				for val in q.vals {
+					ref, is_ref := val.derived.(^ast.Unary_Expr)
+					if !is_ref || ref.op.kind != .And {
+						continue
+					}
+					if alias, is_ident := ref.expr.derived.(^ast.Ident);
+					   is_ident && escapes(walk, q.body, alias, true) {
+						return true
+					}
+				}
+				return false
+			}
 			if element {
 				return false
 			}
@@ -255,27 +280,15 @@ escapes_from :: proc(value: ^ast.Expr, parents: []^ast.Node, element := false) -
 					if slice.contains(stores, callee) && len(q.args) > 0 && q.args[0] != value {
 						return true
 					}
+					if returns_only_scalars(walk.document, q) {
+						return false
+					}
 				}
 			case ^ast.Assign_Stmt:
 				// Writing through the value is safe, but reassigning the variable leaks the
 				// allocation and frees whatever it holds instead.
 				_, is_variable := value.derived.(^ast.Ident)
 				return is_variable || !slice.contains(q.lhs, value)
-			case ^ast.Range_Stmt:
-				// `for &e in s` makes e an element of s in place, so `&e` shares the allocation.
-				if q.expr != value || q.body == nil {
-					return false
-				}
-				for val in q.vals {
-					ref, is_ref := val.derived.(^ast.Unary_Expr)
-					if !is_ref || ref.op.kind != .And {
-						continue
-					}
-					if alias, is_ident := ref.expr.derived.(^ast.Ident); is_ident && escapes(q.body, alias, true) {
-						return true
-					}
-				}
-				return false
 			case ^ast.Expr_Stmt,
 			     ^ast.If_Stmt,
 			     ^ast.When_Stmt,
@@ -292,6 +305,50 @@ escapes_from :: proc(value: ^ast.Expr, parents: []^ast.Node, element := false) -
 		value = (^ast.Expr)(parents[i])
 	}
 	return false
+}
+
+Escape_Walk :: struct {
+	document: ^Document,
+	free:     bool, // the cleanup is `free`, so the allocation is one value and its fields are copies
+}
+
+// Whether call resolves to a non-polymorphic procedure whose results are all numbers, booleans,
+// runes, enums or bit sets, none of which can hold the allocation. uintptr is left out on purpose.
+returns_only_scalars :: proc(document: ^Document, call: ^ast.Call_Expr) -> bool {
+	resolved := resolve_entire_file(document)[uintptr(call.expr)] or_return
+	if resolved.is_unresolved {
+		return false
+	}
+	callee := resolved.symbol.value.(SymbolProcedureValue) or_return
+	if callee.generic || len(callee.return_types) == 0 {
+		return false
+	}
+	for field in callee.return_types {
+		if field.type == nil {
+			return false
+		}
+		symbol := resolve_type_in_package(document, resolved.symbol.pkg, field.type) or_return
+		if symbol.pointers > 0 {
+			return false
+		}
+		#partial switch v in symbol.value {
+		case SymbolEnumValue, SymbolBitSetValue:
+		case SymbolBasicValue:
+			if v.ident == nil {
+				return false
+			}
+			scalar := false
+			for kind in ([]SymbolUntypedValueType{.Integer, .Bool, .Float, .Rune, .Complex, .Quaternion}) {
+				scalar ||= slice.contains(untyped_map[kind], v.ident.name)
+			}
+			if !scalar {
+				return false
+			}
+		case:
+			return false
+		}
+	}
+	return true
 }
 
 stores := []string{"append", "append_elem", "append_elems", "inject_at", "assign_at", "map_insert"}
