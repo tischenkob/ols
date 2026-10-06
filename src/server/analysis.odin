@@ -3041,7 +3041,10 @@ resolve_local_identifier :: proc(
 
 	symbol.flags |= {.Local}
 	symbol.value_expr = local.value_expr
-	symbol.type_expr = local.type_expr
+	// rols: a copy of an inline aggregate variable (`x := p`) keeps the inline type of `p`, which has no name
+	if local.type_expr != nil || .Anonymous not_in symbol.flags {
+		symbol.type_expr = local.type_expr
+	}
 	symbol.doc = get_comment(local.docs, ast_context.allocator)
 	symbol.comment = get_comment(local.comment, ast_context.allocator)
 
