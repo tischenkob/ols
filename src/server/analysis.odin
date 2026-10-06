@@ -60,13 +60,18 @@ AstContext :: struct {
 	enum_value_cache:          map[^ast.Enum_Type]SymbolEnumValue,
 	// rols: set by the whole-file resolve, which drops group members whose arity cannot fit a call
 	whole_file_resolve:        bool,
+	// rols: the call and argument index whose parameter a caller reads, which picks its member by that parameter
+	overload_arg_call:         ^ast.Call_Expr,
+	overload_arg_index:        int,
 }
 
 SymbolResult :: struct {
-	symbol: Symbol,
-	ok:     bool,
+	symbol:    Symbol,
+	ok:        bool,
 	// rols: the overload mode the call resolved in; a hit from another mode is ignored
-	mode:   OverloadMode,
+	mode:      OverloadMode,
+	// rols: the argument index of a .Member result; a hit for another index is ignored
+	arg_index: int,
 }
 
 make_ast_context :: proc(
@@ -1067,6 +1072,23 @@ proc_total_arg_count :: proc(procedure: SymbolProcedureValue) -> int {
 	return total
 }
 
+// rols: the parameters a call must pass: those without a default value that are not variadic
+proc_required_arg_count :: proc(procedure: SymbolProcedureValue) -> int {
+	required := 0
+	for field in procedure.arg_types {
+		if field.default_value != nil {
+			continue
+		}
+		if field.type != nil {
+			if _, is_variadic := field.type.derived.(^ast.Ellipsis); is_variadic {
+				continue
+			}
+		}
+		required += max(1, len(field.names))
+	}
+	return required
+}
+
 proc_has_value_poly_arg :: proc(procedure: SymbolProcedureValue) -> bool {
 	for field in procedure.orig_arg_types {
 		for name in field.names {
@@ -1200,7 +1222,10 @@ resolve_function_overload :: proc(ast_context: ^AstContext, group: ^ast.Proc_Gro
 		// See https://github.com/DanielGavin/ols/issues/1182
 		// rols: the in-progress marker hits in every mode, a result only in the mode it resolved in
 		if result, ok := check_call_expr_cache(ast_context, call_expr);
-		   ok && (result.mode == .Pending || result.mode == requested_mode) {
+		   ok &&
+		   (result.mode == .Pending ||
+				   result.mode == requested_mode &&
+					   (requested_mode != .Member || result.arg_index == ast_context.overload_arg_index)) {
 			return result.symbol, result.ok
 		}
 		ast_context.call_expr_recursion_cache[cast(rawptr)call_expr] = {}
@@ -1213,7 +1238,14 @@ resolve_function_overload :: proc(ast_context: ^AstContext, group: ^ast.Proc_Gro
 	call_args, ok := expand_call_args(ast_context, call_expr)
 	if !ok {
 		// rols: replace the in-progress marker with a failure of this mode
-		if call_expr != nil do ast_context.call_expr_recursion_cache[cast(rawptr)call_expr] = {{}, false, requested_mode}
+		if call_expr != nil {
+			ast_context.call_expr_recursion_cache[cast(rawptr)call_expr] = {
+				{},
+				false,
+				requested_mode,
+				ast_context.overload_arg_index,
+			}
+		}
 		return {}, false
 	}
 
@@ -1254,6 +1286,12 @@ resolve_function_overload :: proc(ast_context: ^AstContext, group: ^ast.Proc_Gro
 					if !is_variadic && len(call_args) > total_arg_count {
 						continue
 					}
+				}
+				// rols: and one that needs more, when the value count of every argument is known
+				if ast_context.whole_file_resolve &&
+				   call_arg_counts_known(call_args) &&
+				   len(call_args) < proc_required_arg_count(procedure) {
+					continue
 				}
 				// Fewer synthesized defaults is a closer match
 				provided := min(len(call_args), total_arg_count)
@@ -1476,9 +1514,27 @@ resolve_function_overload :: proc(ast_context: ^AstContext, group: ^ast.Proc_Gro
 	   !top_candidates_agree(ast_context, candidates[:]) {
 		symbol, ok_canidate = {}, false
 	}
+	// rols: a tie between members whose parameters differ at the argument yields all tied members, as an aggregate
+	if ok_canidate && requested_mode == .Member && !resolve_all_possibilities {
+		if tied, agree := tied_candidates_at_arg(
+			ast_context,
+			candidates[:],
+			call_expr^,
+			ast_context.overload_arg_index,
+		); !agree {
+			symbol.value = SymbolAggregateValue {
+				symbols = tied,
+			}
+		}
+	}
 	if call_expr != nil {
-		// rols: with the mode it resolved in
-		ast_context.call_expr_recursion_cache[cast(rawptr)call_expr] = {symbol, ok_canidate, requested_mode}
+		// rols: with the mode, and the argument index, it resolved in
+		ast_context.call_expr_recursion_cache[cast(rawptr)call_expr] = {
+			symbol,
+			ok_canidate,
+			requested_mode,
+			ast_context.overload_arg_index,
+		}
 	}
 	return symbol, ok_canidate
 }
@@ -3520,8 +3576,16 @@ resolve_implicit_selector :: proc(
 			parameter_index, parameter_ok := find_position_in_call_param(position_context, call^)
 			old := ast_context.resolve_specific_overload
 			ast_context.resolve_specific_overload = true
+			// rols: a group picks its member by this call's arguments, and refuses a tie that differs at the argument
+			old_call, old_arg_call, old_arg_index :=
+				ast_context.call, ast_context.overload_arg_call, ast_context.overload_arg_index
+			ast_context.call, ast_context.overload_arg_call, ast_context.overload_arg_index =
+				call, call, parameter_index
 			defer {
 				ast_context.resolve_specific_overload = old
+				// rols: restore the call and argument index set above
+				ast_context.call, ast_context.overload_arg_call, ast_context.overload_arg_index =
+					old_call, old_arg_call, old_arg_index
 			}
 			if symbol, ok := resolve_type_expression(ast_context, call.expr); ok && parameter_ok {
 				#partial switch v in symbol.value {

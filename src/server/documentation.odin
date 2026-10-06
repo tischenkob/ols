@@ -75,6 +75,12 @@ write_signature :: proc(sb: ^strings.Builder, ast_context: ^AstContext, symbol: 
 
 	spall.trace(#procedure, symbol.name)
 
+	// rols: a pointer to an aggregate printed by its body, such as `&p` for `p: struct {...}`, keeps the pointer
+	#partial switch _ in symbol.value {
+	case SymbolEnumValue, SymbolStructValue, SymbolUnionValue, SymbolBitFieldValue:
+		strings.write_string(sb, pointer_prefix)
+	}
+
 	#partial switch v in symbol.value {
 	case SymbolEnumValue:
 		if .Distinct in symbol.flags {

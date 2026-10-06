@@ -40,6 +40,40 @@ main :: proc() {
 	test.expect_hover(t, &source, "test.r: struct {\n\ta: int,\n}")
 }
 
+// A poly value parameter takes a pointer to an inline struct as T, keeping the pointer.
+@(test)
+hover_poly_value_param_of_inline_struct_pointer :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+foo :: proc(x: $T) -> T { return x }
+main :: proc() {
+	p: struct {
+		a: int,
+	}
+	r{*} := foo(&p)
+}
+`,
+	}
+	test.expect_hover(t, &source, "test.r: ^struct {\n\ta: int,\n}")
+}
+
+@(test)
+hover_pointer_to_inline_struct :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	p: struct {
+		a: int,
+	}
+	q{*} := &p
+}
+`,
+	}
+	test.expect_hover(t, &source, "test.q: ^struct {\n\ta: int,\n}")
+}
+
 // A copy of an inline struct variable has no type expression of its own, so T comes from the copied variable.
 @(test)
 hover_poly_param_of_inline_struct_copy :: proc(t: ^testing.T) {

@@ -99,3 +99,51 @@ use :: proc(a, b: Kind) -> bool {
 		},
 	)
 }
+
+// The whole-file resolve drops a group member that needs more arguments than the call passes. `one` fits but its
+// parameter type does not resolve, so `g(1)` resolves to no member, and `b_field` is not referenced through `two`.
+@(test)
+file_resolve_group_call_drops_members_that_need_more_arguments :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+A :: struct { a_field: int }
+B :: struct { b_field{*}: int }
+one :: proc(a: Missing) -> A { return {} }
+two :: proc(a, b: int) -> B { return {} }
+g :: proc { one, two }
+main :: proc() {
+	_ = g(1).b_field
+}
+`,
+	}
+	test.expect_reference_locations(
+		t,
+		&source,
+		{{range = {start = {line = 3, character = 14}, end = {line = 3, character = 21}}}},
+	)
+}
+
+// A global and a procedure declared inside the same top-level `when` are separate declarations, so the
+// initializer of `G` does not see the local `a` of `use`.
+@(test)
+hover_global_initializer_in_when_ignores_locals :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct { field: int }
+make_int :: proc(v: int) -> S { return {} }
+make_f32 :: proc(v: f32) -> S { return {} }
+g :: proc{make_int, make_f32}
+when true {
+	use :: proc() {
+		a: string
+		_ = G.fi{*}eld
+	}
+	a: int
+	G := g(a)
+}
+`,
+	}
+	test.expect_hover(t, &source, "S.field: int")
+}

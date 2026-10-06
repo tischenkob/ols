@@ -727,6 +727,63 @@ g :: proc() {
 	test.expect_no_hover(t, &source)
 }
 
+// The tied members return procedures with different results, so a field of the called result names neither.
+@(test)
+hover_overload_tie_of_called_result :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+A :: struct { a_field: int }
+B :: struct { b_field: int }
+a :: proc(p: int) -> proc() -> A { return nil }
+b :: proc(p: int) -> proc() -> B { return nil }
+ab :: proc { a, b }
+g :: proc() {
+	_ = ab(1)().a_fi{*}eld
+}
+`,
+	}
+	test.expect_no_hover(t, &source)
+}
+
+// The tied members take different enums at the argument, so the implicit selector names neither enum's member.
+@(test)
+hover_overload_tie_of_implicit_selector_argument :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+E1 :: enum { A, B }
+E2 :: enum { A, C }
+f1 :: proc(e: E1, p: []u8) {}
+f2 :: proc(e: E2, p: ^int) {}
+g :: proc { f1, f2 }
+main :: proc() {
+	g(.A{*}, nil)
+}
+`,
+	}
+	test.expect_no_hover(t, &source)
+}
+
+// Completion in an argument of a tied group call offers the values of every tied member's parameter.
+@(test)
+completion_overload_tie_offers_every_tied_parameter :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+E1 :: enum { A, B }
+E2 :: enum { A, C }
+f1 :: proc(e: E1, p: []u8) {}
+f2 :: proc(e: E2, p: ^int) {}
+g :: proc { f1, f2 }
+main :: proc() {
+	g(.{*}, nil)
+}
+`,
+	}
+	test.expect_completion_labels(t, &source, ".", {"A", "B", "C"})
+}
+
 // The group call inside max resolves against its own arguments, not against the arguments of max.
 @(test)
 hover_max_of_group_call :: proc(t: ^testing.T) {
