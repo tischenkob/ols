@@ -6,7 +6,7 @@ import "core:odin/ast"
 
 @(private = "package")
 add_lint_fix_action :: proc(ctx: ^ActionContext) {
-	for fix in lint_fixes(ctx.document, ctx.config) {
+	for fix in lint_fixes(ctx.document, ctx.config, ctx.files) {
 		if fix.start > ctx.range.start || ctx.range.end > fix.end {
 			continue
 		}

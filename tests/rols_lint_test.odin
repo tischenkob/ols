@@ -870,3 +870,34 @@ f :: proc() {
 		{"result of make_pair is ignored (Error)", "result of make_pair is ignored (bool)"},
 	)
 }
+
+// A procedure that another file of the package passes as a value has its signature fixed there.
+@(test)
+lint_unused_parameter_value_use_in_another_file :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(x: int) {
+	n := 1
+	_ = n
+}
+
+g :: proc(x: int) {
+	n := 1
+	_ = n
+}
+`,
+		files = {{"b.odin", `package test
+
+register :: proc(cb: proc(x: int)) {}
+
+init :: proc() {
+	register(f)
+	g(1)
+}
+`}},
+		config = {enable_lint_unused_parameter = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{7, "unused-parameter"}})
+}

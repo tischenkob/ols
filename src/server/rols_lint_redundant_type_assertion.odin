@@ -22,7 +22,8 @@ Bind_Edit :: struct {
 // A type switch whose single-type cases assert the subject to the case type again.
 Bind_Match :: struct {
 	tag:      ^ast.Assign_Stmt,
-	subject:  string,
+	subject:  string, // the subject's text without spaces: a name or a chain of `.` selectors over one
+	root:     string, // the name the subject starts with
 	name:     string, // the existing binding, "" when it is `_` or absent
 	bare:     bool, // `switch in s`
 	is_ref:   bool, // the binding is already `&name`
@@ -55,14 +56,15 @@ lint_redundant_type_assertion :: proc(ctx: ^LintContext, node: ^ast.Node, diags:
 	}
 }
 
-// The subject must be a plain name, and a clause may name it only in the assertions. Any other use could
-// redeclare it, write it, or pass a pointer subject on to code that changes the variant after the switch
-// copied it, so such a clause is skipped.
+// The subject must be a name or a chain of `.` selectors over one, and a clause may name its root only in
+// the assertions of the whole subject. Any other use could redeclare it, write it or a field of it, or pass a
+// pointer subject on to code that changes the variant after the switch copied it, so such a clause is skipped.
 match_switch_binding :: proc(src: string, decls: []^ast.Stmt, n: ^ast.Type_Switch_Stmt) -> (m: Bind_Match, ok: bool) {
 	m.tag = n.tag.derived.(^ast.Assign_Stmt) or_return
 	if len(m.tag.lhs) != 1 || len(m.tag.rhs) != 1 do return
-	subject := m.tag.rhs[0].derived.(^ast.Ident) or_return
-	m.subject = subject.name
+	root := selector_root(m.tag.rhs[0]) or_return
+	m.root = root.name
+	m.subject = strip_space(node_text(src, m.tag.rhs[0]))
 	block := n.body.derived.(^ast.Block_Stmt) or_return
 
 	// `switch in u` parses with a blank on the left that sits at the switch keyword.
@@ -74,7 +76,7 @@ match_switch_binding :: proc(src: string, decls: []^ast.Stmt, n: ^ast.Type_Switc
 	}
 	name := binding.derived.(^ast.Ident) or_return
 	if !m.bare && name.name != "_" do m.name = name.name
-	if m.name == m.subject do return
+	if m.name == m.root do return
 
 	m.sites = make([dynamic]^ast.Type_Assertion, context.temp_allocator)
 	m.edits = make([dynamic]Bind_Edit, context.temp_allocator)
@@ -128,12 +130,12 @@ match_clause :: proc(m: ^Bind_Match, src: string, clause: ^ast.Case_Clause, resu
 			// A write through `&x` changes what a copy taken by the clause would read.
 			if m.is_ref && is_write(use) do clause_ref = true
 		}
-		if use.ident.name != m.subject do continue
-		ta, is_site := site_of(src, use, type_text, results)
+		if use.ident.name != m.root do continue
+		ta, at, is_site := site_of(src, use, m.subject, type_text, results)
 		if !is_site do return
 
 		// Ancestors of the assertion; parents[0] is the clause statement.
-		parents := use.parents[:len(use.parents) - 1]
+		parents := use.parents[:at]
 		site := Site {
 			ta   = ta,
 			node = ta,
@@ -163,28 +165,63 @@ match_clause :: proc(m: ^Bind_Match, src: string, clause: ^ast.Case_Clause, resu
 	m.need_ref ||= clause_ref
 }
 
-// `s.(T)` with T the case type, used where one value is expected. `return s.(T)` in a procedure with two
-// results returns the optional ok as well.
+// The name a chain of `.` selectors starts with, such as `x` of `x.a.b`.
 @(private = "file")
-site_of :: proc(src: string, use: IdentUse, type_text: string, results: int) -> (^ast.Type_Assertion, bool) {
-	n := len(use.parents)
-	if n < 2 do return nil, false
-	ta, is_ta := use.parents[n - 1].derived.(^ast.Type_Assertion)
-	if !is_ta || ta.type == nil do return nil, false
-	subject: ^ast.Expr = use.ident
-	if ta.expr != subject || strip_space(node_text(src, ta.type)) != type_text do return nil, false
-
-	#partial switch p in use.parents[n - 2].derived {
-	case ^ast.Or_Else_Expr, ^ast.Or_Return_Expr, ^ast.Or_Branch_Expr:
-		return nil, false
-	case ^ast.Value_Decl:
-		if len(p.values) == 1 && len(p.names) > 1 do return nil, false
-	case ^ast.Assign_Stmt:
-		if len(p.rhs) == 1 && len(p.lhs) > 1 do return nil, false
-	case ^ast.Return_Stmt:
-		if len(p.results) == 1 && results == 2 do return nil, false
+selector_root :: proc(expr: ^ast.Expr) -> (^ast.Ident, bool) {
+	expr := expr
+	for {
+		#partial switch e in expr.derived {
+		case ^ast.Ident:
+			return e, true
+		case ^ast.Selector_Expr:
+			if e.op.kind != .Period || e.field == nil do return nil, false
+			expr = e.expr
+		case:
+			return nil, false
+		}
 	}
-	return ta, true
+}
+
+// `s.(T)` with s the whole subject, which use starts, and T the case type, used where one value is expected.
+// `return s.(T)` in a procedure with two results returns the optional ok as well. at is the index of the
+// assertion in use.parents.
+@(private = "file")
+site_of :: proc(
+	src: string,
+	use: IdentUse,
+	subject, type_text: string,
+	results: int,
+) -> (
+	ta: ^ast.Type_Assertion,
+	at: int,
+	ok: bool,
+) {
+	// Climb the selectors that use starts.
+	expr: ^ast.Expr = use.ident
+	at = len(use.parents) - 1
+	for at >= 0 {
+		selector := use.parents[at].derived.(^ast.Selector_Expr) or_break
+		if selector.expr != expr do break
+		expr = selector
+		at -= 1
+	}
+	if at < 1 do return
+	is_ta: bool
+	ta, is_ta = use.parents[at].derived.(^ast.Type_Assertion)
+	if !is_ta || ta.type == nil || ta.expr != expr do return
+	if strip_space(node_text(src, expr)) != subject || strip_space(node_text(src, ta.type)) != type_text do return
+
+	#partial switch p in use.parents[at - 1].derived {
+	case ^ast.Or_Else_Expr, ^ast.Or_Return_Expr, ^ast.Or_Branch_Expr:
+		return
+	case ^ast.Value_Decl:
+		if len(p.values) == 1 && len(p.names) > 1 do return
+	case ^ast.Assign_Stmt:
+		if len(p.rhs) == 1 && len(p.lhs) > 1 do return
+	case ^ast.Return_Stmt:
+		if len(p.results) == 1 && results == 2 do return
+	}
+	return ta, at, true
 }
 
 // A variant that points at its data is written, sliced or called through a copy, so `switch v in s` serves

@@ -366,3 +366,66 @@ f :: proc(x: int) -> int {
 
 	test.expect_action_missing(t, &source, "Remove no-op arithmetic")
 }
+
+// A call through a group that another file makes names the argument without naming the procedure.
+@(test)
+lint_fix_unused_parameter_named_through_a_group_in_another_file :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a: int, hid{*}den := false) -> int {
+	return a
+}
+
+h :: proc(s: string) -> int {
+	return len(s)
+}
+
+g :: proc {
+	f,
+	h,
+}
+`,
+		files = {{"b.odin", `package test
+
+k :: proc() -> int {
+	return g(1, hidden = true)
+}
+`}},
+		config = {enable_lint_unused_parameter = true},
+	}
+
+	test.expect_action_missing(t, &source, "Rename parameter to `_`")
+}
+
+// The same with the group in a third file.
+@(test)
+lint_fix_unused_parameter_named_through_a_group_in_a_third_file :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a: int, hid{*}den := false) -> int {
+	return a
+}
+`,
+		files = {{"c.odin", `package test
+
+h :: proc(s: string) -> int {
+	return len(s)
+}
+
+g :: proc {
+	f,
+	h,
+}
+`}, {"b.odin", `package test
+
+k :: proc() -> int {
+	return g(1, hidden = true)
+}
+`}},
+		config = {enable_lint_unused_parameter = true},
+	}
+
+	test.expect_action_missing(t, &source, "Rename parameter to `_`")
+}

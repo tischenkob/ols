@@ -1,8 +1,10 @@
 package server
 
 import "core:fmt"
+import "core:mem"
 import "core:odin/ast"
 import "core:odin/parser"
+import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
@@ -26,6 +28,12 @@ LintContext :: struct {
 	inactive:       bool,
 	// Whether the file has a `foreign import` (see `check_c_name` in rols_lint_naming.odin), found on first use.
 	foreign_import: Maybe(bool),
+	// The walker's context without locals, shared by the lints that resolve a type (see `resolve_type_with`).
+	ast_context:    ^AstContext,
+	// Stands in for the files of the package when given (see `package_siblings`).
+	files:          []Package_File,
+	// The other files of the package, read on first use (see `used_as_value_elsewhere`).
+	siblings:       ^Sibling_Values,
 }
 
 // A single-edit fix for one diagnostic, offered as a quick fix at the cursor.
@@ -182,9 +190,10 @@ walk_when_branches :: proc(visitor: ^ast.Visitor, w: ^Walker, stmt: ^ast.When_St
 	}
 }
 
-// One AST walk; every lint sees every node and checks its own config key.
+// One AST walk; every lint sees every node and checks its own config key. files, when given, stands in for the
+// files of the package.
 @(private = "file")
-walk_lints :: proc(document: ^Document, config: ^common.Config) -> Walker {
+walk_lints :: proc(document: ^Document, config: ^common.Config, files: []Package_File) -> Walker {
 	w := Walker {
 		ctx = {
 			document = document,
@@ -192,6 +201,7 @@ walk_lints :: proc(document: ^Document, config: ^common.Config) -> Walker {
 			src = string(document.text[:document.used_text]),
 			skip = make(map[^ast.Node]struct{}, context.temp_allocator),
 			fixes = make([dynamic]Lint_Fix, context.temp_allocator),
+			files = files,
 		},
 		diags = make([dynamic]Diagnostic, context.temp_allocator),
 	}
@@ -213,6 +223,7 @@ walk_lints :: proc(document: ^Document, config: ^common.Config) -> Walker {
 		context.temp_allocator,
 	)
 	get_globals(document.ast, &w.ast_context)
+	w.ctx.ast_context = &w.ast_context
 	w.when_consts = make_when_expr_map()
 	register_when_consts_from_globals(&w.when_consts, w.ast_context.globals)
 	visitor := ast.Visitor {
@@ -241,8 +252,8 @@ walk_lints :: proc(document: ^Document, config: ^common.Config) -> Walker {
 }
 
 // A fix that would delete a comment is left out, for the quick fix and for modernize alike.
-lint_fixes :: proc(document: ^Document, config: ^common.Config) -> []Lint_Fix {
-	fixes := walk_lints(document, config).ctx.fixes[:]
+lint_fixes :: proc(document: ^Document, config: ^common.Config, files: []Package_File = {}) -> []Lint_Fix {
+	fixes := walk_lints(document, config, files).ctx.fixes[:]
 	kept := 0
 	for fix in fixes {
 		if fix_drops_comment(document.ast, fix.start, fix.end, fix.text) do continue
@@ -252,8 +263,8 @@ lint_fixes :: proc(document: ^Document, config: ^common.Config) -> []Lint_Fix {
 	return fixes[:kept]
 }
 
-lint_document :: proc(document: ^Document, config: ^common.Config) -> []Diagnostic {
-	w := walk_lints(document, config)
+lint_document :: proc(document: ^Document, config: ^common.Config, files: []Package_File = {}) -> []Diagnostic {
+	w := walk_lints(document, config, files)
 	if parser.parse_file_tags(document.ast, context.temp_allocator).ignore {
 		return w.diags[:]
 	}
@@ -600,6 +611,17 @@ result_type_name :: proc(ctx: ^LintContext, value: SymbolProcedureValue, callee_
 	return node_to_string(type), true
 }
 
+// Resolves a type written in package `pkg` with ast_context, a context without locals for the open file, which
+// keeps its own package. It saves building a context per call (see `resolve_type_in_package`).
+@(private = "package")
+resolve_type_with :: proc(ast_context: ^AstContext, pkg: string, type: ^ast.Expr) -> (Symbol, bool) {
+	saved := ast_context.current_package
+	defer ast_context.current_package = saved
+	ast_context.current_package = pkg
+	reset_ast_context(ast_context)
+	return resolve_type_expression(ast_context, type)
+}
+
 // Resolves a type written in package `pkg`, which may be another package than the document's.
 @(private = "package")
 resolve_type_in_package :: proc(document: ^Document, pkg: string, type: ^ast.Expr) -> (Symbol, bool) {
@@ -706,14 +728,97 @@ skip_context_typed_proc :: proc(ctx: ^LintContext, expr: ^ast.Expr) {
 }
 
 // A declaration with an explicit type (`h: Handler = proc(…) {…}`) takes its signature from that type. A named
-// procedure that the same file uses as a value (an argument, an assignment, a composite literal element, a
-// parameter default) has its signature fixed by the proc type it is stored in. A use in another file is not seen.
+// procedure that the package uses as a value (an argument, an assignment, a composite literal element, a
+// parameter default) has its signature fixed by the proc type it is stored in.
 @(private = "file")
 is_signature_fixed_by_use :: proc(ctx: ^LintContext, decl: ^ast.Value_Decl) -> bool {
 	if decl.type != nil do return true
 	if decl.is_mutable || len(decl.names) != 1 do return false
 	name := decl.names[0].derived.(^ast.Ident) or_return
-	return name.name in value_names(ctx)
+	if name.name in value_names(ctx) do return true
+	// Other files see neither a local procedure nor a file-private one.
+	if !is_top_level(ctx, decl) do return false
+	if global, found := ctx.ast_context.globals[name.name]; found && global.private == .File do return false
+	return used_as_value_elsewhere(ctx, name.name)
+}
+
+// The other files of the package, and the names that the ones parsed so far use as values.
+Sibling_Values :: struct {
+	files:  []Package_File,
+	parsed: []bool,
+	names:  map[string]struct{},
+	bytes:  int, // parsed so far
+}
+
+// Parsing the other files of the package stops at this many bytes. Their text is read whatever its size.
+@(private = "file")
+MAX_SIBLING_PARSE_BYTES :: mem.Megabyte * 3 / 2
+
+// Whether another file of the package uses name as a value. Only a file whose text holds the name as a word is
+// parsed, each at most once per lint run. A mention counts by name: a local of that name in another file counts too.
+// A file that does not parse, or that the parse limit leaves out, counts when it holds the name.
+@(private = "file")
+used_as_value_elsewhere :: proc(ctx: ^LintContext, name: string) -> bool {
+	if ctx.siblings == nil {
+		files := package_siblings(ctx.document, ctx.files)
+		ctx.siblings = new_clone(
+			Sibling_Values {
+				files = files,
+				parsed = make([]bool, len(files), context.temp_allocator),
+				names = make(map[string]struct{}, context.temp_allocator),
+			},
+			context.temp_allocator,
+		)
+	}
+	siblings := ctx.siblings
+	if name in siblings.names do return true
+	for file, i in siblings.files {
+		if siblings.parsed[i] || !contains_word(file.text, name) do continue
+		if siblings.bytes + len(file.text) > MAX_SIBLING_PARSE_BYTES do return true
+		siblings.bytes += len(file.text)
+		siblings.parsed[i] = true
+		context.allocator = context.temp_allocator
+		parsed, ok := parse_syntax(file.fullpath, file.text)
+		if !ok do return true
+		for stmt in parsed.decls {
+			for use in collect_ident_uses(stmt) {
+				if is_value_use(use) do siblings.names[use.ident.name] = {}
+			}
+		}
+		if name in siblings.names do return true
+	}
+	return false
+}
+
+// The other .odin files in the directory of document, an open file with its unsaved text. files, when given,
+// stands in for the disk.
+@(private = "file")
+package_siblings :: proc(document: ^Document, files: []Package_File) -> []Package_File {
+	siblings := make([dynamic]Package_File, context.temp_allocator)
+	dir := filepath.dir(document.fullpath)
+	base := filepath.base(document.fullpath)
+	if len(files) > 0 {
+		for file in files {
+			if filepath.base(file.fullpath) == base || filepath.dir(file.fullpath) != dir do continue
+			append(&siblings, file)
+		}
+		return siblings[:]
+	}
+	matches, err := filepath.glob(fmt.tprintf("%v/*.odin", dir), context.temp_allocator)
+	if err != nil do return nil
+	for fullpath in matches {
+		if filepath.base(fullpath) == base do continue
+		text: string
+		if open := &document_storage.documents[fullpath]; open != nil && open.client_owned {
+			text = string(open.text[:open.used_text])
+		} else {
+			data, read_err := os.read_entire_file(fullpath, context.temp_allocator)
+			if read_err != nil do continue
+			text = string(data)
+		}
+		append(&siblings, Package_File{fullpath, text})
+	}
+	return siblings[:]
 }
 
 // Every name the file mentions as a value, found in one walk. A mention counts when it resolves to a procedure

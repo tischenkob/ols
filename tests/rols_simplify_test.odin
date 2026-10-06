@@ -3712,3 +3712,23 @@ f :: proc(a, b, c: bool) {
 
 	test.expect_action(t, &source, {"Merge nested if (if a {)", "Merge nested if (if b {)"})
 }
+
+// An index or dereference operand of a non-bool boolean type keeps its comparison outside a condition.
+@(test)
+lint_simplify_bool_compare_non_bool_index_and_deref :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(xs: []b32, p: ^b32, m: map[int]b8, i: int) -> (bool, bool, bool) {
+	return xs[i] == true, p^ == true, m[i] == true
+}
+
+g :: proc(ys: []bool, q: ^bool, i: int) -> (bool, bool) {
+	return ys[i] == true, q^ == true
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{7, "bool-compare"}, {7, "bool-compare"}})
+}

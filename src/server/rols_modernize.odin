@@ -196,13 +196,27 @@ rule_priority :: proc(id: string) -> int {
 	return max(int)
 }
 
+// The verdicts of `param_named_elsewhere` by procedure and parameter name, kept across the passes of one run.
+// The reference search reads other files through the index, which matches the document only before the first
+// pass rewrites it, so a later pass reuses a verdict and refuses a pair that it sees first.
+Param_Verdicts :: struct {
+	verdicts: map[Param_Key]bool,
+	fresh:    bool, // the document holds the text the index was built from
+}
+
+Param_Key :: struct {
+	procedure, param: string,
+}
+
 // The fixes of every selected rule, overlapping ones included. A provider runs only while its
 // lint is enabled in the config, as in the editor. files, when given, replaces the workspace walk.
+// verdicts, when given, caches the reference search of the unused-parameter fix.
 modernize_fixes :: proc(
 	document: ^Document,
 	selected: map[string]struct{},
 	config: ^common.Config,
 	files: []Package_File = {},
+	verdicts: ^Param_Verdicts = nil,
 ) -> []Modernize_Fix {
 	out := make([dynamic]Modernize_Fix, context.temp_allocator)
 
@@ -243,7 +257,7 @@ modernize_fixes :: proc(
 	wants_lint := false
 	for rule in lint_rules do if rule.id in selected do wants_lint = true
 	if wants_lint {
-		for fix in lint_fixes(document, config) {
+		for fix in lint_fixes(document, config, files) {
 			if fix.code not_in selected do continue
 			// The lint checks the named arguments of this file only; other files are searched as for the quick fix.
 			if fix.code == "unused-parameter" {
@@ -252,7 +266,7 @@ modernize_fixes :: proc(
 					lit = at.node.derived.(^ast.Proc_Lit) or_else lit
 				}
 				name := document.ast.src[fix.start:fix.end]
-				if lit == nil || param_named_elsewhere(document, lit, name, files) do continue
+				if lit == nil || judge_param(document, lit, name, files, verdicts) do continue
 			}
 			append(
 				&out,
@@ -279,6 +293,29 @@ modernize_fixes :: proc(
 		kept += 1
 	}
 	return out[:kept]
+}
+
+// param_named_elsewhere through verdicts, when given.
+@(private = "file")
+judge_param :: proc(
+	document: ^Document,
+	lit: ^ast.Proc_Lit,
+	name: string,
+	files: []Package_File,
+	verdicts: ^Param_Verdicts,
+) -> bool {
+	decl, is_top := proc_decl_of(document, lit)
+	// A procedure that is not top level is visible to its file only, and the search returns at once.
+	if verdicts == nil || !is_top do return param_named_elsewhere(document, lit, name, files)
+	key := Param_Key{final_name(decl.names[0]), name}
+	if verdict, found := verdicts.verdicts[key]; found do return verdict
+	if !verdicts.fresh do return true
+	verdict := param_named_elsewhere(document, lit, name, files)
+	// The names point into the text of this pass, which a later pass replaces.
+	key.procedure = strings.clone(key.procedure, context.temp_allocator)
+	key.param = strings.clone(key.param, context.temp_allocator)
+	verdicts.verdicts[key] = verdict
+	return verdict
 }
 
 // One pass: keeps the outermost of overlapping fixes, ties broken by rule order, adds the missing
@@ -361,8 +398,12 @@ modernize_document :: proc(
 	}
 
 	applied := make([dynamic]Modernize_Applied, context.temp_allocator)
+	verdicts := Param_Verdicts {
+		verdicts = make(map[Param_Key]bool, context.temp_allocator),
+	}
 	for pass := 1;; pass += 1 {
-		fixes := modernize_fixes(document, selected, config, files)
+		verdicts.fresh = pass == 1
+		fixes := modernize_fixes(document, selected, config, files, &verdicts)
 		if len(fixes) == 0 {
 			result.converged = true
 			break
