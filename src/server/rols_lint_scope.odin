@@ -1,29 +1,39 @@
 package server
 
 import "core:odin/ast"
+import "core:slice"
+
+import "src:common"
 
 // The declaration of a name that is visible at an offset, found on the syntax tree. The whole-file
 // resolve gives a local no declaration range, so lints that must tell two locals of one name apart
-// compare scopes here. `using` is not followed.
+// compare scopes here.
 Visible_Decl :: struct {
-	ident: ^ast.Ident,
+	// The declared name. For a field that `using` brings into scope, the name of the value when the
+	// `using` names an identifier, else nil.
+	ident:         ^ast.Ident,
 	// The value written for the name in a value declaration, or nil.
-	value: ^ast.Expr,
+	value:         ^ast.Expr,
+	// The name is a field of a struct or bit_field that `using` brings into scope.
+	through_using: bool,
 }
 
 // The last declaration of name in root at or before offset whose scope is still open at offset: a
-// value declaration, a range value, a type-switch variable, or a parameter or named result of an
-// enclosing procedure.
+// value declaration, a range value, a type-switch variable, a parameter or named result of an
+// enclosing procedure, or a field that a `using` declaration, statement or parameter brings into
+// scope. Only a `using` in an open scope resolves its type, through document.
 // A `when` body opens no scope, so its declarations count while the `when` encloses the declaration.
-visible_declaration :: proc(root: ^ast.Node, name: string, offset: int) -> Visible_Decl {
+visible_declaration :: proc(document: ^Document, root: ^ast.Node, name: string, offset: int) -> Visible_Decl {
 	Data :: struct {
-		name:   string,
-		offset: int,
-		found:  Visible_Decl,
+		document: ^Document,
+		name:     string,
+		offset:   int,
+		found:    Visible_Decl,
 	}
 	data := Data {
-		name   = name,
-		offset = offset,
+		document = document,
+		name     = name,
+		offset   = offset,
 	}
 	visitor := ast.Visitor {
 		data = &data,
@@ -34,8 +44,14 @@ visible_declaration :: proc(root: ^ast.Node, name: string, offset: int) -> Visib
 				for name, i in names {
 					ident := name.derived.(^ast.Ident) or_continue
 					if ident.name != data.name || ident.pos.offset > data.offset do continue
-					data.found = {ident, values[i] if len(values) == len(names) else nil}
+					data.found = {ident, values[i] if len(values) == len(names) else nil, false}
 				}
+			}
+			// `using expr` declares name when the type of expr has a member of that name.
+			using_declares :: proc(data: ^Data, expr: ^ast.Expr, names: []^ast.Expr = nil) {
+				if expr == nil || !slice.contains(using_member_names_of(data.document, expr), data.name) do return
+				ident, _ := (names[0] if len(names) > 0 else expr).derived.(^ast.Ident)
+				data.found = {ident, nil, true}
 			}
 			#partial switch n in node.derived {
 			case ^ast.When_Stmt:
@@ -43,6 +59,17 @@ visible_declaration :: proc(root: ^ast.Node, name: string, offset: int) -> Visib
 				return nil
 			case ^ast.Value_Decl:
 				declares(data, n.names, n.values)
+				// The fields come into scope after the declaration, from its type or else from each value.
+				if n.is_using && n.end.offset <= data.offset {
+					if n.type != nil {
+						using_declares(data, n.type, n.names)
+					} else {
+						for value in n.values do using_declares(data, value, n.names)
+					}
+				}
+				return visitor
+			case ^ast.Using_Stmt:
+				if n.end.offset <= data.offset do for expr in n.list do using_declares(data, expr)
 				return visitor
 			}
 			if !scope_open(node, data.offset) do return nil
@@ -53,7 +80,10 @@ visible_declaration :: proc(root: ^ast.Node, name: string, offset: int) -> Visib
 				if tag, ok := n.tag.derived.(^ast.Assign_Stmt); ok do declares(data, tag.lhs)
 			case ^ast.Proc_Lit:
 				if n.type != nil && n.type.params != nil {
-					for field in n.type.params.list do declares(data, field.names)
+					for field in n.type.params.list {
+						declares(data, field.names)
+						if .Using in field.flags do using_declares(data, field.type, field.names)
+					}
 				}
 				if n.type != nil && n.type.results != nil {
 					for field in n.type.results.list do declares(data, field.names)
@@ -64,6 +94,39 @@ visible_declaration :: proc(root: ^ast.Node, name: string, offset: int) -> Visib
 	}
 	ast.walk(&visitor, root)
 	return data.found
+}
+
+// The member names that a `using` of expr brings into scope, with the members of its own `using`
+// fields; empty when expr does not resolve to a struct or bit_field. expr is a type or a value, as
+// get_locals_using reads it.
+@(private = "package")
+using_member_names_of :: proc(document: ^Document, expr: ^ast.Expr) -> []string {
+	expr := expr
+	for expr != nil {
+		#partial switch e in expr.derived {
+		case ^ast.Paren_Expr:
+			expr = e.expr
+			continue
+		case ^ast.Pointer_Type:
+			expr = e.elem
+			continue
+		}
+		break
+	}
+	if expr == nil do return {}
+	ast_context: AstContext
+	position_context: DocumentPositionContext
+	at := common.get_token_range(expr^, document.ast.src).start
+	if !ast_context_at(document, at, &ast_context, &position_context) do return {}
+	symbol, _, ok := unwrap_procedure_until_struct_bit_field_or_package(&ast_context, expr)
+	if !ok do return {}
+	#partial switch v in symbol.value {
+	case SymbolStructValue:
+		return v.names
+	case SymbolBitFieldValue:
+		return v.names
+	}
+	return {}
 }
 
 // False for a node that opens a scope which ends at or before offset; true for any other node.

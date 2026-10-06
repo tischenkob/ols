@@ -608,3 +608,53 @@ results :: proc(text: string) {
 		},
 	)
 }
+
+@(test)
+range_off_by_one_using_field_hides_length_local :: proc(t: ^testing.T) {
+	// A field that `using` brings into scope hides an outer length local of its name, so it guards nothing.
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	n: int,
+}
+
+f :: proc(text: string, s: ^S) {
+	n := len(text)
+	{
+		using p := s
+		for b in 0 ..= len(text) {
+			if b < n {
+				_ = text[b]
+			}
+		}
+	}
+	{
+		using s
+		for b in 0 ..= len(text) {
+			if b < n {
+				_ = text[b]
+			}
+		}
+	}
+	for b in 0 ..= len(text) {
+		if b < n {
+			_ = text[b]
+		}
+	}
+}
+
+g :: proc(text: string, using s: ^S) {
+	for b in 0 ..= len(text) {
+		n := len(text)
+		if b < n {
+			_ = text[b]
+		}
+	}
+}
+`,
+		config = {enable_lint_loops = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{10, "range-off-by-one"}, {18, "range-off-by-one"}})
+}
