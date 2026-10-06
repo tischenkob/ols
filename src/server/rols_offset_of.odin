@@ -35,6 +35,7 @@ resolve_offset_of_member :: proc(data: ^FileResolveData, call: ^ast.Call_Expr, m
 		symbol, ok = resolve_type_expression(data.ast_context, &selector.node)
 	} else if data.target_name == "" || member.name == data.target_name {
 		symbol, ok = resolve_location_selector(data.ast_context, selector)
+		ok = ok && symbol.type == .Field
 	}
 	if ok {
 		data.symbols[uintptr(member)] = SymbolAndNode {
