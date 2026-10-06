@@ -3557,6 +3557,64 @@ lint_simplify_nested_if_refuses_deferred_calls :: proc(t: ^testing.T) {
 	)
 }
 
+// A procedure group declared inside a procedure resolves only with that procedure's locals.
+NESTED_IF_LOCAL_GROUP_SOURCE :: `package test
+
+end :: proc(ok: bool) {}
+
+@(deferred_out = end)
+open_int :: proc(n: int) -> bool { return n > 0 }
+open_text :: proc(s: string) -> bool { return s != "" }
+plain_int :: proc(n: int) -> bool { return n > 0 }
+plain_text :: proc(s: string) -> bool { return s != "" }
+
+f :: proc(done: bool) {
+	local :: proc {
+		plain_int,
+		plain_text,
+	}
+	local_open :: proc {
+		open_int,
+		open_text,
+	}
+	if done {
+		if local(missing) {
+		}
+	}
+	if done {
+		if local_open(missing) {
+		}
+	}
+}
+`
+
+@(test)
+lint_simplify_nested_if_resolves_local_group :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = NESTED_IF_LOCAL_GROUP_SOURCE,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{19, "nested-if"}})
+}
+
+@(test)
+action_merge_nested_if_resolves_local_group :: proc(t: ^testing.T) {
+	main, _ := strings.replace(
+		NESTED_IF_LOCAL_GROUP_SOURCE,
+		"\tif done {\n\t\tif local(",
+		"\t{*}if done {\n\t\tif local(",
+		1,
+		context.temp_allocator,
+	)
+	source := test.Source {
+		main = main,
+		config = {enable_code_action_split_merge_if = true},
+	}
+
+	test.expect_action(t, &source, {"Merge nested if"})
+}
+
 @(test)
 action_merge_nested_if_refuses_deferred_call :: proc(t: ^testing.T) {
 	source := test.Source {
