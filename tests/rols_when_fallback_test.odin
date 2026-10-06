@@ -167,24 +167,83 @@ when ODIN_OS == .%s {{
 	test.expect_lint_diagnostics(t, &source, {{9, "ignored-result"}})
 }
 
+// In an inactive branch a name that another file declares only for that platform resolves to the fallback, and
+// the lints that still run there judge by it: the deprecated lint reports the call, and the naming lint reads the
+// poly struct as a type.
+@(test)
+lints_in_inactive_branch_judge_by_fallback :: proc(t: ^testing.T) {
+	other_os := "Windows" when ODIN_OS != .Windows else "Linux"
+	b := fmt.tprintf(
+		`package test
+
+when ODIN_OS == .%s {{
+	@(deprecated = "use new")
+	old :: proc() {{}}
+	Item :: struct {{}}
+	Small_Array :: struct($N: int, $T: typeid) {{
+		data: [N]T,
+	}}
+}}
+`,
+		other_os,
+	)
+	main := fmt.tprintf(
+		`package test
+
+when ODIN_OS == .%s {{
+	Small :: Small_Array(16, Item)
+	f :: proc() {{
+		old()
+	}}
+}}
+`,
+		other_os,
+	)
+	source := test.Source {
+		main = main,
+		files = {{"b.odin", b}},
+		config = {enable_lint_deprecated = true, enable_lint_naming = true},
+	}
+	test.expect_lint_diagnostics(t, &source, {{5, "deprecated"}})
+}
+
+// A file the host does not build is linted like an inactive branch: its calls resolve to the host's declarations,
+// so the resolving lints stay silent there.
+@(test)
+resolving_lints_skip_file_the_host_does_not_build :: proc(t: ^testing.T) {
+	other_os := "windows" when ODIN_OS != .Windows else "linux"
+	source := test.Source {
+		main = fmt.tprintf("#+build %s\npackage test\n\ncheck :: proc() {{\n\topen()\n}}\n", other_os),
+		files = {
+			{"b.odin", "package test\n\nError :: enum { None, Bad }\n\nopen :: proc() -> Error { return .None }\n"},
+		},
+		config = {enable_lint_ignored_result = true},
+	}
+	test.expect_lint_diagnostics(t, &source, {})
+}
+
 // A fallback that an active declaration in another file hid takes the name back when a save drops that declaration.
 @(test)
 reindex_restores_hidden_fallback :: proc(t: ^testing.T) {
 	active := test.File{"a.odin", "package test\n\nX :: 2\n"}
 	fallback := test.File{"c.odin", "package test\n\nC_OFF :: false\n\nwhen C_OFF {\n\tX :: 1\n}\n"}
 	orders := [2][2]test.File{{active, fallback}, {fallback, active}}
+	// Reindexing the hidden fallback's own file first drops it and hides it again.
+	saves := [2][]test.File{{{"a.odin", "package test\n"}}, {fallback, {"a.odin", "package test\n"}}}
 	for files in orders {
-		files := files
-		source := test.Source {
-			main  = "package test\n\nmain :: proc() {\n\ty := X{*}\n}\n",
-			files = files[:],
+		for reindexed in saves {
+			files := files
+			source := test.Source {
+				main  = "package test\n\nmain :: proc() {\n\ty := X{*}\n}\n",
+				files = files[:],
+			}
+			test.expect_hover_after_reindex(t, &source, reindexed, "test.X :: 1")
 		}
-		test.expect_hover_after_reindex(t, &source, {{"a.odin", "package test\n"}}, "test.X :: 1")
 	}
 }
 
 // A `when` condition reads another package's constant whose value names further constants of that package. A cycle
-// of constants folds to unknown instead of recursing.
+// of constants reads as false instead of recursing.
 @(test)
 when_condition_folds_names_in_other_package :: proc(t: ^testing.T) {
 	cases := [2][2]string {

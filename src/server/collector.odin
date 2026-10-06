@@ -1163,16 +1163,21 @@ collect_symbols :: proc(collection: ^SymbolCollection, file: ast.File, uri: stri
 		}
 
 		// rols: a fallback fills only an absent name, and an active declaration replaces a fallback. A fallback that
-		// does not fill its name is kept aside for when the declaration that hides it goes.
+		// another file's declaration hides is kept aside for when that declaration goes. A file reindexes as a whole,
+		// so a fallback its own declaration hides comes back with it.
 		if .Fallback in expr.flags do symbol.flags += {.Fallback}
 		if v, ok := pkg.symbols[symbol.name]; ok && .Fallback in v.flags && .Fallback not_in symbol.flags {
-			append(&pkg.hidden_fallbacks, v)
+			if v.uri != symbol.uri {
+				append(&pkg.hidden_fallbacks, v)
+			} else {
+				free_symbol(v, collection.allocator)
+			}
 			delete_key(&pkg.symbols, symbol.name)
 		}
 
 		if v, ok := pkg.symbols[symbol.name]; !ok || v.name == "" {
 			pkg.symbols[symbol.name] = symbol
-		} else if .Fallback in symbol.flags {
+		} else if .Fallback in symbol.flags && v.uri != symbol.uri {
 			append(&pkg.hidden_fallbacks, symbol)
 		} else {
 			free_symbol(symbol, collection.allocator)

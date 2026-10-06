@@ -66,26 +66,20 @@ restore_hidden_fallbacks :: proc(collection: ^SymbolCollection) {
 }
 
 // rols: folds the value of constant `symbol` of package `pkg` for a `when` condition. A name in it folds to a
-// constant of the same package, up to 8 constants deep. A selector in it, which reads a third package, stays unknown.
+// constant of the same package. A selector in it, which reads a third package, is unknown. A name whose value does
+// not fold, through such a selector or a cycle, reads as false.
 // The caller clears `when_ast_context` so that a selector does not read the open file's imports.
 fold_package_when_const :: proc(symbol: Symbol, pkg: string) -> (When_Expr, bool) {
 	consts := make_when_expr_map()
-	return fold_package_const(&consts, symbol, pkg, 8)
+	return fold_package_const(&consts, symbol, pkg)
 }
 
-// Each name is stored folded, so a cycle of constants ends at the depth limit instead of recursing forever.
+// Each name is folded once and stored as a value. It reads false while it folds and stays false when it fails, so a
+// cycle of constants ends instead of recursing forever.
 @(private = "file")
-fold_package_const :: proc(
-	consts: ^map[string]When_Expr,
-	symbol: Symbol,
-	pkg: string,
-	depth: int,
-) -> (
-	When_Expr,
-	bool,
-) {
+fold_package_const :: proc(consts: ^map[string]When_Expr, symbol: Symbol, pkg: string) -> (When_Expr, bool) {
 	generic, is_generic := symbol.value.(SymbolGenericValue)
-	if !is_generic || depth == 0 do return {}, false
+	if !is_generic do return {}, false
 	uri, _ := common.parse_uri(symbol.uri, context.temp_allocator)
 	names := make([dynamic]string, context.temp_allocator)
 	visitor := ast.Visitor {
@@ -106,7 +100,8 @@ fold_package_const :: proc(
 		if name in consts do continue
 		named, found := lookup(name, pkg, uri.path)
 		if !found || .Mutable in named.flags || .Fallback in named.flags do continue
-		consts[name] = fold_package_const(consts, named, pkg, depth - 1) or_continue
+		consts[name] = false
+		consts[name] = fold_package_const(consts, named, pkg) or_continue
 	}
 	return resolve_when_expr(consts^, generic.expr)
 }
