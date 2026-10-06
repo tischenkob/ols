@@ -126,7 +126,7 @@ proc_group_locations :: proc(
 
 // Whether the text has `proc`, then blanks and comments, then `{`: the start of a group literal, with the word name,
 // bare or package-qualified, outside comments before the closing `}`. It accepts more than the parser does (a
-// comment or string can match); it misses only a nested block comment between `proc` and `{`.
+// comment or string can match); it misses a group behind a nested block comment, between `proc` and `{` or among the members.
 mentions_proc_group :: proc(text, name: string) -> bool {
 	rest := text
 	for {
