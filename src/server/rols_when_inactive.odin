@@ -5,6 +5,9 @@ import "core:mem"
 import "core:odin/ast"
 import "core:odin/parser"
 import "core:os"
+import "core:reflect"
+import "core:slice"
+import "core:strconv"
 import "core:strings"
 
 import "src:common"
@@ -22,11 +25,12 @@ When_Package :: struct {
 }
 
 // The value declarations of file in a `when` branch that the editor's target does not build. The conditions
-// evaluate as the editor evaluates them, with the target of set_when_target first: profile os, arch and defines,
-// else the host, and the constants of the file, or of every file of pkg when given. Only `!`, comparisons, `&&` and `||` fold; other operators count as
+// evaluate as the editor evaluates them: ODIN_OS and ODIN_ARCH for the target of set_when_target, else the profile
+// os and arch, else the host, the builtins that set_when_target seeds, the profile defines, and the constants of
+// the file, or of every file of pkg when given. Only `!`, comparisons, `&&` and `||` fold; other operators count as
 // unknown. The evaluator reads a name it does not know as false, so a chain counts only up to its first condition
-// with such a name, such as ODIN_DEBUG, ODIN_TEST or a constant of another package: that branch and the ones after
-// it are not reported. Allocates in context.allocator.
+// with such a name, such as an unseeded ODIN_DEBUG or ODIN_TEST or a constant of another package: that branch and
+// the ones after it are not reported. Allocates in context.allocator.
 inactive_when_decls :: proc(file: ^ast.File, pkg: ^When_Package = nil) -> map[^ast.Value_Decl]struct{} {
 	inactive := make(map[^ast.Value_Decl]struct{})
 	// The walk below reaches `when` statements at file scope and in foreign blocks.
@@ -46,6 +50,10 @@ inactive_when_decls :: proc(file: ^ast.File, pkg: ^When_Package = nil) -> map[^a
 
 	ast_context := make_ast_context(file^, nil, file.pkg_name, "", file.fullpath, context.allocator)
 	consts := make_when_expr_map()
+	// A seeded builtin wins over a profile define of the same name.
+	for value, builtin in when_builtins {
+		if b, seeded := value.?; seeded do consts[fmt.tprint(builtin)] = b
+	}
 	// The constants outside any `when`: one inside a branch may come from a branch that an unknown name chose.
 	plain := make(map[string]^ast.Expr)
 	add_plain_consts(&plain, file)
@@ -70,12 +78,45 @@ inactive_when_decls :: proc(file: ^ast.File, pkg: ^When_Package = nil) -> map[^a
 @(thread_local)
 when_target: Maybe(parser.Build_Target)
 
-// Points the `when` evaluation of this thread at the `-target:` of checker_args when it has one. It returns the
-// previous target, which the caller puts back.
-set_when_target :: proc(checker_args: string) -> (saved: Maybe(parser.Build_Target)) {
-	saved = when_target
-	if strings.contains(checker_args, "-target:") do when_target = base_target(checker_args)
+// The builtin bool constants that the odin command line decides, named as in the source.
+When_Builtin :: enum {
+	ODIN_DEBUG,
+	ODIN_TEST,
+	ODIN_DISABLE_ASSERT,
+	ODIN_NO_BOUNDS_CHECK,
+}
+
+// The values that set_when_target seeds for the builtins in the `when` evaluation of this thread. A nil value is
+// unknown, as on the editor path.
+@(thread_local)
+when_builtins: [When_Builtin]Maybe(bool)
+
+// The `when` evaluation state that set_when_target replaces and restore_when_target puts back.
+When_Setting :: struct {
+	target:   Maybe(parser.Build_Target),
+	builtins: [When_Builtin]Maybe(bool),
+}
+
+// Points the `when` evaluation of this thread at the target of checker_args: its `-target:`, else the host, as
+// `odin check` and `odin test` build without a profile os. It seeds ODIN_DEBUG, ODIN_DISABLE_ASSERT and
+// ODIN_NO_BOUNDS_CHECK from their flags in checker_args, and ODIN_TEST as true when testing, else leaves it unknown.
+// It returns the previous state, which the caller passes to restore_when_target.
+set_when_target :: proc(checker_args: string, testing := false) -> (saved: When_Setting) {
+	saved = {when_target, when_builtins}
+	when_target = base_target(checker_args)
+	args := split_checker_args(checker_args)
+	when_builtins = {}
+	when_builtins[.ODIN_DEBUG] = slice.contains(args, "-debug")
+	when_builtins[.ODIN_DISABLE_ASSERT] = slice.contains(args, "-disable-assert")
+	when_builtins[.ODIN_NO_BOUNDS_CHECK] = slice.contains(args, "-no-bounds-check")
+	if testing do when_builtins[.ODIN_TEST] = true
 	return
+}
+
+// Puts back the `when` evaluation state that set_when_target returned.
+restore_when_target :: proc(saved: When_Setting) {
+	when_target = saved.target
+	when_builtins = saved.builtins
 }
 
 // The value of ODIN_OS or ODIN_ARCH under the target of set_when_target, spelled as resolve_when_ident spells it.
@@ -107,17 +148,17 @@ build_when_package :: proc(pkg: ^When_Package, pkg_name: string) {
 }
 
 // Folds the constants of plain into consts, each one after the constants its value names, since the evaluator
-// reads a name it has not folded yet as false. A value that when_known rejects stays out, and so does a name that
-// consts already holds, such as a profile define.
+// reads a name it has not folded yet as false. A value whose when_kind is unknown stays out, and so does a name
+// that consts already holds, such as a profile define.
 @(private = "file")
 fold_plain_consts :: proc(consts: ^map[string]When_Expr, plain: map[string]^ast.Expr) {
 	folded := make(map[string]^ast.Expr, context.temp_allocator)
-	// Only a value that when_known accepts with every constant in view can fold at all.
+	// Only a value whose kind is known with every constant in view can fold at all.
 	candidates := make([dynamic]string, context.temp_allocator)
 	for name, value in plain {
 		if name in consts^ {
 			folded[name] = value
-		} else if when_known(value, plain, 0) {
+		} else if when_kind(value, plain, 0) != .Unknown {
 			append(&candidates, name)
 		}
 	}
@@ -125,8 +166,10 @@ fold_plain_consts :: proc(consts: ^map[string]When_Expr, plain: map[string]^ast.
 		added = false
 		for name in candidates {
 			value := plain[name]
-			if name in folded || !when_known(value, folded, 0) do continue
+			if name in folded || when_kind(value, folded, 0) == .Unknown do continue
 			register_when_const(consts, name, value)
+			// A value the evaluator cannot fold stays unknown to the conditions that name it.
+			if name not_in consts^ do continue
 			folded[name] = value
 			added = true
 		}
@@ -145,7 +188,7 @@ needs_package :: proc(stmts: []^ast.Stmt, plain: map[string]^ast.Expr) -> bool {
 		case ^ast.Foreign_Block_Decl:
 			if needs_package({s.body}, plain) do return true
 		case ^ast.When_Stmt:
-			if !when_known(s.cond, plain, 0) && names_missing_const(s.cond, plain, 0) do return true
+			if when_kind(s.cond, plain, 0) != .Bool && names_missing_const(s.cond, plain, 0) do return true
 			if needs_package({s.body, s.else_stmt}, plain) do return true
 		}
 	}
@@ -215,7 +258,7 @@ walk_when_decls :: proc(
 		for branch: ^ast.Stmt = s; branch != nil; {
 			when_branch, is_when := branch.derived.(^ast.When_Stmt)
 			body := when_branch.body if is_when else branch
-			if state == .Searching && is_when && !when_known(when_branch.cond, plain, 0) {
+			if state == .Searching && is_when && when_kind(when_branch.cond, plain, 0) != .Bool {
 				state = .Unknown
 			}
 			block, is_block := body.derived.(^ast.Block_Stmt)
@@ -247,44 +290,80 @@ mark_when_decls :: proc(stmt: ^ast.Stmt, inactive: ^map[^ast.Value_Decl]struct{}
 	}
 }
 
-// Whether the when evaluator knows every name in expr: ODIN_OS, ODIN_ARCH, the profile defines, literals,
-// enum members and the constants of the file or package outside any `when` whose values it knows in turn. A
-// selector such as pkg.FLAG counts as unknown.
+// The kind of value that resolve_when_expr folds an expression to.
 @(private = "file")
-when_known :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth: int) -> bool {
-	if expr == nil || depth > 8 do return false
+When_Kind :: enum {
+	Unknown,
+	Bool,
+	Int,
+	String,
+}
+
+// The kind of value that the when evaluator folds expr to, Unknown when it cannot fold it. A condition is known
+// when its kind is Bool. The names it knows are ODIN_OS, ODIN_ARCH, the builtins that set_when_target seeds, the
+// profile defines and the constants of plain whose kinds it knows in turn. Only `!` of a bool, `&&` and `||` of
+// bools, `==` and `!=` of the same kind and integer orderings fold, as in resolve_when_expr. A selector such as
+// pkg.FLAG counts as unknown.
+@(private = "file")
+when_kind :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth: int) -> When_Kind {
+	if expr == nil || depth > 8 do return .Unknown
 	#partial switch e in expr.derived {
 	case ^ast.Paren_Expr:
-		return when_known(e.expr, plain, depth)
+		return when_kind(e.expr, plain, depth)
 	case ^ast.Ident:
 		switch e.name {
-		case "ODIN_OS", "ODIN_ARCH", "true", "false":
-			return true
+		case "ODIN_OS", "ODIN_ARCH":
+			return .String
+		case "true", "false":
+			return .Bool
 		}
-		if e.name in common.config.profile.defines do return true
+		if builtin, is_builtin := reflect.enum_from_name(When_Builtin, e.name); is_builtin {
+			if when_builtins[builtin] != nil do return .Bool
+		}
+		if value, defined := common.config.profile.defines[e.name]; defined do return define_kind(value)
 		value, is_plain := plain[e.name]
-		return is_plain && when_known(value, plain, depth + 1)
+		return when_kind(value, plain, depth + 1) if is_plain else .Unknown
 	case ^ast.Basic_Lit:
 		// A float, rune or imaginary literal reads as false.
-		return e.tok.kind == .Integer || e.tok.kind == .String
+		#partial switch e.tok.kind {
+		case .Integer:
+			return .Int
+		case .String:
+			return .String
+		}
+		return .Unknown
 	case ^ast.Implicit_Selector_Expr:
-		return true
+		return .String
 	case ^ast.Call_Expr:
 		directive, is_directive := e.expr.derived.(^ast.Basic_Directive)
-		if !is_directive || directive.name != "config" || len(e.args) != 2 do return false
-		if name, is_ident := e.args[0].derived.(^ast.Ident); is_ident && name.name in common.config.profile.defines {
-			return true
+		if !is_directive || directive.name != "config" || len(e.args) != 2 do return .Unknown
+		if name, is_ident := e.args[0].derived.(^ast.Ident); is_ident {
+			if value, defined := common.config.profile.defines[name.name]; defined do return define_kind(value)
 		}
-		return when_known(e.args[1], plain, depth)
+		return when_kind(e.args[1], plain, depth)
 	case ^ast.Unary_Expr:
-		return e.op.kind == .Not && when_known(e.expr, plain, depth)
+		return .Bool if e.op.kind == .Not && when_kind(e.expr, plain, depth) == .Bool else .Unknown
 	case ^ast.Binary_Expr:
 		// The evaluator folds only comparisons and && or ||; arithmetic reads as false.
+		left := when_kind(e.left, plain, depth)
+		right := when_kind(e.right, plain, depth)
+		if left == .Unknown || left != right do return .Unknown
 		#partial switch e.op.kind {
-		case .Cmp_Eq, .Not_Eq, .Lt, .Lt_Eq, .Gt, .Gt_Eq, .Cmp_And, .Cmp_Or:
-			return when_known(e.left, plain, depth) && when_known(e.right, plain, depth)
+		case .Cmp_And, .Cmp_Or:
+			if left == .Bool do return .Bool
+		case .Cmp_Eq, .Not_Eq:
+			return .Bool
+		case .Lt, .Lt_Eq, .Gt, .Gt_Eq:
+			if left == .Int do return .Bool
 		}
-		return false
 	}
-	return false
+	return .Unknown
+}
+
+// The kind of a profile define's value as make_when_expr_map folds it: an integer, else a bool, since the evaluator
+// reads any other name as false.
+@(private = "file")
+define_kind :: proc(value: string) -> When_Kind {
+	_, is_int := strconv.parse_int(value)
+	return .Int if is_int else .Bool
 }

@@ -4,6 +4,7 @@ import "core:odin/ast"
 import "core:odin/parser"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 
@@ -198,6 +199,65 @@ cli_find_evaluates_when_for_the_checker_target :: proc(t: ^testing.T) {
 	if testing.expect_value(t, len(found), 1) do testing.expect_value(t, found[0].name, "t_there")
 	_, still_set := server.when_target.?
 	testing.expect(t, !still_set, "find_symbols and find_tests restore the target of the when evaluation")
+}
+
+// find and tests read ODIN_DEBUG from -debug in checker_args, and tests reads ODIN_TEST as true. Both restore the
+// builtins of the `when` evaluation.
+@(test)
+cli_find_and_tests_seed_odin_debug_and_odin_test :: proc(t: ^testing.T) {
+	text := `package p
+
+import "core:testing"
+
+when !ODIN_TEST {
+	@(test)
+	t_never :: proc(t: ^testing.T) {}
+}
+
+when ODIN_DEBUG {
+	thing_debug :: 1
+	@(test)
+	t_debug :: proc(t: ^testing.T) {}
+} else {
+	thing_release :: 1
+	@(test)
+	t_release :: proc(t: ^testing.T) {}
+}
+`
+	dir, ok := fixture(t, {{"a.odin", text}})
+	defer os.remove_all(dir)
+	if !ok do return
+
+	config: common.Config
+	append(&config.workspace_folders, common.WorkspaceFolder{uri = common.create_uri(dir, context.temp_allocator).uri})
+	defer delete(config.workspace_folders)
+
+	names := proc(dir: string, config: ^common.Config) -> []string {
+		names := make([dynamic]string, context.temp_allocator)
+		for test in server.find_tests(dir, config) do append(&names, test.name)
+		return names[:]
+	}
+	marks := proc(config: ^common.Config) -> map[string]bool {
+		marks := make(map[string]bool, context.temp_allocator)
+		for symbol in server.find_symbols("thing", config) do marks[symbol.name] = symbol.otherPlatform
+		return marks
+	}
+	release := names(dir, &config)
+	testing.expectf(t, slice.equal(release, []string{"t_release"}), "without -debug: %v", release)
+	release_marks := marks(&config)
+	testing.expect_value(t, release_marks["thing_debug"], true)
+	testing.expect_value(t, release_marks["thing_release"], false)
+
+	config.checker_args = "-debug"
+	debug := names(dir, &config)
+	testing.expectf(t, slice.equal(debug, []string{"t_debug"}), "with -debug: %v", debug)
+	debug_marks := marks(&config)
+	testing.expect_value(t, debug_marks["thing_debug"], false)
+	testing.expect_value(t, debug_marks["thing_release"], true)
+
+	_, still_set := server.when_target.?
+	testing.expect(t, !still_set, "find_symbols and find_tests restore the target of the when evaluation")
+	testing.expect_value(t, server.when_builtins, [server.When_Builtin]Maybe(bool){})
 }
 
 // A directory named on the command line that the filter skips keeps its subdirectories.

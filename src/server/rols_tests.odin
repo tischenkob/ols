@@ -19,12 +19,12 @@ Test_Proc :: struct {
 // files that `odin test` builds count: not `#+build ignore`, and not those that name or tag another target
 // than the one of checker_args, else the host. A file named as the target counts whatever its name says, since
 // `odin test FILE -file` reads only its tags. A test in a `when` branch that the target does not take (see
-// inactive_when_decls, evaluated for the `-target:` of checker_args when it has one) does not count either.
+// inactive_when_decls, evaluated for the same target, with ODIN_TEST true) does not count either.
 find_tests :: proc(target: string, config: ^common.Config) -> []Test_Proc {
 	// The parsed files are not freed.
 	context.allocator = context.temp_allocator
-	saved_target := set_when_target(config.checker_args)
-	defer when_target = saved_target
+	saved_when := set_when_target(config.checker_args, testing = true)
+	defer restore_when_target(saved_when)
 	files := []string{target}
 	// `odin test FILE -file` builds the file alone, so only a directory brings the constants of other files.
 	pkg: ^When_Package
