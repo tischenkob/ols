@@ -24,13 +24,17 @@ fixture :: proc(t: ^testing.T, files: [][2]string) -> (dir: string, ok: bool) {
 	return dir, true
 }
 
-// A file for another target than the host: the name suffix selects it.
+// A file for another target than the host: the name suffix selects it. OTHER_OS_MEMBER spells it in ODIN_OS.
 when ODIN_OS == .Windows {
 	@(private = "file")
 	OTHER_OS :: "linux"
+	@(private = "file")
+	OTHER_OS_MEMBER :: "Linux"
 } else {
 	@(private = "file")
 	OTHER_OS :: "windows"
+	@(private = "file")
+	OTHER_OS_MEMBER :: "Windows"
 }
 
 @(test)
@@ -98,6 +102,126 @@ cli_find_symbols_reports_private_and_other_platform_declarations :: proc(t: ^tes
 	testing.expect_value(t, flags["thing_other"], [2]bool{false, true})
 	_, has_ignored := flags["thing_ignored"]
 	testing.expect(t, !has_ignored, "a file that no target builds is left out")
+}
+
+// odin test FILE -file ignores the name of the file but not its #+build tags.
+@(test)
+cli_find_tests_reads_a_named_file_by_its_tags_only :: proc(t: ^testing.T) {
+	test_file := proc(name: string, tags := "") -> string {
+		return strings.concatenate(
+			{tags, "package p\n\nimport \"core:testing\"\n\n@(test)\n", name, " :: proc(t: ^testing.T) {}\n"},
+			context.temp_allocator,
+		)
+	}
+	named := strings.concatenate({"x_", OTHER_OS, ".odin"}, context.temp_allocator)
+	tagged := strings.concatenate({"#+build ", OTHER_OS, "\n"}, context.temp_allocator)
+	dir, ok := fixture(t, {{named, test_file("t_named")}, {"y.odin", test_file("t_tagged", tagged)}})
+	defer os.remove_all(dir)
+	if !ok do return
+
+	config: common.Config
+	found := server.find_tests(strings.concatenate({dir, "/", named}, context.temp_allocator), &config)
+	if testing.expect_value(t, len(found), 1) do testing.expect_value(t, found[0].name, "t_named")
+	testing.expect_value(
+		t,
+		len(server.find_tests(strings.concatenate({dir, "/", "y.odin"}, context.temp_allocator), &config)),
+		0,
+	)
+	testing.expect_value(t, len(server.find_tests(dir, &config)), 0)
+}
+
+// The identifier scan before the parse keeps the matches of the fuzzy matcher: across segments, in any case,
+// and in a non-ASCII name.
+@(test)
+cli_find_symbols_scan_keeps_fuzzy_matches :: proc(t: ^testing.T) {
+	dir, ok := fixture(
+		t,
+		{
+			{"a.odin", "package p\n\nThing_Open :: proc() {}\n"},
+			{"b.odin", "package p\n\nother :: 1\n"},
+			{"c.odin", "package p\n\ngr\u00f6\u00dfe_wert :: 1\n"},
+		},
+	)
+	defer os.remove_all(dir)
+	if !ok do return
+
+	config: common.Config
+	append(&config.workspace_folders, common.WorkspaceFolder{uri = common.create_uri(dir, context.temp_allocator).uri})
+	defer delete(config.workspace_folders)
+
+	for query in ([]string{"thop", "THING open", "thing_open"}) {
+		found := server.find_symbols(query, &config)
+		if testing.expectf(t, len(found) == 1, "%q found %v", query, found) {
+			testing.expect_value(t, found[0].name, "Thing_Open")
+		}
+	}
+	found := server.find_symbols("gr\u00f6\u00dfe", &config)
+	if testing.expect_value(t, len(found), 1) do testing.expect_value(t, found[0].name, "gr\u00f6\u00dfe_wert")
+	testing.expect_value(t, len(server.find_symbols("zzqq", &config)), 0)
+}
+
+// With a -target: in checker_args, find and tests evaluate ODIN_OS for that target, and leave the target of the
+// `when` evaluation as it was.
+@(test)
+cli_find_evaluates_when_for_the_checker_target :: proc(t: ^testing.T) {
+	text := strings.concatenate(
+		{
+			"package p\n\nimport \"core:testing\"\n\nwhen ODIN_OS == .",
+			OTHER_OS_MEMBER,
+			" {\n\tthing_there :: 1\n\t@(test)\n\tt_there :: proc(t: ^testing.T) {}\n} else {\n",
+			"\tthing_here :: 1\n\t@(test)\n\tt_here :: proc(t: ^testing.T) {}\n}\n",
+		},
+		context.temp_allocator,
+	)
+	dir, ok := fixture(t, {{"a.odin", text}})
+	defer os.remove_all(dir)
+	if !ok do return
+
+	config: common.Config
+	append(&config.workspace_folders, common.WorkspaceFolder{uri = common.create_uri(dir, context.temp_allocator).uri})
+	defer delete(config.workspace_folders)
+
+	marks := proc(config: ^common.Config) -> map[string]bool {
+		marks := make(map[string]bool, context.temp_allocator)
+		for symbol in server.find_symbols("thing", config) do marks[symbol.name] = symbol.otherPlatform
+		return marks
+	}
+	host := marks(&config)
+	testing.expect_value(t, host["thing_there"], true)
+	testing.expect_value(t, host["thing_here"], false)
+
+	config.checker_args = strings.concatenate({"-target:", OTHER_OS, "_amd64"}, context.temp_allocator)
+	other := marks(&config)
+	testing.expect_value(t, other["thing_there"], false)
+	testing.expect_value(t, other["thing_here"], true)
+	found := server.find_tests(dir, &config)
+	if testing.expect_value(t, len(found), 1) do testing.expect_value(t, found[0].name, "t_there")
+	_, still_set := server.when_target.?
+	testing.expect(t, !still_set, "find_symbols and find_tests restore the target of the when evaluation")
+}
+
+// A directory named on the command line that the filter skips keeps its subdirectories.
+@(test)
+cli_package_dirs_below_a_filtered_start_keep_their_subdirectories :: proc(t: ^testing.T) {
+	dir, ok := fixture(t, {{"a.odin", "package p\n"}})
+	defer os.remove_all(dir)
+	if !ok do return
+	build := strings.concatenate({dir, "/", "build"}, context.temp_allocator)
+	sub := strings.concatenate({build, "/", "sub"}, context.temp_allocator)
+	if !testing.expect_value(t, os.make_directory_all(sub), nil) do return
+	for file in ([]string{strings.concatenate({build, "/", "b.odin"}, context.temp_allocator), strings.concatenate({sub, "/", "x.odin"}, context.temp_allocator)}) {
+		if !testing.expect_value(t, os.write_entire_file(file, "package x\n"), nil) do return
+	}
+
+	config := common.Config {
+		workspace_exclude = {"build"},
+	}
+	// The walker reports the subdirectories with symlinks resolved, such as /private/var on macOS.
+	dirs := server.package_dirs_below(build, dir, &config)
+	has_sub := false
+	for found in dirs do has_sub ||= strings.has_suffix(found, "/build/sub")
+	testing.expectf(t, len(dirs) == 2 && has_sub, "%v", dirs)
+	testing.expect_value(t, len(server.package_dirs_below(dir, dir, &config)), 1)
 }
 
 @(test)

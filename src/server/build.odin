@@ -64,8 +64,9 @@ os_string_to_enum: map[string]runtime.Odin_OS_Type = {
 	"unknown"      = .Unknown,
 }
 
-// rols: the platform odin builds for, from the profile and falling back to the host.
+// rols: the platform odin builds for, from set_when_target, else the profile, falling back to the host.
 host_target :: proc() -> parser.Build_Target {
+	if target, ok := when_target.?; ok do return target
 	arch := common.config.profile.arch
 	return {
 		os = os_string_to_enum[common.config.profile.os] or_else ODIN_OS,

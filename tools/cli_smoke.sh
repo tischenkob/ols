@@ -473,7 +473,7 @@ lower_ignored :: 1
 	sed -i.bak '/lintgi/d' "$dir/.gitignore" && rm -f "$dir/.gitignore.bak"
 	rm -rf "$dir/lintgi"
 fi
-# lint notes a file that does not parse on stderr and keeps its exit code.
+# lint notes a file that does not parse on stderr, still reports its lints, as the server does, and keeps its exit code.
 mkdir "$dir/lintbroken"
 printf 'package lintbroken
 
@@ -481,10 +481,14 @@ lower_ok :: 1
 ' > "$dir/lintbroken/ok.odin"
 printf 'package lintbroken
 
+lower_broken :: 1
+
 f :: proc( {
 ' > "$dir/lintbroken/broken.odin"
-expect lint-unparsed-note "broken.odin: skipped, the file does not parse$" sh -c "\"$OLS\" query lint \"$dir/lintbroken\" 2>&1 >/dev/null"
+expect lint-unparsed-note "broken.odin: the file does not parse, its lints may be incomplete$" sh -c "\"$OLS\" query lint \"$dir/lintbroken\" 2>&1 >/dev/null"
+expect lint-unparsed-lints "broken.odin:3:1: .*lower_broken \\[naming\\]" "$OLS" query lint "$dir/lintbroken"
 expect_exit 0 lint-unparsed-exit "$OLS" query lint "$dir/lintbroken"
+expect_exit 1 lint-unparsed-fail-on "$OLS" query lint "$dir/lintbroken/broken.odin" --fail-on naming
 rm -rf "$dir/lintbroken"
 # The indexer's log lines, such as a file of an imported package that does not parse, stay off stderr.
 mkdir -p "$dir/logq/z" "$dir/logq/use"

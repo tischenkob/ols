@@ -1,7 +1,9 @@
 package tests
 
 import "core:odin/ast"
+import "core:os"
 import "core:slice"
+import "core:strings"
 import "core:testing"
 
 import "src:common"
@@ -93,4 +95,44 @@ main :: proc() {}{*}
 			testing.expectf(t, slice.equal(got, expected), "got %v, expected %v", got, expected)
 		},
 	)
+}
+
+// With the package files, a condition reads the constants of a sibling file, also through a constant of its own
+// file. Without them it is unknown and marks nothing. A sibling with another `package` clause does not count.
+@(test)
+when_inactive_reads_constants_of_sibling_files :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	dir, dir_err := os.make_directory_temp("", "rols_when_*", context.temp_allocator)
+	if !testing.expect_value(t, dir_err, nil) do return
+	defer os.remove_all(dir)
+	files := [][2]string {
+		{
+			"a.odin",
+			"package p\n\nON :: !FLAG\n\nwhen FLAG {\n\ton_a :: 1\n} else {\n\toff_b :: 2\n}\n\nwhen ON {\n\ton_c :: 3\n} else {\n\toff_d :: 4\n}\n\nwhen OTHER {\n\tother_e :: 5\n}\n",
+		},
+		{"b.odin", "package p\n\nFLAG :: true\n"},
+		{"c_test.odin", "package p_test\n\nOTHER :: false\n"},
+	}
+	paths := make([]string, len(files))
+	for entry, i in files {
+		paths[i] = strings.concatenate({dir, "/", entry[0]})
+		if !testing.expect_value(t, os.write_entire_file(paths[i], entry[1]), nil) do return
+	}
+	parsed, ok := server.parse_syntax(paths[0], files[0][1])
+	if !testing.expect(t, ok) do return
+
+	names := proc(inactive: map[^ast.Value_Decl]struct{}) -> []string {
+		names := make([dynamic]string)
+		for decl in inactive do append(&names, decl.names[0].derived.(^ast.Ident).name)
+		slice.sort(names[:])
+		return names[:]
+	}
+	alone := names(server.inactive_when_decls(&parsed))
+	testing.expectf(t, len(alone) == 0, "got %v without the package files", alone)
+	pkg := server.When_Package {
+		files     = paths,
+		allocator = context.temp_allocator,
+	}
+	got := names(server.inactive_when_decls(&parsed, &pkg))
+	testing.expectf(t, slice.equal(got, []string{"off_b", "on_c"}), "got %v, expected [off_b, on_c]", got)
 }

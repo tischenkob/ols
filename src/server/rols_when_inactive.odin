@@ -1,15 +1,33 @@
 package server
 
+import "core:fmt"
+import "core:mem"
 import "core:odin/ast"
+import "core:odin/parser"
+import "core:os"
+import "core:strings"
 
 import "src:common"
 
+// The files of a package directory, whose constants inactive_when_decls reads besides those of the evaluated file.
+// The table is built on first use, in allocator, from the files that the evaluated target builds and that share
+// the `package` clause of the first file that needs it.
+When_Package :: struct {
+	files:     []string,
+	allocator: mem.Allocator,
+	built:     bool,
+	pkg_name:  string,
+	// The constants outside any `when` of those files, by name.
+	plain:     map[string]^ast.Expr,
+}
+
 // The value declarations of file in a `when` branch that the editor's target does not build. The conditions
-// evaluate as the editor evaluates them: profile os, arch and defines, else the host, and the constants of the
-// file. Only `!`, comparisons, `&&` and `||` fold; other operators count as unknown. The evaluator reads a name it does not know as false, so a chain counts only up to its first condition
-// with such a name, such as ODIN_DEBUG, ODIN_TEST or a constant of another file or package: that branch and the
-// ones after it are not reported. Allocates in context.allocator.
-inactive_when_decls :: proc(file: ^ast.File) -> map[^ast.Value_Decl]struct{} {
+// evaluate as the editor evaluates them, with the target of set_when_target first: profile os, arch and defines,
+// else the host, and the constants of the file, or of every file of pkg when given. Only `!`, comparisons, `&&` and `||` fold; other operators count as
+// unknown. The evaluator reads a name it does not know as false, so a chain counts only up to its first condition
+// with such a name, such as ODIN_DEBUG, ODIN_TEST or a constant of another package: that branch and the ones after
+// it are not reported. Allocates in context.allocator.
+inactive_when_decls :: proc(file: ^ast.File, pkg: ^When_Package = nil) -> map[^ast.Value_Decl]struct{} {
 	inactive := make(map[^ast.Value_Decl]struct{})
 	// The walk below reaches `when` statements at file scope and in foreign blocks.
 	has_when := false
@@ -27,11 +45,109 @@ inactive_when_decls :: proc(file: ^ast.File) -> map[^ast.Value_Decl]struct{} {
 	if !has_when do return inactive
 
 	ast_context := make_ast_context(file^, nil, file.pkg_name, "", file.fullpath, context.allocator)
-	get_globals(file^, &ast_context)
 	consts := make_when_expr_map()
-	register_when_consts_from_globals(&consts, ast_context.globals)
 	// The constants outside any `when`: one inside a branch may come from a branch that an unknown name chose.
 	plain := make(map[string]^ast.Expr)
+	add_plain_consts(&plain, file)
+	// The package table costs a parse of the directory, so only a condition the file cannot decide reads it.
+	if pkg != nil && !all_when_known(file.decls[:], plain) {
+		if !pkg.built do build_when_package(pkg, file.pkg_name)
+		if pkg.pkg_name == file.pkg_name {
+			for name, value in pkg.plain do if name not_in plain do plain[name] = value
+		}
+	}
+	fold_plain_consts(&consts, plain)
+	get_globals(file^, &ast_context)
+	register_when_consts_from_globals(&consts, ast_context.globals)
+	for decl in file.decls {
+		walk_when_decls(decl, &ast_context, consts, plain, &inactive)
+	}
+	return inactive
+}
+
+// The target that set_when_target chose for the `when` evaluation of this thread, which resolve_when_ident and
+// host_target read before the profile. Thread-local, so a CLI query in a test does not move other tests' targets.
+@(thread_local)
+when_target: Maybe(parser.Build_Target)
+
+// Points the `when` evaluation of this thread at the `-target:` of checker_args when it has one. It returns the
+// previous target for restore_when_target.
+set_when_target :: proc(checker_args: string) -> (saved: Maybe(parser.Build_Target)) {
+	saved = when_target
+	if strings.contains(checker_args, "-target:") do when_target = base_target(checker_args)
+	return
+}
+
+restore_when_target :: proc(saved: Maybe(parser.Build_Target)) {
+	when_target = saved
+}
+
+// The value of ODIN_OS or ODIN_ARCH under the target of set_when_target, spelled as resolve_when_ident spells it.
+when_target_ident :: proc(ident: string) -> (value: When_Expr, ok: bool) {
+	target := when_target.? or_return
+	switch ident {
+	case "ODIN_OS":
+		return fmt.tprint(target.os), true
+	case "ODIN_ARCH":
+		return fmt.tprint(target.arch), true
+	}
+	return nil, false
+}
+
+// Fills the table of pkg from its files that the evaluated target builds and whose `package` clause is pkg_name.
+@(private = "file")
+build_when_package :: proc(pkg: ^When_Package, pkg_name: string) {
+	context.allocator = pkg.allocator
+	pkg.built = true
+	pkg.pkg_name = strings.clone(pkg_name)
+	pkg.plain = make(map[string]^ast.Expr)
+	target := host_target()
+	for path in pkg.files {
+		data, err := os.read_entire_file(path, context.allocator)
+		if err != nil || !builds_on(path, string(data), target) do continue
+		file, ok := parse_syntax(path, string(data))
+		if ok && file.pkg_name == pkg_name do add_plain_consts(&pkg.plain, &file)
+	}
+}
+
+// Folds the constants of plain into consts, each one after the constants its value names, since the evaluator
+// reads a name it has not folded yet as false. A value that when_known rejects stays out, and so does a name that
+// consts already holds, such as a profile define.
+@(private = "file")
+fold_plain_consts :: proc(consts: ^map[string]When_Expr, plain: map[string]^ast.Expr) {
+	folded := make(map[string]^ast.Expr, context.temp_allocator)
+	for name, value in plain do if name in consts^ do folded[name] = value
+	for added := true; added; {
+		added = false
+		for name, value in plain {
+			if name in folded || !when_known(value, folded, 0) do continue
+			register_when_const(consts, name, value)
+			folded[name] = value
+			added = true
+		}
+	}
+}
+
+// Whether when_known accepts every condition of the `when` statements among stmts, nested ones included.
+@(private = "file")
+all_when_known :: proc(stmts: []^ast.Stmt, plain: map[string]^ast.Expr) -> bool {
+	for stmt in stmts {
+		if stmt == nil do continue
+		#partial switch s in stmt.derived {
+		case ^ast.Block_Stmt:
+			if !all_when_known(s.stmts[:], plain) do return false
+		case ^ast.Foreign_Block_Decl:
+			if !all_when_known({s.body}, plain) do return false
+		case ^ast.When_Stmt:
+			if !when_known(s.cond, plain, 0) || !all_when_known({s.body, s.else_stmt}, plain) do return false
+		}
+	}
+	return true
+}
+
+// Adds the constants of file outside any `when` to plain, by name.
+@(private = "file")
+add_plain_consts :: proc(plain: ^map[string]^ast.Expr, file: ^ast.File) {
 	for decl in file.decls {
 		value_decl := decl.derived.(^ast.Value_Decl) or_continue
 		if value_decl.is_mutable do continue
@@ -40,10 +156,6 @@ inactive_when_decls :: proc(file: ^ast.File) -> map[^ast.Value_Decl]struct{} {
 			if i < len(value_decl.values) do plain[ident.name] = value_decl.values[i]
 		}
 	}
-	for decl in file.decls {
-		walk_when_decls(decl, &ast_context, consts, plain, &inactive)
-	}
-	return inactive
 }
 
 @(private = "file")
@@ -106,8 +218,8 @@ mark_when_decls :: proc(stmt: ^ast.Stmt, inactive: ^map[^ast.Value_Decl]struct{}
 }
 
 // Whether the when evaluator knows every name in expr: ODIN_OS, ODIN_ARCH, the profile defines, literals,
-// enum members and the constants of the file outside any `when` whose values it knows in turn. A selector such
-// as pkg.FLAG counts as unknown.
+// enum members and the constants of the file or package outside any `when` whose values it knows in turn. A
+// selector such as pkg.FLAG counts as unknown.
 @(private = "file")
 when_known :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth: int) -> bool {
 	if expr == nil || depth > 8 do return false
