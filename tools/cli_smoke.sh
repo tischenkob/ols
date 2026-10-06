@@ -986,6 +986,12 @@ if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
 	out="$("$OLS" query tests "$dir/prof")"
 	[[ "$out" == *host_only* && "$out" != *win_only* ]] || { echo "FAIL tests-when-profile-os: $out"; exit 1; }
 	echo "ok tests-when-profile-os"
+	# A profile define that is neither an integer nor a bool is a string to odin, so a comparison of two is unknown.
+	echo '{"profile": "d", "profiles": [{"name": "d", "defines": {"MODE": "fast", "WANT": "slow"}}]}' > "$dir/prof/ols.json"
+	printf 'package prof\n\nimport "core:testing"\n\nwhen #config(MODE, "a") == #config(WANT, "b") {\n\t@(test)\n\tt_same :: proc(t: ^testing.T) {}\n} else {\n\t@(test)\n\tt_differ :: proc(t: ^testing.T) {}\n}\n' > "$dir/prof/a_test.odin"
+	out="$("$OLS" query tests "$dir/prof")"
+	[[ "$out" == *t_differ* ]] || { echo "FAIL tests-when-string-defines: $out"; exit 1; }
+	echo "ok tests-when-string-defines"
 	rm -rf "$dir/prof"
 fi
 # reorder-params names the one cause that applies.

@@ -168,8 +168,6 @@ fold_plain_consts :: proc(consts: ^map[string]When_Expr, plain: map[string]^ast.
 			value := plain[name]
 			if name in folded || when_kind(value, folded, 0) == .Unknown do continue
 			register_when_const(consts, name, value)
-			// A value the evaluator cannot fold stays unknown to the conditions that name it.
-			if name not_in consts^ do continue
 			folded[name] = value
 			added = true
 		}
@@ -327,7 +325,7 @@ when_kind :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth: int) -> W
 		// A float, rune or imaginary literal reads as false.
 		#partial switch e.tok.kind {
 		case .Integer:
-			return .Int
+			return .Int if int_literal_fits(e.tok.text) else .Unknown
 		case .String:
 			return .String
 		}
@@ -360,10 +358,49 @@ when_kind :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth: int) -> W
 	return .Unknown
 }
 
-// The kind of a profile define's value as make_when_expr_map folds it: an integer, else a bool, since the evaluator
-// reads any other name as false.
+// Whether the integer literal text fits an int. strconv.parse_int, which the evaluator calls, wraps a larger one
+// silently, so `18446744073709551616` reads as 0.
+@(private = "file")
+int_literal_fits :: proc(text: string) -> bool {
+	base: u128 = 10
+	digits := text
+	if len(text) > 2 && text[0] == '0' {
+		switch text[1] {
+		case 'b':
+			base = 2
+		case 'o':
+			base = 8
+		case 'z':
+			base = 12
+		case 'x':
+			base = 16
+		}
+		if base != 10 || text[1] == 'd' do digits = text[2:]
+	}
+	value: u128
+	for c in digits {
+		digit: u128
+		switch c {
+		case '0' ..= '9':
+			digit = u128(c - '0')
+		case 'a' ..= 'z':
+			digit = u128(c - 'a' + 10)
+		case 'A' ..= 'Z':
+			digit = u128(c - 'A' + 10)
+		case:
+			continue
+		}
+		value = value * base + digit
+		if value > u128(max(int)) do return false
+	}
+	return true
+}
+
+// The kind of a profile define's value: an integer or `true` or `false`, which make_when_expr_map folds as odin
+// reads them. Odin reads any other text as a string or a float, which the evaluator reads as false, so it is
+// unknown.
 @(private = "file")
 define_kind :: proc(value: string) -> When_Kind {
-	_, is_int := strconv.parse_int(value)
-	return .Int if is_int else .Bool
+	if _, is_int := strconv.parse_int(value); is_int && int_literal_fits(value) do return .Int
+	return .Bool if value == "true" || value == "false" else .Unknown
 }

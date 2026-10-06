@@ -97,8 +97,9 @@ main :: proc() {}{*}
 	)
 }
 
-// A comparison or `&&` that the evaluator cannot fold, such as an ordering of strings or `&&` of integers, is
-// unknown, in a condition and in a constant that a condition names. An integer ordering still folds.
+// A comparison or `&&` that the evaluator cannot fold, such as an ordering of strings, `&&` of integers or an
+// integer too large for an int, is unknown, in a condition and in a constant that a condition names. An integer
+// ordering still folds.
 @(test)
 when_inactive_unfoldable_operands_are_unknown :: proc(t: ^testing.T) {
 	source := test.Source {
@@ -129,6 +130,14 @@ when 1 < 2 {
 	int_g :: 7
 } else {
 	int_h :: 8
+}
+
+BIG :: 18446744073709551616
+
+when BIG > 0 {
+	big_i :: 9
+} else {
+	big_j :: 10
 }
 
 main :: proc() {}{*}
