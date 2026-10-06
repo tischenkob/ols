@@ -332,6 +332,21 @@ main :: proc() {
 	)
 }
 
+// The rewrite rebuilds the call from its arguments, so a comment between them would be lost.
+@(test)
+migrate_strconv_keeps_call_with_comment :: proc(t: ^testing.T) {
+	main := `package test
+
+import "strconv"
+
+main :: proc() {
+	buf: [32]u8
+	_ = strconv.itoa(buf[:], /* n */ 7)
+}
+`
+	migrate(t, main, main)
+}
+
 @(test)
 migrate_strconv_alias :: proc(t: ^testing.T) {
 	migrate(

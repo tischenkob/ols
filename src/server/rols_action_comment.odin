@@ -102,6 +102,21 @@ comments_overlapping :: proc(file: ast.File, start, end: int) -> []tokenizer.Tok
 	return found[:]
 }
 
+// A fix that replaces [start, end) with text deletes a comment lying fully inside the range whose
+// text the replacement does not carry. An insert deletes nothing, and an edit inside one comment
+// (such as its `//+` prefix) does not cover it fully.
+@(private = "package")
+fix_drops_comment :: proc(file: ast.File, start, end: int, text: string) -> bool {
+	if start == end do return false
+	for group in file.comments {
+		for tok in group.list {
+			inside := start <= tok.pos.offset && tok.pos.offset + len(tok.text) <= end
+			if inside && !strings.contains(text, tok.text) do return true
+		}
+	}
+	return false
+}
+
 to_block_comment :: proc(toks: []tokenizer.Token, ind: string) -> string {
 	sb := strings.builder_make(context.temp_allocator)
 	strings.write_string(&sb, ind)
