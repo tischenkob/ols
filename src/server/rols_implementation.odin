@@ -124,9 +124,10 @@ proc_group_locations :: proc(
 	return groups[:]
 }
 
-// Whether the text has `proc`, then blanks and comments, then `{`: the start of a group literal. It accepts more
-// than the parser does (a comment or string can match); it misses only a nested block comment between `proc` and `{`.
-mentions_proc_group :: proc(text: string) -> bool {
+// Whether the text has `proc`, then blanks and comments, then `{`: the start of a group literal, with the word name,
+// bare or package-qualified, before the next `}`. It accepts more than the parser does (a comment or string can
+// match); it misses only a nested block comment between `proc` and `{`.
+mentions_proc_group :: proc(text, name: string) -> bool {
 	rest := text
 	for {
 		at := strings.index(rest, "proc")
@@ -146,6 +147,28 @@ mentions_proc_group :: proc(text: string) -> bool {
 			}
 			rest = strings.trim_left_space(rest)
 		}
-		if strings.has_prefix(rest, "{") do return true
+		if !strings.has_prefix(rest, "{") do continue
+		rest = rest[1:]
+		elements := rest
+		if end := strings.index_byte(rest, '}'); end >= 0 {
+			elements = rest[:end]
+		}
+		if has_word(elements, name) do return true
+	}
+
+	has_word :: proc(text, word: string) -> bool {
+		is_word :: proc(c: u8) -> bool {
+			return c == '_' || c >= 0x80 || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
+		}
+		from := 0
+		for {
+			at := strings.index(text[from:], word)
+			if at < 0 do return false
+			start := from + at
+			from = start + len(word)
+			if (start == 0 || !is_word(text[start - 1])) && (from == len(text) || !is_word(text[from])) {
+				return true
+			}
+		}
 	}
 }

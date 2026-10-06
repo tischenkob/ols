@@ -293,9 +293,7 @@ find_symbol_references :: proc(
 	include_declaration := true,
 	target_name := "",
 	files: []Package_File = {},
-	// rols: a file must contain this text too, else the search skips it without parsing
-	require_text := "",
-	// rols: a file must hold a procedure group literal (`proc{`), else the search skips it without parsing
+	// rols: a file must hold a `proc{` group literal that lists target_name, else the search skips it unparsed
 	require_proc_group := false,
 	// rols: platform variants of symbol (declaration_variants) count as symbol, and their declarations are added
 	variants: []Symbol = {},
@@ -376,12 +374,8 @@ find_symbol_references :: proc(
 		if target_name != "" && !strings.contains(text, target_name) {
 			continue
 		}
-		// rols: skip a file without require_text
-		if !strings.contains(text, require_text) {
-			continue
-		}
 		// rols: skip a file without a procedure group
-		if require_proc_group && !mentions_proc_group(text) {
+		if require_proc_group && !mentions_proc_group(text, target_name) {
 			continue
 		}
 
