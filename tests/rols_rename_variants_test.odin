@@ -1,5 +1,6 @@
 package tests
 
+import "core:fmt"
 import "core:testing"
 
 import test "src:testing"
@@ -437,5 +438,74 @@ g :: proc() -> int { return f() }
 				{range = {start = {line = 8, character = 28}, end = {line = 8, character = 29}}},
 			},
 		)
+	}
+}
+
+// Renaming a field of one variant of a struct renames the same field of the other variants.
+@(test)
+rename_field_of_struct_variants :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+when ODIN_DEBUG {
+	S :: struct { a: int }
+} else {
+	S :: struct { a: int, c: int }
+}
+
+g :: proc(s: S) -> int { return s.a{*} }
+`,
+	}
+	test.expect_rename(t, &source, "b", {{"main.odin", `package test
+
+when ODIN_DEBUG {
+	S :: struct { b: int }
+} else {
+	S :: struct { b: int, c: int }
+}
+
+g :: proc(s: S) -> int { return s.b }
+`}})
+}
+
+// A member of the new name in another variant of the struct is a collision.
+@(test)
+rename_field_collision_in_struct_variant :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+when ODIN_DEBUG {
+	S :: struct { a: int, c: int }
+} else {
+	S :: struct { a: int }
+}
+
+g :: proc(s: S) -> int { return s.a{*} }
+`,
+	}
+	test.expect_rename_refused(t, &source, "c", {"`c` is already a member of the same type at test/main.odin:4:24"})
+}
+
+// A declaration of the new name under a `when` that no target of the renamed declaration's file builds is no
+// collision.
+@(test)
+rename_collision_skips_when_branch_of_other_os :: proc(t: ^testing.T) {
+	cases := [?]struct {
+		condition: string,
+		causes:    []string,
+	} {
+		{"ODIN_OS == .Linux", {}},
+		{"!(ODIN_OS == .Windows) && ODIN_ARCH != .i386", {}},
+		{"ODIN_OS == .Windows", {"`h` is already declared in the package at test/b.odin:4:2 (in a when branch)"}},
+		{"ODIN_OS == .Linux || FLAG", {"`h` is already declared in the package at test/b.odin:4:2 (in a when branch)"}},
+	}
+	for c in cases {
+		source := test.Source {
+			files = {
+				{"f.odin", "#+build windows\npackage test\n\nf{*} :: proc() {}\n"},
+				{"b.odin", fmt.tprintf("package test\n\nwhen %s {{\n\th :: 1\n}}\n\nFLAG :: true\n", c.condition)},
+			},
+		}
+		test.expect_rename_refused(t, &source, "h", c.causes)
 	}
 }

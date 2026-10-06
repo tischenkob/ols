@@ -562,13 +562,11 @@ main :: proc() {
 	test.expect_reorder_params(t, &source, {2, 1, 0}, {})
 }
 
-// The action edits one declaration, so a procedure with a platform variant keeps its parameter.
+// The platform variants of the procedure lose the parameter too.
 @(test)
-action_remove_param_skips_platform_variant :: proc(t: ^testing.T) {
-	expect_no_remove_param(
-		t,
-		"Remove parameter unused",
-		`#+build !windows
+action_remove_param_across_platform_variants :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+build !windows
 package test
 
 add :: proc(a: int, un{*}used: int) -> int {
@@ -579,13 +577,52 @@ main :: proc() {
 	x := add(1, 2)
 }
 `,
+		files = {
+			{"add_windows.odin", "#+build windows\npackage test\n\nadd :: proc(a, unused: int) -> int {\n\treturn a + 1\n}\n"},
+		},
+		config = {enable_code_action_remove_param = true},
+	}
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Remove parameter unused",
 		{
-			{
-				"add_windows.odin",
-				"#+build windows\npackage test\n\nadd :: proc(a: int, unused: int) -> int {\n\treturn a\n}\n",
-			},
+			{"main.odin", `#+build !windows
+package test
+
+add :: proc(a: int) -> int {
+	return a
+}
+
+main :: proc() {
+	x := add(1)
+}
+`},
+			{"add_windows.odin", "#+build windows\npackage test\n\nadd :: proc(a: int) -> int {\n\treturn a + 1\n}\n"},
 		},
 	)
+}
+
+// A platform variant that reads the parameter, or has other parameters, keeps the procedure's parameter.
+@(test)
+action_remove_param_skips_platform_variant :: proc(t: ^testing.T) {
+	main := `#+build !windows
+package test
+
+add :: proc(a: int, un{*}used: int) -> int {
+	return a
+}
+
+main :: proc() {
+	x := add(1, 2)
+}
+`
+	for variant in ([2]string{
+		"#+build windows\npackage test\n\nadd :: proc(a: int, unused: int) -> int {\n\treturn a + unused\n}\n",
+		"#+build windows\npackage test\n\nadd :: proc(a: int, unused: f32) -> int {\n\treturn a\n}\n",
+	}) {
+		expect_no_remove_param(t, "Remove parameter unused", main, {{"add_windows.odin", variant}})
+	}
 }
 
 // In `h(f)(1)` the outer call is not a call of f, so its argument must stay.

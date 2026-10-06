@@ -715,3 +715,105 @@ show :: proc() -> string {
 `}},
 	)
 }
+
+// Two spellings of one project-name constraint allow the move, and different project names refuse it.
+@(test)
+move_decl_between_files_with_equivalent_project_names :: proc(t: ^testing.T) {
+	reordered := move_source(
+		"#+build-project-name a, b\npackage test\n\nhel{*}per :: proc() {}\n",
+		{{"b.odin", "#+build-project-name b, a\npackage test\n"}},
+	)
+	test.expect_move_declaration(
+		t,
+		&reordered,
+		"b.odin",
+		{
+			{"main.odin", "#+build-project-name a, b\npackage test\n"},
+			{"b.odin", "#+build-project-name b, a\npackage test\n\nhelper :: proc() {}\n"},
+		},
+	)
+	other := move_source(
+		"#+build-project-name a\npackage test\n\nhel{*}per :: proc() {}\n",
+		{{"b.odin", "#+build-project-name !a\npackage test\n"}},
+	)
+	test.expect_move_declaration(t, &other, "b.odin", {}, "b.odin has different build constraints")
+}
+
+// A selector on a local spelled like the import is no use of it, so the import goes with its only real user.
+@(test)
+move_decl_drops_import_that_a_same_named_local_selector_does_not_use :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+import "core:strings"
+
+T :: struct {
+	n: int,
+}
+
+sh{*}ow :: proc() -> string {
+	return strings.to_upper("a")
+}
+
+main :: proc() {
+	strings := T{}
+	_ = strings.n
+}
+`, {{"b.odin", "package test\n"}})
+	test.expect_move_declaration(
+		t,
+		&source,
+		"b.odin",
+		{{"main.odin", `package test
+
+T :: struct {
+	n: int,
+}
+
+main :: proc() {
+	strings := T{}
+	_ = strings.n
+}
+`}, {"b.odin", `package test
+
+import "core:strings"
+
+show :: proc() -> string {
+	return strings.to_upper("a")
+}
+`}},
+	)
+}
+
+// A local spelled like the import in an inner block does not hide the import from the rest of the moved procedure.
+@(test)
+move_decl_takes_import_past_a_same_named_local_of_an_inner_block :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+import "core:strings"
+
+sh{*}ow :: proc() -> string {
+	{
+		strings := 1
+		_ = strings
+	}
+	return strings.to_upper("a")
+}
+`, {{"b.odin", "package test\n"}})
+	test.expect_move_declaration(
+		t,
+		&source,
+		"b.odin",
+		{{"main.odin", "package test\n"}, {"b.odin", `package test
+
+import "core:strings"
+
+show :: proc() -> string {
+	{
+		strings := 1
+		_ = strings
+	}
+	return strings.to_upper("a")
+}
+`}},
+	)
+}

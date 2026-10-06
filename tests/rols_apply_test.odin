@@ -396,6 +396,21 @@ apply_gate_targets_follow_the_files_the_host_does_not_build :: proc(t: ^testing.
 	testing.expect_value(t, server.gate_check_timeout(100000, 8), server.GATE_TIMEOUT_CAP)
 }
 
+// A build has one project name, so files for different project names never build together.
+@(test)
+builds_together_reads_project_names :: proc(t: ^testing.T) {
+	a := "#+build-project-name a\npackage p\n"
+	b := "#+build-project-name b\npackage p\n"
+	not_a := "#+build-project-name !a\npackage p\n"
+	plain := "package p\n"
+	testing.expect(t, !server.builds_together("/p/x.odin", a, "/p/y.odin", b), "a and b")
+	testing.expect(t, server.builds_together("/p/x.odin", a, "/p/y.odin", a), "a and a")
+	testing.expect(t, !server.builds_together("/p/x.odin", a, "/p/y.odin", not_a), "a and !a")
+	testing.expect(t, server.builds_together("/p/x.odin", b, "/p/y.odin", not_a), "b and !a")
+	testing.expect(t, server.builds_together("/p/x.odin", not_a, "/p/y.odin", plain), "!a and no tag")
+	testing.expect(t, server.builds_together("/p/x.odin", "#+build-project-name a, b\npackage p\n", "/p/y.odin", b), "a, b and b")
+}
+
 @(test)
 apply_gate_targets_check_each_target_on_the_packages_that_need_it :: proc(t: ^testing.T) {
 	root, dir_err := os.make_directory_temp("", "rols_gate_targets_*", context.temp_allocator)
