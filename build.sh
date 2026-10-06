@@ -1,5 +1,43 @@
 #!/usr/bin/env bash
 
+
+# rols: ROLS_TEST_TIMEOUT=SECONDS bounds odin test for test and single_test; unset means no limit.
+# odin test runs in its own process group, and on timeout the whole group gets SIGKILL, so the tests binary that
+# odin test starts dies too. INT, TERM and HUP are passed on to the group. The exit status is 124 on timeout.
+rols_odin_test() {
+    if [[ -z $ROLS_TEST_TIMEOUT ]]; then
+        odin test "$@"
+        return
+    fi
+    if [[ ! $ROLS_TEST_TIMEOUT =~ ^[1-9][0-9]*$ ]]; then
+        echo "ROLS_TEST_TIMEOUT must be a whole number of seconds above 0, not '$ROLS_TEST_TIMEOUT'" >&2
+        return 2
+    fi
+    perl -e '
+        my $timeout = shift;
+        defined(my $pid = fork) or die "fork: $!\n";
+        if ($pid == 0) {
+            setpgrp(0, 0);
+            exec @ARGV or die "exec $ARGV[0]: $!\n";
+        }
+        setpgrp($pid, $pid);
+        my $timed_out = 0;
+        $SIG{$_} = sub { kill $_[0], -$pid } for qw(INT TERM HUP);
+        $SIG{ALRM} = sub {
+            $timed_out = 1;
+            print STDERR "odin test ran longer than ROLS_TEST_TIMEOUT=$timeout s; killed its process group\n";
+            kill "KILL", -$pid;
+        };
+        alarm $timeout;
+        my $reaped;
+        do { $reaped = waitpid($pid, 0) } while ($reaped == -1 && $!{EINTR});
+        my $status = $?;
+        alarm 0;
+        exit 124 if $timed_out;
+        exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
+    ' "$ROLS_TEST_TIMEOUT" odin test "$@"
+}
+
 if [[ $1 == "single_test" ]]
 then
     shift
@@ -7,7 +45,8 @@ then
     #BUG in odin test, it makes the executable with the same name as a folder and gets confused.
     cd tests
 
-    odin test ../tests -collection:src=../src -define:ODIN_TEST_NAMES="$@" -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
+    # rols: odin test under the optional ROLS_TEST_TIMEOUT
+    rols_odin_test ../tests -collection:src=../src -define:ODIN_TEST_NAMES="$@" -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
 
     if ([ $? -ne 0 ])
     then
@@ -25,7 +64,8 @@ then
     #BUG in odin test, it makes the executable with the same name as a folder and gets confused.
     cd tests
 
-    odin test ../tests -collection:src=../src "$@" -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
+    # rols: odin test under the optional ROLS_TEST_TIMEOUT
+    rols_odin_test ../tests -collection:src=../src "$@" -define:ODIN_TEST_FAIL_ON_BAD_MEMORY=true
 
     if ([ $? -ne 0 ])
     then

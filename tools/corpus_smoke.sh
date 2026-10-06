@@ -59,16 +59,23 @@ trap 'rm -rf "$work"' EXIT
 
 VET_OFF='"enable_checker_vet_style":false,"enable_checker_vet_semicolon":false,"enable_checker_vet_tabs":false,"enable_checker_vet_unused_variables":false,"enable_checker_vet_shadowing":false,"enable_checker_vet_cast":false'
 
-# project NAME: sets url, sha, colls (NAME=PATH pairs, paths relative to the project) and cfg (the ols.json text).
+# project NAME: sets url, sha, colls (NAME=PATH pairs, paths relative to the project), cfg (the ols.json text),
+# and extra_dir and extra_flags: one more `odin check` of a directory with build flags, for code that the default
+# build skips, such as tina's simulation code in `when TINA_SIM` blocks.
 project() {
 	colls=""
 	cfg='{}'
+	extra_dir=""
+	extra_flags=""
 	case "$1" in
 	ols)
 		url=https://github.com/DanielGavin/ols sha=146d5e3dcc8bde5a23cf3a4893f30fc631d9d46e colls="src=src"
 		cfg='{"collections":[{"name":"src","path":"src"}],'"$VET_OFF"'}'
 		;;
-	tina) url=https://github.com/pmbanugo/tina sha=a2e8d4dc53394dd6772d08e79a41d6b56ba3a65e ;;
+	tina)
+		url=https://github.com/pmbanugo/tina sha=a2e8d4dc53394dd6772d08e79a41d6b56ba3a65e
+		extra_dir=src extra_flags=-define:TINA_SIM=true
+		;;
 	Skald)
 		url=https://github.com/BuLEEto/Skald sha=6bbb664b9f421c25aa9be4540d5c9dedd20d32ca colls="gui=."
 		cfg='{"collections":[{"name":"gui","path":"."}]}'
@@ -125,16 +132,25 @@ coll_flags() {
 	done
 }
 
-# odin_check BASE DIR OUT: plain `odin check` of DIR with the project collections under BASE.
+# odin_check BASE DIR OUT [FLAG...]: plain `odin check` of DIR with the project collections under BASE.
 odin_check() {
 	local flags=() flag
 	while IFS= read -r flag; do flags+=("$flag"); done < <(coll_flags "$1")
-	(cd "$1" && "$TIMEOUT" 120 odin check "$2" -no-entry-point ${flags[@]+"${flags[@]}"}) >"$3" 2>&1 </dev/null
+	(cd "$1" && "$TIMEOUT" 120 odin check "$2" -no-entry-point ${flags[@]+"${flags[@]}"} "${@:4}") >"$3" 2>&1 </dev/null
+}
+
+# extra_check BASE STEP: the project's extra check of extra_dir under BASE, when the pristine tree passed it.
+# A failure is reported for STEP.
+extra_check() {
+	if [[ $extra_ok -eq 1 ]] && ! odin_check "$1" "$1/$extra_dir" "$w/extra.out" $extra_flags; then
+		fail "$2" "breaks $extra_dir with $extra_flags: $(first_error "$w/extra.out")"
+		return 1
+	fi
 }
 
 # first_error FILE: the first compiler error line, else the first line, paths shortened.
 first_error() {
-	{ grep -m1 -E 'Error|error' "$1" || head -1 "$1"; } | sed "s|$root/||g; s|$work/[^/]*/fmt1/||g" | cut -c1-200
+	{ grep -m1 -E 'Error|error' "$1" || head -1 "$1"; } | sed "s|$root/||g; s|$work/[^/]*/fmt1/||g; s|$work/[^/]*/modcopy/||g" | cut -c1-200
 }
 
 # rel PATH: PATH relative to the project root, `.` for the root itself.
@@ -392,8 +408,17 @@ for name in "${names[@]}"; do
 	done <"$w/pkgs"
 	npkgs=$(wc -l <"$w/pkgs" | tr -d ' ')
 	npass=$(wc -l <"$w/pass" | tr -d ' ')
+	extra_ok=0
+	if [[ -n "$extra_dir" ]]; then
+		if odin_check "$root" "$root/$extra_dir" "$w/extra.out" $extra_flags; then
+			extra_ok=1
+		else
+			echo "SKIP $name $extra_dir with $extra_flags: fails before any edit: $(first_error "$w/extra.out")" >&2
+		fi
+	fi
 
 	# check and lint per package; lint errors in a package that compiles are false errors.
+	# `lint DIR` also covers the packages below DIR, so a line counts only for the directory that holds its file.
 	cl_ok=0
 	while IFS= read -r pkg; do
 		ok=1
@@ -404,6 +429,8 @@ for name in "${names[@]}"; do
 				ok=0
 			elif grep -qxF "$pkg" "$w/pass"; then
 				while IFS= read -r line; do
+					file="${line%%:*}"
+					[[ "${file%/*}" == "$pkg" ]] || continue
 					fail lint "false error: ${line#"$root"/}"
 					ok=0
 				done < <(grep -E '^/.*:[0-9]+:[0-9]+: error: ' "$w/lint.out" || true)
@@ -460,6 +487,7 @@ for name in "${names[@]}"; do
 					fmt_bad=$((fmt_bad + 1))
 				fi
 			done <"$w/pass"
+			extra_check "$fmt1" format || fmt_bad=$((fmt_bad + 1))
 		fi
 	done
 	while IFS= read -r line; do
@@ -471,39 +499,50 @@ for name in "${names[@]}"; do
 	fmt_result=$([[ $fmt_bad -eq 0 ]] && echo ok || echo "$fmt_bad bad")
 
 	# modernize: apply without the built-in gate, then judge the result with plain odin check.
+	# The read-only core is modernized in a scratch copy.
+	mod_root="$root"
 	if [[ $readonly_root -eq 1 ]]; then
-		mod_result="dry run"
-		if olsq "$w/mod.out" modernize modernize; then
-			if [[ $rc -ne 0 && $rc -ne 3 ]]; then
-				fail modernize "exit $rc: $(grep -m1 '^error:' "$w/mod.out.err" || head -1 "$w/mod.out.err")"
-				mod_result="exit $rc"
-			fi
+		mod_root="$w/modcopy"
+		cp -R "$root" "$mod_root"
+	fi
+	mod_result="none"
+	tree_root="$root"
+	root="$mod_root"
+	mod_ran=0
+	olsq "$w/mod.out" modernize modernize --apply --no-check && mod_ran=1
+	root="$tree_root"
+	if [[ $mod_ran -eq 0 ]]; then
+		mod_result="crash"
+	elif [[ $rc -eq 0 ]]; then
+		if [[ $readonly_root -eq 1 ]]; then
+			changed=$({ diff -rq "$root" "$mod_root" || true; } | wc -l | tr -d ' ')
 		else
-			mod_result="crash"
+			changed=$(git -C "$root" status --porcelain | grep -cv ' ols.json$' || true)
 		fi
-	else
-		mod_result="none"
-		if olsq "$w/mod.out" modernize modernize --apply --no-check; then
-			if [[ $rc -eq 0 ]]; then
-				changed=$(git -C "$root" status --porcelain | grep -cv ' ols.json$' || true)
-				broken=0
-				while IFS= read -r pkg; do
-					if ! odin_check "$root" "$pkg" "$w/modcheck.out"; then
-						fail modernize "breaks $(rel "$pkg"): $(first_error "$w/modcheck.out")"
-						broken=$((broken + 1))
-					fi
-				done <"$w/pass"
-				mod_result="$changed files"
-				if [[ $broken -gt 0 ]]; then
-					mod_result="$mod_result, $broken broken"
+		broken=0
+		while IFS= read -r pkg; do
+			if ! odin_check "$mod_root" "$mod_root/$(rel "$pkg")" "$w/modcheck.out"; then
+				# As in the format step: the copy of core meets the real core through its imports.
+				if [[ $readonly_root -eq 1 ]] && grep -q "Duplicate declaration of 'package" "$w/modcheck.out"; then
+					echo "SKIP $name modernize $(rel "$pkg")" >&2
+					continue
 				fi
-			elif [[ $rc -ne 3 ]]; then
-				fail modernize "exit $rc: $(grep -m1 '^error:' "$w/mod.out.err" || head -1 "$w/mod.out.err")"
-				mod_result="exit $rc"
+				fail modernize "breaks $(rel "$pkg"): $(first_error "$w/modcheck.out")"
+				broken=$((broken + 1))
 			fi
-		else
-			mod_result="crash"
+		done <"$w/pass"
+		extra_check "$mod_root" modernize || broken=$((broken + 1))
+		mod_result="$changed files"
+		if [[ $broken -gt 0 ]]; then
+			mod_result="$mod_result, $broken broken"
 		fi
+	elif [[ $rc -ne 3 ]]; then
+		fail modernize "exit $rc: $(grep -m1 '^error:' "$w/mod.out.err" || head -1 "$w/mod.out.err")"
+		mod_result="exit $rc"
+	fi
+	if [[ $readonly_root -eq 1 ]]; then
+		rm -rf "$mod_root"
+	else
 		restore
 	fi
 

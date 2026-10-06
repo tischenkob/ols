@@ -110,11 +110,14 @@ Small fixes:
 - `src/server/references.odin`: the `offset_of` member is a reference to its field.
 - `src/server/imports.odin`: `find_unused_imports` counts an import as used only where the file names its package, not where a value of one of its types appears, and never reports an `@(require)` import.
 - `src/server/file_resolve.odin`: the where clauses of a union and the paths of a foreign import are resolved, so a package named only there counts as used.
+- `src/server/analysis.odin`: `resolve_slice_expression` gives a slice an anonymous type, so hover and "Add explicit type" print `[]int` for `s.arr[:2]` where upstream printed the field name.
+- `src/server/requests.odin`: the Odin root lookup runs `<workspace>/odin` only when it is a file, so a package directory named `odin`, such as `core/odin`, is not run.
 
 Tests:
 
 - `tests/action_invert_if_test.odin`: the early-exit variant and the fork behaviour.
 - `tests/inlay_hints_test.odin`: the fork hint kinds.
+- `build.sh`: `single_test` exits with the status of `odin test`. The environment variable `ROLS_TEST_TIMEOUT=SECONDS` bounds `test` and `single_test`: `odin test` runs in its own process group, which gets SIGKILL on timeout, and the run exits 1. Unset means no limit.
 
 ## Changed upstream defaults
 
