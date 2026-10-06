@@ -765,6 +765,105 @@ main :: proc() {
 	test.expect_no_hover(t, &source)
 }
 
+// A tied call in a return names no enum at the argument, so the implicit selector does not fall back to the result.
+@(test)
+hover_overload_tie_of_implicit_selector_in_return :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Result :: enum { A, Z }
+E1 :: enum { A, B }
+E2 :: enum { A, C }
+f1 :: proc(e: E1, p: []u8) -> Result { return .Z }
+f2 :: proc(e: E2, p: ^int) -> Result { return .Z }
+g :: proc { f1, f2 }
+h :: proc() -> Result {
+	return g(.A{*}, nil)
+}
+`,
+	}
+	test.expect_no_hover(t, &source)
+}
+
+// The implicit selector of a tied call is no reference to the enum that the call returns.
+@(test)
+references_overload_tie_of_implicit_selector_exclude_result :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Result :: enum { A{*}, Z }
+E1 :: enum { A, B }
+E2 :: enum { A, C }
+f1 :: proc(e: E1, p: []u8) -> Result { return .Z }
+f2 :: proc(e: E2, p: ^int) -> Result { return .Z }
+g :: proc { f1, f2 }
+h :: proc() {
+	r: Result = g(.A, nil)
+	_ = r
+}
+`,
+	}
+	test.expect_reference_locations(
+		t,
+		&source,
+		{{range = {start = {line = 2, character = 17}, end = {line = 2, character = 18}}}},
+	)
+}
+
+// Overload resolution picks the member by the arguments, not the first member.
+@(test)
+hover_implicit_selector_of_group_member_picked_by_arguments :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+E1 :: enum { A, B }
+E2 :: enum { A, C }
+f1 :: proc(e: E1, p: int) {}
+f2 :: proc(e: E2, p: string) {}
+g :: proc { f1, f2 }
+main :: proc() {
+	g(.A{*}, "s")
+}
+`,
+	}
+	test.expect_hover(t, &source, "test.E2: .A")
+}
+
+// An argument of `x->m(...)` binds to the parameter after the receiver.
+@(test)
+hover_implicit_selector_of_selector_call_argument :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+E1 :: enum { A, B }
+S :: struct { m: proc(s: ^S, e: E1) }
+main :: proc() {
+	x: ^S
+	x->m(.A{*})
+}
+`,
+	}
+	test.expect_hover(t, &source, "test.E1: .A")
+}
+
+// Completion in an argument of `x->m(...)` offers the values of the parameter after the receiver.
+@(test)
+completion_implicit_selector_of_selector_call_argument :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+E1 :: enum { A, B }
+E2 :: enum { C, D }
+S :: struct { m: proc(s: ^S, e: E1, f: E2) }
+main :: proc() {
+	x: ^S
+	x->m(.A, .{*})
+}
+`,
+	}
+	test.expect_completion_labels(t, &source, ".", {"C", "D"}, {"A", "B"})
+}
+
 // Completion in an argument of a tied group call offers the values of every tied member's parameter.
 @(test)
 completion_overload_tie_offers_every_tied_parameter :: proc(t: ^testing.T) {
@@ -782,6 +881,25 @@ main :: proc() {
 `,
 	}
 	test.expect_completion_labels(t, &source, ".", {"A", "B", "C"})
+}
+
+// The value that both tied members take, `A`, is offered once.
+@(test)
+completion_overload_tie_offers_each_value_once :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+E1 :: enum { A, B }
+E2 :: enum { A, C }
+f1 :: proc(e: E1, p: []u8) {}
+f2 :: proc(e: E2, p: ^int) {}
+g :: proc { f1, f2 }
+main :: proc() {
+	g(.{*}, nil)
+}
+`,
+	}
+	test.expect_completion_label_order(t, &source, ".", {"A", "B", "C"})
 }
 
 // The group call inside max resolves against its own arguments, not against the arguments of max.
@@ -898,4 +1016,23 @@ f :: proc() {
 `,
 	}
 	test.expect_no_hover(t, &source)
+}
+
+// Signature help in a tied call lists every tied member.
+@(test)
+signature_help_overload_tie_lists_every_member :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+E1 :: enum { A, B }
+E2 :: enum { A, C }
+f1 :: proc(e: E1, p: []u8) {}
+f2 :: proc(e: E2, p: ^int) {}
+g :: proc { f1, f2 }
+main :: proc() {
+	g(.A, nil{*})
+}
+`,
+	}
+	test.expect_signature_labels(t, &source, {"test.f1 :: proc(e: E1, p: []u8)", "test.f2 :: proc(e: E2, p: ^int)"})
 }

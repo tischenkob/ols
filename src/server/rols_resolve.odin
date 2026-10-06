@@ -3,7 +3,8 @@ package server
 import "core:odin/ast"
 import "core:slice"
 
-// The parameter that the call argument at index binds to: by name for `name = value`, else by position.
+// The parameter that the call argument at index binds to: by name for `name = value`, else by position. The
+// positional arguments of `x->f(...)` start after the receiver parameter.
 get_call_arg_field :: proc(value: SymbolProcedureValue, call: ast.Call_Expr, index: int) -> (^ast.Field, bool) {
 	if index < 0 || index >= len(call.args) {
 		return nil, false
@@ -14,6 +15,10 @@ get_call_arg_field :: proc(value: SymbolProcedureValue, call: ast.Call_Expr, ind
 			return nil, false
 		}
 		return get_proc_arg_type_from_name(value, ident.name)
+	}
+	if selector, is_selector := call.expr.derived.(^ast.Selector_Expr);
+	   is_selector && selector.op.kind == .Arrow_Right {
+		return get_proc_arg_type_from_index(value, index + 1)
 	}
 	return get_proc_arg_type_from_index(value, index)
 }
@@ -85,11 +90,22 @@ top_candidates_agree :: proc(ast_context: ^AstContext, candidates: []Candidate) 
 	return true
 }
 
-// Whether `expand_call_args` knows how many values each argument passes. A bad or missing expression and `x->f()`,
-// which counts as one value whatever `f` returns, leave the count unknown.
+// The parameters a call must pass: those without a default value that are not variadic.
+proc_required_arg_count :: proc(procedure: SymbolProcedureValue) -> int {
+	required := 0
+	for field in procedure.arg_types {
+		if _, is_variadic := proc_field_type_for_call(field); !is_variadic && field.default_value == nil {
+			required += max(1, len(field.names))
+		}
+	}
+	return required
+}
+
+// Whether `expand_call_args` knows how many values each argument passes. A bad expression and `x->f()`, which
+// counts as one value whatever `f` returns, leave the count unknown.
 call_arg_counts_known :: proc(call_args: []CallArg) -> bool {
 	for arg in call_args {
-		if arg.bad_expr || arg.value_expr == nil {
+		if arg.bad_expr {
 			return false
 		}
 		if _, is_selector_call := arg.value_expr.derived.(^ast.Selector_Call_Expr); is_selector_call {
@@ -204,22 +220,19 @@ top_level_decl_at :: proc(stmts: []^ast.Stmt, offset: int) -> ^ast.Stmt {
 		return nil
 	}
 	stmt := stmts[after - 1]
-	for when_stmt, is_when := stmt.derived.(^ast.When_Stmt); is_when; {
-		branch: ^ast.Stmt = when_stmt.body
-		if when_stmt.else_stmt != nil && offset >= when_stmt.else_stmt.pos.offset {
-			branch = when_stmt.else_stmt
+	if w, is_when := stmt.derived.(^ast.When_Stmt); is_when {
+		branch := w.body
+		if w.else_stmt != nil && offset >= w.else_stmt.pos.offset {
+			branch = w.else_stmt
 		}
 		#partial switch b in branch.derived {
-		case ^ast.When_Stmt:
-			when_stmt = b
-			continue
 		case ^ast.Block_Stmt:
-			if offset < b.pos.offset || offset >= b.end.offset {
-				return stmt
+			if b.pos.offset <= offset && offset < b.end.offset {
+				return top_level_decl_at(b.stmts, offset)
 			}
-			return top_level_decl_at(b.stmts, offset)
+		case ^ast.When_Stmt:
+			return top_level_decl_at({branch}, offset)
 		}
-		break
 	}
 	return stmt
 }
