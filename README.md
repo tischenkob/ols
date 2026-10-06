@@ -265,7 +265,7 @@ Options:
 
 - `enable_lint_ignored_result`: Warn when a call statement discards the result of a procedure marked `@(require_results)`, the calls the compiler rejects. Defaults to true.
 
-- `enable_lint_unused_parameter`: Mark procedure parameters that are never used in the body as unnecessary. A procedure that its own file uses as a value (an argument, an assignment, a composite literal element or a parameter default) is skipped, and so is a procedure literal passed to a call, stored in a composite literal, assigned, or declared with an explicit type. Defaults to true.
+- `enable_lint_unused_parameter`: Mark procedure parameters that are never used in the body as unnecessary. A procedure that its package uses as a value (an argument, an assignment, a composite literal element or a parameter default) is skipped; other files of the package are matched by name, and so is a procedure literal passed to a call, stored in a composite literal, assigned, or declared with an explicit type. Defaults to true.
 
 - `enable_lint_unused_variable`: Mark local variables and constants that are declared but never used as unnecessary. Defaults to true.
 
@@ -303,7 +303,7 @@ Options:
 
 - `enable_lint_switch`: Report a `#partial` switch that already lists every case, and a `break` at the end of a case. Defaults to true.
 
-- `enable_lint_redundant_type_assertion`: Report `s.(T)` inside `case T:` of `switch _ in s`, which repeats the assertion the switch already made. The quick fix "Bind the switch variant" binds the variant in the switch (`switch &v in s`), replaces each assertion with the binding and removes local aliases such as `c := &s.(T)`. Defaults to true.
+- `enable_lint_redundant_type_assertion`: Report `s.(T)` inside `case T:` of `switch _ in s`, where `s` is a name or a chain of `.` selectors such as `x.shape`, which repeats the assertion the switch already made. The quick fix "Bind the switch variant" binds the variant in the switch (`switch &v in s`), replaces each assertion with the binding and removes local aliases such as `c := &s.(T)`. Defaults to true.
 
 - `enable_lint_call_arity`: Report a call that passes too few or too many arguments to a resolved procedure. Defaults to true.
 

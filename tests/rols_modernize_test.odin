@@ -1371,3 +1371,41 @@ f :: proc() {
 
 	test.expect_modernized(t, &src, {}, src.main)
 }
+
+// A fix of the first pass moves the procedure; a call in another file that names the argument still counts.
+@(test)
+modernize_unused_parameter_keeps_a_name_after_a_pass_moves_the_procedure :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+s :: proc() {
+	x := 1
+	x = x
+	_ = x
+}
+
+f :: proc(a: int, hidden := false) -> int {
+	return a
+}
+`,
+		files = {{"b.odin", `package test
+
+g :: proc() -> int {
+	return f(1, hidden = true)
+}
+`}},
+		config = {enable_lint_unused_parameter = true, enable_lint_self_assignment = true},
+	}
+
+	test.expect_modernized(t, &src, {"unused-parameter", "self-assignment"}, `package test
+
+s :: proc() {
+	x := 1
+	_ = x
+}
+
+f :: proc(a: int, hidden := false) -> int {
+	return a
+}
+`)
+}

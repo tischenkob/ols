@@ -75,6 +75,7 @@ simplifications :: proc(document: ^Document) -> []Simplification {
 		src:      string,
 		stack:    [dynamic]^ast.Node,
 		out:      [dynamic]Simplification,
+		types:    Lazy_Context,
 	}
 	w := Walker {
 		document = document,
@@ -82,6 +83,7 @@ simplifications :: proc(document: ^Document) -> []Simplification {
 		stack    = make([dynamic]^ast.Node, context.temp_allocator),
 		out      = make([dynamic]Simplification, context.temp_allocator),
 	}
+	w.types.document = document
 	visitor := ast.Visitor {
 		data = &w,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
@@ -92,7 +94,7 @@ simplifications :: proc(document: ^Document) -> []Simplification {
 			}
 			for rule in rules {
 				// rols: dropping `== true` must not change the type of the expression.
-				if rule == simplify_bool_compare && compares_non_bool(w.document, node, w.stack[:]) do continue
+				if rule == simplify_bool_compare && compares_non_bool(&w.types, node, w.stack[:]) do continue
 				// rols: merging would put a call with a deferred procedure inside `&&`.
 				if rule == simplify_nested_if && merge_calls_deferred(w.document, node) do continue
 				rule(w.src, node, w.stack[:], &w.out)
@@ -361,10 +363,30 @@ simplify_bool_compare :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out:
 	append(out, Simplification{bin.pos.offset, bin.end.offset, "bool-compare", title, text})
 }
 
+// A context without locals for the document, built when a rule first resolves a type.
+@(private = "file")
+Lazy_Context :: struct {
+	document:    ^Document,
+	ast_context: AstContext,
+	built:       bool,
+}
+
+@(private = "file")
+lazy_context :: proc(l: ^Lazy_Context) -> ^AstContext {
+	if !l.built {
+		d := l.document
+		l.ast_context = package_ast_context(d.ast, d.imports, d.package_name, d.uri.uri, d.fullpath, d.package_name)
+		l.built = true
+	}
+	return &l.ast_context
+}
+
 // `x == true` where x has a boolean type other than bool: without the comparison the result
 // is a b32 or a distinct bool, which a bool context rejects. A condition accepts any boolean type.
+// An index or a dereference whose operand does not resolve is treated as non-bool.
 @(private = "file")
-compares_non_bool :: proc(document: ^Document, node: ^ast.Node, parents: []^ast.Node) -> bool {
+compares_non_bool :: proc(types: ^Lazy_Context, node: ^ast.Node, parents: []^ast.Node) -> bool {
+	document := types.document
 	bin := node.derived.(^ast.Binary_Expr) or_return
 	if bin.op.kind != .Cmp_Eq && bin.op.kind != .Not_Eq do return false
 	if len(parents) > 0 {
@@ -396,7 +418,32 @@ compares_non_bool :: proc(document: ^Document, node: ^ast.Node, parents: []^ast.
 		callee := resolved.symbol.value.(SymbolProcedureValue) or_return
 		// The instantiated result is what the call site sees.
 		if len(callee.return_types) != 1 || len(callee.return_types[0].names) > 1 do return false
-		symbol = resolve_type_in_package(document, resolved.symbol.pkg, callee.return_types[0].type) or_return
+		symbol = resolve_type_with(lazy_context(types), resolved.symbol.pkg, callee.return_types[0].type) or_return
+	case ^ast.Index_Expr:
+		base, found := resolve_entire_file(document)[uintptr(ast.unparen_expr(e.expr))]
+		if !found || base.is_unresolved do return true
+		elem: ^ast.Expr
+		#partial switch v in base.symbol.value {
+		case SymbolSliceValue:
+			elem = v.expr
+		case SymbolDynamicArrayValue:
+			elem = v.expr
+		case SymbolFixedArrayValue:
+			elem = v.expr
+		case SymbolMultiPointerValue:
+			elem = v.expr
+		case SymbolMapValue:
+			elem = v.value
+		}
+		if elem == nil || .Soa in base.symbol.flags do return true
+		found_elem: bool
+		symbol, found_elem = resolve_type_with(lazy_context(types), base.symbol.pkg, elem)
+		if !found_elem do return true
+	case ^ast.Deref_Expr:
+		operand, found := resolve_entire_file(document)[uintptr(ast.unparen_expr(e.expr))]
+		if !found || operand.is_unresolved || operand.symbol.pointers < 1 do return true
+		symbol = operand.symbol^
+		symbol.pointers -= 1
 	case:
 		return false
 	}

@@ -542,3 +542,97 @@ named :: proc(n: Node) {
 `,
 	)
 }
+
+@(private = "file")
+HOLDER :: `
+Holder :: struct {
+	shape: Shape,
+	other: Shape,
+}
+
+use :: proc(c: Circle) {}
+`
+
+// A subject that selects a field: a clause that names the root only in the exact subject is reported.
+@(test)
+lint_redundant_type_assertion_selector_subject :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = SHAPES +
+		HOLDER +
+		`
+reported :: proc(x: Holder) {
+	switch _ in x.shape {
+	case Circle:
+		c := x.shape.(Circle)
+		use(c)
+	}
+}
+
+written :: proc(x: Holder) {
+	x := x
+	switch _ in x.shape {
+	case Circle:
+		x.shape = Rect{}
+		c := x.shape.(Circle)
+		use(c)
+	}
+}
+
+another_field :: proc(x: Holder) {
+	switch _ in x.shape {
+	case Circle:
+		use(x.other.(Circle))
+	}
+}
+
+shadowing_binding :: proc(x: Holder) {
+	switch x in x.shape {
+	case Circle:
+		use(x)
+	}
+}
+`,
+		config = {enable_lint_redundant_type_assertion = true},
+	}
+
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{33, "redundant-type-assertion"}},
+		{"`x.shape` is already `Circle` in this case; bind it in the switch"},
+	)
+}
+
+@(test)
+bind_switch_selector_subject :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = SHAPES +
+		HOLDER +
+		`
+f :: proc(x: Holder) {
+	switch _ in x.shape{*} {
+	case Circle:
+		c := x.shape.(Circle)
+		use(c)
+	}
+}
+`,
+		config = {enable_lint_redundant_type_assertion = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Bind the switch variant",
+		SHAPES +
+		HOLDER +
+		`
+f :: proc(x: Holder) {
+	switch v in x.shape {
+	case Circle:
+		use(v)
+	}
+}
+`,
+	)
+}
