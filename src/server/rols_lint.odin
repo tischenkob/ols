@@ -68,12 +68,23 @@ declares :: proc(stmt: ^ast.Stmt, decl: ^ast.Value_Decl) -> bool {
 	return false
 }
 
+// The file's resolved nodes without the ones that resolve to a declaration only an inactive `when` branch makes.
+// The host does not build such a declaration, so no lint judges a use by it.
 lint_symbols :: proc(ctx: ^LintContext) -> SymbolAndNodeMap {
 	symbols, has_symbols := ctx.symbols.?
-	if !has_symbols {
-		symbols = resolve_entire_file(ctx.document)
-		ctx.symbols = symbols
+	if has_symbols do return symbols
+	symbols = resolve_entire_file(ctx.document)
+	for _, resolved in symbols {
+		if resolved.symbol == nil || .Fallback not_in resolved.symbol.flags do continue
+		// The resolved map is cached on the document, so the filtered one is a copy.
+		active := make(SymbolAndNodeMap, len(symbols), context.temp_allocator)
+		for node, entry in symbols {
+			if entry.symbol == nil || .Fallback not_in entry.symbol.flags do active[node] = entry
+		}
+		symbols = active
+		break
 	}
+	ctx.symbols = symbols
 	return symbols
 }
 
@@ -109,6 +120,30 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_result_order,
 	lint_switch,
 	lint_redundant_type_assertion,
+	lint_calls,
+	lint_struct_literal,
+	lint_pure_call,
+}
+
+// The lints that judge code by resolved symbols. They skip code that the host does not build, where a name can
+// resolve to the active branch's declaration. The other lints run everywhere: most read only the syntax. The naming
+// and deprecated lints resolve a name only for its kind or attribute, which the platform variants of a declaration
+// share, and the unused-parameter lint resolves only to spare a procedure that the file passes as a value.
+@(private = "file")
+resolving_lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
+	lint_float_equality,
+	lint_printf,
+	lint_ignored_result,
+	lint_bool_logic,
+	lint_no_op,
+	lint_loops,
+	lint_dead_store,
+	lint_allocator,
+	lint_sync,
+	lint_core_misuse,
+	lint_integer_range,
+	lint_result_order,
+	lint_switch,
 	lint_calls,
 	lint_struct_literal,
 	lint_pure_call,
@@ -179,8 +214,8 @@ walk_lints :: proc(document: ^Document, config: ^common.Config) -> Walker {
 			if node == nil do return nil
 			w := (^Walker)(visitor.data)
 			for lint in lints {
-				// rols: these lints report errors from resolved declarations, which may belong to another platform.
-				if w.inactive > 0 && (lint == lint_calls || lint == lint_struct_literal) do continue
+				// rols: a resolving lint would judge code by declarations that may belong to another platform.
+				if w.inactive > 0 && slice.contains(resolving_lints[:], lint) do continue
 				lint(&w.ctx, node, &w.diags)
 			}
 			// rols: track which branches of a `when` the host builds.

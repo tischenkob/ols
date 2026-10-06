@@ -27,8 +27,7 @@ lint_calls :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnost
 	resolved, found := lint_symbols(ctx)[uintptr(callee)]
 	if !found || resolved.is_unresolved || resolved.symbol == nil do return
 	symbol := resolved.symbol
-	// A declaration of an inactive `when` branch is checked only where that branch is built.
-	if symbol.type != .Function || .PolyType in symbol.flags || .Fallback in symbol.flags do return
+	if symbol.type != .Function || .PolyType in symbol.flags do return
 	value, is_proc := symbol.value.(SymbolProcedureValue)
 	if !is_proc || value.generic do return
 

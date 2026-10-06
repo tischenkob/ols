@@ -43,6 +43,8 @@ SymbolPackage :: struct {
 	proc_group_members: map[string]bool, // Tracks procedure names that are part of proc groups (used by fake methods)
 	doc:                map[string]string, // Tracks package doc strings in the file, indexed by the file uri
 	comment:            map[string]string, // Tracks package comments in the file, indexed by file uri
+	// rols: fallbacks that another declaration of their name hides, restored when that declaration goes
+	hidden_fallbacks:   [dynamic]Symbol,
 }
 
 get_index_unique_string :: proc {
@@ -128,6 +130,12 @@ delete_symbol_package :: proc (pkg: SymbolPackage, allocator := context.allocato
 	delete(pkg.comment)
 
 	delete(pkg.imports)
+
+	// rols: hidden fallbacks own their values like symbols do
+	for symbol in pkg.hidden_fallbacks {
+		free_symbol(symbol, allocator)
+	}
+	delete(pkg.hidden_fallbacks)
 	delete(pkg.proc_group_members)
 }
 
@@ -598,6 +606,8 @@ get_or_create_package :: proc(collection: ^SymbolCollection, pkg_name: string) -
 		pkg.proc_group_members = make(map[string]bool, 10, collection.allocator)
 		pkg.doc = make(map[string]string, collection.allocator)
 		pkg.comment = make(map[string]string, collection.allocator)
+		// rols: see SymbolPackage
+		pkg.hidden_fallbacks = make([dynamic]Symbol, collection.allocator)
 	}
 	return pkg
 }
@@ -1152,15 +1162,18 @@ collect_symbols :: proc(collection: ^SymbolCollection, file: ast.File, uri: stri
 			collect_objc(collection, expr.attributes, symbol, package_map)
 		}
 
-		// rols: a fallback fills only an absent name, and an active declaration replaces a fallback.
+		// rols: a fallback fills only an absent name, and an active declaration replaces a fallback. A fallback that
+		// does not fill its name is kept aside for when the declaration that hides it goes.
 		if .Fallback in expr.flags do symbol.flags += {.Fallback}
 		if v, ok := pkg.symbols[symbol.name]; ok && .Fallback in v.flags && .Fallback not_in symbol.flags {
-			free_symbol(v, collection.allocator)
+			append(&pkg.hidden_fallbacks, v)
 			delete_key(&pkg.symbols, symbol.name)
 		}
 
 		if v, ok := pkg.symbols[symbol.name]; !ok || v.name == "" {
 			pkg.symbols[symbol.name] = symbol
+		} else if .Fallback in symbol.flags {
+			append(&pkg.hidden_fallbacks, symbol)
 		} else {
 			free_symbol(symbol, collection.allocator)
 		}
