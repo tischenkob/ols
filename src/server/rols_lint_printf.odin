@@ -130,7 +130,8 @@ expanded_arg_count :: proc(ctx: ^LintContext, args: []^ast.Expr) -> (count: int,
 arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: bool) {
 	call, is_call := arg.derived.(^ast.Call_Expr)
 	if !is_call do return 1, true
-	// The resolve map holds named callees only; a conversion such as `(^int)(p)` passes one value.
+	// The resolve map holds named callees only. Any other callee counts as one value: right for a
+	// conversion such as `(^int)(p)`, a guess for `(f)()`, `f()()` or `arr[i]()`.
 	#partial switch _ in call.expr.derived {
 	case ^ast.Ident, ^ast.Selector_Expr:
 	case:
@@ -155,17 +156,8 @@ arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: 
 // a known number of values when every member of the group returns that many.
 @(private = "file")
 group_results :: proc(ctx: ^LintContext, callee: ^ast.Expr) -> (int, bool) {
-	document := ctx.document
-	ast_context := package_ast_context(
-		document.ast,
-		document.imports,
-		document.package_name,
-		document.uri.uri,
-		document.fullpath,
-		document.package_name,
-	)
 	// Without a call, the resolve returns every member of a group.
-	symbol, ok := resolve_type_expression(&ast_context, callee)
+	symbol, ok := resolve_type_in_package(ctx.document, ctx.document.package_name, callee)
 	if !ok do return 1, false
 	group, is_group := symbol.value.(SymbolAggregateValue)
 	if !is_group do return 1, false
