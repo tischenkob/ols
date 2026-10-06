@@ -70,9 +70,9 @@ pairs_with_else :: proc(p: ^Printer, body: ^ast.Stmt, else_stmt: ^ast.Stmt, chai
 	if !then_ok || !next_ok || else_stmt.pos.line != body.end.line || target.pos.line != body.end.line {
 		return false
 	}
-	// A fit check stops at the first break of a block in an `else if` header, such as a procedure literal,
-	// so it cannot measure the line, and the chain keeps upstream's layout.
-	if strings.contains_rune(p.src[else_stmt.pos.offset:target.pos.offset], '{') {
+	// A fit check stops at the first break of a block inside the `else if` header or the `else` block,
+	// such as a procedure literal, so it cannot measure the line, and the chain keeps upstream's layout.
+	if strings.count(p.src[else_stmt.pos.offset:target.end.offset], "{") > 1 {
 		return false
 	}
 	if chained || len(then_block.stmts) > 1 || len(next_block.stmts) > 1 {
@@ -87,13 +87,11 @@ pairs_with_else :: proc(p: ^Printer, body: ^ast.Stmt, else_stmt: ^ast.Stmt, chai
 	return false
 }
 
-// Pairs the `else` block with the then-block `body` when `paired` is set, and returns the pairing it replaces.
+// Pairs the `else` block with the then-block `body` when `paired` is set.
 // The Block_Stmt visit of the `else` block reads and clears `else_chain`, so both blocks break together.
-// The caller restores the returned pairing after the `else` visit,
-// so an `if` inside an `else if` header does not clear the pairing of the block after that header.
+// A paired `else if` header holds no block, so no other `if` runs between the pairing and that visit.
 @(private)
-pair_else_chain :: proc(p: ^Printer, paired: bool, body: ^ast.Stmt, else_stmt: ^ast.Stmt) -> Else_Chain {
-	saved := p.else_chain
+pair_else_chain :: proc(p: ^Printer, paired: bool, body: ^ast.Stmt, else_stmt: ^ast.Stmt) {
 	p.else_chain = {}
 	if paired {
 		p.else_chain = {
@@ -101,7 +99,6 @@ pair_else_chain :: proc(p: ^Printer, paired: bool, body: ^ast.Stmt, else_stmt: ^
 			target = else_block(else_stmt),
 		}
 	}
-	return saved
 }
 
 // Where a statement's text starts: its first attribute for an attributed declaration.

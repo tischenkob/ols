@@ -62,8 +62,8 @@ set_source_position :: proc(p: ^Printer, pos: tokenizer.Pos) {
 
 @(private)
 move_line :: proc(p: ^Printer, pos: tokenizer.Pos) -> ^Document {
-	l, _ := move_line_limit(p, pos, p.config.newline_limit + 1)
-	return l
+	// rols: a block comment before the node on its line prints before it with a space (rols_comments.odin)
+	return move_line_leading(p, pos)
 }
 
 @(private)
@@ -256,8 +256,7 @@ visit_decl :: proc(p: ^Printer, decl: ^ast.Decl, called_in_stmt := false) -> ^Do
 	case ^ast.Assign_Stmt:
 		return visit_stmt(p, v)
 	case ^ast.Expr_Stmt:
-		// rols: a block comment before the node on its line prints before it with a space
-		document := move_line_leading(p, decl.pos)
+		document := move_line(p, decl.pos)
 		return cons(document, visit_expr(p, v.expr))
 	case ^ast.When_Stmt:
 		return visit_stmt(p, cast(^ast.Stmt)decl)
@@ -267,8 +266,7 @@ visit_decl :: proc(p: ^Printer, decl: ^ast.Decl, called_in_stmt := false) -> ^Do
 			document = cons(document, visit_attributes(p, &v.attributes, v.pos))
 		}
 
-		// rols: a block comment before the node on its line prints before it with a space
-		document = cons(document, move_line_leading(p, decl.pos))
+		document = cons(document, move_line(p, decl.pos))
 		document = cons(document, cons_with_opl(text(v.foreign_tok.text), text(v.import_tok.text)))
 
 		if v.name != nil {
@@ -301,8 +299,7 @@ visit_decl :: proc(p: ^Printer, decl: ^ast.Decl, called_in_stmt := false) -> ^Do
 			document = cons(document, visit_attributes(p, &v.attributes, v.pos))
 		}
 
-		// rols: a block comment before the node on its line prints before it with a space
-		document = cons(document, move_line_leading(p, decl.pos))
+		document = cons(document, move_line(p, decl.pos))
 		document = cons(document, cons_with_opl(text("foreign"), visit_expr(p, v.foreign_library)))
 
 		if v.body != nil && is_foreign_block_only_procedures(v.body) {
@@ -320,8 +317,7 @@ visit_decl :: proc(p: ^Printer, decl: ^ast.Decl, called_in_stmt := false) -> ^Do
 			document = cons(document, visit_attributes(p, &v.attributes, v.pos))
 		}
 
-		// rols: a block comment before the node on its line prints before it with a space
-		document = cons(document, move_line_leading(p, decl.pos))
+		document = cons(document, move_line(p, decl.pos))
 
 		if v.name.text != "" {
 			document = cons(
@@ -342,8 +338,7 @@ visit_decl :: proc(p: ^Printer, decl: ^ast.Decl, called_in_stmt := false) -> ^Do
 			document = cons(document, visit_attributes(p, &v.attributes, v.pos))
 		}
 
-		// rols: a block comment before the node on its line prints before it with a space
-		document = cons(document, move_line_leading(p, decl.pos), visit_state_flags(p, v.state_flags))
+		document = cons(document, move_line(p, decl.pos), visit_state_flags(p, v.state_flags))
 
 		lhs := empty()
 		rhs := empty()
@@ -941,8 +936,7 @@ visit_attributes :: proc(p: ^Printer, attributes: ^[dynamic]^ast.Attribute, pos:
 		return i.pos.offset < j.pos.offset
 	})
 
-	// rols: a block comment before the node on its line prints before it with a space
-	document = cons(document, move_line_leading(p, attributes[0].pos))
+	document = cons(document, move_line(p, attributes[0].pos))
 
 	//Ensure static is not forced newline, but until if the width is full
 	if len(attributes) == 1 && len(attributes[0].elems) == 1 {
@@ -1036,8 +1030,7 @@ visit_stmt :: proc(
 	}
 
 	document := visit_state_flags(p, stmt.state_flags)
-	// rols: a block comment before the node on its line prints before it with a space
-	comments := move_line_leading(p, stmt.pos)
+	comments := move_line(p, stmt.pos)
 
 	#partial switch v in stmt.derived {
 	case ^ast.Tag_Stmt:
@@ -1195,9 +1188,9 @@ visit_stmt :: proc(
 				document = cons(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
 			} else {
 				// rols: a one-line `else` chain block breaks with the then-block
-				saved := pair_else_chain(p, paired, v.body, v.else_stmt)
+				pair_else_chain(p, paired, v.body, v.else_stmt)
 				document = cons_with_opl(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
-				p.else_chain = saved
+				p.else_chain = {}
 			}
 
 
@@ -1472,9 +1465,9 @@ visit_stmt :: proc(
 				document = cons(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
 			} else {
 				// rols: a one-line `else` chain block breaks with the then-block
-				saved := pair_else_chain(p, paired, v.body, v.else_stmt)
+				pair_else_chain(p, paired, v.body, v.else_stmt)
 				document = cons_with_nopl(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
-				p.else_chain = saved
+				p.else_chain = {}
 			}
 		}
 
@@ -2243,7 +2236,9 @@ visit_begin_brace :: proc(p: ^Printer, begin: tokenizer.Pos, type: Block_Type, e
 @(private)
 visit_end_brace :: proc(p: ^Printer, end: tokenizer.Pos, limit := 0) -> ^Document {
 	if limit == 0 {
-		return cons(move_line(p, end), text("}"))
+		// rols: a comment before `}` keeps upstream's placement, so it skips move_line_leading
+		l, _ := move_line_limit(p, end, p.config.newline_limit + 1)
+		return cons(l, text("}"))
 	} else {
 		document, newlined := move_line_limit(p, end, limit)
 		if !newlined {
@@ -2270,8 +2265,7 @@ visit_block_stmts :: proc(p: ^Printer, stmts: []^ast.Stmt, chain_id := "") -> ^D
 			document = cons(document, run)
 			run = empty()
 			if chain_id == "" && next_on_line && stmt.pos.line not_in p.disabled_lines {
-				// rols: a block comment before the node on its line prints before it with a space
-				document = cons(document, move_line_leading(p, stmt_start(stmt)))
+				document = cons(document, move_line(p, stmt_start(stmt)))
 			}
 		}
 		// rols: adjacent backtick tokens with no `;` between them (the ``` raw string quirk) stay glued; inside a broken one-line block each statement gets its own line

@@ -9,6 +9,7 @@ f :: proc() {
 	if x {a()} else if y {b()} else {c(); long_call(aaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbb, c)}
 	if x {a(); b()} else if y {c()} else {long_call(aaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbbb)}
 	if x {a(); b()} else if g(proc() {if q {r()} else {s(); t()}}) {c(); long_call(aaaaaaaaa)}
+	if x {a()} else {g(proc() {s(); t()}); long_call(aaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbb)}
 	if x {a(); b()} else if y {c(); d()}
 	if x {a()} else if y {b()} else {c()}
 	if x {a()} else {b()}
