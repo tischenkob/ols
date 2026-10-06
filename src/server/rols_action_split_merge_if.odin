@@ -179,14 +179,15 @@ unparen_text :: proc(src: string, expr: ^ast.Expr) -> string {
 	return src[expr.pos.offset:expr.end.offset]
 }
 
-// Operand of a generated `&&`, parenthesised when it binds looser than `&&`.
+// Operand of a generated `&&`, parenthesised when it binds looser than `&&` or when Odin requires it,
+// as for `or_return`, `or_break` and `or_continue`.
 operand_text :: proc(src: string, expr: ^ast.Expr) -> string {
 	text := src[expr.pos.offset:expr.end.offset]
 	wrap := false
 	#partial switch e in expr.derived {
 	case ^ast.Binary_Expr:
 		wrap = e.op.kind == .Cmp_Or
-	case ^ast.Ternary_If_Expr, ^ast.Ternary_When_Expr, ^ast.Or_Else_Expr:
+	case ^ast.Ternary_If_Expr, ^ast.Ternary_When_Expr, ^ast.Or_Else_Expr, ^ast.Or_Return_Expr, ^ast.Or_Branch_Expr:
 		wrap = true
 	}
 	if wrap {

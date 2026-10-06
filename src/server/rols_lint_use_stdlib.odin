@@ -533,6 +533,8 @@ stdlib_matches :: proc(document: ^Document, allocator := context.temp_allocator)
 
 	out := make([dynamic]Stdlib_Match, allocator)
 	outer: for m in w.out {
+		// Inside the target package the rewrite would call itself; the package clause names it even in a copy.
+		if m.pkg != "" && m.pkg == document.ast.pkg_name do continue
 		for kept in out {
 			if kept.start <= m.start && m.end <= kept.end do continue outer
 		}

@@ -475,6 +475,37 @@ a: [3]int = {1, {*}1, 1}
 	test.expect_action_missing(t, &source, "Use scalar for array literal")
 }
 
+// Corpus: rexcode isa/ppc_vle/tablegen/generated/decode_tables.odin:238. A `@(rodata)` variable needs a constant initializer.
+@(test)
+lint_simplify_array_broadcast_rodata :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+@(rodata)
+TABLE := [4]u16{0, 0, 0, 0}
+@(rodata)
+WIDE: [4]u16 = {0, 0, 0, 0}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
+
+@(test)
+action_simplify_array_broadcast_rodata :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+@(rodata)
+TABLE := [4]u16{0, {*}0, 0, 0}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_action_missing(t, &source, "Use scalar for array literal")
+}
+
 @(test)
 action_simplify_bool_return :: proc(t: ^testing.T) {
 	source := test.Source {

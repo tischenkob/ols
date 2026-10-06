@@ -227,6 +227,49 @@ main :: proc() {
 `)
 }
 
+// Odin rejects an unparenthesised `or_return` operand of a binary expression.
+@(test)
+action_merge_if_wraps_or_return :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc() -> (bool, bool) {
+	return true, false
+}
+
+g :: proc(a: bool) -> (err: bool) {
+	{*}if a {
+		if f() or_return {
+			return
+		}
+	}
+	return
+}
+`,
+		packages = {},
+		config = {enable_code_action_split_merge_if = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		MERGE_IF_ACTION,
+		`package test
+
+f :: proc() -> (bool, bool) {
+	return true, false
+}
+
+g :: proc(a: bool) -> (err: bool) {
+	if a && (f() or_return) {
+		return
+	}
+	return
+}
+`,
+	)
+}
+
 @(test)
 action_split_merge_if_both_offered :: proc(t: ^testing.T) {
 	source := test.Source {

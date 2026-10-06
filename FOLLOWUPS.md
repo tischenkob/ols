@@ -22,6 +22,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **`slice_arg_text` refuses a pointer field of a by-value parameter.** `for &e in s.ptr { e = 1 }` with `s: S` a parameter keeps its loop, although `slice.fill(s.ptr[:], 1)` compiles: the check rejects any chain rooted at a parameter, without looking for a pointer on the way.
 - **The fill rewrite misses a value that reads the array through an alias.** `fill_args` in `rols_lint_use_stdlib.odin` refuses a value that names the root identifier of the array, but not a pointer to it (`p := &arr; for &e in arr { e = p[0] }`).
 - **A type-switch binding is probably not refused by `slice_arg_text`.** In `switch v in u { case [3]int: … }` the value `v` is likely not addressable without `&`, but the check does not look for it. Unverified.
+- **"Expand compound assignment" leaves an `or_return` operand unparenthesised.** Its wrap list in `rols_action_rewrite_expression.odin` covers ternaries and `or_else` but not `Or_Return_Expr` or `Or_Branch_Expr`, so `x += f() or_return` becomes `x = x + f() or_return`, which Odin rejects. `operand_text` in `rols_action_split_merge_if.odin` has the full list.
 
 ## Lints (`src/server/rols_lint*.odin`)
 

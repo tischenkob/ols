@@ -696,6 +696,71 @@ f :: proc(a, b: bool) -> int {
 	)
 }
 
+// Corpus: core encoding/json/unmarshal.odin:450. Odin rejects an unparenthesised `or_return` operand.
+@(test)
+modernize_nested_if_wraps_or_return :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+f :: proc() -> (bool, bool) {
+	return true, false
+}
+
+g :: proc(a: bool) -> (err: bool) {
+	if a {
+		if f() or_return {
+			return
+		}
+	}
+	return
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_modernized(
+		t,
+		&src,
+		{"nested-if"},
+		`package test
+
+f :: proc() -> (bool, bool) {
+	return true, false
+}
+
+g :: proc(a: bool) -> (err: bool) {
+	if a && (f() or_return) {
+		return
+	}
+	return
+}
+`,
+	)
+}
+
+// Corpus: core slice/slice.odin:159. Inside package slice, `slice.linear_search` is the
+// procedure itself, so the rewrite would recurse and import its own package.
+@(test)
+modernize_use_stdlib_skips_own_package :: proc(t: ^testing.T) {
+	text := `package slice
+
+linear_search :: proc(array: []$T, key: T) -> (index: int, found: bool) {
+	for x, i in array {
+		if x == key {
+			return i, true
+		}
+	}
+	return -1, false
+}
+`
+	src := test.Source {
+		main = text,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_modernized(t, &src, {"use-stdlib/linear-search"}, text)
+}
+
 // A fixed array needs a slice expression before it reaches a slice parameter, and only an
 // addressable value has one.
 @(test)

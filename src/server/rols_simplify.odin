@@ -208,7 +208,8 @@ simplify_array_broadcast :: proc(src: string, node: ^ast.Node, _: []^ast.Node, o
 	decl: ^ast.Value_Decl
 	#partial switch n in node.derived {
 	case ^ast.Value_Decl:
-		if len(n.names) != 1 || len(n.values) != 1 {
+		// A @(rodata) variable needs a constant initializer, and a broadcast scalar is not one.
+		if len(n.names) != 1 || len(n.values) != 1 || has_attribute(n.attributes[:], "rodata") {
 			return
 		}
 		decl, type, value = n, n.type, n.values[0]
