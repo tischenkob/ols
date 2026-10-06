@@ -135,19 +135,25 @@ build_tags :: proc(file: ast.File) -> parser.File_Tags {
 	if len(tags.build_project_name) == 0 {
 		return tags
 	}
-	// The texts parse_file_tags reads, as `#+` tags.
+	// The texts parse_file_tags reads, as `#+` tags. Its parse_tag skips spaces and tabs before the `+` of a
+	// `//` comment, so `// +build-project-name a` counts too.
 	lines := make([dynamic]string, context.temp_allocator)
 	if file.docs != nil {
 		for comment in file.docs.list {
-			if strings.has_prefix(comment.text, "//+build-project-name") {
-				append(&lines, strings.concatenate({"#", comment.text[2:]}, context.temp_allocator))
+			if len(comment.text) < 3 || comment.text[:2] != "//" do continue
+			text := strings.trim_left(comment.text[2:], " \t")
+			if strings.has_prefix(text, "+build-project-name") {
+				append(&lines, strings.concatenate({"#", text}, context.temp_allocator))
 			}
 		}
 	}
 	for tag in file.tags {
 		if strings.has_prefix(tag.text, "#+build-project-name") do append(&lines, tag.text)
 	}
-	product := [][]string{{}}
+	if len(lines) == 0 {
+		return tags
+	}
+	product := make([][]string, 1, context.temp_allocator)
 	for line in lines {
 		one := ast.File {
 			tags = make([dynamic]tokenizer.Token, 1, context.temp_allocator),

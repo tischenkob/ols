@@ -430,6 +430,9 @@ builds_together_reads_project_names :: proc(t: ^testing.T) {
 	two_lines := "#+build-project-name a, b\n#+build-project-name !b\npackage p\n"
 	testing.expect(t, !together(two_lines, b), "a, b and !b lines and b")
 	testing.expect(t, together(two_lines, a), "a, b and !b lines and a")
+	spaced := "// +build-project-name a\npackage p\n"
+	testing.expect(t, !together(spaced, b), "spaced a comment and b")
+	testing.expect(t, together(spaced, a), "spaced a comment and a")
 }
 
 @(test)
