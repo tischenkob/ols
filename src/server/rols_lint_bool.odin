@@ -253,6 +253,12 @@ is_constant_expr :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> bool {
 		return is_constant_expr(ctx, e.left) && is_constant_expr(ctx, e.right)
 	case ^ast.Ident, ^ast.Selector_Expr:
 		resolved, is_resolved := lint_symbols(ctx)[uintptr(expr)]
+		// A name that resolves only to an inactive `when` branch's declaration is judged by that declaration.
+		if !is_resolved {
+			if fallback, is_fallback := lint_fallback(ctx, expr); is_fallback {
+				return fallback.type == .Constant || fallback.type == .EnumMember
+			}
+		}
 		if !is_resolved || resolved.is_unresolved do return true
 		return resolved.symbol.type == .Constant || resolved.symbol.type == .EnumMember
 	}

@@ -125,6 +125,10 @@ decl_kind :: proc(ctx: ^LintContext, value: ^ast.Expr) -> Decl_Kind {
 	case ^ast.Call_Expr:
 		// `#config(...)`, `#load(...)`: the name follows the call. `Vector(f32)`: a type.
 		if _, is_directive := v.expr.derived.(^ast.Basic_Directive); is_directive do return .Alias
+		// rols: in inactive code the callee may stand for a platform variant of another kind.
+		if resolved, ok := lint_symbols(ctx)[uintptr(v.expr)]; ok && ambiguous_in_inactive(ctx, resolved.symbol) {
+			return .Alias
+		}
 		// `f32(48)`, `Meters(2)`: a cast of a literal is a constant.
 		if len(v.args) == 1 && !has_poly_params(ctx, v.expr) {
 			if resolved, ok := lint_symbols(ctx)[uintptr(v.expr)];
@@ -141,6 +145,8 @@ decl_kind :: proc(ctx: ^LintContext, value: ^ast.Expr) -> Decl_Kind {
 		}
 		resolved, is_resolved := lint_symbols(ctx)[uintptr(value)]
 		if !is_resolved || resolved.symbol.value == nil do return .Alias
+		// rols: in inactive code the name may stand for a platform variant of another kind.
+		if ambiguous_in_inactive(ctx, resolved.symbol) do return .Alias
 		#partial switch resolved.symbol.type {
 		case .Function, .Package:
 			return .Alias
@@ -206,7 +212,7 @@ check_name :: proc(
 	)
 }
 
-// A type, field, enum member or constant name in a file with a `foreign import` may mirror a C name.
+// A type, field, enum member or constant name in a package that binds a C library may mirror a C name.
 @(private = "file")
 check_c_name :: proc(
 	ctx: ^LintContext,
@@ -216,23 +222,39 @@ check_c_name :: proc(
 	rule: Naming_Rule,
 ) {
 	if ident.name == "_" || conforms(ident.name, rule) do return
-	if ctx.foreign_import == nil do ctx.foreign_import = has_foreign_import(ctx.document.ast.decls[:])
+	if ctx.foreign_import == nil do ctx.foreign_import = package_binds_c(ctx)
 	if ctx.foreign_import.? do return
 	check_name(ctx, diags, ident, what, rule)
 }
 
-// A `foreign import` at file scope, also in any branch of a top-level `when`.
+// Whether a file of the package has a `foreign import` or imports `core:dynlib`: a binding package may declare its
+// library in one file and the C types in another. Only another file whose text holds either is parsed.
 @(private = "file")
-has_foreign_import :: proc(stmts: []^ast.Stmt) -> bool {
+package_binds_c :: proc(ctx: ^LintContext) -> bool {
+	if binds_c(ctx.document.ast.decls[:]) do return true
+	for file in sibling_values(ctx).files {
+		if !strings.contains(file.text, "foreign") && !strings.contains(file.text, "core:dynlib") do continue
+		context.allocator = context.temp_allocator
+		parsed, ok := parse_syntax(file.fullpath, file.text)
+		if ok && parsed.pkg_name == ctx.document.ast.pkg_name && binds_c(parsed.decls[:]) do return true
+	}
+	return false
+}
+
+// A `foreign import` or an import of `core:dynlib` at file scope, also in any branch of a top-level `when`.
+@(private = "file")
+binds_c :: proc(stmts: []^ast.Stmt) -> bool {
 	for stmt in stmts {
 		if stmt == nil do continue
 		#partial switch s in stmt.derived {
 		case ^ast.Foreign_Import_Decl:
 			return true
+		case ^ast.Import_Decl:
+			if strings.trim(s.relpath.text, "\"`") == "core:dynlib" do return true
 		case ^ast.When_Stmt:
-			if has_foreign_import({s.body, s.else_stmt}) do return true
+			if binds_c({s.body, s.else_stmt}) do return true
 		case ^ast.Block_Stmt:
-			if has_foreign_import(s.stmts) do return true
+			if binds_c(s.stmts) do return true
 		}
 	}
 	return false

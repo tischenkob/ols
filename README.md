@@ -97,7 +97,7 @@ Options:
 
 - `enable_completion_matching`: Attempt to match types and pointers when passing arguments to procedures. _(Enabled by default)_
 
-- `enable_unused_imports_reporting`: Turn on reporting of unused imported packages. _(Enabled by default)_
+- `enable_unused_imports_reporting`: Turn on reporting of unused imported packages. _(Enabled by default)_ An import named only in a `when` branch that the host does not build counts as used, so organize-imports on save keeps an import that another target needs, while `odin check` reports it on the host.
 
 - `enable_unused_imports_on_change`: Report unused imported packages after each document change. This can slow editing in large files. _(Disabled by default)_
 
@@ -269,7 +269,7 @@ Options:
 
 - `enable_lint_unused_variable`: Mark local variables and constants that are declared but never used as unnecessary. Defaults to true.
 
-- `enable_lint_naming`: Report names that do not follow Odin conventions: snake_case procedures and variables, Ada_Case types and enum members, SCREAMING_SNAKE_CASE constants. A `true` or `false` constant may be snake_case or SCREAMING_SNAKE_CASE. Constants inside a procedure, declarations in `foreign` blocks and with `@(link_name)` or `@(export)`, struct fields with a tag string, and parameters of a procedure type with a calling convention other than `"odin"` or `"contextless"` are not checked. In a file with a `foreign import`, type, field, enum member and constant names are not checked either, because they may mirror C names. Defaults to true.
+- `enable_lint_naming`: Report names that do not follow Odin conventions: snake_case procedures and variables, Ada_Case types and enum members, SCREAMING_SNAKE_CASE constants. A `true` or `false` constant may be snake_case or SCREAMING_SNAKE_CASE. Constants inside a procedure, declarations in `foreign` blocks and with `@(link_name)` or `@(export)`, struct fields with a tag string, and parameters of a procedure type with a calling convention other than `"odin"` or `"contextless"` are not checked. In a package with a `foreign import` or an import of `core:dynlib`, type, field, enum member and constant names are not checked either, because they may mirror C names. Defaults to true.
 
 - `enable_lint_bool_logic`: Report boolean and comparison mistakes: identical operands, conditions that are always true or false, and `if` or `switch` branches that repeat an earlier one. Defaults to true.
 
