@@ -43,16 +43,21 @@ Replacement :: 3
 	_ = virtual.arena_init_growing(cache_arena)
 	defer virtual.arena_destroy(cache_arena)
 
-	previous_documents := server.document_storage.documents
-	server.document_storage.documents = make(map[string]server.Document, context.temp_allocator)
-	defer {
-		delete(server.document_storage.documents)
-		server.document_storage.documents = previous_documents
-	}
-	server.document_storage.documents["cache"] = server.Document {
+	// An open document of this thread's storage, which index_file invalidates. It leaves the storage as it found it.
+	documents := &server.document_storage.documents
+	had_documents := documents^ != nil
+	cache_key := "index_updates_cache"
+	documents[cache_key] = server.Document {
 		symbol_cache_arena = cache_arena,
 	}
-	cache_document := &server.document_storage.documents["cache"]
+	defer {
+		delete_key(documents, cache_key)
+		if !had_documents {
+			delete(documents^)
+			documents^ = nil
+		}
+	}
+	cache_document := &documents[cache_key]
 	cache_document_symbols(t, cache_document)
 
 	testing.expectf(

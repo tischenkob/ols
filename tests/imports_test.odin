@@ -60,7 +60,11 @@ unused_imports_on_change_preserves_previous_behavior :: proc(t: ^testing.T) {
 	defer teardown_diagnostics()
 
 	server.document_storage.documents = make(map[string]server.Document)
-	defer server.document_storage_shutdown()
+	defer {
+		server.document_storage_shutdown()
+		// The shutdown frees the storage but keeps its maps, which a later test on this thread would reuse.
+		server.document_storage = {}
+	}
 
 	builtin_path := server.get_builtin_path()
 	defer delete(builtin_path)

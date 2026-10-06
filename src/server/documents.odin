@@ -59,6 +59,8 @@ DocumentStorage :: struct {
 	next_session:    u64,
 }
 
+// rols: thread local like the indexer; only the main thread serves requests, and parallel tests each get their own
+@(thread_local)
 document_storage: DocumentStorage
 
 @(private = "file")
