@@ -183,23 +183,15 @@ move_edit :: proc(move: Move, target_uri: string, files: []Package_File) -> (Wor
 	for cut in source_cuts(move) {
 		append_edit(&changes, document, cut[0], cut[1], "")
 	}
-	imports := make([]string, len(move.imports), context.temp_allocator)
-	for imp, i in move.imports {
-		imports[i] = node_text(document.ast.src, imp.import_decl)
-	}
-	edit, ok := append_to_package_file(
+	return append_to_package_file(
 		&changes,
 		document.ast.pkg_name,
 		target_uri,
 		document.ast.tags[:],
-		imports,
+		move.imports,
 		move.text,
 		files,
 	)
-	if !ok {
-		return {}, fmt.tprintf("%s cannot be read or belongs to another package", target_path), false
-	}
-	return edit, "", true
 }
 
 @(private = "file", rodata)
@@ -238,20 +230,26 @@ target_suffix :: proc(filename: string) -> string {
 	return stem[last:]
 }
 
-// Appends text to target_uri, a file of package pkg_name, inserting after its package line the
-// import lines it lacks. A missing target is created with the file tags, such as `#+build linux`, the
-// package line and the imports. changes carries the edits of other files that belong to the same workspace edit.
+// Appends text to target_uri, a file of package pkg_name, adding the imports it lacks. Each import goes
+// among the imports of its collection, else into a new group after the last import, else after the
+// package line. A missing target is created with the file tags, such as `#+build linux`, the package line
+// and the imports. changes carries the edits of other files that belong to the same workspace edit.
+// Fails, with the reason, when the target cannot be read, belongs to another package, or imports one of
+// the packages under another name or another package under the same name.
 append_to_package_file :: proc(
 	changes: ^Changes,
 	pkg_name, target_uri: string,
 	tags: []tokenizer.Token,
-	imports: []string,
+	imports: []Package,
 	text: string,
 	files: []Package_File,
 ) -> (
-	WorkspaceEdit,
-	bool,
+	edit: WorkspaceEdit,
+	reason: string,
+	ok: bool,
 ) {
+	sorted := slice.clone(imports, context.temp_allocator)
+	slice.sort_by(sorted, proc(a, b: Package) -> bool {return unquoted_path(a.original) < unquoted_path(b.original)})
 	target_path := common.uri_to_path(target_uri, context.temp_allocator)
 	if !package_file_exists(target_path, files) {
 		content := strings.builder_make(context.temp_allocator)
@@ -263,13 +261,7 @@ append_to_package_file :: proc(
 		strings.write_string(&content, "package ")
 		strings.write_string(&content, pkg_name)
 		strings.write_string(&content, "\n")
-		if len(imports) > 0 {
-			strings.write_string(&content, "\n")
-			for line in imports {
-				strings.write_string(&content, line)
-				strings.write_string(&content, "\n")
-			}
-		}
+		strings.write_string(&content, import_groups(sorted))
 		strings.write_string(&content, "\n")
 		strings.write_string(&content, text)
 
@@ -283,43 +275,62 @@ append_to_package_file :: proc(
 			newText = strings.to_string(content),
 		}
 		append(&document_changes, TextDocumentEdit{textDocument = {uri = target_uri}, edits = insert})
-		return WorkspaceEdit{documentChanges = document_changes[:]}, true
+		return WorkspaceEdit{documentChanges = document_changes[:]}, "", true
 	}
 
 	h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
 	target := hierarchy_document(&h, target_uri)
 	if target == nil || target.ast.pkg_name != pkg_name {
-		return {}, false
+		return {}, fmt.tprintf("%s cannot be read or belongs to another package", target_path), false
 	}
 	target_text := string(target.text[:target.used_text])
 
-	missing := make([dynamic]string, context.temp_allocator)
-	for line in imports {
-		already := false
+	ungrouped := make([dynamic]Package, context.temp_allocator)
+	outer: for pkg in sorted {
+		pkg_path := unquoted_path(pkg.original)
 		for existing in target.ast.imports {
-			already |= strings.contains(line, existing.fullpath)
+			existing_path := unquoted_path(existing.fullpath)
+			existing_name := pattern_import_name(existing)
+			if existing_path == pkg_path && existing_name == pkg.base {
+				continue outer
+			}
+			if existing_path == pkg_path || existing_name == pkg.base {
+				return {},
+					fmt.tprintf(
+						"%s imports %s as %s, and the declaration needs %s as %s",
+						target_path,
+						existing_path,
+						existing_name,
+						pkg_path,
+						pkg.base,
+					),
+					false
+			}
 		}
-		if !already {
-			append(&missing, line)
+		if at, grouped := import_group_offset(target, pkg_path); grouped {
+			append_edit(changes, target, at, at, strings.concatenate({import_line(pkg), "\n"}, context.temp_allocator))
+		} else {
+			append(&ungrouped, pkg)
 		}
 	}
-	if len(missing) > 0 {
+	if len(ungrouped) > 0 {
+		// The line after the last top-level import, else after the package clause. An import grouped at the
+		// same offset was appended first, so it stays in the group above.
 		at := target.ast.pkg_decl.end.offset
+		for decl in target.ast.decls {
+			if imp, is_import := decl.derived.(^ast.Import_Decl); is_import {
+				at = max(at, imp.end.offset)
+			}
+		}
+		// import_groups starts each group with a newline, so a blank line precedes the new group.
+		groups := import_groups(ungrouped[:])
 		if nl := strings.index_byte(target_text[at:], '\n'); nl >= 0 {
-			at += nl
+			at += nl + 1
 		} else {
 			at = len(target_text)
+			groups = strings.concatenate({"\n", strings.trim_right(groups, "\n")}, context.temp_allocator)
 		}
-		append_edit(
-			changes,
-			target,
-			at,
-			at,
-			strings.concatenate(
-				{"\n\n", strings.join(missing[:], "\n", context.temp_allocator)},
-				context.temp_allocator,
-			),
-		)
+		append_edit(changes, target, at, at, groups)
 	}
 	separator := "\n" if strings.has_suffix(target_text, "\n") else "\n\n"
 	append_edit(
@@ -329,7 +340,42 @@ append_to_package_file :: proc(
 		len(target_text),
 		strings.concatenate({separator, text}, context.temp_allocator),
 	)
-	return workspace_edit(changes^), true
+	return workspace_edit(changes^), "", true
+}
+
+// The import lines of packages, sorted by path, each collection a group that a blank line starts.
+@(private = "file")
+import_groups :: proc(packages: []Package) -> string {
+	sb := strings.builder_make(context.temp_allocator)
+	previous := "\x00"
+	for pkg in packages {
+		pkg_path := unquoted_path(pkg.original)
+		colon := strings.index_byte(pkg_path, ':')
+		collection := pkg_path[:max(colon, 0)]
+		if collection != previous {
+			strings.write_string(&sb, "\n")
+			previous = collection
+		}
+		strings.write_string(&sb, import_line(pkg))
+		strings.write_string(&sb, "\n")
+	}
+	return strings.to_string(sb)
+}
+
+// `import "<path>"`, or `import <alias> "<path>"` when the import declaration of pkg has an alias.
+// pkg.original holds the path as written, quotes included, as in Document.imports.
+@(private = "file")
+import_line :: proc(pkg: Package) -> string {
+	if pkg.import_decl != nil && pkg.import_decl.name.text != "" {
+		return fmt.tprintf("import %s %s", pkg.import_decl.name.text, pkg.original)
+	}
+	return fmt.tprintf("import %s", pkg.original)
+}
+
+// The path of an import without its quotes, such as `core:fmt`.
+@(private = "file")
+unquoted_path :: proc(quoted: string) -> string {
+	return strings.trim(quoted, "\"`")
 }
 
 is_file_private :: proc(attributes: []^ast.Attribute) -> bool {

@@ -47,7 +47,7 @@ The manual checks ran on scratch copies of karl2d and tina, with `odin check` af
 | rename an enum member used inside call arguments (`Mouse_Button.Left`, karl2d; `Exit_Kind.Normal`, tina) | 47 edits in 19 files, also gated on `js_wasm32`, every `.Left` of other enums untouched; tina 9 edits in 5 files. Both clean |
 | rename a local (`now`, karl2d; `local_seed` and `next` in a nested proc, tina) | applied, clean. Renaming `now` to `time` is refused because the local would shadow the `time` import. `local_seed` rolled back in 3 of 16 runs, counted by hand during the session (see Follow-ups: gate flake) |
 | `move` | karl2d `rect_middle` to a new file: applied, and the new file carries `#+vet explicit-allocators`. To `render_backend_gl.odin`: refused, different build constraints. tina `prng_uint_less_than` to a new file: clean. tina `prng_step`: refused, it uses the file-private `_rotl_u64` |
-| `reorder-params` (`point_in_rect`, karl2d; `fd_table_handoff`, tina) | 31 edits in 6 files and 25 edits in 4 files, clean. tina's multi-line parameter list is joined into one line (see Follow-ups: cosmetic edit output) |
+| `reorder-params` (`point_in_rect`, karl2d; `fd_table_handoff`, tina) | 31 edits in 6 files and 25 edits in 4 files, clean. tina's multi-line parameter list was joined into one line, since fixed: each parameter keeps its place in the list (test `reorder_params_keeps_multi_line_list`) |
 | `rename-package` on a leaf package | karl2d `platform_bindings/linux/evdev`: 47 edits and the directory rename, also gated on `linux_amd64`, clean. karl2d `gamecontroller`: refused, its clause `karl2d_darwin_gamecontroller` differs from the directory name. tina `datastar`: 3 edits and the directory rename; `tests` and the package are clean, `examples` keeps its 11 baseline errors |
 | `attr add` (`require_results`, karl2d `rect_middle`, tina `prng_uint_less_than`) | applied, clean |
 | `actions` at 23 positions in karl2d and 17 in tina, every offered action applied on a scratch copy | 94 applications. 92 were clean. In karl2d, 2 "Generate test" applications broke `js_wasm32`, a new bug, since fixed: the created test file now gets `#+build !js` when another file of the package builds only on js, and the compile gate checks the targets of the files next to a touched one (test `generate_test_new_file_excludes_targets_without_core_testing`). The 62 tina applications were clean on all five configurations and on `tests` |
@@ -144,7 +144,6 @@ These findings have no passing harness test, and each item names a repro. Most l
 
 ### Edits
 
-- **Cosmetic edit output** (2026-10-05). `reorder-params` joins a multi-line parameter list into one line (tina: `ols query reorder-params src/allocator_io_fd_table.odin:168:1 --order 3,2,1,0`). `move` puts the imports it adds in a new group above the existing imports, with `src:` paths among `core:` ones (ols: `ols query move src/common/uri.odin:35:1 --to src/common/position.odin`).
 - **"Invert if" on an `if` without `else` leaves an empty then-branch** (`if !c {} else {…}`). This is upstream OLS's tested behavior (`action_invert_if_simple_edit`), kept for compatibility.
 
 ## Findings in the corpus itself

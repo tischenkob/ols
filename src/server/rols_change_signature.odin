@@ -333,24 +333,42 @@ reorder_params :: proc(
 	return workspace_edit(changes), "", true
 }
 
-// Rewrites the parameter list of lit in document in the new order.
+// Rewrites the parameter list of lit in document in the new order. With one name per field, each field
+// takes the text of the field moving to its place, so separators, line breaks and comments stay. A field
+// that groups names, such as `x, y: int`, is split, and the list is joined on one line, or one parameter
+// per line when it spans lines.
 @(private = "file")
 reorder_param_list :: proc(changes: ^Changes, document: ^Document, lit: ^ast.Proc_Lit, order: []int) {
+	src := document.ast.src
 	params := param_names(lit)
+	fields := lit.type.params.list
+	if len(fields) == len(params) {
+		for i, k in order {
+			append_edit(changes, document, fields[k].pos.offset, fields[k].end.offset, node_text(src, fields[i]))
+		}
+		return
+	}
 	texts := make([]string, len(params), context.temp_allocator)
 	for i, k in order {
 		texts[k] = strings.concatenate(
-			{params[i].name.name, ": ", node_text(document.ast.src, params[i].field.type)},
+			{params[i].name.name, ": ", node_text(src, params[i].field.type)},
 			context.temp_allocator,
 		)
 	}
-	fields := lit.type.params.list
+	first, last := fields[0], fields[len(fields) - 1]
+	separator := ", "
+	if first.pos.line != last.end.line {
+		// The indent of the last field's line, since the first field may follow `proc(`.
+		line := src[strings.last_index_byte(src[:last.pos.offset], '\n') + 1:last.pos.offset]
+		indent := line[:len(line) - len(strings.trim_left(line, " \t"))]
+		separator = strings.concatenate({",\n", indent}, context.temp_allocator)
+	}
 	append_edit(
 		changes,
 		document,
-		fields[0].pos.offset,
-		fields[len(fields) - 1].end.offset,
-		strings.join(texts, ", ", context.temp_allocator),
+		first.pos.offset,
+		last.end.offset,
+		strings.join(texts, separator, context.temp_allocator),
 	)
 }
 

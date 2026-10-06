@@ -134,6 +134,72 @@ show :: proc() {
 	)
 }
 
+// Corpus: ols src/common/uri.odin:35 to position.odin, see docs/corpus-validation.md. An import joins the group
+// of its collection, and one without a group starts a new group after the last import.
+@(test)
+move_decl_places_imports_in_their_groups :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+import "core:fmt"
+import "core:strings"
+
+import "../util"
+
+sh{*}ow :: proc() {
+	fmt.println(strings.to_upper("x"), util.name)
+}
+
+main :: proc() {}
+`, {{"b.odin", `package test
+
+import "core:slice"
+
+other :: proc() {
+	slice.reverse(nil)
+}
+`}})
+	test.expect_move_declaration(
+		t,
+		&source,
+		"b.odin",
+		{
+			{"main.odin", `package test
+
+main :: proc() {}
+`},
+			{"b.odin", `package test
+
+import "core:fmt"
+import "core:slice"
+import "core:strings"
+
+import "../util"
+
+other :: proc() {
+	slice.reverse(nil)
+}
+
+show :: proc() {
+	fmt.println(strings.to_upper("x"), util.name)
+}
+`},
+		},
+	)
+}
+
+@(test)
+move_decl_refused_when_target_imports_under_another_name :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+import "core:fmt"
+
+sh{*}ow :: proc() {
+	fmt.println("x")
+}
+`, {{"b.odin", "package test\n\nimport f \"core:fmt\"\n\nother :: proc() {\n\tf.println()\n}\n"}})
+	test.expect_move_declaration(t, &source, "b.odin", {}, "imports core:fmt as f")
+}
+
 @(test)
 move_decl_refused_for_file_private :: proc(t: ^testing.T) {
 	source := move_source(`package test

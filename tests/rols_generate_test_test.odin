@@ -1,5 +1,6 @@
 package tests
 
+import "core:strings"
 import "core:testing"
 
 import test "src:testing"
@@ -245,6 +246,31 @@ fo{*}o :: proc() {
 	)
 }
 
+// A sibling that names js in a `#+build` line with another OS makes the package target js. A sibling restricted
+// by `!` alone does not.
+@(test)
+generate_test_new_file_excludes_a_named_target_without_core_testing :: proc(t: ^testing.T) {
+	source := generate_source(
+		`package test
+
+fo{*}o :: proc() {
+}
+`,
+		{{"web.odin", "#+build js, linux // web and desktop\npackage test\n"}, {"posix.odin", "#+build !windows\npackage test\n"}},
+	)
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Generate test for foo",
+		{
+			{
+				"main_test.odin",
+				"#+build !js\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo()\n}\n",
+			},
+		},
+	)
+}
+
 @(test)
 generate_test_refused_for_source_only_on_targets_without_core_testing :: proc(t: ^testing.T) {
 	source := generate_source(`#+build js, wasi
@@ -317,7 +343,59 @@ f{*} :: proc() -> E {
 }
 
 @(test)
-generate_test_refused_when_result_needs_a_qualified_type :: proc(t: ^testing.T) {
+generate_test_spells_a_qualified_zero_value :: proc(t: ^testing.T) {
+	source := generate_source(`package test
+
+import tm "core:time"
+
+f{*} :: proc() -> tm.Time {
+	return {}
+}
+`)
+	source.packages = {{pkg = "time", source = "package time\nTime :: struct {\n\tnsec: i64,\n}\n"}}
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Generate test for f",
+		{
+			{
+				"main_test.odin",
+				"package test\n\nimport \"core:testing\"\nimport tm \"core:time\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tresult := f()\n\ttesting.expect_value(t, result, tm.Time{})\n}\n",
+			},
+		},
+	)
+	// An existing test file gets the import among its core imports.
+	existing := generate_source(`package test
+
+import "core:time"
+
+f{*} :: proc() -> time.Time {
+	return {}
+}
+`, {{"main_test.odin", "package test\n\nimport \"core:testing\"\n"}})
+	existing.packages = {{pkg = "time", source = "package time\nTime :: struct {\n\tnsec: i64,\n}\n"}}
+	test.expect_action_applied_files(
+		t,
+		&existing,
+		"Generate test for f",
+		{
+			{
+				"main_test.odin",
+				"package test\n\nimport \"core:testing\"\nimport \"core:time\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tresult := f()\n\ttesting.expect_value(t, result, time.Time{})\n}\n",
+			},
+		},
+	)
+}
+
+@(test)
+generate_test_refused_when_a_qualified_zero_value_is_shadowed :: proc(t: ^testing.T) {
+	for alias in ([]string{"t", "testing", "result"}) {
+		main := strings.concatenate({"package test\n\nimport ", alias, " \"core:time\"\n\nf{*} :: proc() -> ", alias, ".Time {\n\treturn {}\n}\n"}, context.temp_allocator)
+		source := generate_source(main)
+		source.packages = {{pkg = "time", source = "package time\nTime :: struct {\n\tnsec: i64,\n}\n"}}
+		test.expect_action_missing(t, &source, "Generate test for f")
+	}
+	// The existing test file imports another package under the name the zero value needs.
 	source := generate_source(`package test
 
 import "core:time"
@@ -325,7 +403,8 @@ import "core:time"
 f{*} :: proc() -> time.Time {
 	return {}
 }
-`)
+`, {{"main_test.odin", "package test\n\nimport \"core:testing\"\nimport time \"core:fmt\"\n"}})
+	source.packages = {{pkg = "time", source = "package time\nTime :: struct {\n\tnsec: i64,\n}\n"}}
 	test.expect_action_missing(t, &source, "Generate test for f")
 }
 

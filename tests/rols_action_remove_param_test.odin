@@ -510,6 +510,65 @@ main :: proc() {
 }
 
 @(test)
+reorder_params_keeps_multi_line_list :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+pl{*}ace :: proc(
+	x: int, // across
+	y: int,
+	name: string,
+) {
+}
+
+main :: proc() {
+	place(1, 2, "a")
+}
+`,
+	}
+	test.expect_reorder_params(t, &source, {2, 0, 1}, {{"main.odin", `package test
+
+place :: proc(
+	name: string, // across
+	x: int,
+	y: int,
+) {
+}
+
+main :: proc() {
+	place("a", 1, 2)
+}
+`}})
+}
+
+@(test)
+reorder_params_splits_shared_type_on_lines :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+pl{*}ace :: proc(x, y: int,
+                 name: string) {
+}
+
+main :: proc() {
+	place(1, 2, "a")
+}
+`,
+	}
+	test.expect_reorder_params(t, &source, {1, 2, 0}, {{"main.odin", `package test
+
+place :: proc(y: int,
+                 name: string,
+                 x: int) {
+}
+
+main :: proc() {
+	place(2, "a", 1)
+}
+`}})
+}
+
+@(test)
 reorder_params_refused_default_param :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
