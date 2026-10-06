@@ -1,8 +1,12 @@
 #+private file
 package server
 
+import "base:runtime"
+
 import "core:fmt"
 import "core:odin/ast"
+import "core:odin/tokenizer"
+import "core:os"
 import path "core:path/slashpath"
 import "core:slice"
 import "core:strings"
@@ -37,6 +41,11 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	if slice.contains(attribute_names(decl.attributes[:]), "test") || file_private(document, decl) {
+		return
+	}
+	// odin builds a `_test.odin` file in every build, and core:testing does not compile on some targets.
+	source_oses := build_oses(document.fullpath, document.ast.src)
+	if source_oses != {} && source_oses <= NO_TESTING_OSES {
 		return
 	}
 
@@ -93,14 +102,24 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	strings.write_string(&sb, strings.to_string(checks))
 	strings.write_string(&sb, "}\n")
 
+	// A new test file builds on the targets of its source, less those without core:testing that the package
+	// targets, and keeps its `#+private` and `#+vet` tags.
+	tags := make([dynamic]tokenizer.Token, context.temp_allocator)
+	if !package_file_exists(test_path, ctx.files) {
+		for excluded in excluded_test_oses(ctx, source_oses) {
+			name := strings.to_lower(fmt.tprint(excluded), context.temp_allocator)
+			append(&tags, tokenizer.Token{text = fmt.tprintf("#+build !%s", name)})
+		}
+	}
+	append(&tags, ..document.ast.tags[:])
+
 	uri := common.create_uri(test_path, context.temp_allocator)
 	changes := make(Changes, context.temp_allocator)
 	edit, ok := append_to_package_file(
 		&changes,
 		document.ast.pkg_name,
 		uri.uri,
-		// A new test file builds on the targets of its source and keeps its `#+private` and `#+vet` tags.
-		document.ast.tags[:],
+		tags[:],
 		{`import "core:testing"`},
 		strings.to_string(sb),
 		ctx.files,
@@ -112,6 +131,35 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 		ctx.actions,
 		CodeAction{title = fmt.tprintf("Generate test for %s", proc_name), kind = "refactor", edit = edit},
 	)
+}
+
+// The operating systems the new test file leaves out, one `#+build !os` line each: those without core:testing
+// that the source builds on and some other file of the package builds only on, so the package targets them.
+excluded_test_oses :: proc(
+	ctx: ^ActionContext,
+	source_oses: bit_set[runtime.Odin_OS_Type],
+) -> bit_set[runtime.Odin_OS_Type] {
+	excluded: bit_set[runtime.Odin_OS_Type]
+	candidates := source_oses & NO_TESTING_OSES
+	if candidates == {} {
+		return {}
+	}
+	for sibling in package_siblings(ctx.document, ctx.files) {
+		text := ""
+		if len(ctx.files) > 0 {
+			for file in ctx.files {
+				if file.fullpath == sibling do text = file.text
+			}
+		} else if data, err := os.read_entire_file(sibling, context.temp_allocator); err == nil {
+			text = string(data)
+		} else {
+			continue
+		}
+		if oses := build_oses(sibling, text); oses != {} && oses <= NO_TESTING_OSES {
+			excluded += oses & candidates
+		}
+	}
+	return excluded
 }
 
 // Zero values for the parameters without a default value and not variadic. A parameter after a

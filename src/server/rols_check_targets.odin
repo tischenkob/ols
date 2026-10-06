@@ -183,6 +183,24 @@ builds_on :: proc(name, text: string, target: parser.Build_Target) -> bool {
 	return facts_build_on(build_facts(name, text), target)
 }
 
+// The operating systems where a package that imports core:testing does not compile (odin dev-2026-09).
+NO_TESTING_OSES :: bit_set[runtime.Odin_OS_Type]{.JS, .WASI, .Orca, .Freestanding}
+
+// The operating systems that odin builds the file called name with the source text for, on some architecture.
+build_oses :: proc(name, text: string) -> (oses: bit_set[runtime.Odin_OS_Type]) {
+	facts := build_facts(name, text)
+	for os in runtime.Odin_OS_Type {
+		if os == .Unknown do continue
+		for arch in runtime.Odin_Arch_Type {
+			if arch != .Unknown && facts_build_on(facts, {os = os, arch = arch}) {
+				oses += {os}
+				break
+			}
+		}
+	}
+	return
+}
+
 // Whether odin builds the file with the source text for target when the command line names it with -file: only
 // its `#+build` tags count, not its name.
 tags_build_on :: proc(name, text: string, target: parser.Build_Target) -> bool {

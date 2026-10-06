@@ -397,6 +397,63 @@ apply_gate_targets_follow_the_files_the_host_does_not_build :: proc(t: ^testing.
 }
 
 @(test)
+apply_gate_targets_check_each_target_on_the_packages_that_need_it :: proc(t: ^testing.T) {
+	root, dir_err := os.make_directory_temp("", "rols_gate_targets_*", context.temp_allocator)
+	if !testing.expect_value(t, dir_err, nil) do return
+	defer os.remove_all(root)
+
+	join :: proc(parts: ..string) -> string {
+		joined, _ := filepath.join(parts, context.temp_allocator)
+		return joined
+	}
+	// lib is edited. lib_wasi.odin beside it and use_js.odin in an importer that also has a host file are not
+	// built on the host. app imports use, other imports only lib.
+	sources := [][2]string {
+		{"lib/lib.odin", "package lib\n"},
+		{"lib/lib_wasi.odin", "package lib\n"},
+		{"use/use.odin", "package use\n\nimport \"../lib\"\n"},
+		{"use/use_js.odin", "package use\n"},
+		{"app/app.odin", "package app\n\nimport \"../use\"\n"},
+		{"other/other.odin", "package other\n\nimport \"../lib\"\n"},
+	}
+	files := make([]server.Package_File, len(sources), context.temp_allocator)
+	for source, i in sources {
+		file := join(root, source[0])
+		os.make_directory_all(filepath.dir(file))
+		testing.expect_value(t, os.write_entire_file(file, source[1]), nil)
+		files[i] = {file, source[1]}
+	}
+	lib := join(root, "lib")
+	importers := server.importer_dirs({lib}, &common.config, files)
+	if !testing.expect_value(t, len(importers), 3) do return
+	dirs := []string{lib, importers[0], importers[1], importers[2]}
+	changed := []cli.File_State {
+		{
+			path = files[0].fullpath,
+			existed = true,
+			original = "package lib\n",
+			exists = true,
+			text = "package lib\n\nx :: 1\n",
+		},
+	}
+
+	checks := cli.gate_targets(changed, dirs, importers, nil, files)
+	if !testing.expect_value(t, len(checks), 3) do return
+	testing.expect_value(t, checks[0].target, "")
+	testing.expect_value(t, len(checks[0].dirs), 4)
+	// use and its importer app, not lib or other.
+	testing.expect_value(t, checks[1].target, "js_wasm32")
+	if testing.expect_value(t, len(checks[1].dirs), 2) {
+		testing.expect_value(t, checks[1].dirs[0], join(root, "use"))
+		testing.expect_value(t, checks[1].dirs[1], join(root, "app"))
+	}
+	// The sibling of the edited file takes lib and every importer of it.
+	testing.expect_value(t, checks[2].target, "wasi_wasm32")
+	testing.expect_value(t, len(checks[2].dirs), 4)
+	testing.expect_value(t, checks[2].dirs[0], lib)
+}
+
+@(test)
 apply_recheck_union_absorbs_a_flaky_error_but_not_a_new_copy :: proc(t: ^testing.T) {
 	// The first check of the original code missed a redeclaration that a second check reports.
 	before := []cli.Check_Error{{"ex/a.odin", 3, 1, "Redeclaration of 'x'"}}
