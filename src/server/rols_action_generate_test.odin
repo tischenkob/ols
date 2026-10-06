@@ -65,13 +65,19 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	unit := indent_unit(src, "", nil)
 
 	args := call_arguments(ctx, lit.type.params)
-	results, results_ok := result_checks(ctx, lit.type.results)
+	results, imports, results_ok := result_checks(ctx, lit.type.results)
 	if !results_ok {
 		return
 	}
 	names := make([]string, len(results), context.temp_allocator)
 	for &name, i in names {
 		name = "result" if len(results) == 1 else fmt.tprintf("%c", 'a' + i)
+	}
+	// An import that a zero value names must not be shadowed by the test's own names.
+	for imp in imports {
+		if imp.base == "t" || imp.base == "testing" || slice.contains(names, imp.base) {
+			return
+		}
 	}
 
 	test_name := fmt.tprintf("test_%s", proc_name)
@@ -115,14 +121,15 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	}
 	append(&tags, ..document.ast.tags[:])
 
+	append(&imports, Package{original = `"core:testing"`, base = "testing"})
 	uri := common.create_uri(test_path, context.temp_allocator)
 	changes := make(Changes, context.temp_allocator)
-	edit, ok := append_to_package_file(
+	edit, _, ok := append_to_package_file(
 		&changes,
 		document.ast.pkg_name,
 		uri.uri,
 		tags[:],
-		{`import "core:testing"`},
+		imports[:],
 		strings.to_string(sb),
 		ctx.files,
 	)
@@ -136,7 +143,9 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 }
 
 // The operating systems the new test file leaves out, one `#+build !os` line each: those without core:testing
-// that the source builds on and some other file of the package builds only on, so the package targets them.
+// that the source builds on and the package targets, because some other file of the package builds only on
+// them or names one in a `#+build` line, as `#+build js, linux` does. A file restricted by `!` alone, such as
+// `#+build !windows`, does not mark a target.
 excluded_test_oses :: proc(
 	ctx: ^ActionContext,
 	source_oses: bit_set[runtime.Odin_OS_Type],
@@ -151,8 +160,11 @@ excluded_test_oses :: proc(
 		candidates: bit_set[runtime.Odin_OS_Type],
 		name, text: string,
 	) {
-		if oses := build_oses(name, text); oses != {} && oses <= NO_TESTING_OSES {
+		oses := build_oses(name, text)
+		if oses != {} && oses <= NO_TESTING_OSES {
 			excluded^ += oses & candidates
+		} else if oses != {} && strings.contains(text, "+build") {
+			excluded^ += oses & candidates & build_line_oses(text)
 		}
 	}
 	if len(ctx.files) > 0 {
@@ -170,6 +182,25 @@ excluded_test_oses :: proc(
 		}
 	}
 	return excluded
+}
+
+// The operating systems that a `#+build` line of text names without `!`, such as js in `#+build js, linux`.
+build_line_oses :: proc(text: string) -> (oses: bit_set[runtime.Odin_OS_Type]) {
+	rest := text
+	for line in strings.split_lines_iterator(&rest) {
+		line := strings.trim_space(line)
+		if strings.has_prefix(line, "package ") do break
+		if !strings.has_prefix(line, "#+build ") do continue
+		if comment := strings.index(line, "//"); comment >= 0 do line = line[:comment]
+		for kind in strings.split(line[len("#+build "):], ",", context.temp_allocator) {
+			for term in strings.fields(kind, context.temp_allocator) {
+				if os, _ := parser.get_build_os_from_string(term); os != .Unknown {
+					oses += {os}
+				}
+			}
+		}
+	}
+	return
 }
 
 // Zero values for the parameters without a default value and not variadic. A parameter after a
@@ -211,17 +242,26 @@ Result_Check :: struct {
 }
 
 // testing.expect_value needs a comparable type and cannot infer a bare `{}`, so an aggregate zero value
-// is spelled `E{}`. That fails (ok is false) for a type the test file cannot spell, a package-qualified
-// or multi-line one, and for a type that is not comparable, such as a struct holding a slice.
-result_checks :: proc(ctx: ^ActionContext, fields: ^ast.Field_List) -> (checks: []Result_Check, ok: bool) {
+// is spelled `E{}`, or `pkg.E{}` with the import of pkg added to imports. That fails (ok is false) for a
+// type the test file cannot spell, a multi-line one or one naming a package the document does not
+// import, and for a type that is not comparable, such as a struct holding a slice.
+result_checks :: proc(
+	ctx: ^ActionContext,
+	fields: ^ast.Field_List,
+) -> (
+	checks: []Result_Check,
+	imports: [dynamic]Package,
+	ok: bool,
+) {
+	imports = make([dynamic]Package, context.temp_allocator)
 	if fields == nil {
-		return {}, true
+		return {}, imports, true
 	}
 	types := field_types(fields.list)
 	checks = make([]Result_Check, len(types), context.temp_allocator)
 	for type, i in types {
 		if type == nil {
-			return nil, false
+			return nil, nil, false
 		}
 		symbol, resolved := resolve_type_expression(ctx.ast_context, type)
 		if resolved && symbol.pointers == 0 {
@@ -229,25 +269,51 @@ result_checks :: proc(ctx: ^ActionContext, fields: ^ast.Field_List) -> (checks: 
 			case SymbolSliceValue, SymbolDynamicArrayValue, SymbolMapValue:
 				// `delete` has no overload for a fixed-capacity dynamic array.
 				if v, fixed := symbol.value.(SymbolDynamicArrayValue); fixed && v.cap != nil {
-					return nil, false
+					return nil, nil, false
 				}
 				checks[i].collection = true
 				continue
 			}
 		}
 		if resolved && !is_comparable(ctx.ast_context, symbol, 0) {
-			return nil, false
+			return nil, nil, false
 		}
 		checks[i].zero = zero_value_text(symbol, resolved)
 		if checks[i].zero == "{}" {
 			text := node_text(ctx.document.ast.src, type)
-			if strings.contains_any(text, ".\n") || names_file_private(ctx.document, type) {
-				return nil, false
+			if strings.contains(text, "\n") || names_file_private(ctx.document, type) {
+				return nil, nil, false
+			}
+			if !append_type_imports(&imports, ctx.document, type) {
+				return nil, nil, false
 			}
 			checks[i].zero = strings.concatenate({text, "{}"}, context.temp_allocator)
 		}
 	}
-	return checks, true
+	return checks, imports, true
+}
+
+// Appends to imports, once each, the imports of document that type names as a selector base, such as
+// `time` in `time.Time`. False when a base names no import, which happens for a collection the
+// configuration lacks, since Document.imports leaves those out.
+append_type_imports :: proc(imports: ^[dynamic]Package, document: ^Document, type: ^ast.Expr) -> bool {
+	outer: for use in collect_ident_uses(type) {
+		if len(use.parents) == 0 do continue
+		selector, is_selector := use.parents[len(use.parents) - 1].derived.(^ast.Selector_Expr)
+		if !is_selector do continue
+		if base, is_ident := selector.expr.derived.(^ast.Ident); !is_ident || base != use.ident do continue
+		for imp in imports {
+			if imp.base == use.ident.name do continue outer
+		}
+		for imp in document.imports {
+			if imp.base == use.ident.name {
+				append(imports, imp)
+				continue outer
+			}
+		}
+		return false
+	}
+	return true
 }
 
 // Whether type names a top-level declaration private to the document's file, which the test file cannot see.
