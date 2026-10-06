@@ -706,3 +706,41 @@ main :: proc() {
 		},
 	)
 }
+
+// Two members tie on score but return different types, so the hover must not claim either result.
+@(test)
+hover_overload_tie_with_different_results :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Tag :: distinct u16
+T1 :: Tag(0x40)
+a :: proc($tag: Tag, p: []u8) -> int { return 0 }
+b :: proc($tag: Tag, p: ^int) -> f32 { return 0 }
+ab :: proc{a, b}
+g :: proc() {
+	r1{*} := ab(T1, nil)
+	_ = r1
+}
+`,
+	}
+	test.expect_no_hover(t, &source)
+}
+
+// The group call inside max resolves against its own arguments, not against the arguments of max.
+@(test)
+hover_max_of_group_call :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+one :: proc(a: int) -> f32 { return 0 }
+two :: proc(a: int, b: f32) -> i64 { return 0 }
+grp :: proc{one, two}
+f :: proc(a: int) {
+	x{*} := max(0, grp(a))
+	_ = x
+}
+`,
+	}
+	test.expect_hover(t, &source, "test.x: f32")
+}

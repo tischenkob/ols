@@ -297,6 +297,35 @@ main :: proc() {
 			{},
 		},
 		{
+			"a group member whose arity cannot fit the call",
+			`package test
+
+h :: proc(x: int) {}
+one :: proc(a: int) -> (int, int) { return 1, 2 }
+two :: proc(a: int, b: Missing) -> int { return 1 }
+g :: proc { one, two }
+
+main :: proc(y: int) {
+	h(g(1, y))
+}
+`,
+			{},
+		},
+		{
+			"a group member that needs more arguments than the call passes",
+			`package test
+
+one :: proc(a: int, b: int) {}
+two :: proc(a: Missing) {}
+g :: proc { one, two }
+
+main :: proc() {
+	g(1)
+}
+`,
+			{},
+		},
+		{
 			"a group whose overload does not resolve still counts when its members agree",
 			`package test
 

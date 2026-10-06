@@ -131,6 +131,10 @@ get_local :: proc(ast_context: AstContext, ident: ast.Ident) -> (DocumentLocal, 
 			if !correct_file || !correct_package {
 				continue
 			}
+			// rols: a local belongs to the top-level declaration that holds it, not to the initializer of a global
+			if !in_local_top_level_decl(ast_context.file, local, ident) {
+				continue
+			}
 
 			if local.local_global {
 				return local, true
