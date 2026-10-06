@@ -3558,6 +3558,7 @@ lint_simplify_nested_if_refuses_deferred_calls :: proc(t: ^testing.T) {
 }
 
 // A procedure group declared inside a procedure resolves only with that procedure's locals.
+// The local deferred `local_open` shadows a global group that is not deferred.
 NESTED_IF_LOCAL_GROUP_SOURCE :: `package test
 
 end :: proc(ok: bool) {}
@@ -3567,6 +3568,10 @@ open_int :: proc(n: int) -> bool { return n > 0 }
 open_text :: proc(s: string) -> bool { return s != "" }
 plain_int :: proc(n: int) -> bool { return n > 0 }
 plain_text :: proc(s: string) -> bool { return s != "" }
+local_open :: proc {
+	plain_int,
+	plain_text,
+}
 
 f :: proc(done: bool) {
 	local :: proc {
@@ -3595,7 +3600,7 @@ lint_simplify_nested_if_resolves_local_group :: proc(t: ^testing.T) {
 		config = {enable_lint_simplify = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{19, "nested-if"}})
+	test.expect_lint_diagnostics(t, &source, {{23, "nested-if"}})
 }
 
 @(test)

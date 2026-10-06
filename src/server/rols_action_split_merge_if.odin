@@ -170,8 +170,7 @@ callee_deferred :: proc(document: ^Document, resolved_map: SymbolAndNodeMap, cal
 			return symbol_deferred(resolved.symbol^)
 		}
 	}
-	// A group call whose overload does not resolve: without a call, the resolve returns every member.
-	// The locals at the callee find a group declared inside a procedure.
+	// A group call with no matching overload: the resolve with the locals at the callee returns every member.
 	ast_context: AstContext
 	position_context: DocumentPositionContext
 	if ast_context_at(
@@ -184,9 +183,7 @@ callee_deferred :: proc(document: ^Document, resolved_map: SymbolAndNodeMap, cal
 			return symbol_deferred(symbol)
 		}
 	}
-	symbol, found := resolve_type_in_package(document, document.package_name, callee)
-	if !found do return true
-	return symbol_deferred(symbol)
+	return true
 }
 
 symbol_deferred :: proc(symbol: Symbol) -> bool {
