@@ -33,7 +33,7 @@ clear_all_package_aliases :: proc() {
 
 //Go through all the collections to find all the possible packages that exists
 find_all_package_aliases :: proc(config: ^common.Config) {
-	// rols: skip git-ignored and excluded paths, one filter per workspace root
+	// rols: skip git-ignored and excluded paths, one filter per workspace root a collection overlaps
 	filters := package_alias_filters(config)
 	for k, v in config.collections {
 		pkgs := make([dynamic]string, context.temp_allocator)
@@ -44,7 +44,7 @@ find_all_package_aliases :: proc(config: ^common.Config) {
 			context.temp_allocator,
 			skip_hidden = config.enable_auto_import_skip_hidden_paths,
 			// rols: walk with the filter of the overlapping workspace root
-			filter = package_alias_filter_for(filters, v),
+			filter = package_alias_filter_for(&filters, v),
 		)
 
 		for pkg in pkgs {
