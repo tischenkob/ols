@@ -83,9 +83,14 @@ dead_store :: proc(ctx: ^LintContext, stmts: []^ast.Stmt, from: int, name: ^ast.
 			for value in values {
 				if mentions(value, name.name) do return
 			}
-			if !is_local_store(ctx, next) || address_taken(ctx, name) || using_field(ctx, name) do return
+			if !is_local_store(ctx, next) || address_taken(ctx, name) do return
+			lit := enclosing_proc(ctx, name)
+			// A field that `using` brings into scope belongs to a value that outlives the store. The resolver
+			// gives such a field the .Local flag, so is_local_store does not see it.
+			visible := visible_declaration(ctx, lit, name.name, name.pos.offset)
+			if visible.through_using do return
 			// A `defer` runs before the overwrite only through an exit between the two stores.
-			if exits && deferred_mention(ctx.document, enclosing_proc(ctx, name), name) do return
+			if exits && deferred_mention(lit, name, visible.ident) do return
 			append(
 				diags,
 				Diagnostic {
@@ -153,20 +158,19 @@ is_named_result :: proc(lit: ^ast.Proc_Lit, name: string) -> bool {
 // A `defer` registered before the store runs at a later exit and can read it. One written after
 // the store is not pending when the store runs, and neither is one in a block that closed before
 // it; a `when` body is no block. A defer whose name a declaration between it and the store shadows
-// reads another variable. An unknown procedure counts as read.
+// reads another variable. An unknown procedure counts as read. visible is the declaration of the
+// name visible at the store, or nil.
 @(private = "file")
-deferred_mention :: proc(document: ^Document, lit: ^ast.Proc_Lit, name: ^ast.Ident) -> bool {
+deferred_mention :: proc(lit: ^ast.Proc_Lit, name: ^ast.Ident, visible: ^ast.Ident) -> bool {
 	if lit == nil || lit.body == nil do return true
 	Data :: struct {
-		document: ^Document,
-		body:     ^ast.Node,
-		name:     ^ast.Ident,
-		found:    bool,
+		name:    ^ast.Ident,
+		visible: ^ast.Ident,
+		found:   bool,
 	}
 	data := Data {
-		document = document,
-		body     = lit.body,
-		name     = name,
+		name    = name,
+		visible = visible,
 	}
 	visitor := ast.Visitor {
 		data = &data,
@@ -182,8 +186,7 @@ deferred_mention :: proc(document: ^Document, lit: ^ast.Proc_Lit, name: ^ast.Ide
 			case ^ast.Defer_Stmt:
 				if !mentions(n.stmt, data.name.name) do return nil
 				// The store names a declaration made after the defer, so the defer reads another variable.
-				visible := visible_declaration(data.document, data.body, data.name.name, data.name.pos.offset)
-				data.found = visible.ident == nil || visible.ident.pos.offset < n.pos.offset
+				data.found = data.visible == nil || data.visible.pos.offset < n.pos.offset
 				return nil
 			}
 			// A defer in a block that ended before the store already ran.
@@ -193,14 +196,6 @@ deferred_mention :: proc(document: ^Document, lit: ^ast.Proc_Lit, name: ^ast.Ide
 	}
 	ast.walk(&visitor, lit.body)
 	return data.found
-}
-
-// A field that `using` brings into scope belongs to a value that outlives the store. The resolver
-// gives such a field the .Local flag, so is_local_store does not see it.
-@(private = "file")
-using_field :: proc(ctx: ^LintContext, name: ^ast.Ident) -> bool {
-	lit := enclosing_proc(ctx, name)
-	return lit != nil && visible_declaration(ctx.document, lit, name.name, name.pos.offset).through_using
 }
 
 // Only a local can hold a dead store: a global is readable from any procedure. An identifier

@@ -21,19 +21,19 @@ Visible_Decl :: struct {
 // The last declaration of name in root at or before offset whose scope is still open at offset: a
 // value declaration, a range value, a type-switch variable, a parameter or named result of an
 // enclosing procedure, or a field that a `using` declaration, statement or parameter brings into
-// scope. Only a `using` in an open scope resolves its type, through document.
+// scope. Only a `using` in an open scope resolves its type, once per lint run.
 // A `when` body opens no scope, so its declarations count while the `when` encloses the declaration.
-visible_declaration :: proc(document: ^Document, root: ^ast.Node, name: string, offset: int) -> Visible_Decl {
+visible_declaration :: proc(ctx: ^LintContext, root: ^ast.Node, name: string, offset: int) -> Visible_Decl {
 	Data :: struct {
-		document: ^Document,
-		name:     string,
-		offset:   int,
-		found:    Visible_Decl,
+		ctx:    ^LintContext,
+		name:   string,
+		offset: int,
+		found:  Visible_Decl,
 	}
 	data := Data {
-		document = document,
-		name     = name,
-		offset   = offset,
+		ctx    = ctx,
+		name   = name,
+		offset = offset,
 	}
 	visitor := ast.Visitor {
 		data = &data,
@@ -49,7 +49,16 @@ visible_declaration :: proc(document: ^Document, root: ^ast.Node, name: string, 
 			}
 			// `using expr` declares name when the type of expr has a member of that name.
 			using_declares :: proc(data: ^Data, expr: ^ast.Expr, names: []^ast.Expr = nil) {
-				if expr == nil || !slice.contains(using_member_names_of(data.document, expr), data.name) do return
+				if expr == nil do return
+				if data.ctx.using_members == nil {
+					data.ctx.using_members = make(map[^ast.Expr][]string, context.temp_allocator)
+				}
+				members, cached := data.ctx.using_members[expr]
+				if !cached {
+					members = using_member_names_of(data.ctx.document, expr)
+					data.ctx.using_members[expr] = members
+				}
+				if !slice.contains(members, data.name) do return
 				ident, _ := (names[0] if len(names) > 0 else expr).derived.(^ast.Ident)
 				data.found = {ident, nil, true}
 			}
