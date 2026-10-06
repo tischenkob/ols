@@ -17,7 +17,11 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	document := ctx.document
-	if strings.has_suffix(document.fullpath, "_test.odin") {
+	// `x_test_windows.odin` is a test file as well: the OS suffix follows `_test`.
+	base := path.base(document.fullpath)
+	suffix := target_suffix(base)
+	stem := strings.trim_suffix(strings.trim_suffix(base, ".odin"), suffix)
+	if strings.has_suffix(stem, "_test") {
 		return
 	}
 	decl, found := top_decl_at(document, ctx.range.start)
@@ -36,12 +40,9 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 
-	base := path.base(document.fullpath)
+	// The OS suffix goes last, so that the test builds only where the file it tests does.
 	test_path := path.join(
-		{
-			document.package_name,
-			strings.concatenate({strings.trim_suffix(base, ".odin"), "_test.odin"}, context.temp_allocator),
-		},
+		{document.package_name, strings.concatenate({stem, "_test", suffix, ".odin"}, context.temp_allocator)},
 		context.temp_allocator,
 	)
 	if !ctx.config.client_create_file_support && !package_file_exists(test_path, ctx.files) {
@@ -182,13 +183,31 @@ result_checks :: proc(ctx: ^ActionContext, fields: ^ast.Field_List) -> (checks: 
 		checks[i].zero = zero_value_text(symbol, resolved)
 		if checks[i].zero == "{}" {
 			text := node_text(ctx.document.ast.src, type)
-			if strings.contains_any(text, ".\n") {
+			if strings.contains_any(text, ".\n") || names_file_private(ctx.document, type) {
 				return nil, false
 			}
 			checks[i].zero = strings.concatenate({text, "{}"}, context.temp_allocator)
 		}
 	}
 	return checks, true
+}
+
+// Whether type names a top-level declaration private to the document's file, which the test file cannot see.
+names_file_private :: proc(document: ^Document, type: ^ast.Expr) -> bool {
+	uses := collect_ident_uses(type)
+	for decl in top_level_value_decls(document.ast) {
+		if !file_private(document, decl) {
+			continue
+		}
+		for name in decl.names {
+			for use in uses {
+				if ident_is(name, use.ident.name) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // intrinsics.type_is_comparable: false for a slice, dynamic array, map, `any`, #soa type or

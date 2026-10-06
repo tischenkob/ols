@@ -850,11 +850,8 @@ is_type_decl :: proc(ctx: ^ActionContext, name, pkg: string) -> bool {
 		}
 		pkg = ctx.ast_context.document_package
 	}
-	// Types other than structs, unions and enums, such as distinct ones, are indexed as unresolved,
-	// so rule out the values instead.
-	VALUES :: bit_set[SymbolType]{.Function, .Field, .Variable, .Package, .Keyword, .EnumMember, .Constant}
 	symbol, found := memory_index_lookup(&indexer.index, name, pkg)
-	return found && symbol.type not_in VALUES
+	return found && symbol.type not_in VALUE_SYMBOL_TYPES
 }
 
 // Names of the constants, types among them, declared anywhere in the body. The signature cannot

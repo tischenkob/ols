@@ -468,3 +468,53 @@ generate_test_ignores_raw_string_indentation :: proc(t: ^testing.T) {
 		},
 	)
 }
+
+// The OS suffix stays last, so the test builds only where x_windows.odin does.
+@(test)
+generate_test_keeps_the_os_suffix_last :: proc(t: ^testing.T) {
+	source := generate_source("")
+	source.files = {{"x_windows.odin", `package test
+
+fo{*}o :: proc(a: int) {
+}
+`}}
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Generate test for foo",
+		{
+			{
+				"x_test_windows.odin",
+				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo(0)\n}\n",
+			},
+		},
+	)
+}
+
+@(test)
+generate_test_refused_in_os_suffixed_test_file :: proc(t: ^testing.T) {
+	source := generate_source("")
+	source.files = {{"x_test_windows.odin", `package test
+
+fo{*}o :: proc(a: int) {
+}
+`}}
+	test.expect_action(t, &source, {})
+}
+
+// The test file cannot name a type private to the source file, so `Point{}` would not compile there.
+@(test)
+generate_test_refused_for_file_private_result_type :: proc(t: ^testing.T) {
+	source := generate_source(`package test
+
+@(private = "file")
+Point :: struct {
+	x: int,
+}
+
+fo{*}o :: proc() -> [2]Point {
+	return {}
+}
+`)
+	test.expect_action_missing(t, &source, "Generate test for foo")
+}

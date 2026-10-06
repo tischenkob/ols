@@ -59,7 +59,7 @@ add_result_handling_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	last := results[len(results) - 1]
-	kind := result_kind(last)
+	kind := result_kind_in(ctx.document, resolved.symbol.pkg, last)
 
 	src := ctx.document.ast.src
 	_, is_stmt := parent.derived.(^ast.Expr_Stmt)
@@ -217,6 +217,32 @@ result_kind :: proc(type: ^ast.Expr) -> Result_Kind {
 		return .Error
 	}
 	return .Other
+}
+
+// result_kind, where a name that package `pkg` declares as a boolean, such as `My_Ok :: distinct bool`,
+// also counts as .Bool.
+@(private = "package")
+result_kind_in :: proc(document: ^Document, pkg: string, type: ^ast.Expr) -> Result_Kind {
+	kind := result_kind(type)
+	if kind != .Other || type == nil {
+		return kind
+	}
+	#partial switch _ in type.derived {
+	case ^ast.Ident, ^ast.Selector_Expr:
+	case:
+		return kind
+	}
+	symbol, ok := resolve_type_in_package(document, pkg, type)
+	if !ok || symbol.pointers > 0 {
+		return kind
+	}
+	if basic, is_basic := symbol.value.(SymbolBasicValue); is_basic && basic.ident != nil {
+		switch basic.ident.name {
+		case "bool", "b8", "b16", "b32", "b64":
+			return .Bool
+		}
+	}
+	return kind
 }
 
 @(private = "package")

@@ -640,3 +640,75 @@ main :: proc() {
 	}
 	test.expect_action_missing(t, &source, ADD_EXPLICIT_TYPE_ACTION)
 }
+
+// A procedure named like a builtin type is no type, so the builtin result is written unqualified.
+@(test)
+action_add_explicit_type_builtin_result_beside_proc_of_its_name :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "other"
+
+main :: proc() {
+	x{*} := other.name()
+	_ = x
+}
+`,
+		packages = {
+			{
+				pkg = "other",
+				files = {
+					{"a.odin", "package other\n\nname :: proc() -> string {\n\treturn \"a\"\n}\n"},
+					{"b.odin", "package other\n\nstring :: proc() {}\n"},
+				},
+			},
+		},
+		config = {enable_code_action_add_explicit_type = true},
+	}
+
+	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+
+import "other"
+
+main :: proc() {
+	x: string = other.name()
+	_ = x
+}
+`)
+}
+
+// A file-private alias named like a builtin type is not seen from the other files of its package.
+@(test)
+action_add_explicit_type_builtin_result_beside_file_private_alias :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "other"
+
+main :: proc() {
+	x{*} := other.count()
+	_ = x
+}
+`,
+		packages = {
+			{
+				pkg = "other",
+				files = {
+					{"a.odin", "package other\n\ncount :: proc() -> int {\n\treturn 4\n}\n"},
+					{"b.odin", "package other\n\n@(private = \"file\")\nint :: i32\n"},
+				},
+			},
+		},
+		config = {enable_code_action_add_explicit_type = true},
+	}
+
+	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+
+import "other"
+
+main :: proc() {
+	x: int = other.count()
+	_ = x
+}
+`)
+}
