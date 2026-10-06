@@ -22,6 +22,8 @@ LintContext :: struct {
 	// an attribute fixes, callback literals, and procedures the file uses as values.
 	skip:        map[^ast.Node]struct{},
 	fixes:       [dynamic]Lint_Fix,
+	// The node being linted is in code the host does not build: an inactive `when` branch or an excluded file.
+	inactive:    bool,
 }
 
 // A single-edit fix for one diagnostic, offered as a quick fix at the cursor.
@@ -68,9 +70,12 @@ declares :: proc(stmt: ^ast.Stmt, decl: ^ast.Value_Decl) -> bool {
 	return false
 }
 
-// The file's resolved nodes without the ones that resolve to a declaration only an inactive `when` branch makes.
-// The host does not build such a declaration, so no lint judges a use by it.
+// The file's resolved nodes. In active code it leaves out the ones that resolve to a declaration only an inactive
+// `when` branch makes: the host does not build such a declaration, so no lint judges a use by it there. In inactive
+// code such a declaration is the right target, so the whole map comes back.
 lint_symbols :: proc(ctx: ^LintContext) -> SymbolAndNodeMap {
+	// The whole-file resolve is cached on the document.
+	if ctx.inactive do return resolve_entire_file(ctx.document)
 	symbols, has_symbols := ctx.symbols.?
 	if has_symbols do return symbols
 	symbols = resolve_entire_file(ctx.document)
@@ -213,6 +218,7 @@ walk_lints :: proc(document: ^Document, config: ^common.Config) -> Walker {
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
 			if node == nil do return nil
 			w := (^Walker)(visitor.data)
+			w.ctx.inactive = w.inactive > 0
 			for lint in lints {
 				// rols: a resolving lint would judge code by declarations that may belong to another platform.
 				if w.inactive > 0 && slice.contains(resolving_lints[:], lint) do continue

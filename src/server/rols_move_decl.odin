@@ -357,19 +357,7 @@ is_file_private :: proc(attributes: []^ast.Attribute) -> bool {
 // a parameter or local names that value, not the import.
 used_imports :: proc(document: ^Document, decl: ^ast.Value_Decl) -> []Package {
 	names := make(map[string]struct{}, context.temp_allocator)
-	visitor := ast.Visitor {
-		data = &names,
-		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
-			if node == nil do return nil
-			if selector, ok := node.derived.(^ast.Selector_Expr); ok {
-				if ident, is_ident := selector.expr.derived.(^ast.Ident); is_ident {
-					(^map[string]struct{})(visitor.data)[ident.name] = {}
-				}
-			}
-			return visitor
-		},
-	}
-	ast.walk(&visitor, decl)
+	add_selector_bases(&names, decl)
 
 	used := make([dynamic]Package, context.temp_allocator)
 	imports: for imp in document.imports {
@@ -382,16 +370,11 @@ used_imports :: proc(document: ^Document, decl: ^ast.Value_Decl) -> []Package {
 	return used[:]
 }
 
-// The imports in used that no other code of document names as the package of a selector, leaving out those the
-// file already left unused. A selector on a local spelled like the import still counts as a use.
+// Adds the name of every identifier under root that is the base of a selector, like `strings` in `strings.f`.
 @(private = "file")
-stale_imports :: proc(document: ^Document, decl: ^ast.Value_Decl, used: []Package) -> []Package {
-	if len(used) == 0 || document.ast.syntax_error_count > 0 {
-		return nil
-	}
-	names := make(map[string]struct{}, context.temp_allocator)
+add_selector_bases :: proc(names: ^map[string]struct{}, root: ^ast.Node) {
 	visitor := ast.Visitor {
-		data = &names,
+		data = names,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
 			if node == nil do return nil
 			selector, is_selector := node.derived.(^ast.Selector_Expr)
@@ -402,10 +385,21 @@ stale_imports :: proc(document: ^Document, decl: ^ast.Value_Decl, used: []Packag
 			return visitor
 		},
 	}
+	ast.walk(&visitor, root)
+}
+
+// The imports in used that no other code of document names as the package of a selector, leaving out those the
+// file already left unused. A selector on a local spelled like the import still counts as a use.
+@(private = "file")
+stale_imports :: proc(document: ^Document, decl: ^ast.Value_Decl, used: []Package) -> []Package {
+	if len(used) == 0 || document.ast.syntax_error_count > 0 {
+		return nil
+	}
+	names := make(map[string]struct{}, context.temp_allocator)
 	for stmt in document.ast.decls {
 		if stmt == decl do continue
 		if _, is_import := stmt.derived.(^ast.Import_Decl); is_import do continue
-		ast.walk(&visitor, stmt)
+		add_selector_bases(&names, stmt)
 	}
 
 	stale := make([dynamic]Package, context.temp_allocator)
