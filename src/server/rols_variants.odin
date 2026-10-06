@@ -207,6 +207,20 @@ mentions :: proc(h: ^Call_Hierarchy, fullpath, name: string) -> bool {
 	return err == nil && strings.contains(string(data), name)
 }
 
+// Names of the top-level declarations of document that are private to its file.
+file_private_names :: proc(document: ^Document) -> map[string]struct{} {
+	names := make(map[string]struct{}, context.temp_allocator)
+	whole_file := parser.parse_file_tags(document.ast, context.temp_allocator).private == .File
+	for decl in top_level_value_decls(document.ast) {
+		if whole_file || is_file_private(decl.attributes[:]) {
+			for name in decl.names {
+				names[final_name(name)] = {}
+			}
+		}
+	}
+	return names
+}
+
 // Whether decl of document is private to its file, by its attribute or by `#+private file`.
 file_private :: proc(document: ^Document, decl: ^ast.Value_Decl) -> bool {
 	tags := parser.parse_file_tags(document.ast, context.temp_allocator)

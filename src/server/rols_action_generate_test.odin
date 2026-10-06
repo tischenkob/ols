@@ -194,17 +194,10 @@ result_checks :: proc(ctx: ^ActionContext, fields: ^ast.Field_List) -> (checks: 
 
 // Whether type names a top-level declaration private to the document's file, which the test file cannot see.
 names_file_private :: proc(document: ^Document, type: ^ast.Expr) -> bool {
-	uses := collect_ident_uses(type)
-	for decl in top_level_value_decls(document.ast) {
-		if !file_private(document, decl) {
-			continue
-		}
-		for name in decl.names {
-			for use in uses {
-				if ident_is(name, use.ident.name) {
-					return true
-				}
-			}
+	private_names := file_private_names(document)
+	for use in collect_ident_uses(type) {
+		if use.ident.name in private_names {
+			return true
 		}
 	}
 	return false

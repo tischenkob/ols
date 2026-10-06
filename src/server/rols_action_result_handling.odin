@@ -227,11 +227,6 @@ result_kind_in :: proc(document: ^Document, pkg: string, type: ^ast.Expr) -> Res
 	if kind != .Other || type == nil {
 		return kind
 	}
-	#partial switch _ in type.derived {
-	case ^ast.Ident, ^ast.Selector_Expr:
-	case:
-		return kind
-	}
 	symbol, ok := resolve_type_in_package(document, pkg, type)
 	if !ok || symbol.pointers > 0 {
 		return kind
@@ -261,7 +256,8 @@ final_name :: proc(type: ^ast.Expr) -> string {
 // Whether a result of type `last` can be returned through a proc whose last result is `proc_last`:
 // bool through bool, or an error through the same error type or a union that lists it.
 same_error :: proc(ctx: ^ActionContext, src: string, last, proc_last: ^ast.Expr, kind: Result_Kind) -> bool {
-	// or_return assigns the value itself, so b32 does not pass through a bool result.
+	// Odin converts between boolean types within or_return, so any boolean would pass; the action
+	// still asks for the same type name.
 	if kind == .Bool {
 		return final_name(last) == final_name(proc_last)
 	}

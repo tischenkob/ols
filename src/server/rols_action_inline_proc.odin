@@ -109,7 +109,7 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 			if field.default_value != nil do append(&roots, field.default_value)
 		}
 	}
-	if borrows_from_file(target, ctx.document, lit, enclosing_values(ctx), roots[:]) {
+	if borrows_from_file(ctx, target, lit, call, roots[:]) {
 		return
 	}
 
@@ -339,111 +339,122 @@ find_proc_lit :: proc(ctx: ^ActionContext, symbol: Symbol) -> (^Document, ^ast.P
 // The source of roots is copied from the callee's file into the caller's, so it must mean the same
 // there. From another file it may not name a file-private declaration of the callee's file, or use an
 // import that the caller's file lacks or binds under another name. Shadowing is not tracked, so a
-// local of the same name refuses too. In either file, a name that lit does not declare itself may not
-// be bound otherwise at the call: by a declaration inside enclosing, a file-private declaration of
-// the caller's file or an import of another package.
+// local of the same name refuses too. In either file, a name the copy takes from outside lit may not
+// be bound otherwise at the call: by a local there, a file-private declaration of the caller's file
+// or an import of another package.
 borrows_from_file :: proc(
-	callee, caller: ^Document,
+	ctx: ^ActionContext,
+	callee: ^Document,
 	lit: ^ast.Proc_Lit,
-	enclosing: []^ast.Node,
+	call: ^ast.Call_Expr,
 	roots: []^ast.Node,
 ) -> bool {
+	caller := ctx.document
 	same_file := callee == caller
 	private_names := file_private_names(callee)
 	caller_private := file_private_names(caller)
+	caller_locals := locals_at(caller, ctx.position_context^, call.pos.offset)
 	for root in roots {
 		for use in collect_ident_uses(root) {
 			name := use.ident.name
-			if !same_file {
-				if name in private_names {
-					return true
-				}
-				for imp in callee.ast.imports {
-					if pattern_import_name(imp) != name {
-						continue
-					}
-					imported := false
-					for other in caller.ast.imports {
-						imported ||= other.fullpath == imp.fullpath && pattern_import_name(other) == name
-					}
-					if !imported {
-						return true
-					}
-				}
-			}
-
-			if is_field_name(use) || declares_inside(lit, name) {
-				continue
-			}
-			for node in enclosing {
-				if declares_inside(node, name) {
-					return true
-				}
-			}
-			if same_file {
-				continue
-			}
-			if name in caller_private {
+			if !same_file &&
+			   (name in private_names || unmatched_import(callee.ast.imports[:], caller.ast.imports[:], name)) {
 				return true
 			}
-			for other in caller.ast.imports {
-				if pattern_import_name(other) != name {
-					continue
-				}
-				imported := false
-				for imp in callee.ast.imports {
-					imported ||= imp.fullpath == other.fullpath && pattern_import_name(imp) == name
-				}
-				if !imported {
-					return true
-				}
+			if is_field_name(use, callee) {
+				continue
+			}
+			_, captured := get_local(caller_locals, ast.Ident{name = name, pos = call.pos})
+			if !same_file {
+				captured ||= name in caller_private
+				captured ||= unmatched_import(caller.ast.imports[:], callee.ast.imports[:], name)
+			}
+			if !captured {
+				continue
+			}
+			// Only a use that a local of lit binds keeps its meaning in the copy.
+			callee_locals := locals_at(callee, {function = lit}, use.ident.pos.offset)
+			if _, local := get_local(callee_locals, use.ident^); !local {
+				return true
 			}
 		}
 	}
 	return false
 }
 
-// Names of the top-level declarations private to the document's file.
-file_private_names :: proc(document: ^Document) -> map[string]struct{} {
-	names := make(map[string]struct{}, context.temp_allocator)
-	whole_file := parser.parse_file_tags(document.ast, context.temp_allocator).private == .File
-	for decl in top_level_value_decls(document.ast) {
-		if whole_file || is_file_private(decl.attributes[:]) {
-			for name in decl.names {
-				names[final_name(name)] = {}
-			}
+// Whether from imports a package under name that to does not import from the same path under that name.
+unmatched_import :: proc(from, to: []^ast.Import_Decl, name: string) -> bool {
+	for imp in from {
+		if pattern_import_name(imp) != name {
+			continue
+		}
+		matched := false
+		for other in to {
+			matched ||= other.fullpath == imp.fullpath && pattern_import_name(other) == name
+		}
+		if !matched {
+			return true
 		}
 	}
-	return names
+	return false
 }
 
-// The top-level statement around the cursor, or the values of the declaration it is, whose own
-// name is no local.
-enclosing_values :: proc(ctx: ^ActionContext) -> []^ast.Node {
-	nodes := make([dynamic]^ast.Node, context.temp_allocator)
-	stmt := top_level_stmt_at(ctx.document.ast.decls[:], ctx.range.start)
-	if stmt == nil || stmt.pos.offset > ctx.range.start {
-		append(&nodes, ctx.position_context.function)
-	} else if decl, is_decl := stmt.derived.(^ast.Value_Decl); is_decl {
-		for value in decl.values do append(&nodes, value)
-	} else {
-		append(&nodes, stmt)
-	}
-	return nodes[:]
+// A context with the locals of the function of pc in document that are visible at offset.
+locals_at :: proc(document: ^Document, pc: DocumentPositionContext, offset: int) -> AstContext {
+	ast_context := make_ast_context(
+		document.ast,
+		document.imports,
+		document.package_name,
+		document.uri.uri,
+		document.fullpath,
+		context.temp_allocator,
+	)
+	get_globals(document.ast, &ast_context)
+	pc := pc
+	pc.position = offset
+	get_locals(&ast_context, &pc)
+	return ast_context
 }
 
-// Whether the use is a field name, as in `p.x`, `.x` or `{x = 1}`, rather than a name in scope.
-is_field_name :: proc(use: IdentUse) -> bool {
-	if len(use.parents) == 0 {
+// Whether the use is a field name, as in `p.x`, `.x` or `{x = 1}` of a struct, rather than a name in
+// scope. A key of a map or array literal is a value; a literal of a named type is resolved in
+// document when given, and counts as a struct otherwise.
+is_field_name :: proc(use: IdentUse, document: ^Document = nil) -> bool {
+	n := len(use.parents)
+	if n == 0 {
 		return false
 	}
-	#partial switch p in use.parents[len(use.parents) - 1].derived {
+	#partial switch p in use.parents[n - 1].derived {
 	case ^ast.Selector_Expr:
 		return p.field == use.ident
 	case ^ast.Implicit_Selector_Expr:
 		return true
 	case ^ast.Field_Value:
-		return p.field == use.ident
+		if p.field != use.ident {
+			return false
+		}
+		lit: ^ast.Comp_Lit
+		if n >= 2 {
+			lit = use.parents[n - 2].derived.(^ast.Comp_Lit) or_else nil
+		}
+		if lit == nil || lit.type == nil {
+			return true
+		}
+		#partial switch _ in lit.type.derived {
+		case ^ast.Map_Type, ^ast.Array_Type, ^ast.Dynamic_Array_Type:
+			return false
+		case ^ast.Ident, ^ast.Selector_Expr:
+			if document == nil {
+				return true
+			}
+			if symbol, ok := resolve_type_in_package(document, document.package_name, lit.type); ok {
+				#partial switch _ in symbol.value {
+				case SymbolMapValue, SymbolFixedArrayValue:
+					return false
+				}
+			}
+		}
+		return true
 	}
 	return false
 }

@@ -949,3 +949,108 @@ main :: proc() {
 }
 `)
 }
+
+// The loop's LIMIT ends with the loop, so the later use reads the package constant, which main's local would capture.
+@(test)
+action_inline_proc_refused_body_name_bound_outside_its_loop :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+LIMIT :: 3
+
+draw :: proc(x: int) {
+	for LIMIT in 0 ..< x {
+		_ = LIMIT
+	}
+	_ = x + LIMIT
+}
+
+main :: proc() {
+	LIMIT := 10
+	dr{*}aw(1)
+	_ = LIMIT
+}
+`)
+}
+
+@(test)
+action_inline_proc_refused_type_switch_variable_shadows_body_name :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+LIMIT :: 3
+
+draw :: proc(x: int) {
+	_ = x + LIMIT
+}
+
+main :: proc() {
+	v: union {
+		int,
+		f32,
+	}
+	switch LIMIT in v {
+	case int:
+		dr{*}aw(LIMIT)
+	}
+}
+`)
+}
+
+@(test)
+action_inline_proc_refused_range_reference_shadows_body_name :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+LIMIT :: 3
+
+draw :: proc(x: int) {
+	_ = x + LIMIT
+}
+
+main :: proc() {
+	xs := [2]int{1, 2}
+	for &LIMIT in xs {
+		dr{*}aw(LIMIT)
+	}
+}
+`)
+}
+
+// A map key is a value, so main's LIMIT would capture it.
+@(test)
+action_inline_proc_refused_map_key_shadowed :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+LIMIT :: 3
+
+draw :: proc(x: int) {
+	m := map[int]int{LIMIT = x}
+	_ = m
+}
+
+main :: proc() {
+	LIMIT := 10
+	dr{*}aw(LIMIT)
+}
+`)
+}
+
+// A file-private LIMIT of the caller's file shadows the package constant the body reads.
+@(test)
+action_inline_proc_refused_caller_file_private_shadows_body_name :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+LIMIT :: 3
+
+draw :: proc(x: int) {
+	_ = x + LIMIT
+}
+`, `package test
+
+@(private = "file")
+LIMIT :: 10
+
+main :: proc() {
+	dr{*}aw(1)
+}
+`)
+	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
+}
