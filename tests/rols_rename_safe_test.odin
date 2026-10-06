@@ -525,8 +525,9 @@ clone :: proc(s: string) -> string {
 	test.expect_rename_refused(t, &source, "copy_string", {"the declaration is in core:strings"})
 }
 
+// A package qualifier renames the import in this file, even of a library package.
 @(test)
-rename_safe_refuses_package_qualifier :: proc(t: ^testing.T) {
+rename_safe_renames_package_qualifier :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
 
@@ -544,7 +545,14 @@ clone :: proc(s: string) -> string {
 `}},
 		collections = {"core" = "test"},
 	}
-	test.expect_rename_refused(t, &source, "str", {"use rename-package"})
+	test.expect_rename(t, &source, "str", {{"main.odin", `package test
+
+import str "core:strings"
+
+main :: proc() {
+	_ = str.clone("a")
+}
+`}})
 }
 
 @(test)

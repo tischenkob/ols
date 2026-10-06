@@ -184,7 +184,7 @@ add_edit :: proc(r: ^Package_Rename, uri: string, range: common.Range, text: str
 }
 
 // The range of text where it starts at pos in src.
-@(private = "file")
+@(private = "package")
 text_range :: proc(pos: tokenizer.Pos, text, src: string) -> common.Range {
 	end := pos
 	end.offset += len(text)
@@ -492,17 +492,32 @@ rewrite_import_path :: proc(
 // the new name that is visible at a qualifier, since it would capture the renamed qualifier.
 @(private = "file")
 rewrite_qualifiers :: proc(r: ^Package_Rename, document: ^Document, imp: ^ast.Import_Decl) {
-	src := document.ast.src
+	check_import_name(r.reasons, document, imp, r.new_name, " of an importer")
+	for range in import_qualifiers(document, r.old_name, r.new_name, r.real_dir, r.reasons, &r.warnings) {
+		add_edit(r, document.uri.uri, range, r.new_name)
+	}
+}
+
+// Appends a cause for each binding of new_name in document that the import imp, named new_name, would
+// collide with: another import, a file-scope declaration, or a declaration elsewhere in the package.
+// whose ends the scope in a cause, as ` of an importer` for rename-package.
+@(private = "package")
+check_import_name :: proc(
+	reasons: ^[dynamic]string,
+	document: ^Document,
+	imp: ^ast.Import_Decl,
+	new_name, whose: string,
+) {
 	for other in document.imports {
-		if other.import_decl != imp && other.base == r.new_name {
+		if other.import_decl != imp && other.base == new_name {
 			append(
-				r.reasons,
+				reasons,
 				fmt.tprintf(
 					"%s:%d:%d: the file already imports a package as `%s`",
 					document.fullpath,
 					other.import_decl.pos.line,
 					other.import_decl.pos.column,
-					r.new_name,
+					new_name,
 				),
 			)
 		}
@@ -510,45 +525,51 @@ rewrite_qualifiers :: proc(r: ^Package_Rename, document: ^Document, imp: ^ast.Im
 	in_file := false
 	for decl in top_level_value_decls(document.ast) {
 		for name in decl.names {
-			if ident, is_ident := name.derived.(^ast.Ident); is_ident && ident.name == r.new_name {
+			if ident, is_ident := name.derived.(^ast.Ident); is_ident && ident.name == new_name {
 				in_file = true
 				append(
-					r.reasons,
+					reasons,
 					fmt.tprintf(
-						"%s:%d:%d: `%s` is already declared at file scope of an importer",
+						"%s:%d:%d: `%s` is already declared at file scope%s",
 						document.fullpath,
 						ident.pos.line,
 						ident.pos.column,
-						r.new_name,
+						new_name,
+						whose,
 					),
 				)
 			}
 		}
 	}
-	if other, found := lookup(r.new_name, document.package_name, document.fullpath);
+	if other, found := lookup(new_name, document.package_name, document.fullpath);
 	   found && !(in_file && strings.equal_fold(other.uri, document.uri.uri)) && !is_builtin_pkg(other.pkg) {
 		file := common.uri_to_path(other.uri, context.temp_allocator)
 		line, column := other.range.start.line + 1, other.range.start.character + 1
 		append(
-			r.reasons,
-			fmt.tprintf(
-				"%s:%d:%d: `%s` is already declared in the package of an importer",
-				file,
-				line,
-				column,
-				r.new_name,
-			),
+			reasons,
+			fmt.tprintf("%s:%d:%d: `%s` is already declared in the package%s", file, line, column, new_name, whose),
 		)
 	}
+}
 
-	for qualifier in qualifier_uses(document, r.old_name) {
+// The ranges of the qualifiers of document named old_name that resolve to the package in real_dir, which
+// has its symlinks resolved. Appends a warning for each qualifier that does not resolve, and a cause for
+// each one that a local named new_name would capture.
+@(private = "package")
+import_qualifiers :: proc(
+	document: ^Document,
+	old_name, new_name, real_dir: string,
+	reasons, warnings: ^[dynamic]string,
+) -> []common.Range {
+	ranges := make([dynamic]common.Range)
+	for qualifier in qualifier_uses(document, old_name) {
 		ident := qualifier.ident
-		label := fmt.tprintf("%s.%s", r.old_name, qualifier.field) if qualifier.field != "" else r.old_name
-		at := common.get_token_range(ident^, src)
-		symbol, found := resolve_name_at(document, at.start, ident.pos.offset, r.old_name)
+		label := fmt.tprintf("%s.%s", old_name, qualifier.field) if qualifier.field != "" else old_name
+		at := common.get_token_range(ident^, document.ast.src)
+		symbol, found := resolve_name_at(document, at.start, ident.pos.offset, old_name)
 		if !found {
 			append(
-				&r.warnings,
+				warnings,
 				fmt.tprintf(
 					"%s:%d:%d: cannot resolve `%s`, so the rename does not change it",
 					document.fullpath,
@@ -559,31 +580,32 @@ rewrite_qualifiers :: proc(r: ^Package_Rename, document: ^Document, imp: ^ast.Im
 			)
 			continue
 		}
-		if symbol.type != .Package || canonical_dir(symbol.pkg) != r.real_dir {
+		if symbol.type != .Package || canonical_dir(symbol.pkg) != real_dir {
 			continue
 		}
-		if other, bound := resolve_name_at(document, at.start, ident.pos.offset, r.new_name);
+		if other, bound := resolve_name_at(document, at.start, ident.pos.offset, new_name);
 		   bound && .Local in other.flags {
 			append(
-				r.reasons,
+				reasons,
 				fmt.tprintf(
 					"%s:%d:%d: `%s` is a local here, declared at %s, so it would capture the qualifier of `%s`",
 					document.fullpath,
 					ident.pos.line,
 					ident.pos.column,
-					r.new_name,
+					new_name,
 					declared_at(other),
 					label,
 				),
 			)
 		}
-		add_edit(r, document.uri.uri, at, r.new_name)
+		append(&ranges, at)
 	}
+	return ranges[:]
 }
 
 // A use of the package name: the `name` of `name.x`, with the field x, or the value of an alias
 // declaration `alias :: name`, with an empty field.
-@(private = "file")
+@(private = "package")
 Qualifier :: struct {
 	ident: ^ast.Ident,
 	field: string,
@@ -591,7 +613,7 @@ Qualifier :: struct {
 
 // Every qualifier of document whose identifier is name. Only a selector's left side and the value of
 // a declaration count: any other identifier named like the package could be a field or a local.
-@(private = "file")
+@(private = "package")
 qualifier_uses :: proc(document: ^Document, name: string) -> []Qualifier {
 	Found :: struct {
 		name:       string,
