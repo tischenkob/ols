@@ -106,15 +106,15 @@ Find_Hit :: struct {
 // workspace symbols of the LSP, which come from the index of the current target, it reads every .odin file, so
 // it also reports private declarations and those of files that only another target builds. A file that no
 // target builds (`#+build ignore`) and one that does not parse are left out. `when` conditions evaluate for the
-// `-target:` of checker_args when it has one.
+// target of checker_args, its `-target:` else the host, with the builtins that set_when_target seeds.
 find_symbols :: proc(query: string, config: ^common.Config, limit := 100) -> []Find_Symbol {
 	matchers := make([dynamic]^common.FuzzyMatcher, context.temp_allocator)
 	for field in strings.fields(query, context.temp_allocator) {
 		append(&matchers, common.make_fuzzy_matcher(field))
 	}
 	base := base_target(config.checker_args)
-	saved_target := set_when_target(config.checker_args)
-	defer when_target = saved_target
+	saved_when := set_when_target(config.checker_args)
+	defer restore_when_target(saved_when)
 
 	// One arena holds a parsed file, the other the `when` tables of the package directory.
 	arena, package_arena: virtual.Arena

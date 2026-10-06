@@ -97,6 +97,51 @@ main :: proc() {}{*}
 	)
 }
 
+// A comparison or `&&` that the evaluator cannot fold, such as an ordering of strings or `&&` of integers, is
+// unknown, in a condition and in a constant that a condition names. An integer ordering still folds.
+@(test)
+when_inactive_unfoldable_operands_are_unknown :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+LESS :: "a" < "b"
+BOTH :: 1 && 2
+
+when LESS {
+	less_a :: 1
+} else {
+	less_b :: 2
+}
+
+when BOTH {
+	both_c :: 3
+} else {
+	both_d :: 4
+}
+
+when "a" < "b" {
+	lit_e :: 5
+} else {
+	lit_f :: 6
+}
+
+when 1 < 2 {
+	int_g :: 7
+} else {
+	int_h :: 8
+}
+
+main :: proc() {}{*}
+`,
+	}
+
+	test.with_document(t, &source, proc(t: ^testing.T, src: ^test.Source, range: common.Range) {
+		expected := []string{"int_h"}
+		got := inactive_names(src)
+		testing.expectf(t, slice.equal(got, expected), "got %v, expected %v", got, expected)
+	})
+}
+
 // With the package files, a condition reads the constants of a sibling file, also through a constant of its own
 // file. Without them it is unknown and marks nothing. A sibling with another `package` clause does not count.
 @(test)

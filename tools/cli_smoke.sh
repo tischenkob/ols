@@ -978,6 +978,16 @@ out="$("$OLS" query tests "$dir/cli/plat")"
 echo "ok tests-when"
 expect test-when-inactive-name '^error: no test "js_only" in ' sh -c "\"$OLS\" query test \"$dir/cli/plat\" js_only 2>&1 || true"
 rm "$dir/cli/plat/h_test.odin"
+# Without a -target:, tests evaluates `when` for the host, as odin test builds, not for the os of the profile.
+if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
+	mkdir -p "$dir/prof"
+	echo '{"profile": "w", "profiles": [{"name": "w", "os": "windows"}]}' > "$dir/prof/ols.json"
+	printf 'package prof\n\nimport "core:testing"\n\nwhen ODIN_OS == .Windows {\n\t@(test)\n\twin_only :: proc(t: ^testing.T) {}\n} else {\n\t@(test)\n\thost_only :: proc(t: ^testing.T) {}\n}\n' > "$dir/prof/a_test.odin"
+	out="$("$OLS" query tests "$dir/prof")"
+	[[ "$out" == *host_only* && "$out" != *win_only* ]] || { echo "FAIL tests-when-profile-os: $out"; exit 1; }
+	echo "ok tests-when-profile-os"
+	rm -rf "$dir/prof"
+fi
 # reorder-params names the one cause that applies.
 printf 'package plat\n\nvariadic :: proc(a: int, b: ..int) {}\n\nwith_default :: proc(a: int, b: int = 1) {}\n' > "$dir/cli/plat/f.odin"
 expect reorder-params-variadic "^error: the procedure is variadic$" sh -c "\"$OLS\" query reorder-params \"$dir/cli/plat/f.odin:3:1\" --order 1,0 2>&1 || true"
