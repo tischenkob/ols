@@ -266,6 +266,10 @@ remove_index_file :: proc(uri: common.Uri) -> common.Error {
 		}
 	}
 
+	// rols: a fallback that the removed file's declaration hid takes its name back.
+	forget_hidden_fallbacks(&indexer.index.collection, corrected_uri.uri, fold = true)
+	restore_hidden_fallbacks(&indexer.index.collection)
+
 	return .None
 }
 
@@ -336,9 +340,13 @@ index_file :: proc(uri: common.Uri, text: string) -> common.Error {
 		}
 	}
 
+	// rols: the file's own hidden fallbacks are collected again.
+	forget_hidden_fallbacks(&indexer.index.collection, corrected_uri.uri)
 	if ret := collect_symbols(&indexer.index.collection, file, corrected_uri.uri); ret != .None {
 		log.errorf("failed to collect symbols on save %v", ret)
 	}
+	// rols: a fallback whose name the file no longer declares takes the name back.
+	restore_hidden_fallbacks(&indexer.index.collection)
 
 	return .None
 }

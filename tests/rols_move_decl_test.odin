@@ -538,7 +538,8 @@ moved :: proc(s: []int) {
 	)
 }
 
-// A local that shadows the import makes the moved declaration spell the import without using it.
+// A parameter that shadows the import makes the moved declaration spell the import without using it, so the
+// target gets no import and the source keeps the one it already left unused.
 @(test)
 move_decl_keeps_import_unused_before_the_move :: proc(t: ^testing.T) {
 	source := move_source(`package test
@@ -569,8 +570,6 @@ T :: struct {
 
 main :: proc() {}
 `}, {"b.odin", `package test
-
-import "core:strings"
 
 show :: proc(strings: T) {
 	_ = strings.f
@@ -634,4 +633,85 @@ sh{*}ow :: proc() {
 
 main :: proc() {}
 `)
+}
+
+// Two spellings of one build constraint allow the move: the `#+build` groups in another order, and a `#+build` line
+// against the OS suffix of a file name.
+@(test)
+move_decl_between_files_with_equivalent_build_constraints :: proc(t: ^testing.T) {
+	reordered := move_source(
+		"#+build linux, darwin\npackage test\n\nhel{*}per :: proc() {}\n",
+		{{"b.odin", "#+build darwin, linux\npackage test\n"}},
+	)
+	test.expect_move_declaration(
+		t,
+		&reordered,
+		"b.odin",
+		{
+			{"main.odin", "#+build linux, darwin\npackage test\n"},
+			{"b.odin", "#+build darwin, linux\npackage test\n\nhelper :: proc() {}\n"},
+		},
+	)
+	suffix := move_source(
+		"#+build linux\npackage test\n\nhel{*}per :: proc() {}\n",
+		{{"b_linux.odin", "package test\n"}},
+	)
+	test.expect_move_declaration(
+		t,
+		&suffix,
+		"b_linux.odin",
+		{{"main.odin", "#+build linux\npackage test\n"}, {"b_linux.odin", "package test\n\nhelper :: proc() {}\n"}},
+	)
+	new_file := move_source("#+build linux\npackage test\n\nhel{*}per :: proc() {}\n")
+	test.expect_move_declaration(
+		t,
+		&new_file,
+		"helper_linux.odin",
+		{
+			{"main.odin", "#+build linux\npackage test\n"},
+			{"helper_linux.odin", "#+build linux\npackage test\n\nhelper :: proc() {}\n"},
+		},
+	)
+	narrower := move_source(
+		"#+build linux, darwin\npackage test\n\nhel{*}per :: proc() {}\n",
+		{{"b.odin", "#+build linux\npackage test\n"}},
+	)
+	test.expect_move_declaration(t, &narrower, "b.odin", {}, "b.odin has different build constraints")
+}
+
+// A local spelled like an import is no use of it, so the import goes with its only user.
+@(test)
+move_decl_drops_import_that_a_same_named_local_does_not_use :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+import "core:strings"
+
+sh{*}ow :: proc() -> string {
+	return strings.to_upper("a")
+}
+
+main :: proc() {
+	strings := 1
+	_ = strings
+}
+`, {{"b.odin", "package test\n"}})
+	test.expect_move_declaration(
+		t,
+		&source,
+		"b.odin",
+		{{"main.odin", `package test
+
+main :: proc() {
+	strings := 1
+	_ = strings
+}
+`}, {"b.odin", `package test
+
+import "core:strings"
+
+show :: proc() -> string {
+	return strings.to_upper("a")
+}
+`}},
+	)
 }

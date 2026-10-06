@@ -1,5 +1,7 @@
 package server
 
+import "base:runtime"
+
 import "core:odin/ast"
 import "core:odin/parser"
 import "core:path/filepath"
@@ -126,6 +128,36 @@ facts_build_on :: proc(facts: Build_Facts, target: parser.Build_Target) -> bool 
 		return false
 	}
 	return !facts.tags.ignore && parser.match_build_tags(facts.tags, target)
+}
+
+// Whether the files called name_a and name_b, with tags_a and tags_b, build on the same OS and architecture
+// pairs. Two spellings of one constraint, such as `#+build linux` and a `_linux.odin` name, agree.
+same_build_targets :: proc(
+	name_a: string,
+	tags_a: parser.File_Tags,
+	name_b: string,
+	tags_b: parser.File_Tags,
+) -> bool {
+	a := Build_Facts {
+		tags = tags_a,
+	}
+	b := Build_Facts {
+		tags = tags_b,
+	}
+	a.named, a.hidden = file_name_target(filepath.base(name_a))
+	b.named, b.hidden = file_name_target(filepath.base(name_b))
+	for os in runtime.Odin_OS_Type {
+		if os == .Unknown do continue
+		for arch in runtime.Odin_Arch_Type {
+			if arch == .Unknown do continue
+			target := parser.Build_Target {
+				os   = os,
+				arch = arch,
+			}
+			if facts_build_on(a, target) != facts_build_on(b, target) do return false
+		}
+	}
+	return true
 }
 
 // Whether odin builds the file called name with the source text for target.

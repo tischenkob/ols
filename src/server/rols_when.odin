@@ -1,6 +1,9 @@
 package server
 
 import "core:odin/ast"
+import "core:strings"
+
+import "src:common"
 
 // rols: like active_when_block, but a cursor inside another branch selects that branch, so a local declared in an
 // inactive branch has a symbol there. Code outside the branch never sees its locals.
@@ -33,4 +36,77 @@ lookup_active :: proc(name, pkg, current_file: string, fallback: ^Maybe(Symbol))
 	}
 	if fallback^ == nil do fallback^ = symbol
 	return {}, false
+}
+
+// rols: drops the hidden fallbacks that `uri` declared, before a reindex or removal of that file.
+forget_hidden_fallbacks :: proc(collection: ^SymbolCollection, uri: string, fold := false) {
+	for _, &pkg in collection.packages {
+		for i := len(pkg.hidden_fallbacks) - 1; i >= 0; i -= 1 {
+			symbol := pkg.hidden_fallbacks[i]
+			if !(strings.equal_fold(uri, symbol.uri) if fold else uri == symbol.uri) do continue
+			free_symbol(symbol, collection.allocator)
+			ordered_remove(&pkg.hidden_fallbacks, i)
+		}
+	}
+}
+
+// rols: fills each name that no declaration holds any more with the first hidden fallback of that name.
+restore_hidden_fallbacks :: proc(collection: ^SymbolCollection) {
+	for _, &pkg in collection.packages {
+		for i := 0; i < len(pkg.hidden_fallbacks); {
+			symbol := pkg.hidden_fallbacks[i]
+			if symbol.name in pkg.symbols {
+				i += 1
+				continue
+			}
+			pkg.symbols[symbol.name] = symbol
+			ordered_remove(&pkg.hidden_fallbacks, i)
+		}
+	}
+}
+
+// rols: folds the value of constant `symbol` of package `pkg` for a `when` condition. A name in it folds to a
+// constant of the same package, up to 8 constants deep. A selector in it, which reads a third package, stays unknown.
+// The caller clears `when_ast_context` so that a selector does not read the open file's imports.
+fold_package_when_const :: proc(symbol: Symbol, pkg: string) -> (When_Expr, bool) {
+	consts := make_when_expr_map()
+	return fold_package_const(&consts, symbol, pkg, 8)
+}
+
+// Each name is stored folded, so a cycle of constants ends at the depth limit instead of recursing forever.
+@(private = "file")
+fold_package_const :: proc(
+	consts: ^map[string]When_Expr,
+	symbol: Symbol,
+	pkg: string,
+	depth: int,
+) -> (
+	When_Expr,
+	bool,
+) {
+	generic, is_generic := symbol.value.(SymbolGenericValue)
+	if !is_generic || depth == 0 do return {}, false
+	uri, _ := common.parse_uri(symbol.uri, context.temp_allocator)
+	names := make([dynamic]string, context.temp_allocator)
+	visitor := ast.Visitor {
+		data = &names,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil do return nil
+			#partial switch n in node.derived {
+			case ^ast.Ident:
+				append((^[dynamic]string)(visitor.data), n.name)
+			case ^ast.Selector_Expr, ^ast.Implicit_Selector_Expr:
+				return nil
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, generic.expr)
+	for name in names {
+		if name in consts do continue
+		named, found := lookup(name, pkg, uri.path)
+		if !found || .Mutable in named.flags || .Fallback in named.flags do continue
+		consts[name] = fold_package_const(consts, named, pkg, depth - 1) or_continue
+	}
+	return resolve_when_expr(consts^, generic.expr)
 }

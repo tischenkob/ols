@@ -70,7 +70,7 @@ struct_field_names :: proc(ctx: ^LintContext, type: ^ast.Expr) -> (fields: Struc
 	}
 	resolved := lint_symbols(ctx)[uintptr(type)] or_return
 	if resolved.is_unresolved || resolved.symbol == nil do return
-	if .PolyType in resolved.symbol.flags || .Fallback in resolved.symbol.flags do return
+	if .PolyType in resolved.symbol.flags do return
 
 	v := resolved.symbol.value.(SymbolStructValue) or_return
 	if len(v.usings) > 0 || len(v.unexpanded_usings) > 0 do return

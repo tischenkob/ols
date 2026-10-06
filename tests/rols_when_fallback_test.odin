@@ -1,5 +1,7 @@
+#+feature dynamic-literals
 package tests
 
+import "core:fmt"
 import "core:testing"
 
 import test "src:testing"
@@ -121,5 +123,93 @@ reindex_keeps_active_when_declaration :: proc(t: ^testing.T) {
 			}
 			test.expect_hover_after_reindex(t, &source, reindexed[:], "test.X :: 2")
 		}
+	}
+}
+
+// Code under a `when` that the host does not build calls the name another file declares for each platform. The
+// index holds the host's declaration, so the resolving lints skip that code. The active call is still reported.
+@(test)
+resolving_lints_skip_inactive_when_branch :: proc(t: ^testing.T) {
+	other_os := "Windows" when ODIN_OS != .Windows else "Linux"
+	main := fmt.tprintf(
+		`package test
+
+when ODIN_OS == .%s {{
+	run :: proc() {{
+		open()
+	}}
+}}
+
+check :: proc() {{
+	open()
+}}
+`,
+		other_os,
+	)
+	b := fmt.tprintf(
+		`package test
+
+Error :: enum {{ None, Bad }}
+
+when ODIN_OS == .%s {{
+	open :: proc() {{}}
+}} else {{
+	open :: proc() -> Error {{ return .None }}
+}}
+`,
+		other_os,
+	)
+	source := test.Source {
+		main = main,
+		files = {{"b.odin", b}},
+		config = {enable_lint_ignored_result = true},
+	}
+	test.expect_lint_diagnostics(t, &source, {{9, "ignored-result"}})
+}
+
+// A fallback that an active declaration in another file hid takes the name back when a save drops that declaration.
+@(test)
+reindex_restores_hidden_fallback :: proc(t: ^testing.T) {
+	active := test.File{"a.odin", "package test\n\nX :: 2\n"}
+	fallback := test.File{"c.odin", "package test\n\nC_OFF :: false\n\nwhen C_OFF {\n\tX :: 1\n}\n"}
+	orders := [2][2]test.File{{active, fallback}, {fallback, active}}
+	for files in orders {
+		files := files
+		source := test.Source {
+			main  = "package test\n\nmain :: proc() {\n\ty := X{*}\n}\n",
+			files = files[:],
+		}
+		test.expect_hover_after_reindex(t, &source, {{"a.odin", "package test\n"}}, "test.X :: 1")
+	}
+}
+
+// A `when` condition reads another package's constant whose value names further constants of that package. A cycle
+// of constants folds to unknown instead of recursing.
+@(test)
+when_condition_folds_names_in_other_package :: proc(t: ^testing.T) {
+	cases := [2][2]string {
+		{"package cfg\n\nBASE :: 2\nLEVEL :: BASE\nON :: LEVEL >= 2 && !OFF\nOFF :: false\n", "test.X :: 1"},
+		{"package cfg\n\nON :: A\nA :: B\nB :: A\n", "test.X :: 2"},
+	}
+	for c in cases {
+		source := test.Source {
+			main = `package test
+
+import "core:cfg"
+
+when cfg.ON {
+	X :: 1
+} else {
+	X :: 2
+}
+
+main :: proc() {
+	y := X{*}
+}
+`,
+			packages = {{pkg = "cfg", source = c[0]}},
+			collections = {"core" = "test"},
+		}
+		test.expect_hover(t, &source, c[1])
 	}
 }

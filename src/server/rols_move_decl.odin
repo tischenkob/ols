@@ -150,10 +150,11 @@ move_edit :: proc(move: Move, target_uri: string, files: []Package_File) -> (Wor
 	}
 
 	// rols: a declaration keeps its meaning and visibility only in a file that builds on the same platforms and
-	// has the same `#+private` tag. A new file gets the tags of the source, but its name must carry the same
-	// OS and architecture suffix.
+	// has the same `#+private` tag. A new file gets the tags of the source, and with them its name must allow the
+	// same OS and architecture pairs.
 	if !package_file_exists(target_path, files) {
-		if name_targets_differ(path.base(document.fullpath), path.base(target_path)) {
+		tags := parser.parse_file_tags(document.ast, context.temp_allocator)
+		if !same_build_targets(document.fullpath, tags, target_path, tags) {
 			return {}, fmt.tprintf("%s has different build constraints", path.base(target_path)), false
 		}
 	} else {
@@ -207,12 +208,13 @@ PRIVACY_NAMES := [parser.Private_Flag]string {
 	.File    = "#+private file",
 }
 
-// Whether two files differ in `#+build` lines, `#+build ignore` or the OS and architecture suffix of their names.
+// Whether two files differ in `#+build ignore`, in the `#+build` project names, or in the OS and architecture pairs
+// that their names and `#+build` lines allow.
 @(private = "file")
 build_constraints_differ :: proc(a, b: ^Document) -> bool {
 	tags_a := parser.parse_file_tags(a.ast, context.temp_allocator)
 	tags_b := parser.parse_file_tags(b.ast, context.temp_allocator)
-	if tags_a.ignore != tags_b.ignore || !slice.equal(tags_a.build, tags_b.build) {
+	if tags_a.ignore != tags_b.ignore {
 		return true
 	}
 	if len(tags_a.build_project_name) != len(tags_b.build_project_name) {
@@ -221,15 +223,7 @@ build_constraints_differ :: proc(a, b: ^Document) -> bool {
 	for group, i in tags_a.build_project_name {
 		if !slice.equal(group, tags_b.build_project_name[i]) do return true
 	}
-	return name_targets_differ(filepath.base(a.fullpath), filepath.base(b.fullpath))
-}
-
-// Whether two file names differ in the OS and architecture suffix that file_name_target reads, or in being hidden.
-@(private = "file")
-name_targets_differ :: proc(a, b: string) -> bool {
-	target_a, hidden_a := file_name_target(a)
-	target_b, hidden_b := file_name_target(b)
-	return hidden_a != hidden_b || target_a.os != target_b.os || target_a.arch != target_b.arch
+	return !same_build_targets(a.fullpath, tags_a, b.fullpath, tags_b)
 }
 
 // The OS and architecture suffix of filename that file_name_target reads, such as `_windows` or
@@ -359,7 +353,8 @@ is_file_private :: proc(attributes: []^ast.Attribute) -> bool {
 	return false
 }
 
-// The imports of document that decl names as the package of a selector.
+// The imports of document that decl names as the package of a selector. A base that a moved procedure declares as
+// a parameter or local names that value, not the import.
 used_imports :: proc(document: ^Document, decl: ^ast.Value_Decl) -> []Package {
 	names := make(map[string]struct{}, context.temp_allocator)
 	visitor := ast.Visitor {
@@ -377,16 +372,18 @@ used_imports :: proc(document: ^Document, decl: ^ast.Value_Decl) -> []Package {
 	ast.walk(&visitor, decl)
 
 	used := make([dynamic]Package, context.temp_allocator)
-	for imp in document.imports {
-		if imp.base in names {
-			append(&used, imp)
+	imports: for imp in document.imports {
+		if imp.base not_in names do continue
+		for value in decl.values {
+			if _, is_proc := value.derived.(^ast.Proc_Lit); is_proc && declares_inside(value, imp.base) do continue imports
 		}
+		append(&used, imp)
 	}
 	return used[:]
 }
 
-// The imports in used that no other code of document names, leaving out those the file already
-// left unused. Any identifier spelled like the import counts as a use, so a shadowing local keeps it.
+// The imports in used that no other code of document names as the package of a selector, leaving out those the
+// file already left unused. A selector on a local spelled like the import still counts as a use.
 @(private = "file")
 stale_imports :: proc(document: ^Document, decl: ^ast.Value_Decl, used: []Package) -> []Package {
 	if len(used) == 0 || document.ast.syntax_error_count > 0 {
@@ -397,7 +394,9 @@ stale_imports :: proc(document: ^Document, decl: ^ast.Value_Decl, used: []Packag
 		data = &names,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
 			if node == nil do return nil
-			if ident, ok := node.derived.(^ast.Ident); ok {
+			selector, is_selector := node.derived.(^ast.Selector_Expr)
+			if !is_selector do return visitor
+			if ident, is_ident := selector.expr.derived.(^ast.Ident); is_ident {
 				(^map[string]struct{})(visitor.data)[ident.name] = {}
 			}
 			return visitor

@@ -206,8 +206,9 @@ resolve_when_expr :: proc(
 				if imp.base != pkg_ident.name do continue
 				symbol, found := lookup(odin_expr.field.name, imp.name, ctx.fullpath)
 				if !found || .Mutable in symbol.flags || .Fallback in symbol.flags do return {}, false
-				generic := symbol.value.(SymbolGenericValue) or_return
-				return resolve_when_expr(make_when_expr_map(), generic.expr)
+				when_ast_context = nil
+				defer when_ast_context = ctx
+				return fold_package_when_const(symbol, imp.name)
 			}
 		case ^ast.Implicit_Selector_Expr:
 			return odin_expr.field.name, true
