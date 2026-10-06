@@ -134,8 +134,9 @@ run_edit :: proc(
 		targets := gate_targets(changed, importers, &reasons)
 		checks = make([]Gate_Check, len(targets), context.temp_allocator)
 		for target, i in targets {
-			checks[i] = {target, dirs}
+			checks[i] = {target = target, dirs = dirs}
 		}
+		checks = with_variants(checks, dirs, common.config.checker_variants)
 	}
 	before: []Check_Error
 	checked := 0
@@ -157,7 +158,7 @@ run_edit :: proc(
 			// The baseline drops the packages that do not build on an extra target, maybe all of them.
 			also_on := make([dynamic]string, context.temp_allocator)
 			for c in checks[1:] {
-				if len(checkable_paths(c.dirs)) > 0 do append(&also_on, c.target)
+				if len(checkable_paths(c.dirs)) > 0 do append(&also_on, gate_label(c))
 			}
 			also = also_on[:]
 			warn_existing_errors(&reasons, before)
@@ -182,17 +183,67 @@ run_edit :: proc(
 	}
 
 	if check {
-		after, after_reason, after_ok := check_errors(checks, renames)
+		origins := make([dynamic]Error_Files, context.temp_allocator)
+		after, after_reason, after_ok := check_errors(checks, renames, &origins)
 		if !after_ok {
 			append(&reasons, fmt.tprintf("%s after writing", after_reason))
 			return roll_back(name, .Refused, edit, changed, renames, &reasons, plan.edits)
 		}
-		if fresh := new_errors(before, after, names, edited_lines(edit) if names[0] != "" else nil);
-		   len(fresh) > 0 {
-			for e in fresh {
-				append(&reasons, fmt.tprintf("%s:%d:%d: %s", e.file, e.line, e.column, e.message))
+		edited := edited_lines(edit) if names[0] != "" else nil
+		if fresh := new_errors(before, after, names, edited); len(fresh) > 0 {
+			// odin can report a different error set on each run, so the original code is checked again where the
+			// fresh errors are, and an error that it reports there too is not new.
+			failures, left_files, left_dirs := undo_edit(changed, renames)
+			if len(failures) > 0 {
+				append(&reasons, ..failures)
+				return finish(
+					name,
+					.Refused,
+					edit,
+					changed,
+					reasons[:],
+					plan.edits,
+					left_files = left_files,
+					left_dirs = left_dirs,
+				)
 			}
-			return roll_back(name, .Check_Failed, edit, changed, renames, &reasons, plan.edits, checked, also)
+			again, again_reason, again_ok := check_errors(recheck_checks(checks, origins[:], fresh, renames))
+			if again_ok {
+				fresh = new_errors(union_errors(before, again), after, names, edited)
+			} else {
+				warn(&reasons, fmt.tprintf("%s while checking the original code again", again_reason))
+			}
+			if len(fresh) > 0 {
+				for e in fresh {
+					append(&reasons, fmt.tprintf("%s:%d:%d: %s", e.file, e.line, e.column, e.message))
+				}
+				return finish(
+					name,
+					.Check_Failed,
+					edit,
+					changed,
+					reasons[:],
+					plan.edits,
+					checked = checked,
+					also = also,
+				)
+			}
+			warn(
+				&reasons,
+				"odin check of the original code again reports every error that looked new after the write, so the edit is written again",
+			)
+			if verify_reason, verify_ok := verify_unchanged(changed, renames); !verify_ok {
+				append(&reasons, verify_reason)
+				return finish(name, .Refused, edit, {}, reasons[:])
+			}
+			if written, write_reason, write_ok := write_files(changed); !write_ok {
+				append(&reasons, write_reason)
+				return roll_back(name, .Refused, edit, changed[:written + 1], {}, &reasons, plan.edits)
+			}
+			if renamed, rename_reason, rename_ok := rename_paths(renames); !rename_ok {
+				append(&reasons, rename_reason)
+				return roll_back(name, .Refused, edit, changed, renames[:renamed], &reasons, plan.edits)
+			}
 		}
 	}
 	return finish(name, .Applied, edit, changed, reasons[:], plan.edits, renames, checked = checked, also = also)
@@ -537,10 +588,12 @@ checkable_paths :: proc(dirs: []string) -> []string {
 
 // The `odin check` errors of each gate check, joined, with its directories at their paths after renames.
 // A check without a checkable directory is skipped. Fails when a check could not run to a parsed result,
-// naming its target.
+// naming its target. With origins, it appends the error files of each check, by checked directory, one
+// entry per check in order.
 check_errors :: proc(
 	checks: []Gate_Check,
 	renames: []Path_Rename = {},
+	origins: ^[dynamic]Error_Files = nil,
 ) -> (
 	errors: []Check_Error,
 	reason: string,
@@ -554,21 +607,87 @@ check_errors :: proc(
 		}
 		paths := checkable_paths(dirs)
 		if len(paths) == 0 {
+			if origins != nil do append(origins, Error_Files{})
 			continue
 		}
-		found, failure, ran := check_errors_for(paths, c.target)
+		found, failure, ran := check_errors_for(paths, c.target, c.args)
 		if !ran {
-			return {}, gate_failure(failure, c.target), false
+			return {}, gate_failure(failure, c), false
 		}
+		if origins != nil do append(origins, server.check_run.error_files)
 		append(&all, ..found)
 	}
 	return all[:], "", true
 }
 
-// The `odin check` errors of paths for target, `-target:` of odin or empty for the current one. Fails when
-// a check could not run to a parsed result.
+// The files that the errors of one gate check name, by checked directory, as server.Check_Run keeps them.
+Error_Files :: map[string][dynamic]string
+
+// The checks that the gate runs again on the original code after fresh errors: each check keeps the
+// directories whose check after the write named the file of a fresh error. origins holds the error files of
+// each check after the write, keyed by the directories after renames. A fresh error whose file no check
+// named keeps every check whole. A check left without a directory is dropped.
+recheck_checks :: proc(
+	checks: []Gate_Check,
+	origins: []Error_Files,
+	fresh: []Check_Error,
+	renames: []Path_Rename = {},
+) -> []Gate_Check {
+	kept := make([dynamic]Gate_Check, context.temp_allocator)
+	named := make([]bool, len(fresh), context.temp_allocator)
+	for c, i in checks {
+		dirs := make([dynamic]string, context.temp_allocator)
+		for dir in c.dirs {
+			if i >= len(origins) do continue
+			files := origins[i][renamed_path(renames, dir)]
+			hit := false
+			for e, j in fresh {
+				if slice.contains(files[:], e.file) {
+					named[j] = true
+					hit = true
+				}
+			}
+			if hit do append(&dirs, dir)
+		}
+		if len(dirs) > 0 {
+			recheck := c
+			recheck.dirs = dirs[:]
+			append(&kept, recheck)
+		}
+	}
+	if slice.contains(named, false) {
+		return checks
+	}
+	return kept[:]
+}
+
+// before with the errors of again that it lacks, keyed as new_errors keys them: a key gets the larger of its
+// two counts, so an error that a second run reports once more than before stays new.
+union_errors :: proc(before, again: []Check_Error) -> []Check_Error {
+	counts := make(map[string]int, context.temp_allocator)
+	for e in before {
+		counts[error_key(e.message)] += 1
+	}
+	all := make([dynamic]Check_Error, 0, len(before) + len(again), context.temp_allocator)
+	append(&all, ..before)
+	for e in take_unmatched(&counts, again) {
+		append(&all, e)
+	}
+	return all[:]
+}
+
+// The `odin check` errors of paths for target, `-target:` of odin or empty for the current one, with args, the
+// extra checker args of a variant, after checker_args. Fails when a check could not run to a parsed result.
 @(private = "file")
-check_errors_for :: proc(paths: []string, target: string) -> (errors: []Check_Error, reason: string, ok: bool) {
+check_errors_for :: proc(
+	paths: []string,
+	target: string,
+	args: string,
+) -> (
+	errors: []Check_Error,
+	reason: string,
+	ok: bool,
+) {
 	config := &common.config
 	// The gate checks the touched packages, whatever the profile names, needs the diagnostics stored, and
 	// leaves out the vet and style flags, whose Syntax Errors stop the check and blind the gate.
@@ -578,6 +697,9 @@ check_errors_for :: proc(paths: []string, target: string) -> (errors: []Check_Er
 	if target != "" {
 		// A later flag wins over one in checker_args.
 		config.checker_args = strings.concatenate({config.checker_args, " -target:", target}, context.temp_allocator)
+	}
+	if args != "" {
+		config.checker_args = strings.concatenate({config.checker_args, " ", args}, context.temp_allocator)
 	}
 
 	server.check_run = {}

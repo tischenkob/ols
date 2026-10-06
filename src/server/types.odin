@@ -572,6 +572,8 @@ OlsConfig :: struct {
 	odin_root_override:                      string,
 	checker_args:                            string,
 	checker_targets:                         []string,
+	// rols: extra checker args, one more compile gate check each
+	checker_variants:                        []string,
 	checker_skip_packages:                   []string,
 	completion_exclude_attributes:           []string,
 	profiles:                                [dynamic]common.ConfigProfile,

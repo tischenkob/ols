@@ -675,6 +675,10 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	}
 
 	config.checker_targets = slice.clone(ols_config.checker_targets, context.allocator)
+	// rols: the compile gate's extra checks, kept unless this config sets the key
+	if ols_config.checker_variants != nil {
+		config.checker_variants = common.clone_string_list(ols_config.checker_variants, context.allocator)
+	}
 
 	config.enable_inlay_hints_params =
 		ols_config.enable_inlay_hints_params.(bool) or_else config.enable_inlay_hints_params

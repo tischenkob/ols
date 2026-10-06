@@ -1,5 +1,7 @@
 package tests
 
+import "core:os"
+import "core:path/filepath"
 import "core:slice"
 import "core:testing"
 
@@ -87,4 +89,29 @@ tabs_error_beside_a_style_syntax_error_stays_as_a_warning :: proc(t: ^testing.T)
 	testing.expect_value(t, len(merged.errors), 3)
 	testing.expect_value(t, merged.errors[1].msgs[0], tabs.msgs[0])
 	testing.expect_value(t, merged.errors[1].type, server.STYLE_ERROR_TYPE)
+}
+
+@(test)
+real_syntax_error_skips_the_style_rerun :: proc(t: ^testing.T) {
+	dir, dir_err := os.make_directory_temp("", "rols_style_*", context.temp_allocator)
+	testing.expect_value(t, dir_err, nil)
+	defer os.remove_all(dir)
+	comma, _ := filepath.join({dir, "comma.odin"}, context.temp_allocator)
+	broken, _ := filepath.join({dir, "broken.odin"}, context.temp_allocator)
+	testing.expect_value(t, os.write_entire_file(comma, "package p\n\nS :: struct {\n\ta: int\n}\n"), nil)
+	testing.expect_value(t, os.write_entire_file(broken, "package p\n\nf :: proc() {\n\tx := (1 +\n"), nil)
+	at :: proc(file, message: string) -> server.Json_Error {
+		e := error(4, message)
+		e.pos.file = file
+		return e
+	}
+	style := at(comma, "Syntax Error: Expected a comma, got a newline")
+	testing.expect(t, !server.has_real_syntax_error({1, {style}}), "a style-only file keeps the rerun")
+	real := at(broken, "Syntax Error: Expected an operand")
+	testing.expect(t, server.has_real_syntax_error({2, {style, real}}), "a file that does not parse skips it")
+	tabs := at(broken, "With '-vet-tabs', tabs must be used for indentation")
+	testing.expect(t, !server.has_real_syntax_error({1, {tabs}}), "only a Syntax Error names a file to parse")
+	gone, _ := filepath.join({dir, "gone.odin"}, context.temp_allocator)
+	missing := at(gone, "Syntax Error: x")
+	testing.expect(t, !server.has_real_syntax_error({1, {missing}}), "an unreadable file keeps the rerun")
 }

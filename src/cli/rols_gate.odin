@@ -131,15 +131,45 @@ gate_targets :: proc(changed: []File_State, importers: []string, reasons: ^[dyna
 	return targets[:]
 }
 
-// The package directories that the gate checks with one `-target:` value, empty for the current target.
+// The package directories that the gate checks with one `-target:` value, empty for the current target,
+// and the extra checker args of a checker_variants entry, empty for none.
 Gate_Check :: struct {
 	target: string,
 	dirs:   []string,
+	args:   string,
 }
 
-// failure, naming target unless it is the current one.
-gate_failure :: proc(failure, target: string) -> string {
-	return failure if target == "" else fmt.tprintf("%s (target %s)", failure, target)
+// checks followed by one check of dirs on the current target for each checker_variants entry. An entry of
+// only whitespace adds no check.
+with_variants :: proc(checks: []Gate_Check, dirs: []string, variants: []string) -> []Gate_Check {
+	all := make([dynamic]Gate_Check, 0, len(checks) + len(variants), context.temp_allocator)
+	append(&all, ..checks)
+	for variant in variants {
+		if args := strings.trim_space(variant); args != "" {
+			append(&all, Gate_Check{dirs = dirs, args = args})
+		}
+	}
+	return all[:]
+}
+
+// How the summary and the failures name check: its target, its variant args, or both. Empty for the plain
+// check on the current target.
+gate_label :: proc(c: Gate_Check) -> string {
+	if c.args == "" {
+		return c.target
+	}
+	return c.args if c.target == "" else fmt.tprintf("%s %s", c.target, c.args)
+}
+
+// failure, naming the target or variant of c unless it is the plain check on the current target.
+gate_failure :: proc(failure: string, c: Gate_Check) -> string {
+	switch {
+	case c.args != "":
+		return fmt.tprintf("%s (with %s)", failure, gate_label(c))
+	case c.target != "":
+		return fmt.tprintf("%s (target %s)", failure, c.target)
+	}
+	return failure
 }
 
 // The `odin check` errors of checks before the write. On an extra target, a package whose check names an

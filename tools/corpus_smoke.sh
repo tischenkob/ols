@@ -77,6 +77,7 @@ project() {
 	tina)
 		url=https://github.com/pmbanugo/tina sha=a2e8d4dc53394dd6772d08e79a41d6b56ba3a65e
 		extra_dir=src extra_flags=-define:TINA_SIM=true
+		cfg='{"checker_variants":["-define:TINA_SIM=true"]}'
 		;;
 	Skald)
 		url=https://github.com/BuLEEto/Skald sha=6bbb664b9f421c25aa9be4540d5c9dedd20d32ca colls="gui=."

@@ -205,6 +205,10 @@ CheckProcess :: struct {
 	style:    bool,
 	rerun:    bool,
 	first:    Json_Errors,
+	// rols: the crash restart: whether this run restarts one that a signal killed with no output, and
+	// whether this run crashed so and was restarted
+	retry:    bool,
+	crashed:  bool,
 }
 
 // rols: timeout, the budget of the whole run, is scaled by the CLI compile gate
@@ -239,7 +243,8 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, t
 	running_count := 0
 	start := time.now()
 	// rols: a Syntax Error of a style flag stops checking, so the package runs again without the flags,
-	// and the budget doubles once for all reruns. parsed counts the outputs that unmarshalled.
+	// and the budget doubles once for all reruns. A run that a signal killed before it printed anything
+	// runs once more in the same budget. parsed counts the outputs that unmarshalled.
 	pending_reruns := make([dynamic]CheckProcess, context.temp_allocator)
 	parsed := 0
 	budget := timeout
@@ -247,14 +252,18 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, t
 	check_run.error_files = make(map[string][dynamic]string, context.temp_allocator)
 
 	for running_count > 0 || next_index < len(paths) || len(pending_reruns) > 0 {
+		// rols: start the queued style reruns and crash restarts
 		for first in pending_reruns {
-			p, ok := start_check_process(first.path, collections[:], config, true)
+			p, ok := start_check_process(first.path, collections[:], config, first.rerun)
 			if ok {
 				p.first = first.first
+				p.retry = first.retry
 				append(&processes, p)
 				running_count += 1
-				budget = 2 * timeout
-			} else {
+				if !first.retry {
+					budget = 2 * timeout
+				}
+			} else if first.rerun {
 				append(&errors, first.first)
 			}
 		}
@@ -304,6 +313,12 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, t
 				_, _ = append(&p.buffer, ..buf[:n])
 			}
 
+			// rols: the signal that killed the child, read before process_wait reaps it
+			signal, exited := child_exit_signal(p.process)
+			if !exited {
+				continue
+			}
+
 			state, err := os.process_wait(p.process, 0)
 			if err != nil {
 				continue
@@ -331,6 +346,19 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, t
 			os.close(p.reader)
 			p.reader = nil
 
+			// rols: a run that a signal killed before it printed anything runs once more
+			if signal != 0 && len(p.buffer) == 0 {
+				log.errorf("`odin check %s` was killed by signal %d before it printed anything", p.path, signal)
+				if !p.retry {
+					p.crashed = true
+					append(
+						&pending_reruns,
+						CheckProcess{path = p.path, first = p.first, rerun = p.rerun, retry = true},
+					)
+					continue
+				}
+			}
+
 			if len(p.buffer) > 0 {
 				json_errors: Json_Errors
 				if res := json.unmarshal(
@@ -350,10 +378,11 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, t
 				// rols: record the files that this package's errors name
 				note_error_files(p.path, json_errors)
 				// rols: the rerun merges with the first run, a Syntax Error of a style check starts the rerun
+				// unless a file that a stopping error names has a syntax error of its own
 				if p.rerun {
 					json_errors = merge_style_rerun(p.first, json_errors)
-				} else if p.style && has_stopping_error(json_errors) {
-					append(&pending_reruns, CheckProcess{path = p.path, first = json_errors})
+				} else if p.style && has_stopping_error(json_errors) && !has_real_syntax_error(json_errors) {
+					append(&pending_reruns, CheckProcess{path = p.path, first = json_errors, rerun = true})
 					continue
 				}
 				append(&errors, json_errors)

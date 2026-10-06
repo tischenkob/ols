@@ -642,6 +642,13 @@
 			},
 			"description": "Odin targets that the compile gate of `ols query ... --apply` always checks besides the current one and the targets the touched files need, such as `windows_amd64`, or a bare OS name for its default architecture."
 		},
+		"checker_variants": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			},
+			"description": "Extra checker arguments, such as `-define:SIM=true`, for one more check of the compile gate of `ols query ... --apply` on the current target each."
+		},
 		"checker_skip_packages": {
 			"type": "array",
 			"items": {

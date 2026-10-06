@@ -1,5 +1,9 @@
 package server
 
+import "core:odin/ast"
+import "core:odin/parser"
+import "core:odin/tokenizer"
+import "core:os"
 import "core:slice"
 import "core:strings"
 
@@ -41,6 +45,41 @@ has_stopping_error :: proc(result: Json_Errors) -> bool {
 		}
 	}
 	return false
+}
+
+// Whether a file that a Syntax Error of result names has a syntax error without the style flags: rols' parser
+// finds one there. A rerun without the style flags would then stop at it too, so `check` skips the rerun. A file
+// that cannot be read counts as clean, which keeps the rerun.
+has_real_syntax_error :: proc(result: Json_Errors) -> bool {
+	seen := make([dynamic]string, context.temp_allocator)
+	for error in result.errors {
+		if len(error.msgs) == 0 || !strings.has_prefix(error.msgs[0], "Syntax Error") || error.pos.file == "" {
+			continue
+		}
+		if slice.contains(seen[:], error.pos.file) {
+			continue
+		}
+		append(&seen, error.pos.file)
+		data, err := os.read_entire_file(error.pos.file, context.temp_allocator)
+		if err == nil && !parses_cleanly(string(data)) {
+			return true
+		}
+	}
+	return false
+}
+
+// Whether src parses without a syntax error, with the parser flags of an open document.
+parses_cleanly :: proc(src: string) -> bool {
+	context.allocator = context.temp_allocator
+	p := parser.Parser {
+		err = proc(pos: tokenizer.Pos, msg: string, args: ..any) {},
+		warn = proc(pos: tokenizer.Pos, msg: string, args: ..any) {},
+		flags = {.Optional_Semicolons},
+	}
+	file := ast.File {
+		src = src,
+	}
+	return parser.parse_file(&p, &file) && file.syntax_error_count == 0
 }
 
 @(private = "file")
