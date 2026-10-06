@@ -43,7 +43,9 @@ ODINFMT="$repo/odinfmt"
 export OLS_BUILTIN_FOLDER="$repo/builtin"
 
 # Resolved, because `ols query lint` prints resolved paths and the lint step compares them with package paths.
-odin_root="$(cd "$(odin root)" && pwd -P)"
+odin_root="$(odin root)"
+[[ -n "$odin_root" ]] || { echo "odin root printed nothing" >&2; exit 2; }
+odin_root="$(cd "$odin_root" && pwd -P)"
 corpus="${ROLS_CORPUS_DIR:-$HOME/.cache/rols-corpus}"
 mkdir -p "$corpus"
 corpus="$(cd "$corpus" && pwd -P)"
