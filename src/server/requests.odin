@@ -1903,11 +1903,14 @@ request_rename :: proc(params: json.Value, id: RequestId, config: ^common.Config
 		return .InternalError
 	}
 
-	// rols: a refused import rename answers with its causes
-	if _, _, reasons, found := rename_import(document, rename_param.position, rename_param.newName);
-	   found && len(reasons) > 0 {
-		message := strings.join(reasons, "\n", context.temp_allocator)
-		send_error(make_response_message_error(id = id, error = {code = .RequestFailed, message = message}), writer)
+	// rols: an import name renames once here; a refusal answers with its causes
+	if edit, _, reasons, found := rename_import(document, rename_param.position, rename_param.newName); found {
+		if len(reasons) > 0 {
+			message := strings.join(reasons, "\n", context.temp_allocator)
+			send_error(make_response_message_error(id = id, error = {code = .RequestFailed, message = message}), writer)
+		} else {
+			send_response(make_response_message(params = edit, id = id), writer)
+		}
 		return .None
 	}
 	workspace_edit: WorkspaceEdit

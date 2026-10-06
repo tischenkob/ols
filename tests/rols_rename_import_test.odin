@@ -238,3 +238,56 @@ main :: proc() {
 	}
 	test.expect_rename_refused(t, &source, "pt", {"so it would capture the qualifier of `testing.advance`"})
 }
+
+@(test)
+rename_import_refuses_builtin_name :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import testing "shared:playtest"
+
+main :: proc() {
+	test{*}ing.advance(1)
+}
+`,
+		packages = {{pkg = "playtest", source = PLAYTEST}},
+		collections = {"shared" = "test"},
+	}
+	test.expect_rename_refused(t, &source, "len", {"`len` is a builtin name, which the import would shadow"})
+}
+
+@(test)
+rename_import_refuses_keyword :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import testing "shared:playtest"
+
+main :: proc() {
+	test{*}ing.advance(1)
+}
+`,
+		packages = {{pkg = "playtest", source = PLAYTEST}},
+		collections = {"shared" = "test"},
+	}
+	test.expect_rename_refused(t, &source, "proc", {"`proc` is a keyword"})
+}
+
+@(test)
+rename_import_refuses_file_scope_declaration :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import testing "shared:playtest"
+
+pt :: 1
+
+main :: proc() {
+	test{*}ing.advance(pt)
+}
+`,
+		packages = {{pkg = "playtest", source = PLAYTEST}},
+		collections = {"shared" = "test"},
+	}
+	test.expect_rename_refused(t, &source, "pt", {"test/main.odin:5:1: `pt` is already declared at file scope"})
+}
