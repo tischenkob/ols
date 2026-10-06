@@ -200,6 +200,62 @@ fo{*}o :: proc() {
 	)
 }
 
+// Corpus: karl2d karl2d.odin:692, see docs/corpus-validation.md. core:testing does not compile on js.
+@(test)
+generate_test_new_file_excludes_targets_without_core_testing :: proc(t: ^testing.T) {
+	source := generate_source(
+		`package test
+
+fo{*}o :: proc() {
+}
+`,
+		{{"lib_js.odin", "#+build js\npackage test\n"}, {"lib_freestanding.odin", "package test\n"}},
+	)
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Generate test for foo",
+		{
+			{
+				"main_test.odin",
+				"#+build !js\n#+build !freestanding\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo()\n}\n",
+			},
+		},
+	)
+	// A source that never builds on wasi needs no line for a wasi-only sibling.
+	tagged := generate_source(
+		`#+build darwin, linux
+package test
+
+fo{*}o :: proc() {
+}
+`,
+		{{"lib_wasi.odin", "package test\n"}},
+	)
+	test.expect_action_applied_files(
+		t,
+		&tagged,
+		"Generate test for foo",
+		{
+			{
+				"main_test.odin",
+				"#+build darwin, linux\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo()\n}\n",
+			},
+		},
+	)
+}
+
+@(test)
+generate_test_refused_for_source_only_on_targets_without_core_testing :: proc(t: ^testing.T) {
+	source := generate_source(`#+build js, wasi
+package test
+
+fo{*}o :: proc() {
+}
+`)
+	test.expect_action(t, &source, {})
+}
+
 @(test)
 generate_test_for_package_private :: proc(t: ^testing.T) {
 	source := generate_source(`package test

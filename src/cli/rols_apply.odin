@@ -131,12 +131,7 @@ run_edit :: proc(
 		// An edit can break a package that imports a touched one, directly or not, without touching it.
 		importers := server.importer_dirs(dirs, &common.config)
 		dirs = slice.concatenate([][]string{dirs, importers}, context.temp_allocator)
-		targets := gate_targets(changed, importers, &reasons)
-		checks = make([]Gate_Check, len(targets), context.temp_allocator)
-		for target, i in targets {
-			checks[i] = {target = target, dirs = dirs}
-		}
-		checks = with_variants(checks, dirs, common.config.checker_variants)
+		checks = with_variants(gate_targets(changed, dirs, importers, &reasons), dirs, common.config.checker_variants)
 	}
 	before: []Check_Error
 	checked := 0
