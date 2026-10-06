@@ -30,7 +30,7 @@ add_if_to_switch_action :: proc(ctx: ^ActionContext) {
 			return
 		}
 		body, is_block := cur.body.derived.(^ast.Block_Stmt)
-		if !is_block || body.uses_do {
+		if !is_block || body.uses_do || breaks_enclosing(body) {
 			return
 		}
 		pairs := make([dynamic][2]^ast.Expr, context.temp_allocator)
@@ -62,7 +62,7 @@ add_if_to_switch_action :: proc(ctx: ^ActionContext) {
 			cur = e
 			continue
 		case ^ast.Block_Stmt:
-			if e.uses_do {
+			if e.uses_do || breaks_enclosing(e) {
 				return
 			}
 			else_body = e
@@ -105,6 +105,37 @@ add_if_to_switch_action :: proc(ctx: ^ActionContext) {
 	strings.write_byte(&sb, '}')
 
 	append_replace_range(ctx, if_stmt.pos.offset, end, "Convert to switch", strings.to_string(sb))
+}
+
+// Whether body holds an unlabeled `break` or `or_break` aimed past body, which a case body would retarget at the switch.
+// Breaks inside a nested loop or switch belong to it. Nested proc literals keep their own control flow.
+breaks_enclosing :: proc(body: ^ast.Block_Stmt) -> bool {
+	found := false
+	visitor := ast.Visitor {
+		data = &found,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			found := (^bool)(visitor.data)
+			if node == nil || found^ {
+				return nil
+			}
+			#partial switch n in node.derived {
+			case ^ast.Proc_Lit,
+			     ^ast.For_Stmt,
+			     ^ast.Range_Stmt,
+			     ^ast.Unroll_Range_Stmt,
+			     ^ast.Switch_Stmt,
+			     ^ast.Type_Switch_Stmt:
+				return nil
+			case ^ast.Branch_Stmt:
+				found^ = n.tok.kind == .Break && n.label == nil
+			case ^ast.Or_Branch_Expr:
+				found^ = n.token.kind == .Or_Break && n.label == nil
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, body)
+	return found
 }
 
 // Statements of an if body sit one level below the if, which is where case statements sit too.

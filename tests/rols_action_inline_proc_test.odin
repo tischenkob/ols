@@ -803,3 +803,56 @@ g :: proc(vs: [2]Vec) {
 }
 `)
 }
+
+// Corpus: the solved symbol of a polymorphic call loses `generic`, and inlining leaves `T` undeclared.
+@(test)
+action_inline_proc_refused_polymorphic :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+bytes_of :: proc(ptr: ^$T) -> int {
+	return size_of(T)
+}
+
+main :: proc() {
+	x := 1
+	n := byt{*}es_of(&x)
+}
+`)
+	expect_no_inline_proc(t, `package test
+
+report :: proc($T: typeid) {
+	_ = size_of(T)
+}
+
+main :: proc() {
+	rep{*}ort(int)
+}
+`)
+	expect_no_inline_proc(t, `package test
+
+twice :: proc(x: int) -> int where size_of(int) == 8 {
+	return x * 2
+}
+
+main :: proc() {
+	n := twi{*}ce(1)
+}
+`)
+}
+
+@(test)
+action_inline_proc_refused_polymorphic_in_other_file :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+bytes_of :: proc(ptr: ^$T) -> int {
+	return size_of(T)
+}
+`, `package test
+
+main :: proc() {
+	x := 1
+	n := byt{*}es_of(&x)
+}
+`)
+	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
+}

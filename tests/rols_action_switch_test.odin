@@ -426,3 +426,85 @@ f :: proc(s: Shape) -> int {
 }
 `)
 }
+
+// Corpus: a bare `break` in an if body exits the enclosing loop, but in a case body it would exit the switch.
+@(test)
+if_to_switch_refused_break_leaves_loop :: proc(t: ^testing.T) {
+	expect_no_switch(t, `package test
+
+f :: proc(src: []u8) -> bool {
+	has_encoded := false
+	for b in src {
+		{*}if b == '%' || b == '+' {
+			has_encoded = true
+			break
+		}
+	}
+	return has_encoded
+}
+`)
+	expect_no_switch(t, `package test
+
+g :: proc() -> (int, bool) {
+	return 1, true
+}
+
+f :: proc(xs: []int) {
+	for x in xs {
+		{*}if x == 1 {
+			foo()
+		} else {
+			_ = g() or_break
+		}
+	}
+}
+`)
+}
+
+@(test)
+if_to_switch_break_of_own_loop_or_label :: proc(t: ^testing.T) {
+	expect_switch(t, `package test
+
+f :: proc(xs: []int) {
+	for x in xs {
+		{*}if x == 1 {
+			for {
+				break
+			}
+		}
+	}
+}
+`, `package test
+
+f :: proc(xs: []int) {
+	for x in xs {
+		switch x {
+		case 1:
+			for {
+				break
+			}
+		}
+	}
+}
+`)
+	expect_switch(t, `package test
+
+f :: proc(xs: []int) {
+	outer: for x in xs {
+		{*}if x == 1 {
+			break outer
+		}
+	}
+}
+`, `package test
+
+f :: proc(xs: []int) {
+	outer: for x in xs {
+		switch x {
+		case 1:
+			break outer
+		}
+	}
+}
+`)
+}
