@@ -165,21 +165,8 @@ run_edit :: proc(
 		}
 	}
 
-	if verify_reason, verify_ok := verify_unchanged(changed, renames); !verify_ok {
-		append(&reasons, verify_reason)
-		return finish(name, .Refused, edit, {}, reasons[:])
-	}
-	// Files are written at their old paths, then the renames move them.
-	written, write_reason, write_ok := write_files(changed)
-	if !write_ok {
-		append(&reasons, write_reason)
-		// The file that failed may be truncated, so it is restored too.
-		return roll_back(name, .Refused, edit, changed[:written + 1], {}, &reasons, plan.edits)
-	}
-	renamed, rename_reason, rename_ok := rename_paths(renames)
-	if !rename_ok {
-		append(&reasons, rename_reason)
-		return roll_back(name, .Refused, edit, changed, renames[:renamed], &reasons, plan.edits)
+	if code, written := write_edit(name, edit, changed, renames, &reasons, plan.edits); !written {
+		return code
 	}
 
 	if check {
@@ -191,8 +178,9 @@ run_edit :: proc(
 		}
 		edited := edited_lines(edit) if names[0] != "" else nil
 		if fresh := new_errors(before, after, names, edited); len(fresh) > 0 {
-			// odin can report a different error set on each run, so the original code is checked again where the
-			// fresh errors are, and an error that it reports there too is not new.
+			// odin can report a different error set on each run. The original code is checked again where the
+			// fresh errors are, and an error that it reports there too is not new. An error that remains is new
+			// only when a second check after the write reports it again.
 			failures, left_files, left_dirs := undo_edit(changed, renames)
 			if len(failures) > 0 {
 				append(&reasons, ..failures)
@@ -207,46 +195,70 @@ run_edit :: proc(
 					left_dirs = left_dirs,
 				)
 			}
-			again, again_reason, again_ok := check_errors(recheck_checks(checks, origins[:], fresh, renames))
-			if again_ok {
-				fresh = new_errors(union_errors(before, again), after, names, edited)
+			recheck := recheck_checks(checks, origins[:], fresh, renames)
+			base := before
+			if again, again_reason, again_ok := check_errors(recheck); again_ok {
+				base = union_errors(before, again)
+				fresh = new_errors(base, after, names, edited)
 			} else {
 				warn(&reasons, fmt.tprintf("%s while checking the original code again", again_reason))
+			}
+			if code, written := write_edit(name, edit, changed, renames, &reasons, plan.edits); !written {
+				return code
+			}
+			if len(fresh) > 0 {
+				if second, second_reason, second_ok := check_errors(recheck, renames); second_ok {
+					fresh = intersect_errors(fresh, new_errors(base, second, names, edited))
+				} else {
+					warn(&reasons, fmt.tprintf("%s after writing again", second_reason))
+				}
 			}
 			if len(fresh) > 0 {
 				for e in fresh {
 					append(&reasons, fmt.tprintf("%s:%d:%d: %s", e.file, e.line, e.column, e.message))
 				}
-				return finish(
-					name,
-					.Check_Failed,
-					edit,
-					changed,
-					reasons[:],
-					plan.edits,
-					checked = checked,
-					also = also,
-				)
+				return roll_back(name, .Check_Failed, edit, changed, renames, &reasons, plan.edits, checked, also)
 			}
 			warn(
 				&reasons,
-				"odin check of the original code again reports every error that looked new after the write, so the edit is written again",
+				"odin check reported a different error set on another run: no error that looked new after the write is new, so the edit stays written",
 			)
-			if verify_reason, verify_ok := verify_unchanged(changed, renames); !verify_ok {
-				append(&reasons, verify_reason)
-				return finish(name, .Refused, edit, {}, reasons[:])
-			}
-			if written, write_reason, write_ok := write_files(changed); !write_ok {
-				append(&reasons, write_reason)
-				return roll_back(name, .Refused, edit, changed[:written + 1], {}, &reasons, plan.edits)
-			}
-			if renamed, rename_reason, rename_ok := rename_paths(renames); !rename_ok {
-				append(&reasons, rename_reason)
-				return roll_back(name, .Refused, edit, changed, renames[:renamed], &reasons, plan.edits)
-			}
 		}
 	}
 	return finish(name, .Applied, edit, changed, reasons[:], plan.edits, renames, checked = checked, also = also)
+}
+
+// Writes the files of the edit, then runs its renames, after checking that no file changed on disk since the
+// plan read it. On failure it returns the exit code of the refusal, after restoring what it wrote.
+@(private = "file")
+write_edit :: proc(
+	name: string,
+	edit: server.WorkspaceEdit,
+	changed: []File_State,
+	renames: []Path_Rename,
+	reasons: ^[dynamic]string,
+	edits: int,
+) -> (
+	code: int,
+	ok: bool,
+) {
+	if verify_reason, verify_ok := verify_unchanged(changed, renames); !verify_ok {
+		append(reasons, verify_reason)
+		return finish(name, .Refused, edit, {}, reasons[:]), false
+	}
+	// Files are written at their old paths, then the renames move them.
+	written, write_reason, write_ok := write_files(changed)
+	if !write_ok {
+		append(reasons, write_reason)
+		// The file that failed may be truncated, so it is restored too.
+		return roll_back(name, .Refused, edit, changed[:written + 1], {}, reasons, edits), false
+	}
+	renamed, rename_reason, rename_ok := rename_paths(renames)
+	if !rename_ok {
+		append(reasons, rename_reason)
+		return roll_back(name, .Refused, edit, changed, renames[:renamed], reasons, edits), false
+	}
+	return 0, true
 }
 
 // Warns once per directory that already has `odin check` errors: a parse error stops the check there, and
@@ -638,7 +650,6 @@ recheck_checks :: proc(
 	for c, i in checks {
 		dirs := make([dynamic]string, context.temp_allocator)
 		for dir in c.dirs {
-			if i >= len(origins) do continue
 			files := origins[i][renamed_path(renames, dir)]
 			hit := false
 			for e, j in fresh {
@@ -659,6 +670,24 @@ recheck_checks :: proc(
 		return checks
 	}
 	return kept[:]
+}
+
+// The errors of a that b also has, keyed as new_errors keys them, in the order of a: a key keeps the smaller of
+// its two counts.
+intersect_errors :: proc(a, b: []Check_Error) -> []Check_Error {
+	counts := make(map[string]int, context.temp_allocator)
+	for e in b {
+		counts[error_key(e.message)] += 1
+	}
+	both := make([dynamic]Check_Error, context.temp_allocator)
+	for e in a {
+		key := error_key(e.message)
+		if counts[key] > 0 {
+			counts[key] -= 1
+			append(&both, e)
+		}
+	}
+	return both[:]
 }
 
 // before with the errors of again that it lacks, keyed as new_errors keys them: a key gets the larger of its

@@ -741,6 +741,14 @@ mkdir "$dir/sty"
 printf 'package sty\n\nS :: struct {\n\ta: int,\n}\n\nf :: proc() {\n\ts := S{\n\t\ta = 1\n\t}\n\tx: int = "s"\n\t_, _ = s, x\n}\n' > "$dir/sty/s.odin"
 expect_exit1 style-syntax-error-is-a-warning "s.odin:9:7: warning: Syntax Error: Expected a comma" "$OLS" query check "$dir/sty"
 expect_exit1 style-rerun-reports-the-type-error "s.odin:11:11: error: Cannot convert" "$OLS" query check "$dir/sty"
+# The rerun without the style flags crashes once and runs again.
+printf '#!/usr/bin/env bash\nif [[ "$1" == check && " $* " != *" -vet-style "* && ! -e "%s" ]]; then touch "%s"; kill -SEGV $$; fi\nexec odin "$@"\n' "$dir/sty.crashed" "$dir/sty.crashed" > "$dir/sty-odin"
+chmod +x "$dir/sty-odin"
+echo '{"odin_command": "'"$dir/sty-odin"'"}' > "$dir/ols.json"
+expect_exit1 style-rerun-restarts-after-a-crash "s.odin:11:11: error: Cannot convert" "$OLS" query check "$dir/sty"
+[[ -e "$dir/sty.crashed" ]] || { echo "FAIL style-rerun-restarts-after-a-crash never crashed"; exit 1; }
+echo '{}' > "$dir/ols.json"
+rm -f "$dir/sty-odin" "$dir/sty.crashed"
 rm -rf "$dir/sty"
 # A check that a signal kills before it prints anything runs once more: the first `odin check` crashes.
 mkdir "$dir/sg"
@@ -756,20 +764,22 @@ expect_exit 1 gate-refuses-a-check-that-crashes-twice "$OLS" query attr add "$di
 expect gate-crash-twice-message "^error: \`odin check\` did not run: it exited with an error and printed nothing" sh -c "\"$OLS\" query attr add \"$dir/sg.f\" private --apply 2>&1 || true"
 echo '{}' > "$dir/ols.json"
 rm -rf "$dir/sg" "$dir/sg.crashed" "$dir/sg-odin"
-# odin can report a different error set on each run. A fake odin is clean on its first call and reports one
-# error from the second on: the error looks new after the write, the recheck of the original code reports it
-# too, so the edit is written again. When the recheck is clean, the error is new and the edit rolls back.
+# odin can report a different error set on each run. A fake odin reports one error on the checks that its
+# argument counts: 1 is the check before the write, 2 the check after it, 3 the check of the original code
+# again, and 4 the second check after writing again. An error is new only when 3 misses it and 4 has it.
 mkdir "$dir/nd"
 printf 'package nd\n\nf :: proc() -> int {\n\treturn 1\n}\n' > "$dir/nd/nd.odin"
 cp "$dir/nd/nd.odin" "$dir/nd.orig"
 fake_odin() {
-	# fake_odin CALLS: the check calls, counted from 1, that report the error; every other check is clean, and
-	# other commands, such as `odin root`, run the real odin.
+	# fake_odin CALLS [TOUCH]: the check calls, counted from 1, that report the error; every other check is
+	# clean, and other commands, such as `odin root`, run the real odin. Check call TOUCH appends a comment to
+	# nd.odin, as an editor saving the file would.
 	cat > "$dir/nd-odin" <<SH
 #!/usr/bin/env bash
 [[ "\$1" == check ]] || exec odin "\$@"
 n=\$(( \$(cat "$dir/nd.count" 2>/dev/null || echo 0) + 1 ))
 echo \$n > "$dir/nd.count"
+[[ \$n == "${2:-}" ]] && echo "// touched" >> "$dir/nd/nd.odin"
 case " $1 " in *" \$n "*)
 	printf '{"error_count":1,"errors":[{"type":"error","pos":{"file":"%s/nd.odin","offset":0,"line":1,"column":1,"end_column":2},"msgs":["Redeclaration of '"'"'x'"'"' in this scope"]}]}' "\$2"
 	exit 1;;
@@ -785,8 +795,17 @@ grep -q '@(cold)' "$dir/nd/nd.odin" || { echo "FAIL gate-recheck-absorbs-a-flaky
 [[ "$(cat "$dir/nd.count")" == 3 ]] || { echo "FAIL gate-recheck-absorbs-a-flaky-error ran odin $(cat "$dir/nd.count") times"; exit 1; }
 cp "$dir/nd.orig" "$dir/nd/nd.odin"
 fake_odin "2"
-expect_exit 4 gate-recheck-keeps-a-new-error "$OLS" query attr add "$dir/nd.f" cold --apply
-cmp -s "$dir/nd/nd.odin" "$dir/nd.orig" || { echo "FAIL gate-recheck-keeps-a-new-error is not rolled back"; exit 1; }
+expect_exit 0 gate-second-run-drops-a-one-off-error "$OLS" query attr add "$dir/nd.f" cold --apply
+grep -q '@(cold)' "$dir/nd/nd.odin" || { echo "FAIL gate-second-run-drops-a-one-off-error did not write the edit"; exit 1; }
+[[ "$(cat "$dir/nd.count")" == 4 ]] || { echo "FAIL gate-second-run-drops-a-one-off-error ran odin $(cat "$dir/nd.count") times"; exit 1; }
+cp "$dir/nd.orig" "$dir/nd/nd.odin"
+fake_odin "2 4"
+expect_exit 4 gate-second-run-keeps-a-new-error "$OLS" query attr add "$dir/nd.f" cold --apply
+cmp -s "$dir/nd/nd.odin" "$dir/nd.orig" || { echo "FAIL gate-second-run-keeps-a-new-error is not rolled back"; exit 1; }
+# A file that changes while the original code is checked again refuses the second write and keeps the change.
+fake_odin "2 3" 3
+expect gate-rewrite-refuses-a-changed-file "^error: .*nd.odin changed on disk since the edit was computed" sh -c "\"$OLS\" query attr add \"$dir/nd.f\" cold --apply 2>&1 || true"
+grep -q '^// touched' "$dir/nd/nd.odin" && ! grep -q '@(cold)' "$dir/nd/nd.odin" || { echo "FAIL gate-rewrite-refuses-a-changed-file lost the change"; exit 1; }
 echo '{}' > "$dir/ols.json"
 rm -rf "$dir/nd" "$dir/nd.orig" "$dir/nd-odin" "$dir/nd.count"
 # checker_variants adds a gate check with its args: require_results on L breaks only the SIM build.

@@ -1,8 +1,5 @@
 package server
 
-import "core:odin/ast"
-import "core:odin/parser"
-import "core:odin/tokenizer"
 import "core:os"
 import "core:slice"
 import "core:strings"
@@ -61,25 +58,15 @@ has_real_syntax_error :: proc(result: Json_Errors) -> bool {
 		}
 		append(&seen, error.pos.file)
 		data, err := os.read_entire_file(error.pos.file, context.temp_allocator)
-		if err == nil && !parses_cleanly(string(data)) {
+		if err != nil {
+			continue
+		}
+		context.allocator = context.temp_allocator
+		if _, parsed := parse_syntax(error.pos.file, string(data)); !parsed {
 			return true
 		}
 	}
 	return false
-}
-
-// Whether src parses without a syntax error, with the parser flags of an open document.
-parses_cleanly :: proc(src: string) -> bool {
-	context.allocator = context.temp_allocator
-	p := parser.Parser {
-		err = proc(pos: tokenizer.Pos, msg: string, args: ..any) {},
-		warn = proc(pos: tokenizer.Pos, msg: string, args: ..any) {},
-		flags = {.Optional_Semicolons},
-	}
-	file := ast.File {
-		src = src,
-	}
-	return parser.parse_file(&p, &file) && file.syntax_error_count == 0
 }
 
 @(private = "file")
