@@ -212,6 +212,43 @@ lint_use_stdlib_rules_match_themselves :: proc(t: ^testing.T) {
 	}
 }
 
+// Corpus: core slice/slice.odin:159 and strings/strings.odin:617. The standard library must not be
+// rewritten into calls to itself.
+@(test)
+lint_use_stdlib_skips_own_package_slice :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package slice
+
+linear_search :: proc(array: []$T, key: T) -> (index: int, found: bool) {
+	for x, i in array {
+		if x == key {
+			return i, true
+		}
+	}
+	return -1, false
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_lint_diagnostics(t, &src, {})
+}
+
+@(test)
+lint_use_stdlib_skips_own_package_strings :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package strings
+
+has_suffix :: proc(s, suffix: string) -> (result: bool) {
+	return len(s) >= len(suffix) && s[len(s) - len(suffix):] == suffix
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_lint_diagnostics(t, &src, {})
+}
+
 @(test)
 use_stdlib_action_contains :: proc(t: ^testing.T) {
 	src := test.Source {
