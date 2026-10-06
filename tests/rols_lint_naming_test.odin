@@ -91,13 +91,6 @@ BadName :: proc() {}
 @(link_name = "c_thing")
 Other_Bad :: proc() {}
 
-foreign import lib "system:c"
-
-foreign lib {
-	SDL_CreateWindow :: proc(windowTitle: cstring) -> rawptr ---
-	gExternal: i32
-}
-
 println :: fmt.println
 SCALE :: #config(SCALE, 2)
 scale :: #config(SCALE, 2)
@@ -113,7 +106,23 @@ Ada_Const :: Vec2{}
 		config = {enable_lint_naming = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{27, "naming"}})
+	test.expect_lint_diagnostics(t, &source, {{20, "naming"}})
+
+	// A foreign block's procedures and variables, which a `foreign import` file alone does not exempt.
+	foreign_source := test.Source {
+		main = `package test
+
+foreign import lib "system:c"
+
+foreign lib {
+	SDL_CreateWindow :: proc(windowTitle: cstring) -> rawptr ---
+	gExternal: i32
+}
+`,
+		config = {enable_lint_naming = true},
+	}
+
+	test.expect_lint_diagnostics(t, &foreign_source, {})
 }
 
 @(test)
@@ -444,4 +453,82 @@ when ODIN_OS == .Windows {
 	}
 
 	test.expect_lint_diagnostics(t, &source, {{2, "naming"}}, {"constant names are SCREAMING_SNAKE_CASE: pf"})
+}
+
+@(test)
+naming_bool_constant_snake_or_screaming :: proc(t: ^testing.T) {
+	// A top-level bool constant reads as a flag or a constant, so both snake_case and SCREAMING_SNAKE_CASE pass.
+	source := test.Source {
+		main = `package test
+
+isEnabled :: true
+is_enabled :: true
+IS_ENABLED :: false
+f :: proc() {
+	localFlag :: true
+	_ = localFlag
+}
+`,
+		config = {enable_lint_naming = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{2, "naming"}})
+}
+
+@(test)
+naming_skips_c_parameters :: proc(t: ^testing.T) {
+	// A C callback's parameter names come from the C declaration.
+	source := test.Source {
+		main = `package test
+
+foo: proc "c" (someArg: i32)
+bar: proc(someArg: i32)
+`,
+		config = {enable_lint_naming = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{3, "naming"}})
+}
+
+@(test)
+naming_skips_c_names_in_foreign_import_file :: proc(t: ^testing.T) {
+	// A binding file mirrors C types, fields, enum members and constants. Its procedures and variables are Odin's.
+	source := test.Source {
+		main = `package test
+
+foreign import lib "system:x"
+
+udev :: struct {
+	someField: i32,
+}
+Kind :: enum {
+	kind_a,
+}
+maxSize :: 4
+badProc :: proc() {}
+badVar := 1
+`,
+		config = {enable_lint_naming = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{11, "naming"}, {12, "naming"}})
+}
+
+@(test)
+naming_skips_c_names_in_when_foreign_import_file :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+when ODIN_OS == .Windows {
+	foreign import lib "system:x.lib"
+} else {
+	foreign import lib "system:x"
+}
+
+udev :: struct {}
+`,
+		config = {enable_lint_naming = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
 }

@@ -50,14 +50,10 @@ allocator_mismatch :: proc(ctx: ^LintContext, uses: []IdentUse, diags: ^[dynamic
 				#partial switch _ in call.args[0].derived {
 				case ^ast.Dynamic_Array_Type, ^ast.Map_Type:
 					continue
-				case ^ast.Ident, ^ast.Selector_Expr:
-					// A named type such as `Array :: [dynamic]int`, `distinct` or not.
-					if resolved, ok := lint_symbols(ctx)[uintptr(call.args[0])]; ok && resolved.symbol != nil {
-						#partial switch _ in resolved.symbol.value {
-						case SymbolDynamicArrayValue, SymbolMapValue:
-							continue
-						}
-					}
+				}
+				#partial switch _ in named_type_value(ctx, call.args[0]) {
+				case SymbolDynamicArrayValue, SymbolMapValue:
+					continue
 				}
 			}
 			arg, has_allocator := allocator_arg(ctx.src, call)
@@ -102,6 +98,17 @@ allocator_mismatch :: proc(ctx: ^LintContext, uses: []IdentUse, diags: ^[dynamic
 	}
 }
 
+// The value of the type a name such as `Array :: [dynamic]int` declares, `distinct` or not; nil for
+// anything but a resolved identifier or selector.
+@(private = "file")
+named_type_value :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> SymbolValue {
+	#partial switch _ in expr.derived {
+	case ^ast.Ident, ^ast.Selector_Expr:
+		if resolved, ok := lint_symbols(ctx)[uintptr(expr)]; ok && resolved.symbol != nil do return resolved.symbol.value
+	}
+	return nil
+}
+
 @(private = "file")
 make_len_append :: proc(ctx: ^LintContext, uses: []IdentUse, diags: ^[dynamic]Diagnostic) {
 	for use, i in uses {
@@ -114,7 +121,9 @@ make_len_append :: proc(ctx: ^LintContext, uses: []IdentUse, diags: ^[dynamic]Di
 		if call == nil || len(call.args) != 2 do continue
 		callee := call.expr.derived.(^ast.Ident) or_else nil
 		if callee == nil || callee.name != "make" do continue
-		if _, is_dynamic := call.args[0].derived.(^ast.Dynamic_Array_Type); !is_dynamic do continue
+		_, is_dynamic := call.args[0].derived.(^ast.Dynamic_Array_Type)
+		_, is_named_dynamic := named_type_value(ctx, call.args[0]).(SymbolDynamicArrayValue)
+		if !is_dynamic && !is_named_dynamic do continue
 
 		// The second argument is a length only when it is a number or len(); otherwise it is the allocator.
 		length := call.args[1]

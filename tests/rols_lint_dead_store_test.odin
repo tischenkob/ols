@@ -307,3 +307,50 @@ straight :: proc() {
 
 	test.expect_lint_diagnostics(t, &source, {{5, "dead-store"}, {26, "dead-store"}, {35, "dead-store"}})
 }
+
+@(test)
+dead_store_ignores_closed_or_shadowed_defer :: proc(t: ^testing.T) {
+	// A defer in a block that closed before the store, or one that reads an outer x the store shadows, cannot read the store.
+	// A shadowing declaration in a block that closed before the store leaves the defer reading it.
+	source := test.Source {
+		main = `package test
+
+use :: proc(v: int) {}
+closed_block :: proc(c: bool) -> int {
+	x: int
+	{ defer use(x) }
+	x = 1
+	if c { return 0 }
+	x = 2
+	return x
+}
+shadowed :: proc(c: bool) {
+	x := 0
+	defer use(x)
+	{
+		x := 0
+		use(x)
+		x = 1
+		if c { return }
+		x = 2
+		use(x)
+	}
+}
+closed_shadow :: proc(c: bool) {
+	x := 0
+	defer use(x)
+	{
+		x := 0
+		use(x)
+	}
+	x = 1
+	if c { return }
+	x = 2
+	use(x)
+}
+`,
+		config = {enable_lint_dead_store = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{6, "dead-store"}, {17, "dead-store"}})
+}

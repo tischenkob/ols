@@ -387,3 +387,91 @@ f :: proc(text: string) {
 
 	test.expect_lint_diagnostics(t, &source, {{3, "range-off-by-one"}, {18, "range-off-by-one"}})
 }
+
+@(test)
+range_off_by_one_guard_operator_and_scope :: proc(t: ^testing.T) {
+	// A guard needs the operator that excludes len for the branch the index sits in. An if init runs before the
+	// condition, and a length local that is reassigned or shadowed is no guard.
+	source := test.Source {
+		main = `package test
+
+f :: proc(text: string, c: bool) {
+	for b in 0 ..= len(text) {
+		if b > len(text) {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if b < len(text) || text[b] == 0 {
+		}
+	}
+	for b in 0 ..= len(text) {
+		if v := text[b]; b < len(text) {
+			_ = v
+		}
+	}
+	n := len(text)
+	n += 1
+	for b in 0 ..= len(text) {
+		if b < n {
+			_ = text[b]
+		}
+	}
+	k := len(text)
+	{
+		k := 5
+		for b in 0 ..= len(text) {
+			if b < k {
+				_ = text[b]
+			}
+		}
+	}
+}
+
+guarded :: proc(text: string, c: bool) {
+	for b in 0 ..= len(text) {
+		if len(text) > b {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if c && b != len(text) {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if c || b >= len(text) {
+		} else {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if b == len(text) || text[b] == 0 {
+		}
+	}
+	m := len(text)
+	{
+		_ := 0
+	}
+	for b in 0 ..= len(text) {
+		if b < m {
+			_ = text[b]
+		}
+	}
+}
+`,
+		config = {enable_lint_loops = true},
+	}
+
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{
+			{3, "range-off-by-one"},
+			{8, "range-off-by-one"},
+			{12, "range-off-by-one"},
+			{19, "range-off-by-one"},
+			{27, "range-off-by-one"},
+		},
+	)
+}
