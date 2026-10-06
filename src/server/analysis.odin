@@ -60,7 +60,8 @@ AstContext :: struct {
 	enum_value_cache:          map[^ast.Enum_Type]SymbolEnumValue,
 	// rols: set by the whole-file resolve, which drops group members whose arity cannot fit a call
 	whole_file_resolve:        bool,
-	// rols: the call and argument index whose parameter a caller reads, which picks its member by that parameter
+	// rols: the call and argument index (into `args`) whose parameter a caller reads, which picks the member by it.
+	// A caller that sets them must handle a SymbolAggregateValue callee: the tied members that differ there.
 	overload_arg_call:         ^ast.Call_Expr,
 	overload_arg_index:        int,
 }
@@ -1070,23 +1071,6 @@ proc_total_arg_count :: proc(procedure: SymbolProcedureValue) -> int {
 		total += count
 	}
 	return total
-}
-
-// rols: the parameters a call must pass: those without a default value that are not variadic
-proc_required_arg_count :: proc(procedure: SymbolProcedureValue) -> int {
-	required := 0
-	for field in procedure.arg_types {
-		if field.default_value != nil {
-			continue
-		}
-		if field.type != nil {
-			if _, is_variadic := field.type.derived.(^ast.Ellipsis); is_variadic {
-				continue
-			}
-		}
-		required += max(1, len(field.names))
-	}
-	return required
 }
 
 proc_has_value_poly_arg :: proc(procedure: SymbolProcedureValue) -> bool {
@@ -3604,6 +3588,9 @@ resolve_implicit_selector :: proc(
 					return resolve_type_expression(ast_context, type)
 				case SymbolEnumValue:
 					return symbol, true
+				// rols: a tie whose members differ at the argument names no type
+				case SymbolAggregateValue:
+					return {}, false
 				case SymbolStructValue:
 					if v.poly != nil {
 						if type, ok := get_field_list_type_at_index(v.poly.list, parameter_index); ok {

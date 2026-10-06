@@ -104,6 +104,12 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## Overload resolution and hover (`src/server/analysis.odin`, `src/server/hover.odin`)
 
+- **Open edges of the tie and arity rules from stage S22a.** Each of these comes from reading the code unless it says otherwise.
+  - Completion in a tied call (`append_tied_member_arg_completions` in `src/server/rols_completion.odin`) offers enum and bit_set values only. The poly struct and poly union cases of the single-member path have no tied counterpart.
+  - The whole-file resolve drops a member that needs more arguments than the call passes, so while `g(1, )` is being typed the call resolves without its two-argument member, and its parameter inlay hints may disappear until the second argument exists. An unclosed `g(1,` parses with a bad expression, which turns the filter off.
+  - A poly-type argument makes `resolve_function_overload` resolve every candidate (`resolve_all_possibilities`), so in the `Member` mode the aggregate holds every member, not only the tied ones, and tied completion then offers the values of all members.
+  - Observed: signature help on `g(.A, n)` with an unresolved `n` lists no signature. Signature help in a tied call with resolved arguments lists every tied member (`signature_help_overload_tie_lists_every_member`).
+
 - **The argument-count lint still needs its group guard.** `lint_calls` in `src/server/rols_lint_calls.odin` skips a group call that resolves to a member named differently from the call, because overload resolution keeps a member that needs more arguments than the call passes. With `one :: proc(a, b: int)` and `two :: proc(a: Missing)` in a group `g`, `g(1)` resolved to `one`. The whole-file resolve now filters members by their required count, so the guard may go, but no lint test pins that yet. Completion and signature help keep every member, because they resolve calls that are still being typed. The filter is off when an argument is `x->f()` or a bad expression, whose value count is unknown.
 
 ## Build tags and `when` (`src/server/build.odin`, `src/server/when.odin`)

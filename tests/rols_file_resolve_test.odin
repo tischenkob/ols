@@ -124,6 +124,32 @@ main :: proc() {
 	)
 }
 
+// A parameter with a default value and a variadic parameter are not required, so `two` still fits `g(1)`.
+@(test)
+file_resolve_group_call_keeps_members_with_defaults_and_variadics :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+A :: struct { a_field: int }
+B :: struct { b_field{*}: int }
+one :: proc(a: Missing) -> A { return {} }
+two :: proc(a: int, b := 0, rest: ..int) -> B { return {} }
+g :: proc { one, two }
+main :: proc() {
+	_ = g(1).b_field
+}
+`,
+	}
+	test.expect_reference_locations(
+		t,
+		&source,
+		{
+			{range = {start = {line = 3, character = 14}, end = {line = 3, character = 21}}},
+			{range = {start = {line = 8, character = 10}, end = {line = 8, character = 17}}},
+		},
+	)
+}
+
 // A global and a procedure declared inside the same top-level `when` are separate declarations, so the
 // initializer of `G` does not see the local `a` of `use`.
 @(test)
@@ -136,6 +162,30 @@ make_int :: proc(v: int) -> S { return {} }
 make_f32 :: proc(v: f32) -> S { return {} }
 g :: proc{make_int, make_f32}
 when true {
+	use :: proc() {
+		a: string
+		_ = G.fi{*}eld
+	}
+	a: int
+	G := g(a)
+}
+`,
+	}
+	test.expect_hover(t, &source, "S.field: int")
+}
+
+// The same holds inside an `else when` branch of a top-level `when`.
+@(test)
+hover_global_initializer_in_else_when_ignores_locals :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct { field: int }
+make_int :: proc(v: int) -> S { return {} }
+make_f32 :: proc(v: f32) -> S { return {} }
+g :: proc{make_int, make_f32}
+when false {
+} else when true {
 	use :: proc() {
 		a: string
 		_ = G.fi{*}eld
