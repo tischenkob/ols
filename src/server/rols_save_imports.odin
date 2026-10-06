@@ -15,7 +15,7 @@ organize_imports_on_save :: proc(document: ^Document, config: ^common.Config, wr
 		context.temp_allocator,
 	)
 
-	edits := organize_import_edits(document, &ast_context, config, true, grouped = true)
+	edits := organize_import_edits(document, &ast_context, config, true)
 
 	if len(edits) == 0 {
 		return

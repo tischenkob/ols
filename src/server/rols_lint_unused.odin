@@ -140,13 +140,7 @@ unused_declarations :: proc(
 	}
 
 	// The package clause, which may differ from the directory name.
-	pkg_name := filepath.base(pkg)
-	for document in documents {
-		if document.ast.pkg_name != "" {
-			pkg_name = document.ast.pkg_name
-			break
-		}
-	}
+	pkg_name := len(documents) > 0 && documents[0].ast.pkg_name != "" ? documents[0].ast.pkg_name : filepath.base(pkg)
 	for key, candidate in candidates {
 		if candidate.used do continue
 		diags := &diagnostics[key.uri]

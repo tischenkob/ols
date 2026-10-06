@@ -1389,3 +1389,171 @@ main :: proc() {
 }
 `)
 }
+
+// Only the parameter's type names time, and the argument replaces the parameter, so no import is added.
+@(test)
+action_inline_proc_expression_adds_no_import_for_replaced_parameter :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import "core:time"
+
+get :: proc() -> time.Duration {
+	return 1
+}
+
+twice :: proc(d: time.Duration) -> time.Duration {
+	return d * 2
+}
+`, `package test
+
+main :: proc() {
+	x := twi{*}ce(get())
+	_ = x
+}
+`)
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+
+main :: proc() {
+	x := get() * 2
+	_ = x
+}
+`)
+}
+
+// The argument has the parameter's name, so no local and no import is written.
+@(test)
+action_inline_proc_statement_adds_no_import_for_argument_of_same_name :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import "core:time"
+
+get :: proc() -> time.Duration {
+	return 1
+}
+
+wait :: proc(d: time.Duration) {
+	_ = d
+}
+`, `package test
+
+main :: proc() {
+	d := get()
+	wa{*}it(d)
+}
+`)
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+
+main :: proc() {
+	d := get()
+	{
+		_ = d
+	}
+}
+`)
+}
+
+// The body does not read the parameter, so its type is not written and needs no import.
+@(test)
+action_inline_proc_statement_adds_no_import_for_unused_parameter :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import "core:time"
+
+wait :: proc(d: time.Duration) {
+	_ = 1
+}
+`, `package test
+
+main :: proc() {
+	wa{*}it(5)
+}
+`)
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+
+main :: proc() {
+	{
+		_ = 1
+	}
+}
+`)
+}
+
+// A package-level time in a third file would clash with the added import.
+@(test)
+action_inline_proc_refused_import_name_declared_in_package :: proc(t: ^testing.T) {
+	files := make([]test.File, 2, context.temp_allocator)
+	files[0] = {"a.odin", `package test
+
+import "core:time"
+
+wait :: proc(d: time.Duration) {
+	_ = d
+}
+`}
+	files[1] = {"c.odin", `package test
+
+time :: 1
+`}
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	wa{*}it(5)
+}
+`,
+		files = files,
+		config = {enable_code_action_inline_proc = true},
+	}
+	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
+}
+
+// The tag leaves out targets such as FreeBSD, while the hosts that run the tests still build the file.
+@(private = "file")
+inline_from_tagged_file :: proc(caller: string) -> test.Source {
+	files := make([]test.File, 1, context.temp_allocator)
+	files[0] = {"a.odin", `#+build darwin, linux, windows
+package test
+
+import "core:time"
+
+wait :: proc(d: time.Duration) {
+	_ = d
+}
+`}
+	return test.Source{main = caller, files = files, config = {enable_code_action_inline_proc = true}}
+}
+
+// The callee's file does not build on every target, so its import may not exist where the caller builds.
+@(test)
+action_inline_proc_refused_import_from_build_tagged_file :: proc(t: ^testing.T) {
+	source := inline_from_tagged_file(`package test
+
+main :: proc() {
+	wa{*}it(5)
+}
+`)
+	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
+}
+
+// A caller that builds on the same targets takes the import.
+@(test)
+action_inline_proc_import_from_build_tagged_file_into_same_targets :: proc(t: ^testing.T) {
+	source := inline_from_tagged_file(`#+build darwin, linux, windows
+package test
+
+main :: proc() {
+	wa{*}it(5)
+}
+`)
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `#+build darwin, linux, windows
+package test
+import "core:time"
+
+main :: proc() {
+	{
+		d: time.Duration = 5
+		_ = d
+	}
+}
+`)
+}

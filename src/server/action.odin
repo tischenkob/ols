@@ -224,14 +224,13 @@ source_organize_imports :: proc(
 // rols: import edits, also used by organize-on-save
 // Removes unused imports and adds imports for unresolved `pkg.member` uses. With
 // only_unambiguous, an identifier that matches packages of the same name in more than one
-// collection gets no import, since there is nobody to ask which one was meant. With grouped, an
-// import goes among the kept imports of its collection, else to the shared anchor below.
+// collection gets no import, since there is nobody to ask which one was meant. Organize-on-save
+// also places an import among the kept imports of its collection, else at the shared anchor below.
 organize_import_edits :: proc(
 	document: ^Document,
 	ast_context: ^AstContext,
 	config: ^common.Config,
 	only_unambiguous: bool,
-	grouped := false,
 ) -> []TextEdit {
 	removed_lines := make(map[int]struct{}, 0, context.temp_allocator)
 
@@ -298,7 +297,7 @@ organize_import_edits :: proc(
 	}
 
 	// rols: imports among their collection's kept imports for organize-on-save
-	if grouped && !config.enable_add_import_to_bottom {
+	if only_unambiguous && !config.enable_add_import_to_bottom {
 		used_unimported = append_grouped_imports(&textEdits, document, used_unimported, removed_lines)
 	}
 
