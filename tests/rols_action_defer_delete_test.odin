@@ -679,3 +679,23 @@ main :: proc() {
 `}, context.temp_allocator))
 	}
 }
+
+// A kept pointer result or a polymorphic callee may share the allocation.
+@(test)
+defer_delete_kept_pointer_or_generic_result_escapes :: proc(t: ^testing.T) {
+	for body in ([]string {
+		"p := first(s)\n\t_ = p",
+		"n := count(s)\n\t_ = n",
+	}) {
+		expect_no_defer_delete(t, "Add defer delete(s)", strings.concatenate({`package test
+` + BUILTINS + `
+first :: proc(s: []int) -> ^int { return &s[0] }
+count :: proc(s: []$T) -> int { return 0 }
+
+main :: proc() {
+	s{*} := make([]int, 4)
+	`, body, `
+}
+`}, context.temp_allocator))
+	}
+}

@@ -885,3 +885,111 @@ f :: proc() {
 }
 `)
 }
+
+// A recursive call writes the same static local, so reading it first changes the result.
+@(test)
+action_inline_variable_refused_call_after_static_local_read :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+f :: proc(n: int) -> int {
+	@(static) calls: int
+	calls += 1
+	if n == 0 do return 0
+	v{*} := f(n - 1)
+	total := calls + v
+	return total
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_static_local_read_past_call :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+f :: proc(n: int) -> int {
+	@(static) calls: int
+	calls += 1
+	if n == 0 do return 0
+	v{*} := calls
+	f(n - 1)
+	return v
+}
+`)
+}
+
+// len of a cstring reads the bytes it points to.
+@(test)
+action_inline_variable_refused_cstring_len_past_write :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() -> int {
+	buf := [4]u8{'a', 'b', 0, 0}
+	c := cstring(&buf[0])
+	n{*} := len(c)
+	buf[0] = 0
+	return n
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_shadowed_len_past_statement :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+len :: proc(s: []int) -> int { return 0 }
+
+main :: proc() -> int {
+	s := []int{1, 2, 3}
+	n{*} := len(s)
+	x := 2
+	return n + x
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_len_of_pointer_past_statement :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() -> int {
+	arr := [4]int{}
+	p := &arr
+	n{*} := len(p)
+	x := 2
+	return n + x
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_call_after_method_base_local_read :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, INLINE_ORDER_PRELUDE + `
+S :: struct {
+	m: proc(s: ^S),
+}
+
+g :: proc(s: S, b: int) {}
+
+f :: proc() {
+	s: S
+	s->m()
+	v{*} := bump()
+	g(s, v)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_call_after_sliced_local_read :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, INLINE_ORDER_PRELUDE + `
+g :: proc(a: [2]int, b: int) {}
+
+f :: proc() {
+	arr := [2]int{}
+	sl := arr[:]
+	_ = sl
+	v{*} := bump()
+	g(arr, v)
+}
+`)
+}

@@ -940,3 +940,52 @@ stop :: proc() -> ! {
 
 	test.expect_action_missing(t, &source, UNWRAP_ACTION)
 }
+
+@(test)
+action_unwrap_not_offered_on_else_if_with_init_or_else :: proc(t: ^testing.T) {
+	for chain in ([]string {
+		"} else {*}if y := 2; d {\n\t\tx = y\n\t}",
+		"} else {*}if d {\n\t\tx = 2\n\t} else {\n\t\tx = 3\n\t}",
+	}) {
+		source := test.Source {
+			main = strings.concatenate({`package test
+
+f :: proc(c, d: bool) -> int {
+	x := 0
+	if c {
+		x = 1
+	`, chain, `
+	return x
+}
+`}, context.temp_allocator),
+			config = {enable_code_action_unwrap = true},
+		}
+
+		test.expect_action_missing(t, &source, UNWRAP_ACTION)
+	}
+}
+
+// A solved polymorphic procedure keeps its `-> !`.
+@(test)
+action_unwrap_not_offered_after_generic_diverging_call :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+stop :: proc(x: $T) -> ! {
+	for {}
+}
+
+x :: proc() {}
+
+f :: proc(c: bool) {
+	{*}if c {
+		stop(1)
+	}
+	x()
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_missing(t, &source, UNWRAP_ACTION)
+}

@@ -320,7 +320,7 @@ returns_only_scalars :: proc(document: ^Document, call: ^ast.Call_Expr) -> bool 
 		return false
 	}
 	callee := resolved.symbol.value.(SymbolProcedureValue) or_return
-	if callee.generic || len(callee.return_types) == 0 {
+	if is_polymorphic(callee) || len(callee.return_types) == 0 {
 		return false
 	}
 	for field in callee.return_types {
@@ -349,6 +349,29 @@ returns_only_scalars :: proc(document: ^Document, call: ^ast.Call_Expr) -> bool 
 		}
 	}
 	return true
+}
+
+// A solved polymorphic procedure loses `generic`, but its orig_ fields keep the written `$` names and types.
+is_polymorphic :: proc(callee: SymbolProcedureValue) -> bool {
+	if callee.generic {
+		return true
+	}
+	for field in callee.orig_arg_types {
+		if expr_contains_poly(field.type) {
+			return true
+		}
+		for name in field.names {
+			if _, is_poly := name.derived.(^ast.Poly_Type); is_poly {
+				return true
+			}
+		}
+	}
+	for field in callee.orig_return_types {
+		if expr_contains_poly(field.type) {
+			return true
+		}
+	}
+	return false
 }
 
 stores := []string{"append", "append_elem", "append_elems", "inject_at", "assign_at", "map_insert"}
