@@ -2165,8 +2165,18 @@ visit_block_stmts :: proc(p: ^Printer, stmts: []^ast.Stmt, chain_id := "") -> ^D
 		joined := stmts[last_index].end.line == stmt.pos.line && i != 0 && stmt.pos.line not_in p.disabled_lines
 		// rols: adjacent backtick tokens with no `;` between them (the ``` raw string quirk) stay glued; inside a broken one-line block each statement gets its own line
 		glued := joined && stmts[last_index].end.offset == stmt.pos.offset && p.src[stmt.pos.offset] == '`'
+		// rols: the last one-line statement of a plain `;` chain sits inside the group of its `; ` break, see below
+		fit_stmt := p.force_statement_fit && !contains_comments_in_range(p, stmt.pos, stmt.end)
+		last_one_line :=
+			!fit_stmt &&
+			joined &&
+			stmt.pos.line == stmt.end.line &&
+			(i == len(stmts) - 1 || stmts[i + 1].pos.line != stmt.end.line)
+		semi_id := ""
 		if joined && !glued && chain_id != "" {
 			document = cons(document, if_break_or(newline(1), text("; "), chain_id))
+		} else if joined && !glued && last_one_line {
+			semi_id = fmt.aprintf("semi@%d", stmt.pos.offset, allocator = p.allocator)
 		} else if joined && !glued {
 			document = group(cons(document, break_with("; ")))
 		}
@@ -2174,11 +2184,16 @@ visit_block_stmts :: proc(p: ^Printer, stmts: []^ast.Stmt, chain_id := "") -> ^D
 		stmt_document: ^Document
 		// rols: a foreign procedure with a comment inside needs its own lines, so it cannot be forced onto one
 		// the last one-line statement of a `;` chain stays in one piece, so the group before it measures all of it,
-		// but in a broken one-line block it may wrap
-		if p.force_statement_fit && !contains_comments_in_range(p, stmt.pos, stmt.end) {
+		// but in a broken one-line block or after a broken `; ` it may wrap, as it would on a line of its own
+		if fit_stmt {
 			stmt_document = enforce_fit(visit_stmt(p, stmt, .Generic, false, true))
-		} else if joined && stmt.pos.line == stmt.end.line && (i == len(stmts) - 1 || stmts[i + 1].pos.line != stmt.end.line) {
+		} else if last_one_line {
 			stmt_document = visit_stmt(p, stmt, .Generic, false, true)
+			if semi_id != "" {
+				stmt_document = if_break_or(stmt_document, enforce_fit(stmt_document), semi_id)
+				document = group(cons(document, break_with("; "), stmt_document), Document_Group_Options{id = semi_id})
+				continue
+			}
 			stmt_document = chain_id != "" ? if_break_or(stmt_document, enforce_fit(stmt_document), chain_id) : enforce_fit(stmt_document)
 		} else {
 			stmt_document = visit_stmt(p, stmt, .Generic, false, true)
