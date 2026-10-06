@@ -548,6 +548,43 @@ equivalent :: proc(text: string, c: bool) {
 	}
 }
 
+unguarded :: proc(text: string) {
+	for b in 0 ..= len(text) {
+		if b <= len(text) {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if b - 1 < len(text) {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if b < len(text) + 1 {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if b != len(text) - 1 {
+			_ = text[b]
+		}
+	}
+}
+
+results :: proc(text: string) {
+	n := len(text)
+	_ = n
+	g :: proc(text: string) -> (n: int) {
+		for b in 0 ..= len(text) {
+			if b < n {
+				_ = text[b]
+			}
+		}
+		return
+	}
+	_ = g
+}
+
 `,
 		config = {enable_lint_loops = true},
 	}
@@ -563,6 +600,11 @@ equivalent :: proc(text: string, c: bool) {
 			{27, "range-off-by-one"},
 			{70, "range-off-by-one"},
 			{75, "range-off-by-one"},
+			{155, "range-off-by-one"},
+			{160, "range-off-by-one"},
+			{165, "range-off-by-one"},
+			{170, "range-off-by-one"},
+			{181, "range-off-by-one"},
 		},
 	)
 }

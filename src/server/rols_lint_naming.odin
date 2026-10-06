@@ -216,45 +216,9 @@ check_c_name :: proc(
 	rule: Naming_Rule,
 ) {
 	if ident.name == "_" || conforms(ident.name, rule) do return
-	if file_has_foreign_import(ctx.document) do return
+	if ctx.foreign_import == nil do ctx.foreign_import = has_foreign_import(ctx.document.ast.decls[:])
+	if ctx.foreign_import.? do return
 	check_name(ctx, diags, ident, what, rule)
-}
-
-// The last answer of file_has_foreign_import. Lints run on the main thread, one file at a time, so
-// one entry serves every name of a lint pass. A parse gives new declarations, so the key includes
-// the declaration and text buffers as well as the document and its version.
-@(private = "file", thread_local)
-foreign_import_cache: struct {
-	document: ^Document,
-	version:  Maybe(int),
-	decls:    rawptr,
-	n_decls:  int,
-	text:     rawptr,
-	n_text:   int,
-	has:      bool,
-}
-
-@(private = "file")
-file_has_foreign_import :: proc(document: ^Document) -> bool {
-	cache := &foreign_import_cache
-	decls := document.ast.decls[:]
-	if cache.document != document ||
-	   cache.version != document.version ||
-	   cache.decls != raw_data(decls) ||
-	   cache.n_decls != len(decls) ||
-	   cache.text != raw_data(document.text) ||
-	   cache.n_text != document.used_text {
-		cache^ = {
-			document = document,
-			version  = document.version,
-			decls    = raw_data(decls),
-			n_decls  = len(decls),
-			text     = raw_data(document.text),
-			n_text   = document.used_text,
-			has      = has_foreign_import(decls),
-		}
-	}
-	return cache.has
 }
 
 // A `foreign import` at file scope, also in any branch of a top-level `when`.
