@@ -94,9 +94,10 @@ is_leading_comment :: proc(p: ^Printer, comment: tokenizer.Token, pos: tokenizer
 	return true
 }
 
-// Moves to the line of `pos` like move_line, but a block comment that leads the node at `pos` prints before it
-// with one space after it, as visit_comments_split prints it.
+// Moves to the line of `pos` like move_line_limit with the configured newline limit,
+// but a block comment that leads the node at `pos` prints before it with one space after it, as visit_comments_split prints it.
 // visit_comment would print such a comment as trailing code on its line, with no space after it.
+// move_line calls it, and visit_end_brace calls move_line_limit so that a comment before `}` keeps upstream's placement.
 @(private)
 move_line_leading :: proc(p: ^Printer, pos: tokenizer.Pos) -> ^Document {
 	lines := pos.line - p.source_position.line

@@ -1,5 +1,10 @@
 // Corpus validation follow-up: a block comment before a statement or a declaration on its line keeps one space after it.
-package odinfmt_test
+/* p */ package odinfmt_test
+
+/* i */ import "core:fmt"
+/* j */ foreign import lib "system:c"
+/* k */ foreign lib {}
+/* l */ #assert(true)
 
 /* e */ G :: 1
 /* f */ @(private)

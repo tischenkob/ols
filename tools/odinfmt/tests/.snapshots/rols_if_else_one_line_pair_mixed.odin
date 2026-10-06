@@ -48,6 +48,10 @@ f :: proc() {
 		c()
 		long_call(aaaaaaaaa)
 	}
+	if x {a()} else {
+		g(proc() {s(); t()})
+		long_call(aaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbb)
+	}
 	if x {a(); b()} else if y {c(); d()}
 	if x {a()} else if y {b()} else {c()}
 	if x {a()} else {b()}

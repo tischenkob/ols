@@ -1,5 +1,10 @@
 // The formatted output of rols_block_comment_before_statement formats to itself.
-package odinfmt_test
+/* p */ package odinfmt_test
+
+/* i */ import "core:fmt"
+/* j */ foreign import lib "system:c"
+/* k */ foreign lib {}
+/* l */ #assert(true)
 
 /* e */ G :: 1
 /* f */ @(private)
