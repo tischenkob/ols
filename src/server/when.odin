@@ -205,8 +205,7 @@ resolve_when_expr :: proc(
 			pkg_ident, is_ident := odin_expr.expr.derived.(^ast.Ident)
 			if !is_ident do return {}, false
 			if ctx == nil {
-				value, folded := when_expr_map[when_selector_key(pkg_ident.name, odin_expr.field.name)]
-				if !folded do return {}, false
+				value := when_expr_map[when_selector_key(pkg_ident.name, odin_expr.field.name)] or_return
 				return resolve_when_expr(when_expr_map, value)
 			}
 			for imp in ctx.imports {

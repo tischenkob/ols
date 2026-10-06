@@ -71,31 +71,27 @@ restore_hidden_fallbacks :: proc(collection: ^SymbolCollection) {
 // constant declares reads as false, like in any `when` condition, because it can be `true`, `ODIN_OS` or a define.
 // The caller clears `when_ast_context` so that a selector does not read the open file's imports.
 fold_package_when_const :: proc(symbol: Symbol, pkg: string) -> (When_Expr, bool) {
-	fold := Package_Fold {
-		envs    = make(map[string]^map[string]When_Expr, context.temp_allocator),
-		unknown = new(ast.Expr, context.temp_allocator),
-	}
-	return fold_package_const(&fold, symbol, pkg)
+	envs := make(map[string]^map[string]When_Expr, context.temp_allocator)
+	return fold_package_const(&envs, symbol, pkg)
 }
 
-// The folded constants of each package, keyed by name, and by `path.NAME` for a selector into package `path`.
-// `unknown` has no derived node, so `resolve_when_expr` reads a name stored as it as unknown. A name stores it while
-// it folds and keeps it when the fold fails, so a cycle of constants ends instead of recursing forever.
+// The value of a name whose fold is unknown. It has no derived node, so `resolve_when_expr` reads it as unknown. A
+// name holds it while it folds and keeps it when the fold fails, so a cycle of constants ends instead of recursing
+// forever. Nothing writes to it.
 @(private = "file")
-Package_Fold :: struct {
-	envs:    map[string]^map[string]When_Expr,
-	unknown: ^ast.Expr,
-}
+when_unknown: ast.Expr
 
+// `envs` holds the folded constants of each package, keyed by name, and by `path.NAME` for a selector into the
+// package at `path`.
 @(private = "file")
-fold_package_const :: proc(fold: ^Package_Fold, symbol: Symbol, pkg: string) -> (When_Expr, bool) {
+fold_package_const :: proc(envs: ^map[string]^map[string]When_Expr, symbol: Symbol, pkg: string) -> (When_Expr, bool) {
 	generic, is_generic := symbol.value.(SymbolGenericValue)
 	if !is_generic do return {}, false
-	consts := fold.envs[pkg]
+	consts := envs[pkg]
 	if consts == nil {
 		consts = new(map[string]When_Expr, context.temp_allocator)
 		consts^ = make_when_expr_map()
-		fold.envs[pkg] = consts
+		envs[pkg] = consts
 	}
 	uri, _ := common.parse_uri(symbol.uri, context.temp_allocator)
 	refs := make([dynamic]^ast.Expr, context.temp_allocator)
@@ -132,9 +128,9 @@ fold_package_const :: proc(fold: ^Package_Fold, symbol: Symbol, pkg: string) -> 
 		named, found := lookup(name, ref_pkg, uri.path)
 		// A name stays unset and reads as false, but a selector reads a declaration of the package or nothing.
 		if !found && ref_pkg == pkg do continue
-		consts[key] = fold.unknown
+		consts[key] = &when_unknown
 		if !found || .Mutable in named.flags || .Fallback in named.flags do continue
-		consts[key] = fold_package_const(fold, named, ref_pkg) or_continue
+		consts[key] = fold_package_const(envs, named, ref_pkg) or_continue
 	}
 	return resolve_when_expr(consts^, generic.expr)
 }

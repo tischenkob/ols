@@ -251,17 +251,11 @@ reindex_restores_hidden_fallback :: proc(t: ^testing.T) {
 // the `else` branch holds.
 @(test)
 when_condition_folds_names_in_other_package :: proc(t: ^testing.T) {
-	other_false := test.Package {
-		pkg    = "other",
-		source = "package other\n\nX :: false\n",
-	}
-	other_true := test.Package {
-		pkg    = "other",
-		source = "package other\n\nX :: true\n",
-	}
+	other_false :: "package other\n\nX :: false\n"
+	other_true :: "package other\n\nX :: true\n"
 	Case :: struct {
 		cfg:      string,
-		other:    test.Package,
+		other:    string,
 		expected: string,
 	}
 	cases := [?]Case {
@@ -276,6 +270,11 @@ when_condition_folds_names_in_other_package :: proc(t: ^testing.T) {
 		{"package cfg\n\nimport \"core:other\"\n\nON :: !MID\nMID :: other.Y\n", other_true, "test.X :: 2"},
 		{"package cfg\n\nON :: !V\nV := true\n", other_false, "test.X :: 2"},
 		{"package cfg\n\nON :: !A\nA :: B\nB :: A\n", other_false, "test.X :: 2"},
+		{
+			"package cfg\n\nimport \"core:other\"\n\nON :: !MID\nMID :: other.X\n",
+			"package other\n\nimport \"core:cfg\"\n\nX :: cfg.MID\n",
+			"test.X :: 2",
+		},
 	}
 	for c in cases {
 		source := test.Source {
@@ -293,7 +292,7 @@ main :: proc() {
 	y := X{*}
 }
 `,
-			packages = {{pkg = "cfg", source = c.cfg}, c.other},
+			packages = {{pkg = "cfg", source = c.cfg}, {pkg = "other", source = c.other}},
 			collections = {"core" = "test"},
 		}
 		test.expect_hover(t, &source, c.expected)
