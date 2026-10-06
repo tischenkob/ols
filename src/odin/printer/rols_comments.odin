@@ -7,14 +7,24 @@ import "core:strings"
 // A leading comment prints before the node at `pos` with one space after it.
 // `above` holds every other comment, visited by visit_comment as before.
 // `width` is the width that the leading comments and their spaces take on the node's line.
+// `code_between` lets a block comment lead even when code separates it from `pos` on the line.
+// A caller passes it when it prints the comments right before the node, so that code is already behind them.
 @(private)
-visit_comments_split :: proc(p: ^Printer, pos: tokenizer.Pos) -> (above: ^Document, leading: ^Document, width: int) {
+visit_comments_split :: proc(
+	p: ^Printer,
+	pos: tokenizer.Pos,
+	code_between := false,
+) -> (
+	above: ^Document,
+	leading: ^Document,
+	width: int,
+) {
 	above = empty()
 	leading = empty()
 
 	for comment_before_position(p, pos) {
 		for comment in p.comments[p.latest_comment_index].list {
-			if is_leading_comment(p, comment, pos) {
+			if is_leading_comment(p, comment, pos, code_between) {
 				leading = cons(leading, text(comment.text), text(" "))
 				width += strings.rune_count(comment.text) + 1
 				p.source_position = comment.pos
@@ -30,8 +40,9 @@ visit_comments_split :: proc(p: ^Printer, pos: tokenizer.Pos) -> (above: ^Docume
 }
 
 // A block comment leads the node at `pos` when only spaces, tabs and other block comments separate them on one line.
+// With `code_between`, any text without a newline may separate them.
 @(private)
-is_leading_comment :: proc(p: ^Printer, comment: tokenizer.Token, pos: tokenizer.Pos) -> bool {
+is_leading_comment :: proc(p: ^Printer, comment: tokenizer.Token, pos: tokenizer.Pos, code_between := false) -> bool {
 	if !strings.has_prefix(comment.text, "/*") || strings.contains_rune(comment.text, '\n') {
 		return false
 	}
@@ -45,6 +56,9 @@ is_leading_comment :: proc(p: ^Printer, comment: tokenizer.Token, pos: tokenizer
 	}
 
 	gap := p.src[end:pos.offset]
+	if code_between {
+		return !strings.contains_rune(gap, '\n')
+	}
 	for i := 0; i < len(gap); {
 		switch {
 		case gap[i] == ' ' || gap[i] == '\t':
