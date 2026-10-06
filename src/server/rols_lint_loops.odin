@@ -320,7 +320,7 @@ intentional_inclusive :: proc(ctx: ^LintContext, n: ^ast.Range_Stmt, bound: ^ast
 			if p.low == use.ident || p.high == use.ident do evidence = true
 		case ^ast.Index_Expr:
 			if p.index != use.ident do continue
-			if node_text(ctx.src, p.expr) != bound_text || guarded_by_len(ctx, use.parents, bound_text, val.name) {
+			if node_text(ctx.src, p.expr) != bound_text || guarded_by_len(ctx, use.ident, use.parents, bound_text) {
 				evidence = true
 			} else {
 				return false
@@ -330,18 +330,68 @@ intentional_inclusive :: proc(ctx: ^LintContext, n: ^ast.Range_Stmt, bound: ^ast
 	return evidence
 }
 
-// Whether an enclosing `if` compares the loop variable with len(collection).
+// Whether an enclosing `if` compares the loop variable `use` with len(collection), written out or
+// through a local `n := len(collection)`. A use inside the condition is guarded only by what comes
+// before it, because `&&` evaluates left to right.
 @(private = "file")
-guarded_by_len :: proc(ctx: ^LintContext, parents: []^ast.Node, collection: string, var_name: string) -> bool {
+guarded_by_len :: proc(ctx: ^LintContext, use: ^ast.Ident, parents: []^ast.Node, collection: string) -> bool {
 	needle := fmt.tprintf("len(%s)", collection)
 	for parent in parents {
 		if_stmt, is_if := parent.derived.(^ast.If_Stmt)
-		if !is_if || if_stmt.cond == nil || !strings.contains(node_text(ctx.src, if_stmt.cond), needle) do continue
-		for use in collect_ident_uses(if_stmt.cond) {
-			if use.ident.name == var_name do return true
+		if !is_if || if_stmt.cond == nil do continue
+		cond := if_stmt.cond
+		limit := cond.end.offset
+		if cond.pos.offset <= use.pos.offset && use.pos.offset < limit do limit = use.pos.offset
+		guarded := strings.contains(ctx.src[cond.pos.offset:limit], needle)
+		compared := false
+		for cond_use in collect_ident_uses(cond) {
+			if cond_use.ident.pos.offset >= limit do continue
+			if cond_use.ident.name == use.name {
+				compared = true
+			} else if !guarded && names_len_local(ctx, cond_use.ident, collection) {
+				guarded = true
+			}
 		}
+		if guarded && compared do return true
 	}
 	return false
+}
+
+// Whether ident names a declaration `ident := len(collection)` (or `::`) written before it in the
+// same top-level declaration. The match is by name, so a shadowing declaration also counts.
+@(private = "file")
+names_len_local :: proc(ctx: ^LintContext, ident: ^ast.Ident, collection: string) -> bool {
+	top := top_level_stmt_at(ctx.document.ast.decls[:], ident.pos.offset)
+	if top == nil do return false
+	Data :: struct {
+		ctx:        ^LintContext,
+		ident:      ^ast.Ident,
+		collection: string,
+		found:      bool,
+	}
+	data := Data {
+		ctx        = ctx,
+		ident      = ident,
+		collection = collection,
+	}
+	visitor := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			data := (^Data)(visitor.data)
+			if node == nil || data.found || node.pos.offset >= data.ident.pos.offset do return nil
+			decl, is_decl := node.derived.(^ast.Value_Decl)
+			if !is_decl || len(decl.names) != len(decl.values) do return visitor
+			for name, i in decl.names {
+				name_ident, is_ident := name.derived.(^ast.Ident)
+				if !is_ident || name_ident.name != data.ident.name do continue
+				arg, is_len := len_call(decl.values[i])
+				if is_len && node_text(data.ctx.src, arg) == data.collection do data.found = true
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, top)
+	return data.found
 }
 
 // Evaluating the expression twice cannot change anything: no calls, no `or_return`, no dereference.

@@ -387,3 +387,32 @@ Alias :: Iface
 
 	test.expect_lint_diagnostics(t, &source, {{15, "naming"}}, {"constant names are SCREAMING_SNAKE_CASE: pf"})
 }
+
+@(test)
+lint_naming_constant_alias_of_value_in_other_file :: proc(t: ^testing.T) {
+	// The corpus shape with the values in another file: the index keeps .Variable on IMPL_A and IMPL_B.
+	source := test.Source {
+		main = `package test
+
+when ODIN_OS == .Windows {
+	PLATFORM :: IMPL_A
+} else {
+	PLATFORM :: IMPL_B
+}
+
+pf :: PLATFORM
+`,
+		files = {{name = "b.odin", source = `package test
+
+Iface :: struct {
+	f: proc() -> int,
+}
+
+IMPL_A :: Iface{f = nil}
+IMPL_B :: Iface{f = nil}
+`}},
+		config = {enable_lint_naming = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{8, "naming"}}, {"constant names are SCREAMING_SNAKE_CASE: pf"})
+}

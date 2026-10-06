@@ -257,3 +257,46 @@ f :: proc(items: []int) -> int {
 
 	test.expect_lint_diagnostics(t, &source, {{3, "dead-store"}})
 }
+
+@(test)
+dead_store_bare_return_reads_only_named_results :: proc(t: ^testing.T) {
+	// A bare return reads the named result `r`, not the plain local `x`. A defer registered before a store may read it.
+	source := test.Source {
+		main = `package test
+
+use :: proc(v: int) {}
+plain :: proc(c: bool) {
+	x: int
+	x = 1
+	if c { return }
+	x = 2
+	use(x)
+}
+named :: proc(c: bool) -> (r: int) {
+	r = 1
+	if c { return }
+	r = 2
+	return
+}
+deferred :: proc(c: bool) -> int {
+	x: int
+	defer if x > 0 { use(x) }
+	x = 1
+	if c { return 0 }
+	x = 2
+	return 1
+}
+late_defer :: proc(c: bool) -> int {
+	x: int
+	x = 1
+	if c { return 0 }
+	x = 2
+	defer use(x)
+	return 1
+}
+`,
+		config = {enable_lint_dead_store = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{5, "dead-store"}, {26, "dead-store"}})
+}

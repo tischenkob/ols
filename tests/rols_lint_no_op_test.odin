@@ -318,3 +318,22 @@ f :: proc(x: bool, s: string, n: f32) {
 
 	test.expect_lint_diagnostics(t, &source, {{4, "empty-body"}, {6, "empty-body"}, {7, "empty-body"}, {8, "empty-body"}})
 }
+
+@(test)
+empty_body_ignores_scan_loop_with_post_statement :: proc(t: ^testing.T) {
+	// Corpus: core/os/path_linux.odin:29 and :50. The work sits in the post statement on a variable declared before.
+	source := test.Source {
+		main = `package test
+
+f :: proc(path: string) -> int {
+	i := 0
+	for ; i < len(path) - 1 && path[i] != '/'; i += 1 {}
+	for i += 1; i < len(path) && path[i] == '/'; i += 1 {}
+	return i
+}
+`,
+		config = {enable_lint_no_op = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}

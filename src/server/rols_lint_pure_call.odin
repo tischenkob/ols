@@ -28,6 +28,8 @@ MUTATING_PREFIXES := []string {
 	"buffer_", // bytes.Buffer: buffer_write*, buffer_read*, buffer_truncate, buffer_grow, ...
 	"reader_", // bytes.Reader, strings.Reader: reader_read*, reader_seek, ...
 	"write_",
+	"to_reader", // strings.to_reader, to_reader_at: fill the Reader passed by pointer
+	"intern_", // strings.Intern: intern_get, intern_get_cstring insert into the table
 	"sort",
 	"reverse",
 	"swap",
@@ -87,10 +89,12 @@ lint_pure_call :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diag
 	value, is_proc := resolved.symbol.value.(SymbolProcedureValue)
 	if !is_proc || len(value.return_types) == 0 do return
 
+	name := resolved.symbol.name
 	for prefix in MUTATING_PREFIXES {
-		name := resolved.symbol.name
 		if strings.has_prefix(name, prefix) && !slice.contains(ACCESSOR_NAMES, name) do return
 	}
+	// `to_cstring` appends a terminator to the Builder, and a `*_iterator` advances its ^string or ^[]byte.
+	if name == "to_cstring" || strings.has_suffix(name, "_iterator") do return
 
 	// A pointer argument is the procedure's output.
 	for arg in call.args {

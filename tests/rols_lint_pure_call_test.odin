@@ -15,6 +15,15 @@ builder_reset :: proc(b: ^Builder) -> int { return 0 }
 write_string :: proc(b: ^Builder, s: string) -> int { return 0 }
 index_byte :: proc(s: string, c: byte) -> int { return 0 }
 clone :: proc(s: string) -> string { return s }
+Reader :: struct {}
+Intern :: struct {}
+to_reader :: proc(r: ^Reader, s: string) -> int { return 0 }
+to_reader_at :: proc(r: ^Reader, s: string) -> int { return 0 }
+intern_get :: proc(m: ^Intern, text: string) -> (string, bool) { return text, true }
+intern_get_cstring :: proc(m: ^Intern, text: string) -> (cstring, bool) { return nil, true }
+to_cstring :: proc(b: ^Builder) -> (cstring, bool) { return nil, true }
+split_iterator :: proc(s: ^string, sep: string) -> (string, bool) { return "", false }
+fields_iterator :: proc(s: ^string) -> (string, bool) { return "", false }
 `,
 	},
 	{
@@ -164,4 +173,29 @@ reader_read_byte :: proc(r: ^Reader) -> (byte, bool) { return 0, true }
 
 	// Only the accessor, which leaves the buffer alone, is a pure call.
 	test.expect_lint_diagnostics(t, &src, {{10, "pure-call-unused"}})
+}
+
+@(test)
+lint_pure_call_ignores_pointer_variable_outputs :: proc(t: ^testing.T) {
+	// These procedures write through a pointer that is often a variable rather than `&x`.
+	src := test.Source {
+		main = `package test
+
+import "strings"
+
+main :: proc(r: ^strings.Reader, m: ^strings.Intern, b: ^strings.Builder, s: ^string) {
+	strings.to_reader(r, "x")
+	strings.to_reader_at(r, "x")
+	strings.intern_get(m, "x")
+	strings.intern_get_cstring(m, "x")
+	strings.to_cstring(b)
+	strings.split_iterator(s, ",")
+	strings.fields_iterator(s)
+}
+`,
+		packages = packages,
+		config = {enable_lint_pure_call = true},
+	}
+
+	test.expect_lint_diagnostics(t, &src, {})
 }
