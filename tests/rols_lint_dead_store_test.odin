@@ -311,7 +311,8 @@ straight :: proc() {
 @(test)
 dead_store_ignores_closed_or_shadowed_defer :: proc(t: ^testing.T) {
 	// A defer in a block that closed before the store, or one that reads an outer x the store shadows, cannot read the store.
-	// A shadowing declaration in a block that closed before the store leaves the defer reading it.
+	// A shadowing declaration in a block that closed before the store leaves the defer reading it. A `when` body
+	// opens no scope, so its defer stays pending.
 	source := test.Source {
 		main = `package test
 
@@ -345,6 +346,16 @@ closed_shadow :: proc(c: bool) {
 	}
 	x = 1
 	if c { return }
+	x = 2
+	use(x)
+}
+when_body :: proc(c: bool) {
+	x := 0
+	when ODIN_DEBUG {
+		defer use(x)
+	}
+	x = 1
+	if c do return
 	x = 2
 	use(x)
 }
