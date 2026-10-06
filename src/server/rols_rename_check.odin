@@ -53,8 +53,7 @@ check_rename :: proc(
 	}
 	target.h.documents[document.uri.uri] = document
 
-	if _, _, on_import_name := import_name_at(document, position); on_import_name {
-		_, warnings, reasons, _ := rename_import(document, position, new_name)
+	if _, warnings, reasons, on_import_name := rename_import(document, position, new_name); on_import_name {
 		return reasons, warnings
 	}
 	if reason, is_import := import_at(document, position); is_import {
@@ -74,7 +73,7 @@ check_rename :: proc(
 		append(
 			&out,
 			fmt.tprintf(
-				"`%s` is a package qualifier: use rename-package to rename an import alias or a package",
+				"`%s` is a package qualifier: use rename-package to rename a package",
 				target.old_name,
 			),
 		)
@@ -112,7 +111,7 @@ import_at :: proc(document: ^Document, position: common.Position) -> (reason: st
 	offset := common.get_absolute_position(position, document.text[:document.used_text]) or_return
 	for imp in document.ast.imports {
 		if imp.pos.offset <= offset && offset <= imp.end.offset {
-			return "the position is on an import: use rename-package to rename an import alias or a package", true
+			return "the position is on an import path: rename its alias or a qualifier, or use rename-package to rename the package", true
 		}
 	}
 	return "", false

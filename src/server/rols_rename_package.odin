@@ -292,9 +292,13 @@ rewrite_importer :: proc(r: ^Package_Rename, document: ^Document) {
 				),
 			)
 		}
-		// An import without an alias binds the directory name, whatever its path says.
+		// An import without an alias binds the directory name, whatever its path says. Its qualifiers are
+		// renamed, refused where the new name is already bound in the importer or a local would capture it.
 		if target == r.real_dir && imp.name.text == "" {
-			rewrite_qualifiers(r, document, imp)
+			check_import_name(r.reasons, document, imp, r.new_name, " of an importer")
+			for range in import_qualifiers(document, r.old_name, r.new_name, r.real_dir, r.reasons, &r.warnings) {
+				add_edit(r, document.uri.uri, range, r.new_name)
+			}
 		}
 	}
 }
@@ -485,17 +489,6 @@ rewrite_import_path :: proc(
 	}
 	strings.write_string(&b, quoted[:1])
 	return strings.to_string(b), current, changed
-}
-
-// Renames each `old.x` of document whose `old` resolves to the package imported by imp. Appends a cause
-// for each binding of the new name that the import would collide with, and for each local named like
-// the new name that is visible at a qualifier, since it would capture the renamed qualifier.
-@(private = "file")
-rewrite_qualifiers :: proc(r: ^Package_Rename, document: ^Document, imp: ^ast.Import_Decl) {
-	check_import_name(r.reasons, document, imp, r.new_name, " of an importer")
-	for range in import_qualifiers(document, r.old_name, r.new_name, r.real_dir, r.reasons, &r.warnings) {
-		add_edit(r, document.uri.uri, range, r.new_name)
-	}
 }
 
 // Appends a cause for each binding of new_name in document that the import imp, named new_name, would
