@@ -36,6 +36,13 @@ f :: proc() {
 	switch v {
 	case 1:
 		x := 1
-		if c {a(); long_call(aaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbb, cccccccccccccccc)}
+		if c {
+			a()
+			long_call(
+				aaaaaaaaaaaaaa,
+				bbbbbbbbbbbbbbbbbbbbbbbb,
+				cccccccccccccccc,
+			)
+		}
 	}
 }
