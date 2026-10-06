@@ -1042,7 +1042,7 @@ visit_stmt :: proc(
 				document,
 				group(
 					cons(nest(cons(edge, block, comment_end)), edge, visit_end_brace(p, v.end)),
-					Document_Group_Options{id = chain_id},
+					Document_Group_Options{id = chain_id, measure = true},
 				),
 			)
 		} else if block_type == .Switch_Stmt && !p.config.indent_cases {
@@ -2596,12 +2596,14 @@ visit_signature_list :: proc(
 	document := empty()
 
 	for field, i in list.list {
-		// rols: a comment above the first field stays above it
+		// rols: a comment above the first field stays above it, and a block comment on its line stays before it
 		if i == 0 && .Enforce_Newline in options {
 			// the caller already broke the line, so each comment starts on the current one
-			for comment_before_position(p, field.pos) && p.comments[p.latest_comment_index].pos.line < field.pos.line {
+			for comment_before_position(p, field.pos) {
+				above := p.comments[p.latest_comment_index].pos.line < field.pos.line
 				for comment in p.comments[p.latest_comment_index].list {
-					document = cons(document, text(comment.text), newline(1))
+					// only a block comment can sit before the field on its line
+					document = cons(document, text(comment.text), above ? newline(1) : text(" "))
 					p.source_position = comment.pos
 					p.source_position.line += strings.count(comment.text, "\n")
 				}

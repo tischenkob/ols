@@ -2,7 +2,7 @@
 package odinfmt_test
 
 h :: proc(
-	 /* ctx */x: int, // c
+	/* ctx */ x: int, // c
 	y: int,
 ) {}
 

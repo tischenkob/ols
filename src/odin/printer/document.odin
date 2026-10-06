@@ -71,7 +71,9 @@ Document_Group_Mode :: enum {
 }
 
 Document_Group_Options :: struct {
-	id: string,
+	id:      string,
+	// rols: a group that is measured even in a flat region, where only the first group after a newline is
+	measure: bool,
 }
 
 Document_Break_Parent :: struct {}
@@ -309,6 +311,9 @@ fits :: proc(width: int, list: ^[dynamic]Tuple, rest: []Tuple) -> bool {
 		return false
 	}
 
+	// rols: the measured content comes first, so once `list` runs dry every later item belongs to the rest
+	in_rest := false
+
 	for len(list) != 0 || rest_index > 0 {
 		data: Tuple
 		if len(list) != 0 {
@@ -316,6 +321,8 @@ fits :: proc(width: int, list: ^[dynamic]Tuple, rest: []Tuple) -> bool {
 		} else {
 			rest_index -= 1
 			data = rest[rest_index]
+			// rols: from here on, every item comes from the rest
+			in_rest = true
 		}
 
 		if width <= 0 {
@@ -403,12 +410,14 @@ fits :: proc(width: int, list: ^[dynamic]Tuple, rest: []Tuple) -> bool {
 				)
 			}
 		case Document_Group:
+			// rols: a later `measure` group decides its own mode, so its first break may end the measured line
+			parent_mode := in_rest && v.options.measure ? Document_Group_Mode.Break : data.mode
 			append(
 				list,
 				Tuple {
 					indentation = data.indentation,
 					// rols: a Fit group measures with its breaks as spaces
-					mode = (v.mode == .Break || v.mode == .Fit ? v.mode : data.mode),
+					mode = (v.mode == .Break || v.mode == .Fit ? v.mode : parent_mode),
 					document = v.document,
 					alignment = data.alignment,
 				},
@@ -606,7 +615,8 @@ format :: proc(width: int, list: ^[dynamic]Tuple, builder: ^strings.Builder, p: 
 				)
 			}
 		case Document_Group:
-			if data.mode == .Flat && !recalculate {
+			// rols: a group with `measure` set decides its own mode even after another group on its line
+			if data.mode == .Flat && !recalculate && !v.options.measure {
 				append(
 					list,
 					Tuple {
