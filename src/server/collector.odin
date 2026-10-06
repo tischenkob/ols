@@ -996,7 +996,8 @@ collect_symbols :: proc(collection: ^SymbolCollection, file: ast.File, uri: stri
 				}
 			}
 			// Record proc group members for fake methods feature
-			if collection.config != nil && collection.config.enable_fake_method {
+			// rols: an inactive `when` branch adds no fake methods
+			if collection.config != nil && collection.config.enable_fake_method && .Fallback not_in expr.flags {
 				record_proc_group_members(collection, v, symbol.pkg)
 			}
 		case ^ast.Struct_Type:
@@ -1146,8 +1147,16 @@ collect_symbols :: proc(collection: ^SymbolCollection, file: ast.File, uri: stri
 
 		pkg := get_or_create_package(collection, symbol.pkg)
 
-		if .ObjC in symbol.flags {
+		// rols: an inactive `when` branch adds no ObjC class members
+		if .ObjC in symbol.flags && .Fallback not_in expr.flags {
 			collect_objc(collection, expr.attributes, symbol, package_map)
+		}
+
+		// rols: a fallback fills only an absent name, and an active declaration replaces a fallback.
+		if .Fallback in expr.flags do symbol.flags += {.Fallback}
+		if v, ok := pkg.symbols[symbol.name]; ok && .Fallback in v.flags && .Fallback not_in symbol.flags {
+			free_symbol(v, collection.allocator)
+			delete_key(&pkg.symbols, symbol.name)
 		}
 
 		if v, ok := pkg.symbols[symbol.name]; !ok || v.name == "" {
@@ -1178,6 +1187,8 @@ collect_fake_methods :: proc(collection: ^SymbolCollection, exprs: []GlobalExpr,
 	spall.trace(#procedure)
 
 	for expr in exprs {
+		// rols: an inactive `when` branch adds no fake methods
+		if .Fallback in expr.flags do continue
 		// Determine the package name (same logic as in collect_symbols)
 		pkg_name := get_symbol_package_name(collection, directory, uri, expr.builtin)
 

@@ -23,3 +23,14 @@ when_block_at :: proc(
 	}
 	return active_when_block(ast_context, stmt, consts)
 }
+
+// rols: `lookup` that sets a declaration of an inactive `when` branch aside in `fallback`, keeping the first, and
+// reports it missing. A resolver returns the fallback only after every later scope, such as the builtins, misses.
+lookup_active :: proc(name, pkg, current_file: string, fallback: ^Maybe(Symbol)) -> (Symbol, bool) {
+	symbol, found := lookup(name, pkg, current_file)
+	if !found || .Fallback not_in symbol.flags {
+		return symbol, found
+	}
+	if fallback^ == nil do fallback^ = symbol
+	return {}, false
+}

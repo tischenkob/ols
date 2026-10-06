@@ -1411,6 +1411,10 @@ get_selector_completion :: proc(
 				if .PrivatePackage in symbol.flags {
 					continue
 				}
+				// rols: a declaration of an inactive `when` branch is not offered
+				if .Fallback in symbol.flags {
+					continue
+				}
 
 				resolve_unresolved_symbol(ast_context, &symbol)
 				append(results, CompletionResult{symbol = symbol})
@@ -2015,6 +2019,10 @@ get_identifier_completion :: proc(
 	if fuzzy_results, ok := fuzzy_search(lookup_name, pkgs[:], ast_context.fullpath); ok {
 		for r in fuzzy_results {
 			r := r
+			// rols: a declaration of an inactive `when` branch is not offered
+			if .Fallback in r.symbol.flags {
+				continue
+			}
 			resolve_unresolved_symbol(ast_context, &r.symbol)
 			uri, _ := common.parse_uri(r.symbol.uri, context.temp_allocator)
 			if uri.path != ast_context.fullpath {

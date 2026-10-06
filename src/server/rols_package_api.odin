@@ -45,9 +45,10 @@ get_package_api :: proc(dir: string, name := "") -> (text: string, ok: bool) {
 	return strings.to_string(sb), len(names) > 0
 }
 
+// A declaration of an inactive `when` branch is not part of the host's API either.
 @(private = "file")
 is_private :: proc(symbol: Symbol) -> bool {
-	return .PrivateFile in symbol.flags || .PrivatePackage in symbol.flags
+	return symbol.flags & {.PrivateFile, .PrivatePackage, .Fallback} != {}
 }
 
 @(private = "file")
