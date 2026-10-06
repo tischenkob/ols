@@ -677,9 +677,8 @@ import_edit :: proc(ctx: ^ActionContext, import_path: string, alias := "") -> Te
 	line := ctx.ast_context.file.pkg_decl.end.line
 	src := ctx.document.ast.src
 	rest := src[ctx.ast_context.file.pkg_decl.end.offset:]
-	newline := strings.index_byte(rest, '\n')
-	next_line := newline < 0 ? "" : rest[newline + 1:]
-	if eol := strings.index_byte(next_line, '\n'); eol >= 0 do next_line = next_line[:eol]
+	_, _, after := strings.partition(rest, "\n")
+	next_line, _, _ := strings.partition(after, "\n")
 	blank := strings.trim_space(next_line) == ""
 	return {
 		range = {start = {line = line, character = 0}, end = {line = line, character = 0}},
