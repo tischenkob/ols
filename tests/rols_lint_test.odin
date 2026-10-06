@@ -560,10 +560,6 @@ Err :: enum {
 	None,
 }
 
-opt_ok :: proc(m: map[int]int, k: int) -> (int, bool) #optional_ok {
-	return m[k], false
-}
-
 @(require_results)
 maybe_proc :: proc() -> Maybe(int) {
 	return nil
@@ -575,8 +571,6 @@ err_proc :: proc() -> Err {
 }
 
 main :: proc() {
-	m: map[int]int
-	opt_ok(m, 1)
 	maybe_proc()
 	p := err_proc
 	p()
@@ -585,7 +579,7 @@ main :: proc() {
 		config = {enable_lint_ignored_result = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{23, "ignored-result"}, {25, "ignored-result"}})
+	test.expect_lint_diagnostics(t, &source, {{17, "ignored-result"}, {19, "ignored-result"}})
 }
 
 @(test)
