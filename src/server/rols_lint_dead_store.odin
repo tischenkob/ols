@@ -75,14 +75,17 @@ dead_store :: proc(ctx: ^LintContext, stmts: []^ast.Stmt, from: int, name: ^ast.
 	// Only an assignment can store to a named result; a declaration or a parameter (from == -1) cannot.
 	assigns := false
 	if from >= 0 do _, assigns = stmts[from].derived.(^ast.Assign_Stmt)
+	named := assigns && is_named_result(enclosing_proc(ctx, name), name.name)
 
+	exits := false
 	for j in from + 1 ..< len(stmts) {
 		if next, values, ok := store(stmts[j]); ok && next.name == name.name {
 			for value in values {
 				if mentions(value, name.name) do return
 			}
 			if !is_local_store(ctx, next) || address_taken(ctx, name) do return
-			if deferred_mention(enclosing_proc(ctx, name), name) do return
+			// A `defer` runs before the overwrite only through an exit between the two stores.
+			if exits && deferred_mention(enclosing_proc(ctx, name), name) do return
 			append(
 				diags,
 				Diagnostic {
@@ -96,10 +99,32 @@ dead_store :: proc(ctx: ^LintContext, stmts: []^ast.Stmt, from: int, name: ^ast.
 		}
 		if mentions(stmts[j], name.name) do return
 		// A bare `return` reads the named results.
-		if assigns do for ret in body_returns(stmts[j]) {
-			if len(ret.results) == 0 && is_named_result(enclosing_proc(ctx, name), name.name) do return
-		}
+		if named do for ret in body_returns(stmts[j]) do if len(ret.results) == 0 do return
+		exits = exits || has_exit(stmts[j])
 	}
+}
+
+// A `return`, `break`, `continue` or other branch inside stmt, which runs pending defers.
+@(private = "file")
+has_exit :: proc(stmt: ^ast.Stmt) -> bool {
+	found := false
+	visitor := ast.Visitor {
+		data = &found,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			found := (^bool)(visitor.data)
+			if node == nil || found^ do return nil
+			#partial switch _ in node.derived {
+			case ^ast.Proc_Lit:
+				return nil
+			case ^ast.Return_Stmt, ^ast.Branch_Stmt:
+				found^ = true
+				return nil
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, stmt)
+	return found
 }
 
 // The innermost procedure literal around the name.

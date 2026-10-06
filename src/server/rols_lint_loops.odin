@@ -330,9 +330,9 @@ intentional_inclusive :: proc(ctx: ^LintContext, n: ^ast.Range_Stmt, bound: ^ast
 	return evidence
 }
 
-// Whether an enclosing `if` compares the loop variable `use` with len(collection), written out or
-// through a local `n := len(collection)`. A use inside the condition is guarded only by what comes
-// before it, because `&&` evaluates left to right.
+// Whether an enclosing `if` condition mentions the loop variable and len(collection), written out or
+// through a local `n := len(collection)`. The operator and the comparison direction are not checked.
+// A use inside the condition only counts what comes before it, because `&&` evaluates left to right.
 @(private = "file")
 guarded_by_len :: proc(ctx: ^LintContext, use: ^ast.Ident, parents: []^ast.Node, collection: string) -> bool {
 	needle := fmt.tprintf("len(%s)", collection)

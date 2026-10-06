@@ -336,3 +336,28 @@ f :: proc() {
 
 	test.expect_lint_diagnostics(t, &source, {{15, "allocator-mismatch"}})
 }
+
+@(test)
+allocator_mismatch_ignores_dynamic_type_from_other_package :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "containers"
+
+f :: proc() {
+	a := make(containers.Array, 0, 4, context.temp_allocator)
+	delete(a)
+	s := make(containers.Fixed, 4, context.temp_allocator)
+	delete(s)
+}
+`,
+		packages = {{pkg = "containers", source = `package containers
+
+Array :: [dynamic]int
+Fixed :: []int
+`}},
+		config = {enable_lint_allocator = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{8, "allocator-mismatch"}})
+}
