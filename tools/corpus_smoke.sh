@@ -42,12 +42,12 @@ OLS="$repo/ols"
 ODINFMT="$repo/odinfmt"
 export OLS_BUILTIN_FOLDER="$repo/builtin"
 
-odin_root="$(odin root)"
-odin_root="${odin_root%/}"
+# Resolved, because `ols query lint` prints resolved paths and the lint step compares them with package paths.
+odin_root="$(cd "$(odin root)" && pwd -P)"
 corpus="${ROLS_CORPUS_DIR:-$HOME/.cache/rols-corpus}"
 mkdir -p "$corpus"
 corpus="$(cd "$corpus" && pwd -P)"
-for forbidden in "$(cd "$repo" && pwd -P)" "$(cd "$odin_root" && pwd -P)"; do
+for forbidden in "$(cd "$repo" && pwd -P)" "$odin_root"; do
 	if [[ "$corpus/" == "$forbidden/"* ]]; then
 		echo "ROLS_CORPUS_DIR must not be inside $forbidden" >&2
 		exit 2
@@ -506,12 +506,8 @@ for name in "${names[@]}"; do
 		cp -R "$root" "$mod_root"
 	fi
 	mod_result="none"
-	tree_root="$root"
-	root="$mod_root"
-	mod_ran=0
-	olsq "$w/mod.out" modernize modernize --apply --no-check && mod_ran=1
-	root="$tree_root"
-	if [[ $mod_ran -eq 0 ]]; then
+	# The prefix assignment sets root for this one call only.
+	if ! root="$mod_root" olsq "$w/mod.out" modernize modernize --apply --no-check; then
 		mod_result="crash"
 	elif [[ $rc -eq 0 ]]; then
 		if [[ $readonly_root -eq 1 ]]; then
