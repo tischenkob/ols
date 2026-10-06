@@ -365,3 +365,50 @@ when_body :: proc(c: bool) {
 
 	test.expect_lint_diagnostics(t, &source, {{6, "dead-store"}, {17, "dead-store"}})
 }
+
+@(test)
+dead_store_ignores_using_field :: proc(t: ^testing.T) {
+	// A field that `using` brings into scope belongs to a value that lives on, so a store to it is not dead. A
+	// local declared after the `using` hides the field again.
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	x: int,
+}
+use :: proc(s: S) {}
+use_int :: proc(v: int) {}
+using_decl :: proc() {
+	using s: S
+	x = 1
+	use(s)
+	x = 2
+	use(s)
+}
+using_param :: proc(using s: ^S) {
+	x = 1
+	x = 2
+}
+using_stmt :: proc(s: ^S) {
+	using s
+	x = 1
+	x = 2
+}
+using_value :: proc(p: ^S) {
+	using s := p
+	x = 1
+	x = 2
+}
+shadowed :: proc(s: ^S) {
+	using s
+	x := 0
+	x = 1
+	x = 2
+	use_int(x)
+}
+`,
+		config = {enable_lint_dead_store = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{30, "dead-store"}, {31, "dead-store"}})
+}

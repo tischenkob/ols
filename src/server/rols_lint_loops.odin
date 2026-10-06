@@ -507,7 +507,7 @@ guards_in_condition :: proc(guard: Len_Guard, cond: ^ast.Expr, offset: int) -> b
 names_len_local :: proc(ctx: ^LintContext, ident: ^ast.Ident, collection: string) -> bool {
 	top := top_level_stmt_at(ctx.document.ast.decls[:], ident.pos.offset)
 	if top == nil do return false
-	visible := visible_declaration(top, ident.name, ident.pos.offset)
+	visible := visible_declaration(ctx.document, top, ident.name, ident.pos.offset)
 	if visible.ident == nil || visible.value == nil do return false
 	arg, is_len := len_call(visible.value)
 	if !is_len || node_text(ctx.src, arg) != collection do return false
