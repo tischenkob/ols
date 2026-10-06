@@ -125,10 +125,6 @@ Fixed since the first sweep, checked on the rerun: the upstream ols test suite n
 
 These findings have no passing harness test, and each item names a repro. Most live in the CLI, the compile gate or the sweep script, depend on timing, or were not reduced.
 
-### Formatter
-
-- **A one-line `if` with `;` statements in both blocks opens only the `else` block.** When only the `else` part of `if x {a(); b()} else {c(); d()}` overflows, the `else` block opens and `if x {a(); b()} else {` stays on one line (`core/rexcode/isa/arm32/tools/verify_against_llvm.odin:581` in `core`).
-
 ### Hangs and crashes not reduced
 
 - **A code action on a 1.8 MB generated file segfaulted: not reproduced on 95b77b09.** The first sweep saw the server killed by SIGSEGV after about 8 s when the package also held odin-godot's `libgd/classdb/bind.odin` (F26 in `docs/corpus/findings-B.md`). The clone does have `libgd/classdb/bind.gen.odin` (145.7 KB, tracked in git); the earlier note that it was missing was wrong. The recheck rebuilt the setup in a scratch directory `big12`: an `ols.json` with collection `godot` at `.`, copies of `godot/` and `gdext/`, and `libgd/classdb/` with `bind.odin`, `bind.gen.odin` and a 1.79 MB `big.gen.odin`. It tried three forms of `big.gen.odin`: the whole `bind.gen.odin` 12 times, one header followed by 12 copies of its body, and one header followed by 12 bodies whose top-level names carry a per-copy suffix. `REQ_TIMEOUT=120 python3 docs/corpus/triage/lsp_one.py big12 big12/libgd/classdb/big.gen.odin codeAction 20 5` answered in 0.9 s in all 9 runs, 3 per form. A code action at 20:5 and at 224:9 answered in 0.9 to 1.5 s on 95b77b09 and with stage S8. The sweep's scratch copy was not kept, so its exact form is unknown.
