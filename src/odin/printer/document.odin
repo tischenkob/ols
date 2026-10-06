@@ -414,9 +414,10 @@ fits :: proc(width: int, list: ^[dynamic]Tuple, rest: []Tuple) -> bool {
 		case Document_Group:
 			// rols: a later `measure` group in a flat region decides its own mode, so its first break may end the measured line
 			parent_mode := in_rest && v.options.measure && data.mode == .Flat ? Document_Group_Mode.Break : data.mode
-			// rols: a `rest_flat` group in the rest is measured flat, so a statement after a `; ` counts in full
+			// rols: a `rest_flat` group in the rest is measured flat, so a statement after a `; ` counts in full.
+			// Fit counts its breaks as spaces like Flat, but a `measure` group inside it stays Fit, so the whole line counts.
 			if in_rest && v.options.rest_flat {
-				parent_mode = .Flat
+				parent_mode = .Fit
 			}
 			append(
 				list,
