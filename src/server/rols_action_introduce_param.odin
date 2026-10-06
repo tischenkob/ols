@@ -79,6 +79,10 @@ add_introduce_param_action :: proc(ctx: ^ActionContext) {
 	params := function.type.params
 	// The parser leaves Field_List.close unset; with no fields the first `)` after `proc` closes the list.
 	close := function.type.pos.offset + strings.index_byte(src[function.type.pos.offset:], ')')
+	// The action edits one declaration, so the targets that build a platform variant would break.
+	if len(top_level_variants(ctx.document, decl, ctx.files)) > 0 {
+		return
+	}
 	sites, _, sites_ok := find_call_sites(ctx.document, decl, len(param_names(function)), ctx.files)
 	if !sites_ok {
 		return

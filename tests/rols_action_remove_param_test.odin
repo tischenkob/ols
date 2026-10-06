@@ -561,3 +561,29 @@ main :: proc() {
 	}
 	test.expect_reorder_params(t, &source, {2, 1, 0}, {})
 }
+
+// The action edits one declaration, so a procedure with a platform variant keeps its parameter.
+@(test)
+action_remove_param_skips_platform_variant :: proc(t: ^testing.T) {
+	expect_no_remove_param(
+		t,
+		"Remove parameter unused",
+		`#+build !windows
+package test
+
+add :: proc(a: int, un{*}used: int) -> int {
+	return a
+}
+
+main :: proc() {
+	x := add(1, 2)
+}
+`,
+		{
+			{
+				"add_windows.odin",
+				"#+build windows\npackage test\n\nadd :: proc(a: int, unused: int) -> int {\n\treturn a\n}\n",
+			},
+		},
+	)
+}

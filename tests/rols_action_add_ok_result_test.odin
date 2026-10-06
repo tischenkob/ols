@@ -611,3 +611,27 @@ f{*} :: proc(x: int) -> (int, My_Ok) {
 }
 `)
 }
+
+// The action edits one declaration, so a procedure with a platform variant gets no ok result.
+@(test)
+add_ok_result_skips_platform_variant :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+build !windows
+package test
+
+f{*} :: proc(x: int) -> int {
+	return x
+}
+
+g :: proc() -> int {
+	v := f(1)
+	return v
+}
+`,
+		files = {
+			{"f_windows.odin", "#+build windows\npackage test\n\nf :: proc(x: int) -> int {\n\treturn x + 1\n}\n"},
+		},
+		config = {enable_code_action_add_ok_result = true},
+	}
+	test.expect_action_missing(t, &source, ADD_OK_RESULT_ACTION)
+}

@@ -21,8 +21,12 @@ expect_modernized :: proc(
 	selected, unknown, ok := server.modernize_select(rules, &src.config)
 	if !testing.expectf(t, ok, "Unknown rule %q", unknown) do return
 
+	// Other files resolve names from the open document through the index.
+	if len(src.files) > 1 {
+		server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+	}
 	original := string(src.document.text[:src.document.used_text])
-	result := server.modernize_document(src.document, selected, &src.config)
+	result := server.modernize_document(src.document, selected, &src.config, source_files(src))
 	testing.expectf(t, result.converged, "Expected modernize to converge, failed rules: %v", result.failed)
 	testing.expectf(t, result.text == expected, "\nExpected:\n%s\n\nGot:\n%s", expected, result.text)
 	testing.expect(t, string(src.document.text[:src.document.used_text]) == original, "Document text changed")

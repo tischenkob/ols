@@ -33,6 +33,10 @@ add_remove_param_action :: proc(ctx: ^ActionContext) {
 	if !slice.contains(unused_params(function), target.name) {
 		return
 	}
+	// The action edits one declaration, so the targets that build a platform variant would break.
+	if len(top_level_variants(ctx.document, decl, ctx.files)) > 0 {
+		return
+	}
 	sites, _, sites_ok := find_call_sites(ctx.document, decl, len(params), ctx.files)
 	if !sites_ok {
 		return

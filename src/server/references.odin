@@ -260,7 +260,13 @@ resolve_references :: proc(
 		return {}, true
 	}
 
-	// rols: delegates to the reusable search
+	// rols: delegates to the reusable search, with the platform variants of a package-level declaration
+	variants: []Symbol
+	if resolve_flag == .Identifier && !current_file_only {
+		h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
+		h.documents[document.uri.uri] = document
+		variants = variant_symbols(declaration_variants(&h, symbol))
+	}
 	return find_symbol_references(
 		document,
 		ast_context,
@@ -270,6 +276,7 @@ resolve_references :: proc(
 		include_declaration,
 		get_target_name(position_context, resolve_flag),
 		files = files,
+		variants = variants,
 	)
 }
 
