@@ -121,9 +121,8 @@ unwrap_redeclares :: proc(ctx: ^ActionContext, stmt: ^ast.Node, block: ^ast.Bloc
 	return false
 }
 
-// A return, break, continue, fallthrough or goto in the body would leave the statements after
-// the unwrapped statement, or after it in the body, unreachable. Without a known enclosing list the
-// edit is refused.
+// A statement that ends the flow in the body would leave the statements after the unwrapped
+// statement, or after it in the body, unreachable. Without a known enclosing list the edit is refused.
 unwrap_leaves_dead_code :: proc(ctx: ^ActionContext, stmt: ^ast.Node, block: ^ast.Block_Stmt) -> bool {
 	outer := enclosing_stmts(ctx, stmt)
 	if outer == nil {
@@ -131,14 +130,30 @@ unwrap_leaves_dead_code :: proc(ctx: ^ActionContext, stmt: ^ast.Node, block: ^as
 	}
 	followed := outer[len(outer) - 1].pos.offset != stmt.pos.offset
 	for inner, i in block.stmts {
-		terminates := false
-		#partial switch _ in inner.derived {
-		case ^ast.Return_Stmt, ^ast.Branch_Stmt:
-			terminates = true
-		}
-		if terminates && (followed || i < len(block.stmts) - 1) {
+		if ends_flow(inner) && (followed || i < len(block.stmts) - 1) {
 			return true
 		}
+	}
+	return false
+}
+
+// A return, branch, panic or exit call, or a block or `if` whose every path ends in one. Counting
+// too much only refuses the edit.
+ends_flow :: proc(stmt: ^ast.Stmt) -> bool {
+	if terminates(stmt) {
+		return true
+	}
+	#partial switch s in stmt.derived {
+	case ^ast.Branch_Stmt:
+		return true
+	case ^ast.Expr_Stmt:
+		call := s.expr.derived.(^ast.Call_Expr) or_return
+		callee := call.expr.derived.(^ast.Selector_Expr) or_return
+		return callee.field != nil && callee.field.name == "exit"
+	case ^ast.Block_Stmt:
+		return s.label == nil && len(s.stmts) > 0 && ends_flow(s.stmts[len(s.stmts) - 1])
+	case ^ast.If_Stmt:
+		return s.else_stmt != nil && ends_flow(s.body) && ends_flow(s.else_stmt)
 	}
 	return false
 }

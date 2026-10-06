@@ -120,7 +120,7 @@ merge_if_text :: proc(src: string, if_stmt: ^ast.If_Stmt) -> (string, bool) {
 
 // Odin rejects a call to a procedure with a deferred_* attribute inside `&&`, so merging fails
 // when either condition of `if a { if b { … } }` makes one. merge_if_text is syntactic; this
-// resolves the callees. An unresolved callee does not count.
+// resolves the callees. A named callee that does not resolve counts as deferred.
 @(private = "package")
 merge_calls_deferred :: proc(document: ^Document, node: ^ast.Node) -> bool {
 	if_stmt := node.derived.(^ast.If_Stmt) or_return
@@ -133,11 +133,12 @@ merge_calls_deferred :: proc(document: ^Document, node: ^ast.Node) -> bool {
 
 calls_deferred :: proc(document: ^Document, expr: ^ast.Expr) -> bool {
 	Search :: struct {
+		document: ^Document,
 		resolved: SymbolAndNodeMap,
 		found:    bool,
 	}
 	if expr == nil do return false
-	search := Search{resolve_entire_file(document), false}
+	search := Search{document, resolve_entire_file(document), false}
 	visitor := ast.Visitor {
 		data = &search,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
@@ -148,11 +149,9 @@ calls_deferred :: proc(document: ^Document, expr: ^ast.Expr) -> bool {
 				// A call in a nested body is not part of the condition's expression.
 				return nil
 			case ^ast.Call_Expr:
-				resolved, ok := search.resolved[uintptr(n.expr)]
-				if !ok || resolved.is_unresolved || resolved.symbol == nil do break
-				callee := resolved.symbol.value.(SymbolProcedureValue) or_break
-				for name in attribute_names(callee.attributes) {
-					if strings.has_prefix(name, "deferred_") do search.found = true
+				#partial switch _ in n.expr.derived {
+				case ^ast.Ident, ^ast.Selector_Expr:
+					search.found = callee_deferred(search.document, search.resolved, n.expr)
 				}
 			}
 			return visitor
@@ -160,6 +159,34 @@ calls_deferred :: proc(document: ^Document, expr: ^ast.Expr) -> bool {
 	}
 	ast.walk(&visitor, expr)
 	return search.found
+}
+
+callee_deferred :: proc(document: ^Document, resolved_map: SymbolAndNodeMap, callee: ^ast.Expr) -> bool {
+	resolved, ok := resolved_map[uintptr(callee)]
+	if ok && !resolved.is_unresolved && resolved.symbol != nil {
+		if _, is_group := resolved.symbol.value.(SymbolProcedureGroupValue); !is_group {
+			return symbol_deferred(resolved.symbol^)
+		}
+	}
+	// A group call whose overload does not resolve: without a call, the resolve returns every member.
+	symbol, found := resolve_type_in_package(document, document.package_name, callee)
+	if !found do return true
+	if _, is_group := symbol.value.(SymbolProcedureGroupValue); is_group do return true
+	return symbol_deferred(symbol)
+}
+
+symbol_deferred :: proc(symbol: Symbol) -> bool {
+	#partial switch v in symbol.value {
+	case SymbolProcedureValue:
+		for name in attribute_names(v.attributes) {
+			if strings.has_prefix(name, "deferred_") do return true
+		}
+	case SymbolAggregateValue:
+		for member in v.symbols {
+			if symbol_deferred(member) do return true
+		}
+	}
+	return false
 }
 
 write_if_head :: proc(sb: ^strings.Builder, src: string, if_stmt: ^ast.If_Stmt, cond: string) {

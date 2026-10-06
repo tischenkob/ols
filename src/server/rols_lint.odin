@@ -411,7 +411,7 @@ only_constants :: proc(stmts: []^ast.Stmt) -> bool {
 	return true
 }
 
-@(private = "file")
+@(private = "package")
 terminates :: proc(stmt: ^ast.Stmt) -> bool {
 	#partial switch s in stmt.derived {
 	case ^ast.Return_Stmt:
@@ -427,7 +427,7 @@ terminates :: proc(stmt: ^ast.Stmt) -> bool {
 	return false
 }
 
-@(private = "file")
+@(private = "package")
 is_panic_call :: proc(stmt: ^ast.Stmt) -> bool {
 	expr_stmt := stmt.derived.(^ast.Expr_Stmt) or_return
 	call := expr_stmt.expr.derived.(^ast.Call_Expr) or_return

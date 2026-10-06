@@ -137,6 +137,29 @@ lint_simplify_bool_compare :: proc(t: ^testing.T) {
 	)
 }
 
+// A condition accepts any boolean type, so the comparison goes there even for a b32 operand.
+@(test)
+lint_simplify_bool_compare_non_bool_condition :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+B :: distinct b32
+f :: proc(y: B, z: b32) -> bool {
+	if y == true {
+	}
+	for z != false {
+	}
+	n := 1 if z == true else 2
+	_ = n
+	return y == true
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{4, "bool-compare"}, {6, "bool-compare"}, {8, "bool-compare"}})
+}
+
 @(test)
 lint_simplify_disabled :: proc(t: ^testing.T) {
 	source := test.Source {
@@ -1954,8 +1977,8 @@ refused :: proc(xs: []int) -> int {
 		config = {enable_lint_simplify = true},
 	}
 
-	// redundant-else refuses too: statements follow the if.
-	test.expect_lint_diagnostics(t, &source, {})
+	// Only redundant-else reports: the first loop's else can follow its if.
+	test.expect_lint_diagnostics(t, &source, {{18, "redundant-else"}})
 }
 
 @(test)
@@ -2382,6 +2405,61 @@ f :: proc(a: bool) -> int {
 }
 `,
 	)
+}
+
+// An if with statements after it unwraps its else unless the else ends the flow, defers a call
+// or declares a name another statement of the block names.
+@(test)
+simplify_redundant_else_before_more_statements :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+g :: proc(x: int) {}
+
+moved :: proc(a: bool) -> int {
+	x := 0
+	if a {
+		return 1
+	} else {
+		y := 2
+		x = y
+	}
+	return x
+}
+
+collides :: proc(a: bool) {
+	if a {
+		return
+	} else {
+		y := 2
+		g(y)
+	}
+	y := 3
+	g(y)
+}
+
+deferred :: proc(a: bool) {
+	if a {
+		return
+	} else {
+		defer g(1)
+	}
+	g(2)
+}
+
+ends :: proc(a: bool) {
+	if a {
+		return
+	} else {
+		return
+	}
+	g(3)
+}
+`,
+		config = {enable_lint_simplify = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{8, "redundant-else"}})
 }
 
 // Unwrapping any of these changes behavior or leaves code Odin rejects.
@@ -3312,8 +3390,18 @@ both :: proc(ok: bool) -> bool { return ok }
 @(deferred_none = leave)
 plain :: proc() -> bool { return true }
 check :: proc(ok: bool) -> bool { return ok }
+@(deferred_out = end)
+open_int :: proc(n: int) -> bool { return n > 0 }
+open_text :: proc(s: string) -> bool { return s != "" }
+open :: proc {
+	open_int,
+	open_text,
+}
+Box :: struct {
+	ready: proc(n: int) -> bool,
+}
 
-f :: proc(done: bool) {
+f :: proc(done: bool, cb: proc() -> bool, box: Box) {
 	if !done {
 		if begin() {
 		}
@@ -3332,6 +3420,30 @@ f :: proc(done: bool) {
 	}
 	if done {
 		if draw.pass(1) {
+		}
+	}
+	if done {
+		if open(1) {
+		}
+	}
+	if done {
+		if open(missing) {
+		}
+	}
+	if done {
+		if cb() {
+		}
+	}
+	if done {
+		if box.ready(1) {
+		}
+	}
+	if done {
+		if unknown(done) {
+		}
+	}
+	if done {
+		if len("ab") > int(1) {
 		}
 	}
 	if done {
@@ -3354,6 +3466,13 @@ end_pass :: proc(ok: bool) {}
 
 @(deferred_out = end_pass)
 pass :: proc(n: int) -> bool { return n > 0 }
+@(deferred_out = end_pass)
+g_int :: proc(n: int) -> bool { return n > 0 }
+g_text :: proc(s: string) -> bool { return s != "" }
+group :: proc {
+	g_int,
+	g_text,
+}
 `,
 		},
 	)
@@ -3368,7 +3487,11 @@ lint_simplify_nested_if_refuses_deferred_calls :: proc(t: ^testing.T) {
 		config = {enable_lint_simplify = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{38, "nested-if"}})
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{56, "nested-if"}, {60, "nested-if"}, {68, "nested-if"}, {72, "nested-if"}},
+	)
 }
 
 @(test)
@@ -3410,6 +3533,15 @@ modernize_nested_if_refuses_deferred_calls :: proc(t: ^testing.T) {
 		1,
 		context.temp_allocator,
 	)
+	for cond in ([]string{"cb()", "box.ready(1)", "len(\"ab\") > int(1)"}) {
+		merged, _ = strings.replace(
+			merged,
+			strings.concatenate({"if done {\n\t\tif ", cond, " {\n\t\t}\n\t}"}, context.temp_allocator),
+			strings.concatenate({"if done && ", cond, " {\n\t}"}, context.temp_allocator),
+			1,
+			context.temp_allocator,
+		)
+	}
 	test.expect_modernized(t, &source, {"nested-if"}, merged)
 }
 

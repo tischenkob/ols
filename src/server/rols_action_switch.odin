@@ -109,6 +109,8 @@ add_if_to_switch_action :: proc(ctx: ^ActionContext) {
 
 // Whether body holds an unlabeled `break` or `or_break` aimed past body, which a case body would retarget at the switch.
 // Breaks inside a nested loop or switch belong to it. Nested proc literals keep their own control flow.
+// An `or_break` in a nested header targets the outer loop, except in a `for` init or condition (checked with
+// `odin run` on 2026-10-06; the `for` post statement targets the outer loop too).
 breaks_enclosing :: proc(body: ^ast.Block_Stmt) -> bool {
 	found := false
 	visitor := ast.Visitor {
@@ -119,12 +121,23 @@ breaks_enclosing :: proc(body: ^ast.Block_Stmt) -> bool {
 				return nil
 			}
 			#partial switch n in node.derived {
-			case ^ast.Proc_Lit,
-			     ^ast.For_Stmt,
-			     ^ast.Range_Stmt,
-			     ^ast.Unroll_Range_Stmt,
-			     ^ast.Switch_Stmt,
-			     ^ast.Type_Switch_Stmt:
+			case ^ast.Proc_Lit:
+				return nil
+			case ^ast.For_Stmt:
+				ast.walk(visitor, n.post)
+				return nil
+			case ^ast.Range_Stmt:
+				ast.walk(visitor, n.expr)
+				return nil
+			case ^ast.Unroll_Range_Stmt:
+				ast.walk(visitor, n.expr)
+				return nil
+			case ^ast.Switch_Stmt:
+				ast.walk(visitor, n.init)
+				ast.walk(visitor, n.cond)
+				return nil
+			case ^ast.Type_Switch_Stmt:
+				ast.walk(visitor, n.tag)
 				return nil
 			case ^ast.Branch_Stmt:
 				found^ = n.tok.kind == .Break && n.label == nil

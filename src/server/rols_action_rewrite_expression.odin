@@ -149,7 +149,7 @@ add_compound_assignment :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 		#partial switch r in rhs.derived {
 		case ^ast.Binary_Expr:
 			wrap = binary_precedence(r.op.kind) <= binary_precedence(op_kind)
-		case ^ast.Ternary_If_Expr, ^ast.Ternary_When_Expr, ^ast.Or_Else_Expr:
+		case ^ast.Ternary_If_Expr, ^ast.Ternary_When_Expr, ^ast.Or_Else_Expr, ^ast.Or_Return_Expr, ^ast.Or_Branch_Expr:
 			wrap = true
 		}
 		if wrap {

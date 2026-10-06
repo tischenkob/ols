@@ -1,5 +1,6 @@
 package tests
 
+import "core:strings"
 import "core:testing"
 
 import test "src:testing"
@@ -761,4 +762,84 @@ f :: proc(n: int) {
 	}
 }
 `)
+}
+
+// A panic, an exit call or an if whose branches all return ends the body, so `return 2` would become unreachable.
+@(test)
+action_unwrap_not_offered_when_body_ends_flow_before_statements :: proc(t: ^testing.T) {
+	bodies := []string{"panic(\"no\")", "os.exit(1)", "if d {\n\t\t\treturn 1\n\t\t} else {\n\t\t\treturn 0\n\t\t}"}
+	for body in bodies {
+		source := test.Source {
+			main = strings.concatenate({`package test
+
+f :: proc(c, d: bool) -> int {
+	{*}if c {
+		`, body, `
+	}
+	return 2
+}
+`}, context.temp_allocator),
+			config = {enable_code_action_unwrap = true},
+		}
+
+		test.expect_action_missing(t, &source, UNWRAP_ACTION)
+	}
+}
+
+@(test)
+action_remove_else_before_more_statements :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+pick :: proc(c: bool) -> int {
+	x := 0
+	{*}if c {
+		return 1
+	} else {
+		y := 2
+		x = y
+	}
+	return x
+}
+`,
+		config = {enable_code_action_unwrap = true},
+	}
+
+	test.expect_action_applied(t, &source, REMOVE_ELSE_ACTION, `package test
+
+pick :: proc(c: bool) -> int {
+	x := 0
+	if c {
+		return 1
+	}
+	y := 2
+	x = y
+	return x
+}
+`)
+}
+
+// After the if, `y := 3` would redeclare the unwrapped y, and the deferred g would run after `return x`.
+@(test)
+action_remove_else_refused_before_colliding_or_deferred_statements :: proc(t: ^testing.T) {
+	for else_body in ([]string{"y := 2\n\t\tx = y\n\t}\n\ty := 3\n\tx += y", "defer g()\n\t\tx = 2\n\t}\n\tx += 1"}) {
+		source := test.Source {
+			main = strings.concatenate({`package test
+
+g :: proc() {}
+
+pick :: proc(c: bool) -> int {
+	x := 0
+	{*}if c {
+		return 1
+	} else {
+		`, else_body, `
+	return x
+}
+`}, context.temp_allocator),
+			config = {enable_code_action_unwrap = true},
+		}
+
+		test.expect_action_missing(t, &source, REMOVE_ELSE_ACTION)
+	}
 }

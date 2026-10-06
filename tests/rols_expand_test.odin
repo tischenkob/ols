@@ -318,7 +318,7 @@ f :: proc(xs: []int) {
 `, `package test
 
 f :: proc(xs: []int) {
-	for i := 0; i < len(xs); i += 1 {
+	for i, n := 0, len(xs); i < n; i += 1 {
 		g(xs[i])
 	}
 }
@@ -477,10 +477,10 @@ f :: proc(xs: []int) {
 
 @(test)
 expand_range_round_trip :: proc(t: ^testing.T) {
-	expect_round_trip(t, C_STYLE_FOR, "Use range loop", "i < len", `package test
+	expect_round_trip(t, C_STYLE_FOR, "Use range loop", "i < n", `package test
 
-f :: proc(xs: []int) {
-	for i {*}in 0 ..< len(xs) {
+f :: proc(xs: []int, n: int) {
+	for i {*}in 0 ..< n {
 		g(xs[i])
 	}
 }
@@ -750,7 +750,7 @@ n :: proc() -> u32 {
 }
 
 f :: proc() {
-	for i: u32 = 0; i < n(); i += 1 {
+	for i, n2: u32 = 0, n(); i < n2; i += 1 {
 		g(i)
 	}
 }
@@ -777,7 +777,7 @@ S :: struct {
 }
 
 f :: proc(s: S) {
-	for i: u32 = 0; i < s.n; i += 1 {
+	for i, end: u32 = 0, s.n; i < end; i += 1 {
 		g(i)
 	}
 }
@@ -796,7 +796,7 @@ f :: proc(xs: []int) {
 `, `package test
 
 f :: proc(xs: []int) {
-	for i := 0; i < len(xs); i += 1 {
+	for i, n := 0, len(xs); i < n; i += 1 {
 		g(i)
 	}
 }
@@ -858,8 +858,37 @@ import cc "core:c"
 
 f :: proc() {
 	n := other.count()
-	for i: cc.int = 0; i < n; i += 1 {
+	for i, n2: cc.int = 0, n; i < n2; i += 1 {
 		g(i)
+	}
+}
+`)
+}
+
+// A range loop reads its bound once, so a package variable is held in a local, while a package constant is not.
+@(test)
+expand_range_hoists_package_variable_bound :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "other"
+
+f :: proc() {
+	for i {*}in 0..<other.count {
+		other.count += 1
+	}
+}
+`,
+		packages = {{pkg = "other", source = "package other\n\ncount: int\n"}},
+		config = {enable_code_action_expand = true},
+	}
+	test.expect_action_applied(t, &source, C_STYLE_FOR, `package test
+
+import "other"
+
+f :: proc() {
+	for i, n := 0, other.count; i < n; i += 1 {
+		other.count += 1
 	}
 }
 `)

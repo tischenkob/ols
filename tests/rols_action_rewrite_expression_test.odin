@@ -388,6 +388,33 @@ main :: proc() {
 }
 
 @(test)
+action_expand_compound_assignment_wraps_or_return :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc() -> (int, bool) { return 1, true }
+
+g :: proc() -> (x: int, ok: bool) {
+	x {*}+= f() or_return
+	return x, true
+}
+`,
+		packages = {},
+		config = {enable_code_action_rewrite_expression = true},
+	}
+
+	test.expect_action_applied(t, &source, EXPAND_ACTION, `package test
+
+f :: proc() -> (int, bool) { return 1, true }
+
+g :: proc() -> (x: int, ok: bool) {
+	x = x + (f() or_return)
+	return x, true
+}
+`)
+}
+
+@(test)
 action_rewrite_expression_disabled :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test

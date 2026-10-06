@@ -92,7 +92,7 @@ simplifications :: proc(document: ^Document) -> []Simplification {
 			}
 			for rule in rules {
 				// rols: dropping `== true` must not change the type of the expression.
-				if rule == simplify_bool_compare && compares_non_bool(w.document, node) do continue
+				if rule == simplify_bool_compare && compares_non_bool(w.document, node, w.stack[:]) do continue
 				// rols: merging would put a call with a deferred procedure inside `&&`.
 				if rule == simplify_nested_if && merge_calls_deferred(w.document, node) do continue
 				rule(w.src, node, w.stack[:], &w.out)
@@ -362,11 +362,21 @@ simplify_bool_compare :: proc(src: string, node: ^ast.Node, _: []^ast.Node, out:
 }
 
 // `x == true` where x has a boolean type other than bool: without the comparison the result
-// is a b32 or a distinct bool, which a bool context rejects.
+// is a b32 or a distinct bool, which a bool context rejects. A condition accepts any boolean type.
 @(private = "file")
-compares_non_bool :: proc(document: ^Document, node: ^ast.Node) -> bool {
+compares_non_bool :: proc(document: ^Document, node: ^ast.Node, parents: []^ast.Node) -> bool {
 	bin := node.derived.(^ast.Binary_Expr) or_return
 	if bin.op.kind != .Cmp_Eq && bin.op.kind != .Not_Eq do return false
+	if len(parents) > 0 {
+		#partial switch p in parents[len(parents) - 1].derived {
+		case ^ast.If_Stmt:
+			if rawptr(p.cond) == rawptr(node) do return false
+		case ^ast.For_Stmt:
+			if rawptr(p.cond) == rawptr(node) do return false
+		case ^ast.Ternary_If_Expr:
+			if rawptr(p.cond) == rawptr(node) do return false
+		}
+	}
 	other := bin.right
 	if _, is_bool := bool_lit(bin.left); !is_bool {
 		other = bin.left
@@ -1285,9 +1295,9 @@ redundant_else :: proc(src: string, if_stmt: ^ast.If_Stmt, parents: []^ast.Node)
 	if if_stmt.else_stmt == nil || if_stmt.body == nil || if_stmt.label != nil || len(parents) == 0 {
 		return
 	}
-	// The unwrapped else lands right after the if, so the if must be the last statement of a
-	// plain block: not the else of an outer if, not a `do` body, and with nothing after it. A
-	// `when` body opens no scope, so its declarations and defers would leak into the outer block.
+	// The unwrapped else lands right after the if, so the if must be a statement of a plain
+	// block: not the else of an outer if and not a `do` body. A `when` body opens no scope, so
+	// its declarations and defers would leak into the outer block.
 	siblings: []^ast.Stmt
 	#partial switch parent in parents[len(parents) - 1].derived {
 	case ^ast.Block_Stmt:
@@ -1299,7 +1309,11 @@ redundant_else :: proc(src: string, if_stmt: ^ast.If_Stmt, parents: []^ast.Node)
 	case ^ast.Case_Clause:
 		siblings = parent.body
 	}
-	if len(siblings) == 0 || siblings[len(siblings) - 1] != node {
+	at := -1
+	for sibling, i in siblings {
+		if sibling == node do at = i
+	}
+	if at < 0 {
 		return
 	}
 	body, is_block := if_stmt.body.derived.(^ast.Block_Stmt)
@@ -1328,19 +1342,29 @@ redundant_else :: proc(src: string, if_stmt: ^ast.If_Stmt, parents: []^ast.Node)
 	if mentions_any(if_stmt.else_stmt, ..declared[:]) {
 		return
 	}
-	// The else's declarations move into the enclosing block, where an earlier statement may
-	// already declare or use the name, or a using statement may bring it in.
+	// The else's declarations move into the enclosing block, where another statement may
+	// declare or use the name, or a using statement may bring it in. Its defers would run at the
+	// end of that block, so after the statements that follow the if.
+	followed := at < len(siblings) - 1
+	// An else that ends the flow leaves the statements after the if unreachable already;
+	// unwrapping it would put them right after its terminator.
+	if followed && terminates(else_block.stmts[len(else_block.stmts) - 1]) {
+		return
+	}
 	clear(&declared)
 	for stmt in else_block.stmts {
 		// Declarations in a when body or brought in by using land in the else's scope too.
 		#partial switch _ in stmt.derived {
 		case ^ast.When_Stmt, ^ast.Using_Stmt:
 			return
+		case ^ast.Defer_Stmt:
+			if followed do return
 		}
 		append_decl_names(&declared, stmt)
 	}
 	if len(declared) > 0 {
-		for stmt in siblings[:len(siblings) - 1] {
+		for stmt, i in siblings {
+			if i == at do continue
 			_, is_using := stmt.derived.(^ast.Using_Stmt)
 			if is_using || mentions_any(stmt, ..declared[:]) {
 				return
