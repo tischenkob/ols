@@ -27,7 +27,7 @@ LintContext :: struct {
 	inactive:       bool,
 	// Whether the file has a `foreign import` (see `check_c_name` in rols_lint_naming.odin), found on first use.
 	foreign_import: Maybe(bool),
-	// The walker's context without locals, shared by the lints that resolve a type (see `resolve_type_with`).
+	// The walker's context without locals; its globals tell which declarations are file-private.
 	ast_context:    ^AstContext,
 	// Stands in for the files of the package when given (see `package_siblings`).
 	files:          []Package_File,
