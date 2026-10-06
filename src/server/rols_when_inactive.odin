@@ -358,10 +358,13 @@ when_kind :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth: int) -> W
 	return .Unknown
 }
 
-// Whether the integer literal text fits an int. strconv.parse_int, which the evaluator calls, wraps a larger one
-// silently, so `18446744073709551616` reads as 0.
+// Whether the integer text, a literal or a define with an optional sign, fits an int. strconv.parse_int, which the
+// evaluator calls, wraps a larger one silently, so `18446744073709551616` reads as 0. The bound is max(int) for
+// either sign, so min(int) itself counts as not fitting.
 @(private = "file")
 int_literal_fits :: proc(text: string) -> bool {
+	text := text
+	if len(text) > 1 && (text[0] == '-' || text[0] == '+') do text = text[1:]
 	base: u128 = 10
 	digits := text
 	if len(text) > 2 && text[0] == '0' {
@@ -396,11 +399,13 @@ int_literal_fits :: proc(text: string) -> bool {
 	return true
 }
 
-// The kind of a profile define's value: an integer or `true` or `false`, which make_when_expr_map folds as odin
-// reads them. Odin reads any other text as a string or a float, which the evaluator reads as false, so it is
-// unknown.
+// The kind of a profile define's value as make_when_expr_map folds it: an integer that fits an int, else a bool
+// spelled as strconv.parse_bool reads it. Odin reads t, true, f and false in any case as bools, and other text as
+// a string or a float, which the evaluator reads as false. A bool spelling that parse_bool rejects, such as `tRuE`,
+// is unknown too, which leaves its branches unmarked.
 @(private = "file")
 define_kind :: proc(value: string) -> When_Kind {
 	if _, is_int := strconv.parse_int(value); is_int && int_literal_fits(value) do return .Int
-	return .Bool if value == "true" || value == "false" else .Unknown
+	_, is_bool := strconv.parse_bool(value)
+	return .Bool if is_bool else .Unknown
 }
