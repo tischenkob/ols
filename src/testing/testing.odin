@@ -1099,7 +1099,7 @@ expect_save_imports_applied :: proc(t: ^testing.T, src: ^Source, expected: strin
 		context.temp_allocator,
 	)
 
-	edits := server.organize_import_edits(src.document, &ast_context, &src.config, true)
+	edits := server.organize_import_edits(src.document, &ast_context, &src.config, true, grouped = true)
 
 	text, applied := common.apply_text_edits(edits, string(src.document.text))
 	testing.expectf(t, applied, "Invalid or overlapping edit range in %v", edits)
@@ -1426,6 +1426,29 @@ expect_unused_declarations :: proc(t: ^testing.T, src: ^Source, expected: []Unus
 	slice.sort_by(got[:], less)
 	expected := slice.clone(expected, context.temp_allocator)
 	slice.sort_by(expected, less)
+
+	testing.expectf(t, slice.equal(expected, got[:]), "\nExpected %v but received %v", expected, got[:])
+}
+
+// rols: unused-declaration messages, sorted
+expect_unused_declaration_messages :: proc(t: ^testing.T, src: ^Source, expected: []string) {
+	spall.trace(#procedure)
+
+	setup(src)
+	defer teardown(src)
+
+	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+
+	diagnostics, ok := server.unused_declarations("test", package_files(src), &src.config)
+	testing.expect(t, ok, "unused_declarations failed")
+
+	got := make([dynamic]string, context.temp_allocator)
+	for _, diags in diagnostics {
+		for d in diags do append(&got, d.message)
+	}
+	slice.sort(got[:])
+	expected := slice.clone(expected, context.temp_allocator)
+	slice.sort(expected)
 
 	testing.expectf(t, slice.equal(expected, got[:]), "\nExpected %v but received %v", expected, got[:])
 }

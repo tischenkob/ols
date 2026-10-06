@@ -258,3 +258,19 @@ main :: proc() {}
 	}
 	test.expect_unused_declarations(t, &source, {})
 }
+
+// Corpus: karl2d copied to a directory lintcopy. The message names the package clause, not the directory.
+@(test)
+lint_unused_declaration_message_names_package_clause :: proc(t: ^testing.T) {
+	source := test.Source {
+		config = {enable_lint_unused_declaration = true},
+		main = `package karl2d
+
+@(private)
+helper :: proc() {}
+
+main :: proc() {}
+`,
+	}
+	test.expect_unused_declaration_messages(t, &source, {"procedure helper is never used in package karl2d"})
+}

@@ -82,3 +82,40 @@ main :: proc() {
 `,
 	)
 }
+
+@(test)
+save_imports_adds_import_after_kept_import_of_its_collection :: proc(t: ^testing.T) {
+	packages := make([dynamic]test.Package, context.temp_allocator)
+	append(&packages, ..save_imports_packages())
+	append(&packages, test.Package{pkg = "log", source = `package log
+info :: proc(args: ..any) {}
+`})
+
+	source := test.Source {
+		main = `package main
+
+import "core:log"
+import "core:fmt"
+
+main :: proc() {
+	fmt.println(strings.trim_space(" world "))
+}
+`,
+		packages = packages[:],
+		collections = {"core" = "test"},
+	}
+
+	test.expect_save_imports_applied(
+		t,
+		&source,
+		`package main
+
+import "core:fmt"
+import "core:strings"
+
+main :: proc() {
+	fmt.println(strings.trim_space(" world "))
+}
+`,
+	)
+}
