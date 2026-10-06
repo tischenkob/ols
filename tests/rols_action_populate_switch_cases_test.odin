@@ -433,3 +433,48 @@ f :: proc(k: kinds.Kind) {
 `,
 	)
 }
+
+// A member whose value is an expression over earlier members shares the case of the member with that value.
+@(test)
+populate_switch_cases_enum_member_expression :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Kind :: enum {
+	A,
+	B,
+	C,
+	LAST = C + 0,
+}
+
+f :: proc(k: Kind) {
+	#partial swi{*}tch k {
+	case .A:
+	}
+}
+`,
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		POPULATE,
+		`package test
+
+Kind :: enum {
+	A,
+	B,
+	C,
+	LAST = C + 0,
+}
+
+f :: proc(k: Kind) {
+	#partial switch k {
+	case .A:
+	case .B:
+	case .C:
+	}
+}
+`,
+	)
+}
