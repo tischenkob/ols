@@ -117,7 +117,7 @@ Tests:
 
 - `tests/action_invert_if_test.odin`: the early-exit variant and the fork behaviour.
 - `tests/inlay_hints_test.odin`: the fork hint kinds.
-- `build.sh`: `single_test` exits with the status of `odin test`. The environment variable `ROLS_TEST_TIMEOUT=SECONDS` bounds `test` and `single_test`: `odin test` runs in its own process group, which gets SIGKILL on timeout, and the run exits 1. Unset means no limit.
+- `build.sh`: `single_test` checks the status of `odin test` itself, so it exits 1 when `odin test` fails, as `test` does. The environment variable `ROLS_TEST_TIMEOUT=SECONDS` bounds `test` and `single_test`: `odin test` runs in its own process group, which gets SIGKILL on timeout, and the run exits 1. Unset means no limit. Set it lower than any outer timeout, because an outer kill of the `build.sh` process group does not reach the test group.
 
 ## Changed upstream defaults
 

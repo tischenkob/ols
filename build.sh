@@ -3,7 +3,9 @@
 
 # rols: ROLS_TEST_TIMEOUT=SECONDS bounds odin test for test and single_test; unset means no limit.
 # odin test runs in its own process group, and on timeout the whole group gets SIGKILL, so the tests binary that
-# odin test starts dies too. INT, TERM and HUP are passed on to the group. The exit status is 124 on timeout.
+# odin test starts dies too. INT, TERM, HUP and QUIT are passed on to the group. The exit status is 124 on timeout.
+# Set it lower than any outer timeout (GNU timeout, a CI cancel, an agent tool limit): an outer kill of the
+# build.sh process group does not reach the test group, and a SIGKILL of perl leaves the tests running.
 rols_odin_test() {
     if [[ -z $ROLS_TEST_TIMEOUT ]]; then
         odin test "$@"
@@ -22,15 +24,14 @@ rols_odin_test() {
         }
         setpgrp($pid, $pid);
         my $timed_out = 0;
-        $SIG{$_} = sub { kill $_[0], -$pid } for qw(INT TERM HUP);
+        $SIG{$_} = sub { kill $_[0], -$pid } for qw(INT TERM HUP QUIT);
         $SIG{ALRM} = sub {
             $timed_out = 1;
             print STDERR "odin test ran longer than ROLS_TEST_TIMEOUT=$timeout s; killed its process group\n";
             kill "KILL", -$pid;
         };
         alarm $timeout;
-        my $reaped;
-        do { $reaped = waitpid($pid, 0) } while ($reaped == -1 && $!{EINTR});
+        waitpid($pid, 0);
         my $status = $?;
         alarm 0;
         exit 124 if $timed_out;
