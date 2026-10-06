@@ -402,22 +402,21 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 		other, found := lookup(new_name, symbol.pkg, decl_document.fullpath)
 		scanned := make([dynamic]^Document, context.temp_allocator)
 		append(&scanned, decl_document)
+		sites := make([dynamic]Rename_Site, context.temp_allocator)
+		append(&sites, Rename_Site{decl_document, decl_offset, build_tags(decl_document.ast)})
 		next: for variant in target.variants {
+			if variant_offset, offset_ok := common.get_absolute_position(
+				variant.symbol.range.start,
+				variant.document.text[:variant.document.used_text],
+			); offset_ok {
+				append(&sites, Rename_Site{variant.document, variant_offset, build_tags(variant.document.ast)})
+			}
 			for scan in scanned {
 				if scan.fullpath == variant.document.fullpath do continue next
 			}
 			append(&scanned, variant.document)
 		}
 		renamed := len(scanned)
-		sites := make([dynamic]Rename_Site, context.temp_allocator)
-		append(&sites, Rename_Site{decl_document, decl_offset, build_tags(decl_document.ast)})
-		for variant in target.variants {
-			variant_offset := common.get_absolute_position(
-				variant.symbol.range.start,
-				variant.document.text[:variant.document.used_text],
-			) or_continue
-			append(&sites, Rename_Site{variant.document, variant_offset, build_tags(variant.document.ast)})
-		}
 		// A sibling that mentions new_name and that some target builds with one of those files, where only its
 		// declarations visible to the package count.
 		siblings: for sibling in package_siblings(decl_document, target.h.files) {
