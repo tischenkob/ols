@@ -9,4 +9,8 @@ f :: proc() {
 	for i := 0; i < 10; i += 1 { _, ok := g(); assert(ok, "a long message a long message a long message a long message") }
 	if x { a(); b() } else { c(); d() }
 	for i in 0 ..< 3 { a(); b() }
+	switch v {
+	case 1:
+		x := 1; if c { a(); long_call(aaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbb, cccccccccccccccc) }
+	}
 }
