@@ -125,8 +125,8 @@ proc_group_locations :: proc(
 }
 
 // Whether the text has `proc`, then blanks and comments, then `{`: the start of a group literal, with the word name,
-// bare or package-qualified, before the next `}`. It accepts more than the parser does (a comment or string can
-// match); it misses only a nested block comment between `proc` and `{`.
+// bare or package-qualified, outside comments before the closing `}`. It accepts more than the parser does (a
+// comment or string can match); it misses only a nested block comment between `proc` and `{`.
 mentions_proc_group :: proc(text, name: string) -> bool {
 	rest := text
 	for {
@@ -148,26 +148,23 @@ mentions_proc_group :: proc(text, name: string) -> bool {
 			rest = strings.trim_left_space(rest)
 		}
 		if !strings.has_prefix(rest, "{") do continue
+		// The elements up to the closing `}`, without comments, which can hold a `}` of their own.
 		rest = rest[1:]
-		elements := rest
-		if end := strings.index_byte(rest, '}'); end >= 0 {
-			elements = rest[:end]
-		}
-		if has_word(elements, name) do return true
-	}
-
-	has_word :: proc(text, word: string) -> bool {
-		is_word :: proc(c: u8) -> bool {
-			return c == '_' || c >= 0x80 || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
-		}
-		from := 0
-		for {
-			at := strings.index(text[from:], word)
-			if at < 0 do return false
-			start := from + at
-			from = start + len(word)
-			if (start == 0 || !is_word(text[start - 1])) && (from == len(text) || !is_word(text[from])) {
-				return true
+		for len(rest) > 0 && rest[0] != '}' {
+			end := strings.index_any(rest, "}/")
+			if end < 0 do end = len(rest)
+			if contains_word(rest[:end], name) do return true
+			rest = rest[end:]
+			if strings.has_prefix(rest, "//") {
+				newline := strings.index_byte(rest, '\n')
+				if newline < 0 do return false
+				rest = rest[newline:]
+			} else if strings.has_prefix(rest, "/*") {
+				close := strings.index(rest, "*/")
+				if close < 0 do return false
+				rest = rest[close + len("*/"):]
+			} else if strings.has_prefix(rest, "/") {
+				rest = rest[1:]
 			}
 		}
 	}

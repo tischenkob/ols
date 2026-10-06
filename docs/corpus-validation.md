@@ -136,7 +136,7 @@ These findings have no passing harness test, and each item names a repro. Most l
 
 ### Performance
 
-- **Opening a 2 MB file takes 1.3 to 2.4 s.** The lints resolve every node of `core/rexcode/isa/ppc/mnemonic_builders.odin` (13,308 declarations), about 2 s of it. Before S15 the open took 15 to 25 s, because `lint_deprecated` and `lint_test_attribute` scanned every top-level declaration for each identifier. After the open, documentSymbol answers in about 1.6 to 2.1 s, a code action in 1.5 s and inlay hints in 1.8 s (before: 17 to 26 s, 25 to 34 s and 51 s). A synthetic 2 MB file (16,000 procedures, 64,000 hints) answers inlay hints in 5.7 s, against 144 s before.
+- **Opening a 2 MB file takes 1.3 to 1.5 s.** The lints resolve every node of `core/rexcode/isa/ppc/mnemonic_builders.odin` (13,308 declarations), about 1.1 to 1.2 s of it. Stage S8 measured open plus hover at 1.31 to 1.52 s. The "Large-file performance" section of `FOLLOWUPS.md` holds the current numbers. Before S15 the open took 15 to 25 s, because `lint_deprecated` and `lint_test_attribute` scanned every top-level declaration for each identifier. After the open, documentSymbol answers in about 1.4 s, a code action in 1.5 to 1.6 s and inlay hints in 1.3 to 1.4 s (before S15: 17 to 26 s, 25 to 34 s and 51 s). A synthetic 2 MB file (16,000 procedures, 64,000 hints) answers inlay hints in 5.7 s, against 144 s before.
 
 ### Lint heuristics and noise
 
