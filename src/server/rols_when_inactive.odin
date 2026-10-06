@@ -1,20 +1,28 @@
 package server
 
 import "core:odin/ast"
-import "core:strconv"
 
 import "src:common"
 
 // The value declarations of file in a `when` branch that the editor's target does not build. The conditions
 // evaluate as the editor evaluates them: profile os, arch and defines, else the host, and the constants of the
-// file. The evaluator reads a name it does not know as false, so a chain counts only up to its first condition
+// file. Only `!`, comparisons, `&&` and `||` fold; other operators count as unknown. The evaluator reads a name it does not know as false, so a chain counts only up to its first condition
 // with such a name, such as ODIN_DEBUG, ODIN_TEST or a constant of another file or package: that branch and the
 // ones after it are not reported. Allocates in context.allocator.
 inactive_when_decls :: proc(file: ^ast.File) -> map[^ast.Value_Decl]struct{} {
 	inactive := make(map[^ast.Value_Decl]struct{})
+	// The walk below reaches `when` statements at file scope and in foreign blocks.
 	has_when := false
 	for decl in file.decls {
-		if _, is_when := decl.derived.(^ast.When_Stmt); is_when do has_when = true
+		#partial switch d in decl.derived {
+		case ^ast.When_Stmt:
+			has_when = true
+		case ^ast.Foreign_Block_Decl:
+			body := d.body.derived.(^ast.Block_Stmt) or_continue
+			for stmt in body.stmts {
+				if _, is_when := stmt.derived.(^ast.When_Stmt); is_when do has_when = true
+			}
+		}
 	}
 	if !has_when do return inactive
 
@@ -112,10 +120,12 @@ when_known :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth: int) -> 
 			return true
 		}
 		if e.name in common.config.profile.defines do return true
-		if _, is_int := strconv.parse_int(e.name); is_int do return true
 		value, is_plain := plain[e.name]
 		return is_plain && when_known(value, plain, depth + 1)
-	case ^ast.Basic_Lit, ^ast.Implicit_Selector_Expr:
+	case ^ast.Basic_Lit:
+		// A float, rune or imaginary literal reads as false.
+		return e.tok.kind == .Integer || e.tok.kind == .String
+	case ^ast.Implicit_Selector_Expr:
 		return true
 	case ^ast.Call_Expr:
 		directive, is_directive := e.expr.derived.(^ast.Basic_Directive)
@@ -127,7 +137,12 @@ when_known :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth: int) -> 
 	case ^ast.Unary_Expr:
 		return e.op.kind == .Not && when_known(e.expr, plain, depth)
 	case ^ast.Binary_Expr:
-		return when_known(e.left, plain, depth) && when_known(e.right, plain, depth)
+		// The evaluator folds only comparisons and && or ||; arithmetic reads as false.
+		#partial switch e.op.kind {
+		case .Cmp_Eq, .Not_Eq, .Lt, .Lt_Eq, .Gt, .Gt_Eq, .Cmp_And, .Cmp_Or:
+			return when_known(e.left, plain, depth) && when_known(e.right, plain, depth)
+		}
+		return false
 	}
 	return false
 }

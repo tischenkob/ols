@@ -58,6 +58,26 @@ when #config(NO_SUCH_DEFINE, true) {
 	config_j :: 10
 }
 
+SIZE :: 64
+
+when SIZE * 2 == 128 {
+	arith_k :: 11
+} else {
+	arith_l :: 12
+}
+
+when 1.5 == 1.5 {
+	float_m :: 13
+} else {
+	float_n :: 14
+}
+
+foreign {
+	when ODIN_OS == .JS {
+		foreign_o :: proc() ---
+	}
+}
+
 main :: proc() {}{*}
 `,
 	}
@@ -66,9 +86,9 @@ main :: proc() {}{*}
 		t,
 		&source,
 		proc(t: ^testing.T, src: ^test.Source, range: common.Range) {
-			// The host is never js. An unknown condition keeps its branch and the ones after it, but a known
+			// The host is never js. Arithmetic and float literals do not fold, so those chains mark nothing. An unknown condition keeps its branch and the ones after it, but a known
 			// branch before it is still inactive, and a known active branch rules out the ones after it.
-			expected := []string{"config_j", "js_a", "js_d", "nested_e"}
+			expected := []string{"config_j", "foreign_o", "js_a", "js_d", "nested_e"}
 			got := inactive_names(src)
 			testing.expectf(t, slice.equal(got, expected), "got %v, expected %v", got, expected)
 		},
