@@ -78,6 +78,8 @@ resolve_entire_file_internal :: proc(
 		document.fullpath,
 		allocator,
 	)
+	// rols: the whole-file resolve drops group members whose arity cannot fit a call
+	ast_context.whole_file_resolve = true
 
 	position_context: DocumentPositionContext
 	position_context.functions = make([dynamic]^ast.Proc_Lit, context.temp_allocator)
@@ -133,6 +135,8 @@ resolve_entire_file_for_references :: proc(
 		document.fullpath,
 		allocator,
 	)
+	// rols: the whole-file resolve drops group members whose arity cannot fit a call
+	ast_context.whole_file_resolve = true
 
 	position_context: DocumentPositionContext
 	position_context.functions = make([dynamic]^ast.Proc_Lit, context.temp_allocator)

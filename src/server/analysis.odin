@@ -58,6 +58,8 @@ AstContext :: struct {
 	show_layout:               bool,
 	// rols: the member tables of enums built so far, keyed by the enum node
 	enum_value_cache:          map[^ast.Enum_Type]SymbolEnumValue,
+	// rols: set by the whole-file resolve, which drops group members whose arity cannot fit a call
+	whole_file_resolve:        bool,
 }
 
 SymbolResult :: struct {
@@ -1187,6 +1189,8 @@ resolve_function_overload :: proc(ast_context: ^AstContext, group: ^ast.Proc_Gro
 	}
 
 	call_expr := ast_context.call
+	// rols: the overload mode, which the cache records with each result
+	requested_mode := overload_mode(ast_context, call_expr)
 	if call_expr == nil || len(call_expr.args) == 0 {
 		ast_context.overloading = false
 	} else if call_expr != nil {
@@ -1194,24 +1198,22 @@ resolve_function_overload :: proc(ast_context: ^AstContext, group: ^ast.Proc_Gro
 		// We may want to expand this in the future.
 		//
 		// See https://github.com/DanielGavin/ols/issues/1182
-		// rols: only a result is cached, so a hit that is not ok is the in-progress marker
-		if result, ok := check_call_expr_cache(ast_context, call_expr); ok {
-			if !result.ok || result.mode == overload_mode(ast_context, call_expr) {
-				return result.symbol, result.ok
-			}
+		// rols: the in-progress marker hits in every mode, a result only in the mode it resolved in
+		if result, ok := check_call_expr_cache(ast_context, call_expr);
+		   ok && (result.mode == .Pending || result.mode == requested_mode) {
+			return result.symbol, result.ok
 		}
 		ast_context.call_expr_recursion_cache[cast(rawptr)call_expr] = {}
 	}
 
-	resolve_all_possibilities := should_resolve_all_proc_overload_possibilities(ast_context, call_expr)
-	// rols: the mode the cache records, before poly arguments widen it
-	requested_mode := overload_mode(ast_context, call_expr)
+	// rols: from the mode computed above
+	resolve_all_possibilities := requested_mode == .All
 
 	candidates := make([dynamic]Candidate, context.temp_allocator)
 	call_args, ok := expand_call_args(ast_context, call_expr)
 	if !ok {
-		// rols: drop the in-progress marker, so the call can resolve where its arguments do
-		if call_expr != nil do delete_key(&ast_context.call_expr_recursion_cache, cast(rawptr)call_expr)
+		// rols: replace the in-progress marker with a failure of this mode
+		if call_expr != nil do ast_context.call_expr_recursion_cache[cast(rawptr)call_expr] = {{}, false, requested_mode}
 		return {}, false
 	}
 
@@ -1247,8 +1249,8 @@ resolve_function_overload :: proc(ast_context: ^AstContext, group: ^ast.Proc_Gro
 			total_arg_count := proc_total_arg_count(procedure)
 			is_variadic := proc_has_variadic_arg(procedure)
 			if call_expr != nil {
-				// rols: only signature help keeps a member that takes fewer arguments than the call passes
-				if !resolve_all_possibilities || ast_context.position_hint != .SignatureHelp {
+				// rols: the whole-file resolve drops a member that takes fewer arguments than the call passes
+				if !resolve_all_possibilities || ast_context.whole_file_resolve {
 					if !is_variadic && len(call_args) > total_arg_count {
 						continue
 					}
@@ -1468,21 +1470,15 @@ resolve_function_overload :: proc(ast_context: ^AstContext, group: ^ast.Proc_Gro
 
 	symbol, ok_canidate := get_candidate_symbol(candidates[:], resolve_all_possibilities)
 	// rols: a tie between members whose results differ picks no member when the call result is wanted
-	if top, has_top := get_top_candiate(candidates[:]);
-	   has_top && ok_canidate && !resolve_all_possibilities && !ast_context.resolve_specific_overload {
-		if !top_candidates_agree(ast_context, candidates[:], top) {
-			symbol, ok_canidate = {}, false
-		}
+	if ok_canidate &&
+	   requested_mode == .Specific &&
+	   !resolve_all_possibilities &&
+	   !top_candidates_agree(ast_context, candidates[:]) {
+		symbol, ok_canidate = {}, false
 	}
-	// rols: cache a result with its mode, and forget a failure so a later resolution of the call can succeed
-	if call_expr != nil && ok_canidate {
-		ast_context.call_expr_recursion_cache[cast(rawptr)call_expr] = SymbolResult {
-			symbol = symbol,
-			ok     = ok_canidate,
-			mode   = requested_mode,
-		}
-	} else if call_expr != nil {
-		delete_key(&ast_context.call_expr_recursion_cache, cast(rawptr)call_expr)
+	if call_expr != nil {
+		// rols: with the mode it resolved in
+		ast_context.call_expr_recursion_cache[cast(rawptr)call_expr] = {symbol, ok_canidate, requested_mode}
 	}
 	return symbol, ok_canidate
 }

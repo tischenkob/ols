@@ -1,6 +1,7 @@
 package server
 
 import "core:odin/ast"
+import "core:slice"
 
 // The parameter that the call argument at index binds to: by name for `name = value`, else by position.
 get_call_arg_field :: proc(value: SymbolProcedureValue, call: ast.Call_Expr, index: int) -> (^ast.Field, bool) {
@@ -53,8 +54,14 @@ is_typeid_local :: proc(local: DocumentLocal) -> bool {
 
 // Whether the candidates that share the top score return the same types, so picking any of them gives the
 // same call result. Return types that contain a poly parameter count as equal, as in `proc_symbols_compatible`.
-top_candidates_agree :: proc(ast_context: ^AstContext, candidates: []Candidate, top: Candidate) -> bool {
+// Each return type resolves in the package of its member.
+top_candidates_agree :: proc(ast_context: ^AstContext, candidates: []Candidate) -> bool {
+	top := get_top_candiate(candidates) or_return
 	a := top.symbol.value.(SymbolProcedureValue) or_return
+	resolve_return :: proc(ast_context: ^AstContext, member: Symbol, expr: ^ast.Expr) -> (Symbol, bool) {
+		set_ast_package_from_symbol_scoped(ast_context, member)
+		return resolve_type_expression(ast_context, expr)
+	}
 	for candidate in candidates {
 		if candidate.score != top.score do continue
 		b := candidate.symbol.value.(SymbolProcedureValue) or_continue
@@ -68,8 +75,8 @@ top_candidates_agree :: proc(ast_context: ^AstContext, candidates: []Candidate, 
 			if at == bt || expr_contains_poly(at) || expr_contains_poly(bt) {
 				continue
 			}
-			as, aok := resolve_type_expression(ast_context, at)
-			bs, bok := resolve_type_expression(ast_context, bt)
+			as, aok := resolve_return(ast_context, top.symbol, at)
+			bs, bok := resolve_return(ast_context, candidate.symbol, bt)
 			if !aok || !bok || !is_symbol_same_typed(ast_context, as, bs) {
 				return false
 			}
@@ -80,6 +87,8 @@ top_candidates_agree :: proc(ast_context: ^AstContext, candidates: []Candidate, 
 
 // How `resolve_function_overload` picks among the members of a group, recorded with each cached result.
 OverloadMode :: enum u8 {
+	// The in-progress marker of a call, which hits in every mode and so guards against recursion.
+	Pending,
 	// One member, for the result of the call. A tie between members whose results differ picks none.
 	Specific,
 	// Every candidate, as an aggregate when several fit.
@@ -101,7 +110,7 @@ overload_mode :: proc(ast_context: ^AstContext, call_expr: ^ast.Call_Expr) -> Ov
 // `resolve_global_identifier` alone does not keep them out. A name from another file, or a synthesized one,
 // is not checked.
 in_local_top_level_decl :: proc(file: ast.File, local: DocumentLocal, ident: ast.Ident) -> bool {
-	if local.lhs == nil || ident.pos.file == "" || ident.pos.file != file.fullpath {
+	if ident.pos.file == "" || ident.pos.file != file.fullpath {
 		return true
 	}
 	return top_level_decl_index(file, ident.pos.offset) == top_level_decl_index(file, local.lhs.pos.offset)
@@ -111,14 +120,9 @@ in_local_top_level_decl :: proc(file: ast.File, local: DocumentLocal, ident: ast
 // End offsets are not used: a declaration that is still being typed can end before its body does.
 @(private = "file")
 top_level_decl_index :: proc(file: ast.File, offset: int) -> int {
-	lo, hi := 0, len(file.decls)
-	for lo < hi {
-		mid := (lo + hi) / 2
-		if file.decls[mid].pos.offset <= offset {
-			lo = mid + 1
-		} else {
-			hi = mid
-		}
+	starts_at_or_before :: proc(decl: ^ast.Stmt, offset: int) -> slice.Ordering {
+		return decl.pos.offset <= offset ? .Less : .Greater
 	}
-	return lo - 1
+	after, _ := slice.binary_search_by(file.decls[:], offset, starts_at_or_before)
+	return after - 1
 }

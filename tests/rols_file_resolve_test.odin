@@ -55,3 +55,24 @@ G := g(a)
 		},
 	)
 }
+
+// Only the whole-file resolve drops a group member that takes fewer arguments than the call passes. Completion
+// keeps every member, as upstream does: the call resolves to both members, and a selector on it offers nothing.
+// Dropping `one` there would offer `b_field`.
+@(test)
+completion_on_group_call_keeps_members_that_take_fewer_arguments :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+A :: struct { a_field: int }
+B :: struct { b_field: int }
+one :: proc(x: int) -> A { return {} }
+two :: proc(x: int, y: int) -> B { return {} }
+g :: proc{one, two}
+main :: proc() {
+	g(1, 2).{*}
+}
+`,
+	}
+	test.expect_completion_labels(t, &source, ".", {})
+}

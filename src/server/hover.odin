@@ -510,7 +510,13 @@ get_hover_information :: proc(
 			initializer = local.initializer
 		}
 
-		if resolved, ok := resolve_type_identifier(&ast_context, ident); ok {
+		// rols: a group call that picks no member, such as a tie between different results, shows the group
+		resolved, resolved_ok := resolve_type_identifier(&ast_context, ident)
+		if !resolved_ok && ast_context.call != nil {
+			ast_context.call = nil
+			resolved, resolved_ok = resolve_type_identifier(&ast_context, ident)
+		}
+		if resolved_ok {
 			if position_context.enum_type != nil {
 				if hover, ok := get_hover_enum_field(&ast_context, resolved, ident.name); ok {
 					return hover, true, true

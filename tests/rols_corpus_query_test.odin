@@ -744,3 +744,101 @@ f :: proc(a: int) {
 	}
 	test.expect_hover(t, &source, "test.x: f32")
 }
+
+// A tie between members whose results agree still resolves when a member's result type is written in its own
+// package, where `Result` is not the document's `Result`.
+@(test)
+hover_overload_tie_in_other_package_with_same_result :: proc(t: ^testing.T) {
+	source := test.Source {
+		main     = `package test
+
+import "other"
+
+Result :: int
+b :: proc(p: ^int) -> other.Result { return {} }
+g :: proc{other.a, b}
+f :: proc() {
+	r{*} := g(nil)
+	_ = r
+}
+`,
+		packages = {
+			{
+				pkg = "other",
+				source = `package other
+
+Result :: struct { x: int }
+a :: proc(p: []u8) -> Result { return {} }
+`,
+			},
+		},
+	}
+	test.expect_hover(t, &source, "test.r: other.Result")
+}
+
+// The callee of a call that ties between members with different results shows the group.
+@(test)
+hover_callee_of_tied_call_shows_group :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+a :: proc(p: []u8) -> int { return 0 }
+b :: proc(p: ^int) -> f32 { return 0 }
+ab :: proc{a, b}
+g :: proc() {
+	r1 := a{*}b(nil)
+	_ = r1
+}
+`,
+	}
+	test.expect_hover(t, &source, "test.ab :: proc {\n\ta :: proc(p: []u8) -> int,\n\tb :: proc(p: ^int) -> f32,\n}")
+}
+
+// Every call of the chain ties between members with different results, so it fails, and each level passes the
+// previous result twice. Resolving a failed call again on every use would take 2^30 resolutions.
+@(test)
+hover_deep_chain_of_failed_overloads_finishes :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+add_i :: proc(a, b: int) -> int { return a + b }
+add_f :: proc(a, b: int) -> f32 { return 0 }
+add :: proc{add_i, add_f}
+f :: proc() {
+	v0: int
+	v1 := add(v0, v0)
+	v2 := add(v1, v1)
+	v3 := add(v2, v2)
+	v4 := add(v3, v3)
+	v5 := add(v4, v4)
+	v6 := add(v5, v5)
+	v7 := add(v6, v6)
+	v8 := add(v7, v7)
+	v9 := add(v8, v8)
+	v10 := add(v9, v9)
+	v11 := add(v10, v10)
+	v12 := add(v11, v11)
+	v13 := add(v12, v12)
+	v14 := add(v13, v13)
+	v15 := add(v14, v14)
+	v16 := add(v15, v15)
+	v17 := add(v16, v16)
+	v18 := add(v17, v17)
+	v19 := add(v18, v18)
+	v20 := add(v19, v19)
+	v21 := add(v20, v20)
+	v22 := add(v21, v21)
+	v23 := add(v22, v22)
+	v24 := add(v23, v23)
+	v25 := add(v24, v24)
+	v26 := add(v25, v25)
+	v27 := add(v26, v26)
+	v28 := add(v27, v27)
+	v29 := add(v28, v28)
+	v30 := add(v29, v29)
+	_ = v3{*}0
+}
+`,
+	}
+	test.expect_no_hover(t, &source)
+}
