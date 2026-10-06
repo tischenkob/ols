@@ -395,3 +395,84 @@ apply_gate_targets_follow_the_files_the_host_does_not_build :: proc(t: ^testing.
 	testing.expect_value(t, server.gate_check_timeout(9, 8), 2 * server.CHECK_TIMEOUT)
 	testing.expect_value(t, server.gate_check_timeout(100000, 8), server.GATE_TIMEOUT_CAP)
 }
+
+@(test)
+apply_recheck_union_absorbs_a_flaky_error_but_not_a_new_copy :: proc(t: ^testing.T) {
+	// The first check of the original code missed a redeclaration that a second check reports.
+	before := []cli.Check_Error{{"ex/a.odin", 3, 1, "Redeclaration of 'x'"}}
+	again := []cli.Check_Error {
+		{"ex/a.odin", 3, 1, "Redeclaration of 'x'"},
+		{"ex/b.odin", 7, 1, "Redeclaration of 'y'"},
+	}
+	after := []cli.Check_Error {
+		{"ex/b.odin", 7, 1, "Redeclaration of 'y'"},
+		{"ex/a.odin", 3, 1, "Redeclaration of 'x'"},
+	}
+	testing.expect_value(t, len(cli.new_errors(before, after)), 1)
+	merged := cli.union_errors(before, again)
+	testing.expect_value(t, len(merged), 2)
+	testing.expect_value(t, len(cli.new_errors(merged, after)), 0)
+	// A key keeps the larger count, so a copy that neither original run reported stays new.
+	twice := []cli.Check_Error{after[0], after[0], after[1]}
+	testing.expect_value(t, len(cli.new_errors(merged, twice)), 1)
+	testing.expect_value(t, len(cli.new_errors(cli.union_errors(before, before), after)), 1)
+}
+
+@(private = "file")
+file_list :: proc(files: ..string) -> [dynamic]string {
+	list := make([dynamic]string, context.temp_allocator)
+	append(&list, ..files)
+	return list
+}
+
+@(test)
+apply_recheck_keeps_only_the_directories_that_named_a_fresh_error :: proc(t: ^testing.T) {
+	dirs := []string{"/w/lib", "/w/ex", "/w/use"}
+	checks := []cli.Gate_Check {
+		{dirs = dirs},
+		{target = "linux_amd64", dirs = dirs},
+		{dirs = dirs, args = "-define:SIM=true"},
+	}
+	origins := make([]cli.Error_Files, 3, context.temp_allocator)
+	for &o in origins {
+		o = make(cli.Error_Files, context.temp_allocator)
+	}
+	origins[0]["/w/ex"] = file_list("/w/ex/a.odin", "/core/chan.odin")
+	origins[0]["/w/use"] = file_list("/w/use/u.odin")
+	origins[2]["/w/ex"] = file_list("/w/ex/a.odin")
+	fresh := []cli.Check_Error{{"/core/chan.odin", 382, 1, "'where' clause evaluated to false"}}
+	recheck := cli.recheck_checks(checks, origins, fresh)
+	testing.expect_value(t, len(recheck), 1)
+	testing.expect_value(t, len(recheck[0].dirs), 1)
+	testing.expect_value(t, recheck[0].dirs[0], "/w/ex")
+	both := []cli.Check_Error{fresh[0], {"/w/ex/a.odin", 2, 1, "x"}}
+	recheck = cli.recheck_checks(checks, origins, both)
+	testing.expect_value(t, len(recheck), 2)
+	testing.expect_value(t, recheck[1].args, "-define:SIM=true")
+	testing.expect_value(t, recheck[1].dirs[0], "/w/ex")
+	// A renamed directory is looked up at its new path, and the recheck names the old one.
+	moved := make([]cli.Error_Files, 1, context.temp_allocator)
+	moved[0] = make(cli.Error_Files, context.temp_allocator)
+	moved[0]["/w/lib2"] = file_list("/w/lib2/l.odin")
+	renames := []cli.Path_Rename{{"/w/lib", "/w/lib2"}}
+	recheck = cli.recheck_checks(checks[:1], moved, {{"/w/lib2/l.odin", 1, 1, "x"}}, renames)
+	testing.expect_value(t, recheck[0].dirs[0], "/w/lib")
+	// A fresh error whose file no check named keeps every check whole.
+	recheck = cli.recheck_checks(checks, origins, {{"/elsewhere.odin", 1, 1, "x"}})
+	testing.expect_value(t, len(recheck), 3)
+	testing.expect_value(t, len(recheck[0].dirs), 3)
+}
+
+@(test)
+apply_variants_add_one_check_each_on_the_current_target :: proc(t: ^testing.T) {
+	dirs := []string{"/w/a"}
+	checks := cli.with_variants({{dirs = dirs}, {target = "js_wasm32", dirs = dirs}}, dirs, {"-define:SIM=true", "  "})
+	testing.expect_value(t, len(checks), 3)
+	testing.expect_value(t, checks[2].target, "")
+	testing.expect_value(t, checks[2].args, "-define:SIM=true")
+	testing.expect_value(t, cli.gate_label(checks[1]), "js_wasm32")
+	testing.expect_value(t, cli.gate_label(checks[2]), "-define:SIM=true")
+	testing.expect_value(t, cli.gate_failure("timed out", checks[0]), "timed out")
+	testing.expect_value(t, cli.gate_failure("timed out", checks[1]), "timed out (target js_wasm32)")
+	testing.expect_value(t, cli.gate_failure("timed out", checks[2]), "timed out (with -define:SIM=true)")
+}

@@ -742,6 +742,65 @@ printf 'package sty\n\nS :: struct {\n\ta: int,\n}\n\nf :: proc() {\n\ts := S{\n
 expect_exit1 style-syntax-error-is-a-warning "s.odin:9:7: warning: Syntax Error: Expected a comma" "$OLS" query check "$dir/sty"
 expect_exit1 style-rerun-reports-the-type-error "s.odin:11:11: error: Cannot convert" "$OLS" query check "$dir/sty"
 rm -rf "$dir/sty"
+# A check that a signal kills before it prints anything runs once more: the first `odin check` crashes.
+mkdir "$dir/sg"
+printf 'package sg\n\nf :: proc() -> int {\n\treturn 1\n}\n' > "$dir/sg/sg.odin"
+printf '#!/usr/bin/env bash\nif [[ "$1" == check && ! -e "%s" ]]; then touch "%s"; kill -SEGV $$; fi\nexec odin "$@"\n' "$dir/sg.crashed" "$dir/sg.crashed" > "$dir/sg-odin"
+chmod +x "$dir/sg-odin"
+echo '{"odin_command": "'"$dir/sg-odin"'"}' > "$dir/ols.json"
+expect_exit 0 gate-restarts-a-crashed-check "$OLS" query attr add "$dir/sg.f" cold --apply
+[[ -e "$dir/sg.crashed" ]] || { echo "FAIL gate-restarts-a-crashed-check never crashed"; exit 1; }
+# A check that crashes on every run still refuses the edit.
+printf '#!/usr/bin/env bash\n[[ "$1" == check ]] && kill -SEGV $$\nexec odin "$@"\n' > "$dir/sg-odin"
+expect_exit 1 gate-refuses-a-check-that-crashes-twice "$OLS" query attr add "$dir/sg.f" private --apply
+expect gate-crash-twice-message "^error: \`odin check\` did not run: it exited with an error and printed nothing" sh -c "\"$OLS\" query attr add \"$dir/sg.f\" private --apply 2>&1 || true"
+echo '{}' > "$dir/ols.json"
+rm -rf "$dir/sg" "$dir/sg.crashed" "$dir/sg-odin"
+# odin can report a different error set on each run. A fake odin is clean on its first call and reports one
+# error from the second on: the error looks new after the write, the recheck of the original code reports it
+# too, so the edit is written again. When the recheck is clean, the error is new and the edit rolls back.
+mkdir "$dir/nd"
+printf 'package nd\n\nf :: proc() -> int {\n\treturn 1\n}\n' > "$dir/nd/nd.odin"
+cp "$dir/nd/nd.odin" "$dir/nd.orig"
+fake_odin() {
+	# fake_odin CALLS: the check calls, counted from 1, that report the error; every other check is clean, and
+	# other commands, such as `odin root`, run the real odin.
+	cat > "$dir/nd-odin" <<SH
+#!/usr/bin/env bash
+[[ "\$1" == check ]] || exec odin "\$@"
+n=\$(( \$(cat "$dir/nd.count" 2>/dev/null || echo 0) + 1 ))
+echo \$n > "$dir/nd.count"
+case " $1 " in *" \$n "*)
+	printf '{"error_count":1,"errors":[{"type":"error","pos":{"file":"%s/nd.odin","offset":0,"line":1,"column":1,"end_column":2},"msgs":["Redeclaration of '"'"'x'"'"' in this scope"]}]}' "\$2"
+	exit 1;;
+esac
+SH
+	chmod +x "$dir/nd-odin"
+	rm -f "$dir/nd.count"
+}
+echo '{"odin_command": "'"$dir/nd-odin"'"}' > "$dir/ols.json"
+fake_odin "2 3"
+expect_exit 0 gate-recheck-absorbs-a-flaky-error "$OLS" query attr add "$dir/nd.f" cold --apply
+grep -q '@(cold)' "$dir/nd/nd.odin" || { echo "FAIL gate-recheck-absorbs-a-flaky-error did not write the edit"; exit 1; }
+[[ "$(cat "$dir/nd.count")" == 3 ]] || { echo "FAIL gate-recheck-absorbs-a-flaky-error ran odin $(cat "$dir/nd.count") times"; exit 1; }
+cp "$dir/nd.orig" "$dir/nd/nd.odin"
+fake_odin "2"
+expect_exit 4 gate-recheck-keeps-a-new-error "$OLS" query attr add "$dir/nd.f" cold --apply
+cmp -s "$dir/nd/nd.odin" "$dir/nd.orig" || { echo "FAIL gate-recheck-keeps-a-new-error is not rolled back"; exit 1; }
+echo '{}' > "$dir/ols.json"
+rm -rf "$dir/nd" "$dir/nd.orig" "$dir/nd-odin" "$dir/nd.count"
+# checker_variants adds a gate check with its args: require_results on L breaks only the SIM build.
+mkdir "$dir/vr"
+printf 'package vr\n\nSIM :: #config(SIM, false)\n\nL :: proc() -> int {\n\treturn 1\n}\n\nwhen SIM {\n\tsim_step :: proc() {\n\t\tL()\n\t}\n}\n' > "$dir/vr/vr.odin"
+cp "$dir/vr/vr.odin" "$dir/vr.orig"
+echo '{"checker_variants": ["-define:SIM=true"]}' > "$dir/ols.json"
+expect_exit 4 variant-check-rolls-back "$OLS" query attr add "$dir/vr.L" require_results --apply
+cmp -s "$dir/vr/vr.odin" "$dir/vr.orig" || { echo "FAIL variant-check-rolls-back is not byte for byte"; exit 1; }
+expect variant-named-in-summary "^attr add: 1 edit in 1 file written, 1 package checked, also on -define:SIM=true$" "$OLS" query attr add "$dir/vr.L" cold --apply
+cp "$dir/vr.orig" "$dir/vr/vr.odin"
+echo '{}' > "$dir/ols.json"
+expect_exit 0 without-variant-applies "$OLS" query attr add "$dir/vr.L" require_results --apply
+rm -rf "$dir/vr" "$dir/vr.orig"
 # A quoted checker_args value keeps its space.
 mkdir -p "$dir/sp/my lib/lib" "$dir/sp/use"
 printf 'package lib\n\nV :: 3\n' > "$dir/sp/my lib/lib/l.odin"

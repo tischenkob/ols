@@ -34,7 +34,7 @@ note_check_exit :: proc(process: os.Process, exit_code: int) {
 
 // Called by `check` once its processes are done or killed. parsed counts the outputs that unmarshalled.
 // odin exits non-zero with its JSON when the code has errors, so only a failing exit without output
-// means the check did not run.
+// means the check did not run. A restart that a signal killed again fails the same way.
 record_check_run :: proc(path_count: int, processes: []CheckProcess, parsed: int) {
 	defer clear(&failed_exits)
 	check_run = {
@@ -44,6 +44,10 @@ record_check_run :: proc(path_count: int, processes: []CheckProcess, parsed: int
 	with_output := 0
 	started := 0
 	for p in processes {
+		// A run that a signal killed with no output was restarted, and the restart counts instead.
+		if p.crashed {
+			continue
+		}
 		if !p.rerun {
 			started += 1
 		}
