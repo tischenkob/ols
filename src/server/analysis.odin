@@ -2770,11 +2770,14 @@ internal_resolve_type_identifier :: proc(ast_context: ^AstContext, node: ast.Ide
 		return resolve_local_identifier(ast_context, node, &local)
 	}
 
+	// rols: a declaration of an inactive `when` branch yields to every other scope
+	fallback: Maybe(Symbol)
 	if ast_context.use_usings {
 		for u in ast_context.usings {
 			for imp in ast_context.imports {
 				if strings.compare(imp.name, u.pkg_name) == 0 {
-					if symbol, ok := lookup(node.name, imp.name, node.pos.file); ok {
+					// rols: see `fallback`
+					if symbol, ok := lookup_active(node.name, imp.name, node.pos.file, &fallback); ok {
 						return resolve_symbol_return(ast_context, symbol)
 					}
 				}
@@ -2834,26 +2837,35 @@ internal_resolve_type_identifier :: proc(ast_context: ^AstContext, node: ast.Ide
 	is_runtime := strings.contains(ast_context.current_package, "base/runtime")
 
 	if is_runtime {
-		if symbol, ok := lookup(node.name, "$builtin", node.pos.file); ok {
+		// rols: see `fallback`
+		if symbol, ok := lookup_active(node.name, "$builtin", node.pos.file, &fallback); ok {
 			return resolve_symbol_return(ast_context, symbol)
 		}
 	}
 
 	//last option is to check the index
-	if symbol, ok := lookup(node.name, ast_context.current_package, node.pos.file); ok {
+	// rols: see `fallback`
+	if symbol, ok := lookup_active(node.name, ast_context.current_package, node.pos.file, &fallback); ok {
 		return resolve_symbol_return(ast_context, symbol)
 	}
 
 	if !is_runtime {
-		if symbol, ok := lookup(node.name, "$builtin", node.pos.file); ok {
+		// rols: see `fallback`
+		if symbol, ok := lookup_active(node.name, "$builtin", node.pos.file, &fallback); ok {
 			return resolve_symbol_return(ast_context, symbol)
 		}
 	}
 
 	for built in indexer.builtin_packages {
-		if symbol, ok := lookup(node.name, built, node.pos.file); ok {
+		// rols: see `fallback`
+		if symbol, ok := lookup_active(node.name, built, node.pos.file, &fallback); ok {
 			return resolve_symbol_return(ast_context, symbol)
 		}
+	}
+
+	// rols: see `fallback`
+	if symbol, ok := fallback.?; ok {
+		return resolve_symbol_return(ast_context, symbol)
 	}
 
 	return Symbol{}, false
@@ -3856,11 +3868,14 @@ resolve_location_identifier :: proc(ast_context: ^AstContext, node: ast.Ident) -
 		return symbol, true
 	}
 
+	// rols: a declaration of an inactive `when` branch yields to every other scope
+	fallback: Maybe(Symbol)
 	if ast_context.use_usings {
 		usings := get_using_packages(ast_context)
 
 		for pkg in usings {
-			if symbol, ok := lookup(node.name, pkg, node.pos.file); ok {
+			// rols: see `fallback`
+			if symbol, ok := lookup_active(node.name, pkg, node.pos.file, &fallback); ok {
 				return symbol, ok
 			}
 		}
@@ -3894,12 +3909,19 @@ resolve_location_identifier :: proc(ast_context: ^AstContext, node: ast.Ident) -
 	}
 
 	pkg := get_package_from_node(node)
-	if symbol, ok := lookup(node.name, pkg, node.pos.file); ok {
+	// rols: see `fallback`
+	if symbol, ok := lookup_active(node.name, pkg, node.pos.file, &fallback); ok {
 		return symbol, ok
 	}
 
-	if symbol, ok := lookup(node.name, "$builtin", node.pos.file); ok {
+	// rols: see `fallback`
+	if symbol, ok := lookup_active(node.name, "$builtin", node.pos.file, &fallback); ok {
 		return symbol, ok
+	}
+
+	// rols: see `fallback`
+	if symbol, ok := fallback.?; ok {
+		return symbol, true
 	}
 
 	return {}, false

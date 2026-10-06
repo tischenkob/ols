@@ -235,6 +235,8 @@ SymbolFlag :: enum {
 	Simd,
 	Parameter, //If the symbol is a procedure argument
 	PolyType,
+	// rols: declared only in a `when` branch the host does not build, see `collect_when_stmt`
+	Fallback,
 }
 
 SymbolFlags :: bit_set[SymbolFlag]

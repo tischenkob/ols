@@ -198,14 +198,14 @@ resolve_when_expr :: proc(
 			// rols: only `#config` calls fold.
 			return resolve_config_directive(when_expr_map, odin_expr, common.config.profile.defines)
 		case ^ast.Selector_Expr:
-			// rols: `pkg.NAME` reads an immutable constant of an imported package.
+			// rols: `pkg.NAME` reads an immutable, active constant of an imported package.
 			ctx := when_ast_context
 			pkg_ident, is_ident := odin_expr.expr.derived.(^ast.Ident)
 			if ctx == nil || !is_ident do return {}, false
 			for imp in ctx.imports {
 				if imp.base != pkg_ident.name do continue
 				symbol, found := lookup(odin_expr.field.name, imp.name, ctx.fullpath)
-				if !found || .Mutable in symbol.flags do return {}, false
+				if !found || .Mutable in symbol.flags || .Fallback in symbol.flags do return {}, false
 				generic := symbol.value.(SymbolGenericValue) or_return
 				return resolve_when_expr(make_when_expr_map(), generic.expr)
 			}

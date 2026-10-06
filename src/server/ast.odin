@@ -90,6 +90,8 @@ are_keyword_aliases :: proc(a, b: string) -> bool {
 GlobalFlags :: enum {
 	Mutable, // or constant
 	Variable, // or type
+	// rols: a declaration in a `when` branch the host does not build, kept so code in such branches resolves.
+	Fallback,
 }
 
 GlobalExpr :: struct {
@@ -515,6 +517,8 @@ collect_when_stmt :: proc(
 	file_tags: parser.File_Tags,
 	when_decl: ^ast.When_Stmt,
 	when_expr_map: ^map[string]When_Expr,
+	// rols: also collects the branches the host does not build, flagged `.Fallback`
+	fallbacks := false,
 ) {
 	if when_decl.cond == nil {
 		return
@@ -523,8 +527,31 @@ collect_when_stmt :: proc(
 	if when_decl.body == nil {
 		return
 	}
-	if stmt, ok := get_when_block_stmt(when_decl, when_expr_map^); ok {
-		collect_when_body(exprs, file, file_tags, stmt, when_expr_map)
+	// rols: the inactive branches register their constants in a copy, so they cannot change later conditions.
+	stmt, ok := get_when_block_stmt(when_decl, when_expr_map^)
+	if ok {
+		collect_when_body(exprs, file, file_tags, stmt, when_expr_map, fallbacks)
+	}
+	if !fallbacks {
+		return
+	}
+	for branch: ^ast.Stmt = when_decl; branch != nil; {
+		when_branch, is_when := branch.derived.(^ast.When_Stmt)
+		body := when_branch.body if is_when else branch
+		branch = when_branch.else_stmt if is_when else nil
+		block, is_block := body.derived.(^ast.Block_Stmt)
+		if !is_block || (ok && block == stmt) {
+			continue
+		}
+		scratch := make(map[string]When_Expr, len(when_expr_map), context.temp_allocator)
+		for key, value in when_expr_map^ {
+			scratch[key] = value
+		}
+		start := len(exprs)
+		collect_when_body(exprs, file, file_tags, block, &scratch, fallbacks)
+		for &expr in exprs[start:] {
+			expr.flags += {.Fallback}
+		}
 	}
 }
 
@@ -567,10 +594,13 @@ collect_when_body :: proc(
 	file_tags: parser.File_Tags,
 	block: ^ast.Block_Stmt,
 	when_expr_map: ^map[string]When_Expr,
+	// rols: passed on to nested `when` statements
+	fallbacks := false,
 ) {
 	for stmt in block.stmts {
 		if when_stmt, ok := stmt.derived.(^ast.When_Stmt); ok {
-			collect_when_stmt(exprs, file, file_tags, when_stmt, when_expr_map)
+			// rols: nested `when` statements inherit `fallbacks`
+			collect_when_stmt(exprs, file, file_tags, when_stmt, when_expr_map, fallbacks)
 		} else if foreign_decl, ok := stmt.derived.(^ast.Foreign_Block_Decl); ok {
 			if foreign_decl.body != nil {
 				if foreign_block, ok := foreign_decl.body.derived.(^ast.Block_Stmt); ok {
@@ -612,7 +642,8 @@ collect_globals :: proc(file: ast.File, open_file := false) -> []GlobalExpr {
 			collect_value_decl(&exprs, file, file_tags, decl, {})
 			register_when_consts_from_value_decl(&when_expr_map, file, value_decl)
 		} else if when_decl, ok := decl.derived.(^ast.When_Stmt); ok {
-			collect_when_stmt(&exprs, file, file_tags, when_decl, &when_expr_map)
+			// rols: the index keeps inactive branches as fallbacks, an open document's globals the active one only.
+			collect_when_stmt(&exprs, file, file_tags, when_decl, &when_expr_map, fallbacks = !open_file)
 		} else if foreign_decl, ok := decl.derived.(^ast.Foreign_Block_Decl); ok {
 			if foreign_decl.body == nil {
 				continue

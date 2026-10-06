@@ -323,3 +323,56 @@ g :: proc() -> int { return assist() }
 		)
 	}
 }
+
+// A field reached through a type that another file declares in an inactive `when` block is renamed in the
+// inactive code that uses it. Corpus: tina src/io_types.odin:287, see docs/corpus-validation.md.
+@(test)
+rename_field_through_inactive_when_type_in_other_file :: proc(t: ^testing.T) {
+	sim := `package test
+
+when FLAG {
+	Sim :: struct {
+		items: [4]S,
+	}
+}
+`
+	source := test.Source {
+		files = {
+			{"s.odin", "package test\n\nFLAG :: #config(FLAG, false)\n\nS :: struct {\n\tf{*}: int,\n}\n"},
+			{"sim.odin", sim},
+			{
+				"main.odin",
+				`package test
+
+when FLAG {
+	run :: proc(sim: ^Sim) {
+		entry := &sim.items[0]
+		entry.f = 1
+	}
+}
+`,
+			},
+		},
+	}
+	test.expect_rename(
+		t,
+		&source,
+		"g",
+		{
+			{"s.odin", "package test\n\nFLAG :: #config(FLAG, false)\n\nS :: struct {\n\tg: int,\n}\n"},
+			{"sim.odin", sim},
+			{
+				"main.odin",
+				`package test
+
+when FLAG {
+	run :: proc(sim: ^Sim) {
+		entry := &sim.items[0]
+		entry.g = 1
+	}
+}
+`,
+			},
+		},
+	)
+}

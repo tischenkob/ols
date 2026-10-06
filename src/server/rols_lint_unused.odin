@@ -115,6 +115,8 @@ unused_declarations :: proc(
 				ident := name.derived.(^ast.Ident) or_continue
 				symbol := indexed.symbols[ident.name] or_continue
 				if symbol.uri != uri || symbol.flags & {.PrivateFile, .PrivatePackage} == {} do continue
+				// Its users may sit in other inactive branches.
+				if .Fallback in symbol.flags do continue
 				if ident.name == "main" || strings.has_prefix(ident.name, "_") || is_kept_alive(names) do continue
 				#partial switch symbol.type {
 				case .Package, .Field, .EnumMember, .Keyword:
