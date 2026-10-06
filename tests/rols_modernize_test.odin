@@ -1110,6 +1110,70 @@ f :: proc() {
 	)
 }
 
+// A typed value broadcasts into a matrix or an enumerated array, an untyped constant does not.
+@(test)
+modernize_fill_broadcasts_typed_values :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+E :: enum {
+	A,
+	B,
+}
+
+ms: [4]matrix[2, 2]f32
+ids: [4]matrix[2, 2]f32
+rows: [4][E]int
+zeros: [4][E]int
+
+f :: proc(mm: matrix[2, 2]f32) {
+	row: [E]int
+	for &m in ms {
+		m = mm
+	}
+	for &m in ids {
+		m = matrix[2, 2]f32{1, 0, 0, 1}
+	}
+	for &r in rows {
+		r = row
+	}
+	for &r in zeros {
+		r = {}
+	}
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_modernized(
+		t,
+		&src,
+		{},
+		`package test
+
+import "core:slice"
+
+E :: enum {
+	A,
+	B,
+}
+
+ms: [4]matrix[2, 2]f32
+ids: [4]matrix[2, 2]f32
+rows: [4][E]int
+zeros: [4][E]int
+
+f :: proc(mm: matrix[2, 2]f32) {
+	row: [E]int
+	ms = mm
+	ids = matrix[2, 2]f32{1, 0, 0, 1}
+	rows = row
+	slice.fill(zeros[:], [E]int{})
+}
+`,
+	)
+}
+
 // Sweep: slice.fill takes its value as the element type, so an untyped value names it, or the
 // loop stays when the type has no name.
 @(test)

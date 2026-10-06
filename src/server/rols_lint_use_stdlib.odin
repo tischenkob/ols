@@ -343,7 +343,6 @@ fill_args :: proc(w: ^Stdlib_Walker, m: ^Stdlib_Match, s, v: ^ast.Node) -> bool 
 	symbols := resolve_entire_file(w.document)
 	root_name := ""
 	if root, is_ident := access_root(s).derived.(^ast.Ident); is_ident do root_name = root.name
-	if reads_array(symbols, v, root_name) do return false
 
 	elem: Symbol
 	elem_ok, fixed := false, false
@@ -364,11 +363,17 @@ fill_args :: proc(w: ^Stdlib_Walker, m: ^Stdlib_Match, s, v: ^ast.Node) -> bool 
 			elem, elem_ok = resolve_type_in_package(w.document, resolved.symbol.pkg, elem_expr)
 		}
 	}
+	if reads_array(symbols, v, root_name, elem if elem_ok else {}) do return false
 
 	value := pattern_unparen(v)
-	untyped := false
+	untyped, typed := false, false
 	#partial switch e in value.derived {
+	case ^ast.Ident, ^ast.Selector_Expr, ^ast.Index_Expr:
+		typed = names_typed_value(symbols, value)
+	case ^ast.Type_Cast:
+		typed = true
 	case ^ast.Comp_Lit:
+		typed = e.type != nil
 		untyped = e.type == nil
 		if untyped && !(elem_ok && elem.pointers == 0 && takes_comp_lit(elem)) do return false
 	case ^ast.Implicit_Selector_Expr:
@@ -391,7 +396,7 @@ fill_args :: proc(w: ^Stdlib_Walker, m: ^Stdlib_Match, s, v: ^ast.Node) -> bool 
 
 	is_nil := false
 	if ident, is_ident := value.derived.(^ast.Ident); is_ident do is_nil = ident.name == "nil"
-	if fixed && elem_ok && broadcasts(w.document, elem, is_nil) {
+	if fixed && elem_ok && broadcasts(w.document, elem, is_nil, typed) {
 		m.broadcast = true
 		m.args[0] = node_text(w.src, s)
 		m.name = "array assignment"
@@ -401,23 +406,28 @@ fill_args :: proc(w: ^Stdlib_Walker, m: ^Stdlib_Match, s, v: ^ast.Node) -> bool 
 }
 
 // Whether value may read an element of the array: it names root_name, the array's root
-// identifier, or it reads elements through a pointer, slice or multi-pointer (`p[0]`, `s.p[:]`,
-// `p^`). Copying a pointer or reading a field through one is accepted, which misses a pointer
-// to an element of the array (`p := &items[0]`, then `p.x`) and a call that reads the array.
+// identifier, reads elements through a pointer, slice or multi-pointer (`p[0]`, `s.p[:]`, `p^`),
+// or reads a field through a pointer to the element type (`p.x` with `p := &items[0]`). Copying a
+// pointer or reading a field through a pointer to another type is accepted. The pattern matcher
+// already refuses a value with a call.
+// Known limit: a field read through a pointer to a field of an element (`q := &items[0].inner`,
+// then `q.x`) and a pointer to an element of an unnamed struct type are not seen.
 @(private = "file")
-reads_array :: proc(symbols: SymbolAndNodeMap, value: ^ast.Node, root_name: string) -> bool {
+reads_array :: proc(symbols: SymbolAndNodeMap, value: ^ast.Node, root_name: string, elem: Symbol) -> bool {
 	Search :: struct {
 		symbols:   SymbolAndNodeMap,
 		root_name: string,
+		elem:      Symbol,
 		found:     bool,
 	}
-	search := Search{symbols, root_name, false}
+	search := Search{symbols, root_name, elem, false}
 	visitor := ast.Visitor {
 		data = &search,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
 			if node == nil do return nil
 			search := (^Search)(visitor.data)
 			operand: ^ast.Node
+			field_read := false
 			#partial switch n in node.derived {
 			case ^ast.Ident:
 				if search.root_name != "" && n.name == search.root_name do search.found = true
@@ -427,16 +437,23 @@ reads_array :: proc(symbols: SymbolAndNodeMap, value: ^ast.Node, root_name: stri
 				operand = n.expr
 			case ^ast.Deref_Expr:
 				operand = n.expr
+			case ^ast.Selector_Expr:
+				operand, field_read = n.expr, true
 			}
 			// Each step of the operand chain, as `s.p` and `s` in `s.p[0]`. A selector resolves under
 			// its own node, not its field identifier.
 			for operand != nil && !search.found {
 				if resolved, ok := search.symbols[uintptr(operand)];
 				   ok && !resolved.is_unresolved && resolved.symbol != nil {
-					if resolved.symbol.pointers > 0 do search.found = true
-					#partial switch _ in resolved.symbol.value {
-					case SymbolSliceValue, SymbolDynamicArrayValue, SymbolMultiPointerValue:
-						search.found = true
+					step := resolved.symbol^
+					if field_read {
+						search.found = step.pointers > 0 && same_named_type(step, search.elem)
+					} else {
+						if step.pointers > 0 do search.found = true
+						#partial switch _ in step.value {
+						case SymbolSliceValue, SymbolDynamicArrayValue, SymbolMultiPointerValue:
+							search.found = true
+						}
 					}
 				}
 				#partial switch e in operand.derived {
@@ -457,6 +474,29 @@ reads_array :: proc(symbols: SymbolAndNodeMap, value: ^ast.Node, root_name: stri
 	}
 	ast.walk(&visitor, value)
 	return search.found
+}
+
+// Whether a and b name the same declared type. An unnamed type never matches.
+@(private = "file")
+same_named_type :: proc(a, b: Symbol) -> bool {
+	a_name, a_pkg := a.type_name if a.type_name != "" else a.name, a.type_pkg if a.type_name != "" else a.pkg
+	b_name, b_pkg := b.type_name if b.type_name != "" else b.name, b.type_pkg if b.type_name != "" else b.pkg
+	return a_name != "" && a_name == b_name && a_pkg == b_pkg
+}
+
+// Whether value, a name or a field or element of one, reads a variable or parameter. A constant
+// may be untyped.
+@(private = "file")
+names_typed_value :: proc(symbols: SymbolAndNodeMap, value: ^ast.Node) -> bool {
+	root, is_ident := access_root(value).derived.(^ast.Ident)
+	if !is_ident do return false
+	root_symbol, root_ok := symbols[uintptr(root)]
+	if !root_ok || root_symbol.is_unresolved || root_symbol.symbol == nil do return false
+	if root_symbol.symbol.flags & {.Mutable, .Parameter} == {} do return false
+	resolved, ok := symbols[uintptr(value)]
+	if !ok || resolved.is_unresolved || resolved.symbol == nil do return false
+	_, untyped := resolved.symbol.value.(SymbolUntypedValue)
+	return !untyped
 }
 
 // Types that a compound literal can build. A pointer or procedure type before `{` would parse as
@@ -482,21 +522,23 @@ takes_comp_lit :: proc(symbol: Symbol) -> bool {
 
 // rols: whether Odin assigns a value of the element type to every element of a fixed array. It
 // does, also through nested arrays, except an untyped constant into a matrix or an enumerated array,
-// and nil into a union. The value may be untyped, so those element types never broadcast.
+// and nil into a union. A typed value, such as a variable, a typed compound literal or a cast,
+// broadcasts into a matrix or an enumerated array too. Any other value may be untyped, so those
+// element types do not broadcast it.
 @(private = "file")
-broadcasts :: proc(document: ^Document, elem: Symbol, is_nil: bool) -> bool {
+broadcasts :: proc(document: ^Document, elem: Symbol, is_nil, typed: bool) -> bool {
 	#partial switch e in elem.value {
 	case SymbolMatrixValue:
-		return false
+		return typed
 	case SymbolUnionValue:
 		return !is_nil || elem.pointers != 0
 	case SymbolFixedArrayValue:
 		if elem.pointers != 0 do return true
 		if len_symbol, ok := resolve_type_in_package(document, elem.pkg, e.len); ok {
-			if _, is_enum := len_symbol.value.(SymbolEnumValue); is_enum do return false
+			if _, is_enum := len_symbol.value.(SymbolEnumValue); is_enum && !typed do return false
 		}
 		inner, inner_ok := resolve_type_in_package(document, elem.pkg, e.expr)
-		return inner_ok && broadcasts(document, inner, is_nil)
+		return inner_ok && broadcasts(document, inner, is_nil, typed)
 	}
 	return true
 }
@@ -608,13 +650,21 @@ stdlib_matches :: proc(document: ^Document, allocator := context.temp_allocator)
 		// Inside the target package the rewrite would call itself; the package clause names it even in a copy.
 		if m.pkg != "" && m.pkg == document.ast.pkg_name do continue
 		// A builtin target such as `max` can be shadowed in the file, also by the enclosing procedure.
-		if m.rule.pkg == "" && name_taken(document, m.start, m.rule.target, "") do continue
+		// A declaration in another file of the package shadows it as well.
+		if m.rule.pkg == "" && (name_taken(document, m.start, m.rule.target, "") || package_declares(document, m.rule.target)) do continue
 		for kept in out {
 			if kept.start <= m.start && m.end <= kept.end do continue outer
 		}
 		append(&out, m)
 	}
 	return out[:]
+}
+
+// Whether the package of document declares name in an indexed file.
+@(private = "file")
+package_declares :: proc(document: ^Document, name: string) -> bool {
+	_, found := lookup(name, document.package_name, document.fullpath)
+	return found
 }
 
 @(private = "file")
