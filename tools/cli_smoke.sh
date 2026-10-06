@@ -223,10 +223,15 @@ echo '{"odin_command": "/nonexistent/odin"}' > "$dir/ols.json"
 expect_exit 1 check-cannot-run-exit "$OLS" query rename "$dir/safe/a.odin:9:1" uno --apply
 cmp -s "$dir/safe/a.odin" "$dir/a.orig" || { echo "FAIL check-cannot-run wrote the file"; exit 1; }
 echo '{}' > "$dir/ols.json"
-# A _js.odin file is not built on this host, so moving `one` there leaves its call undeclared.
-expect_exit 4 created-rollback-exit "$OLS" query move "$dir/safe/a.odin:9:1" --to "$dir/safe/one_js.odin" --apply
-[[ ! -e "$dir/safe/one_js.odin" ]] || { echo "FAIL created-rollback left one_js.odin"; exit 1; }
-cmp -s "$dir/safe/a.odin" "$dir/a.orig" || { echo "FAIL created-rollback is not byte for byte"; exit 1; }
+# move refuses a new file whose name drops the platform suffix of its source, so this declaration breaks on its
+# file name instead: its #assert holds only in v.odin, and odin check rejects it in the created two.odin.
+printf 'package safe\n\n// Builds only in a file named v.odin.\ntwo :: proc() -> int {\n\t#assert(len(#file) - len(#directory) == len("v.odin"))\n\treturn 2\n}\n' > "$dir/safe/v.odin"
+cp "$dir/safe/v.odin" "$dir/v.orig"
+expect_exit 1 created-suffix-refused "$OLS" query move "$dir/safe/v.odin:4:1" --to "$dir/safe/two_js.odin" --apply
+expect_exit 4 created-rollback-exit "$OLS" query move "$dir/safe/v.odin:4:1" --to "$dir/safe/two.odin" --apply
+[[ ! -e "$dir/safe/two.odin" ]] || { echo "FAIL created-rollback left two.odin"; exit 1; }
+cmp -s "$dir/safe/v.odin" "$dir/v.orig" || { echo "FAIL created-rollback is not byte for byte"; exit 1; }
+rm "$dir/safe/v.odin"
 echo "ok created-rollback deletes the created file"
 echo '{"checker_skip_packages": ["safe"]}' > "$dir/ols.json"
 expect skip-warning "^warning: no touched package can be checked" sh -c "\"$OLS\" query rename \"$dir/safe/a.odin:9:1\" uno --apply 2>&1"

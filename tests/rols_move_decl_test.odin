@@ -348,6 +348,115 @@ use :: proc() {
 }
 
 @(test)
+move_decl_refused_to_new_file_without_platform_suffix :: proc(t: ^testing.T) {
+	source := move_source("", {{"main_windows.odin", "package test\n\nhel{*}per :: proc() {}\n"}})
+	test.expect_move_declaration(t, &source, "helper.odin", {}, "helper.odin has different build constraints")
+}
+
+@(test)
+move_decl_action_new_file_keeps_platform_suffix :: proc(t: ^testing.T) {
+	source := move_source("", {{"main_windows.odin", "package test\n\nhel{*}per :: proc() {}\n"}})
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Move to new file helper_windows.odin",
+		{{"main_windows.odin", "package test\n"}, {"helper_windows.odin", "package test\n\nhelper :: proc() {}\n"}},
+	)
+}
+
+@(test)
+move_decl_action_new_file_keeps_os_and_arch_suffix :: proc(t: ^testing.T) {
+	source := move_source("", {{"linux_amd64.odin", "package test\n\nhel{*}per :: proc() {}\n"}})
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Move to new file helper_linux_amd64.odin",
+		{{"helper_linux_amd64.odin", "package test\n\nhelper :: proc() {}\n"}},
+	)
+}
+
+// Corpus: docs/corpus-validation.md, 2026-10-05 rerun.
+@(test)
+move_decl_refused_into_file_private_file :: proc(t: ^testing.T) {
+	main := `package test
+
+hel{*}per :: proc() {}
+`
+	files := []test.File{{"b.odin", "#+private file\npackage test\n"}}
+	source := move_source(main, files)
+	test.expect_move_declaration(t, &source, "b.odin", {}, "b.odin is #+private file")
+	action := move_source(main, files)
+	test.expect_action_missing(t, &action, "Move to b.odin")
+}
+
+// Corpus: karl2d audio_backend_nil.odin:28 on the 2026-10-05 rerun, see docs/corpus-validation.md.
+@(test)
+move_decl_refused_from_package_private_into_public :: proc(t: ^testing.T) {
+	main := `#+private
+package test
+
+hel{*}per :: proc() {}
+`
+	files := []test.File{{"b.odin", "package test\n"}}
+	source := move_source(main, files)
+	test.expect_move_declaration(t, &source, "b.odin", {}, "b.odin is public")
+	action := move_source(main, files)
+	test.expect_action_missing(t, &action, "Move to b.odin")
+}
+
+@(test)
+move_decl_refused_from_public_into_package_private :: proc(t: ^testing.T) {
+	main := `package test
+
+hel{*}per :: proc() {}
+`
+	files := []test.File{{"b.odin", "#+private\npackage test\n"}}
+	source := move_source(main, files)
+	test.expect_move_declaration(t, &source, "b.odin", {}, "b.odin is #+private")
+	action := move_source(main, files)
+	test.expect_action_missing(t, &action, "Move to b.odin")
+}
+
+@(test)
+move_decl_between_package_private_files :: proc(t: ^testing.T) {
+	source := move_source(`#+private
+package test
+
+hel{*}per :: proc() {}
+`, {{"b.odin", "#+private\npackage test\n"}})
+	test.expect_move_declaration(
+		t,
+		&source,
+		"b.odin",
+		{{"main.odin", "#+private\npackage test\n"}, {"b.odin", "#+private\npackage test\n\nhelper :: proc() {}\n"}},
+	)
+}
+
+// Corpus: karl2d audio_backend_core_audio.odin:94 on the 2026-10-05 rerun, see docs/corpus-validation.md.
+@(test)
+move_decl_to_new_file_keeps_file_tags :: proc(t: ^testing.T) {
+	source := move_source(`#+build darwin
+#+private
+package test
+
+hel{*}per :: proc() {}
+
+use :: proc() {
+	helper()
+}
+`)
+	test.expect_move_declaration(
+		t,
+		&source,
+		"helper.odin",
+		{
+			{"main.odin", "#+build darwin\n#+private\npackage test\n\nuse :: proc() {\n\thelper()\n}\n"},
+			{"helper.odin", "#+build darwin\n#+private\npackage test\n\nhelper :: proc() {}\n"},
+		},
+	)
+}
+
+@(test)
 move_decl_drops_import_only_the_moved_decl_used :: proc(t: ^testing.T) {
 	source := move_source(`package test
 

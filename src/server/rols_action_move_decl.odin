@@ -20,11 +20,16 @@ add_move_decl_action :: proc(ctx: ^ActionContext) {
 	siblings := package_siblings(document, ctx.files)
 
 	name := strings.to_lower(node_text(document.ast.src, move.decl.names[0]), context.temp_allocator)
-	new_path := path.join({document.package_name, strings.concatenate({name, ".odin"}, context.temp_allocator)}, context.temp_allocator)
+	// The new file keeps the platform suffix of the source, as in `helper_windows.odin`, so it builds on the same targets.
+	new_name := strings.concatenate(
+		{name, target_suffix(path.base(document.fullpath)), ".odin"},
+		context.temp_allocator,
+	)
+	new_path := path.join({document.package_name, new_name}, context.temp_allocator)
 	if ctx.config.client_create_file_support && !package_file_exists(new_path, ctx.files) {
 		uri := common.create_uri(new_path, context.temp_allocator)
 		if edit, _, edit_ok := move_edit(move, uri.uri, ctx.files); edit_ok {
-			append(ctx.actions, CodeAction{title = fmt.tprintf("Move to new file %s.odin", name), kind = "refactor.move", edit = edit})
+			append(ctx.actions, CodeAction{title = fmt.tprintf("Move to new file %s", new_name), kind = "refactor.move", edit = edit})
 		}
 	}
 

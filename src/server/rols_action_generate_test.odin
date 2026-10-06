@@ -32,7 +32,7 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	if lit.type.params != nil && strings.contains(node_text(document.ast.src, lit.type.params), "$") {
 		return
 	}
-	if slice.contains(attribute_names(decl.attributes[:]), "test") || is_file_private(decl.attributes[:]) {
+	if slice.contains(attribute_names(decl.attributes[:]), "test") || file_private(document, decl) {
 		return
 	}
 
@@ -98,6 +98,8 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 		&changes,
 		document.ast.pkg_name,
 		uri.uri,
+		// A new test file builds on the targets of its source and keeps its `#+private` and `#+vet` tags.
+		document.ast.tags[:],
 		{`import "core:testing"`},
 		strings.to_string(sb),
 		ctx.files,

@@ -3,6 +3,7 @@ package server
 import "core:fmt"
 import "core:odin/ast"
 import "core:odin/parser"
+import "core:odin/tokenizer"
 import "core:os"
 import "core:path/filepath"
 import path "core:path/slashpath"
@@ -148,11 +149,31 @@ move_edit :: proc(move: Move, target_uri: string, files: []Package_File) -> (Wor
 		return {}, "the target must be in the directory of the declaration", false
 	}
 
-	// rols: a declaration keeps its meaning only in a file that builds on the same platforms.
-	if package_file_exists(target_path, files) {
-		h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
-		if target := hierarchy_document(&h, target_uri); target != nil && build_constraints_differ(document, target) {
+	// rols: a declaration keeps its meaning and visibility only in a file that builds on the same platforms and
+	// has the same `#+private` tag. A new file gets the tags of the source, but its name must carry the same
+	// OS and architecture suffix.
+	if !package_file_exists(target_path, files) {
+		if name_targets_differ(path.base(document.fullpath), path.base(target_path)) {
 			return {}, fmt.tprintf("%s has different build constraints", path.base(target_path)), false
+		}
+	} else {
+		h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
+		if target := hierarchy_document(&h, target_uri); target != nil {
+			if build_constraints_differ(document, target) {
+				return {}, fmt.tprintf("%s has different build constraints", path.base(target_path)), false
+			}
+			source_private := parser.parse_file_tags(document.ast, context.temp_allocator).private
+			target_private := parser.parse_file_tags(target.ast, context.temp_allocator).private
+			if source_private != target_private {
+				return {},
+					fmt.tprintf(
+						"%s is %s but the file of the declaration is %s",
+						path.base(target_path),
+						PRIVACY_NAMES[target_private],
+						PRIVACY_NAMES[source_private],
+					),
+					false
+			}
 		}
 	}
 
@@ -164,11 +185,26 @@ move_edit :: proc(move: Move, target_uri: string, files: []Package_File) -> (Wor
 	for imp, i in move.imports {
 		imports[i] = node_text(document.ast.src, imp.import_decl)
 	}
-	edit, ok := append_to_package_file(&changes, document.ast.pkg_name, target_uri, imports, move.text, files)
+	edit, ok := append_to_package_file(
+		&changes,
+		document.ast.pkg_name,
+		target_uri,
+		document.ast.tags[:],
+		imports,
+		move.text,
+		files,
+	)
 	if !ok {
 		return {}, fmt.tprintf("%s cannot be read or belongs to another package", target_path), false
 	}
 	return edit, "", true
+}
+
+@(private = "file", rodata)
+PRIVACY_NAMES := [parser.Private_Flag]string {
+	.Public  = "public",
+	.Package = "#+private",
+	.File    = "#+private file",
 }
 
 // Whether two files differ in `#+build` lines, `#+build ignore` or the OS and architecture suffix of their names.
@@ -185,17 +221,42 @@ build_constraints_differ :: proc(a, b: ^Document) -> bool {
 	for group, i in tags_a.build_project_name {
 		if !slice.equal(group, tags_b.build_project_name[i]) do return true
 	}
-	target_a, hidden_a := file_name_target(filepath.base(a.fullpath))
-	target_b, hidden_b := file_name_target(filepath.base(b.fullpath))
+	return name_targets_differ(filepath.base(a.fullpath), filepath.base(b.fullpath))
+}
+
+// Whether two file names differ in the OS and architecture suffix that file_name_target reads, or in being hidden.
+@(private = "file")
+name_targets_differ :: proc(a, b: string) -> bool {
+	target_a, hidden_a := file_name_target(a)
+	target_b, hidden_b := file_name_target(b)
 	return hidden_a != hidden_b || target_a.os != target_b.os || target_a.arch != target_b.arch
 }
 
+// The OS and architecture suffix of filename that file_name_target reads, such as `_windows` or
+// `_linux_amd64`, or "" for none.
+target_suffix :: proc(filename: string) -> string {
+	target, _ := file_name_target(filename)
+	if target.os == .Unknown && target.arch == .Unknown {
+		return ""
+	}
+	stem := filename
+	if dot := strings.last_index_byte(stem, '.'); dot >= 0 do stem = stem[:dot]
+	last := strings.last_index_byte(stem, '_')
+	if target.os != .Unknown && target.arch != .Unknown {
+		// Two segments: a name such as `linux_amd64.odin` is all suffix.
+		last = strings.last_index_byte(stem[:last], '_')
+		if last < 0 do return strings.concatenate({"_", stem}, context.temp_allocator)
+	}
+	return stem[last:]
+}
+
 // Appends text to target_uri, a file of package pkg_name, inserting after its package line the
-// import lines it lacks. A missing target is created with the header and the imports. changes
-// carries the edits of other files that belong to the same workspace edit.
+// import lines it lacks. A missing target is created with the file tags, such as `#+build linux`, the
+// package line and the imports. changes carries the edits of other files that belong to the same workspace edit.
 append_to_package_file :: proc(
 	changes: ^Changes,
 	pkg_name, target_uri: string,
+	tags: []tokenizer.Token,
 	imports: []string,
 	text: string,
 	files: []Package_File,
@@ -206,6 +267,11 @@ append_to_package_file :: proc(
 	target_path := common.uri_to_path(target_uri, context.temp_allocator)
 	if !package_file_exists(target_path, files) {
 		content := strings.builder_make(context.temp_allocator)
+		// A tag token holds its whole line up to a trailing comment.
+		for tag in tags {
+			strings.write_string(&content, strings.trim_right_space(tag.text))
+			strings.write_string(&content, "\n")
+		}
 		strings.write_string(&content, "package ")
 		strings.write_string(&content, pkg_name)
 		strings.write_string(&content, "\n")

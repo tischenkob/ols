@@ -165,6 +165,41 @@ fo{*}o :: proc() {
 	test.expect_action(t, &source, {})
 }
 
+// Corpus: karl2d platform_mac.odin:131 on the 2026-10-05 rerun, see docs/corpus-validation.md.
+@(test)
+generate_test_refused_for_private_file_tag :: proc(t: ^testing.T) {
+	source := generate_source(`#+private file
+package test
+
+fo{*}o :: proc() {
+}
+`)
+	test.expect_action(t, &source, {})
+}
+
+@(test)
+generate_test_new_file_keeps_file_tags :: proc(t: ^testing.T) {
+	source := generate_source(`#+build darwin, linux
+#+private
+#+vet tabs
+package test
+
+fo{*}o :: proc() {
+}
+`)
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Generate test for foo",
+		{
+			{
+				"main_test.odin",
+				"#+build darwin, linux\n#+private\n#+vet tabs\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo()\n}\n",
+			},
+		},
+	)
+}
+
 @(test)
 generate_test_for_package_private :: proc(t: ^testing.T) {
 	source := generate_source(`package test
