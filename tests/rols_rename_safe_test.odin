@@ -1576,3 +1576,74 @@ f :: proc(foo: Foo) -> int {
 		},
 	)
 }
+
+// A use of the new name that already means a field through another `using` is captured by the inner `using`.
+@(test)
+rename_safe_refuses_field_capture_of_other_using_field :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature using-stmt
+package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+Bar :: struct {
+	limit: int,
+}
+
+f :: proc(using bar: Bar, foo: Foo) -> int {
+	{
+		using foo
+		return limit
+	}
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"limit",
+		{
+			"at test/main.odin:15:10 `limit` refers to `limit` declared at test/main.odin:9, but after the rename it would mean the field through `using foo`",
+		},
+	)
+}
+
+// An alias or a distinct type of the owner carries the field to the structs that embed it through `using`.
+@(test)
+rename_safe_refuses_collision_in_embedder_of_alias :: proc(t: ^testing.T) {
+	source := test.Source {
+		main  = `package test
+
+Foo :: struct {
+	y{*}: int,
+}
+
+Alias :: Foo
+
+Top :: struct {
+	using a: Alias,
+	x: int,
+}
+`,
+		files = {{"other.odin", `package test
+
+D :: distinct Foo
+
+Top_D :: struct {
+	using d: D,
+	x: int,
+}
+`}},
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"x",
+		{
+			"`x` is already a member of a type that embeds this one through `using a` at test/main.odin:11:2",
+			"`x` is already a member of a type that embeds this one through `using d` at test/other.odin:7:2",
+		},
+	)
+}

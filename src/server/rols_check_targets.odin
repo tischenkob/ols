@@ -160,6 +160,24 @@ same_build_targets :: proc(
 	return true
 }
 
+// Whether some OS and architecture pair builds both the file called name_a with text_a and the file called
+// name_b with text_b.
+builds_together :: proc(name_a, text_a, name_b, text_b: string) -> bool {
+	a, b := build_facts(name_a, text_a), build_facts(name_b, text_b)
+	for os in runtime.Odin_OS_Type {
+		if os == .Unknown do continue
+		for arch in runtime.Odin_Arch_Type {
+			if arch == .Unknown do continue
+			target := parser.Build_Target {
+				os   = os,
+				arch = arch,
+			}
+			if facts_build_on(a, target) && facts_build_on(b, target) do return true
+		}
+	}
+	return false
+}
+
 // Whether odin builds the file called name with the source text for target.
 builds_on :: proc(name, text: string, target: parser.Build_Target) -> bool {
 	return facts_build_on(build_facts(name, text), target)

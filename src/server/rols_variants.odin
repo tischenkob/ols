@@ -60,7 +60,7 @@ declaration_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> []Decl_Varia
 		for sibling in package_siblings(home, h.files) {
 			slashed, _ := filepath.replace_separators(sibling, '/', context.temp_allocator)
 			// Most siblings never mention the name, so they are not parsed.
-			if mentions(h, slashed, target.name) do append(&paths, slashed)
+			if file_mentions(h, slashed, target.name) do append(&paths, slashed)
 		}
 	}
 
@@ -99,8 +99,22 @@ declaration_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> []Decl_Varia
 	return variants[:]
 }
 
+// The variants of decl, a top-level declaration of document; files stands in for the workspace.
+top_level_variants :: proc(document: ^Document, decl: ^ast.Value_Decl, files: []Package_File) -> []Decl_Variant {
+	h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
+	h.documents[document.uri.uri] = document
+	symbol := Symbol {
+		uri   = document.uri.uri,
+		range = common.get_token_range(decl.names[0], document.ast.src),
+		pkg   = document.package_name,
+		name  = final_name(decl.names[0]),
+	}
+	return declaration_variants(&h, symbol)
+}
+
 // The locations a rename at the position changes: the references of the symbol there and, for a package-level
-// declaration, of its variants, with the declared name of each variant.
+// declaration, of its variants, with the declared name of each variant. These are the references the
+// references request finds.
 rename_locations :: proc(
 	document: ^Document,
 	ast_context: ^AstContext,
@@ -110,25 +124,7 @@ rename_locations :: proc(
 	[]common.Location,
 	bool,
 ) {
-	symbol, flag, ok := prepare_references(document, ast_context, position_context)
-	if !ok {
-		return {}, true
-	}
-	variants: []Symbol
-	if flag == .Identifier {
-		h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
-		h.documents[document.uri.uri] = document
-		variants = variant_symbols(declaration_variants(&h, symbol))
-	}
-	return find_symbol_references(
-		document,
-		ast_context,
-		symbol,
-		flag,
-		target_name = get_target_name(position_context, flag),
-		files = files,
-		variants = variants,
-	)
+	return resolve_references(document, ast_context, position_context, files = files)
 }
 
 // The symbols of variants, for find_symbol_references.
@@ -195,8 +191,7 @@ builds_on_host :: proc(document: ^Document) -> bool {
 }
 
 // Whether the text of the file at fullpath, as hierarchy_document reads it, contains name.
-@(private = "file")
-mentions :: proc(h: ^Call_Hierarchy, fullpath, name: string) -> bool {
+file_mentions :: proc(h: ^Call_Hierarchy, fullpath, name: string) -> bool {
 	if open := &document_storage.documents[fullpath]; open != nil && open.client_owned {
 		return strings.contains(string(open.text[:open.used_text]), name)
 	}

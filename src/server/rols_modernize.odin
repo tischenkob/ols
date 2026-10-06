@@ -197,11 +197,12 @@ rule_priority :: proc(id: string) -> int {
 }
 
 // The fixes of every selected rule, overlapping ones included. A provider runs only while its
-// lint is enabled in the config, as in the editor.
+// lint is enabled in the config, as in the editor. files, when given, replaces the workspace walk.
 modernize_fixes :: proc(
 	document: ^Document,
 	selected: map[string]struct{},
 	config: ^common.Config,
+	files: []Package_File = {},
 ) -> []Modernize_Fix {
 	out := make([dynamic]Modernize_Fix, context.temp_allocator)
 
@@ -244,6 +245,15 @@ modernize_fixes :: proc(
 	if wants_lint {
 		for fix in lint_fixes(document, config) {
 			if fix.code not_in selected do continue
+			// The lint checks the named arguments of this file only; other files are searched as for the quick fix.
+			if fix.code == "unused-parameter" {
+				lit: ^ast.Proc_Lit
+				for at in nodes_at(document.ast.decls[:], fix.start) {
+					lit = at.node.derived.(^ast.Proc_Lit) or_else lit
+				}
+				name := document.ast.src[fix.start:fix.end]
+				if lit == nil || param_named_elsewhere(document, lit, name, files) do continue
+			}
 			append(
 				&out,
 				Modernize_Fix{rule = fix.code, title = fix.title, start = fix.start, end = fix.end, text = fix.text},
@@ -329,11 +339,13 @@ modernize_pass :: proc(
 }
 
 // Runs passes until no selected rule has a fix or MODERNIZE_MAX_PASSES passes ran. The document
-// holds its original text again on return; the result text is in the temp allocator.
+// holds its original text again on return; the result text is in the temp allocator. files, when
+// given, replaces the workspace walk.
 modernize_document :: proc(
 	document: ^Document,
 	selected: map[string]struct{},
 	config: ^common.Config,
+	files: []Package_File = {},
 ) -> (
 	result: Modernize_Result,
 ) {
@@ -350,7 +362,7 @@ modernize_document :: proc(
 
 	applied := make([dynamic]Modernize_Applied, context.temp_allocator)
 	for pass := 1;; pass += 1 {
-		fixes := modernize_fixes(document, selected, config)
+		fixes := modernize_fixes(document, selected, config, files)
 		if len(fixes) == 0 {
 			result.converged = true
 			break

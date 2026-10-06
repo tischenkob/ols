@@ -376,3 +376,66 @@ when FLAG {
 		},
 	)
 }
+
+// A declaration of the new name in another file collides when some target builds that file with the renamed
+// declaration or one of its variants. A file-private declaration there does not collide.
+@(test)
+rename_variant_collision_in_other_file_of_same_target :: proc(t: ^testing.T) {
+	renamed := "package test\n\nf{*} :: proc() {}\n"
+	variant := "package test\n\nf :: proc() {}\n"
+	cases := [?]struct {
+		name, text: string,
+		causes:     []string,
+	} {
+		{
+			"other_windows.odin",
+			"package test\n\nh :: proc() {}\n",
+			{"`h` is already declared in the package at test/other_windows.odin:3:1"},
+		},
+		{"other_linux.odin", "package test\n\nh :: proc() {}\n", {}},
+		{"other_windows.odin", "package test\n\n@(private = \"file\")\nh :: proc() {}\n", {}},
+	}
+	for c in cases {
+		source := test.Source {
+			files = {{"f_windows.odin", renamed}, {"f_darwin.odin", variant}, {c.name, c.text}},
+		}
+		test.expect_rename_refused(t, &source, "h", c.causes)
+	}
+}
+
+// The references of one variant include the other variant and a call that reaches it, whichever holds the cursor.
+@(test)
+references_include_variants :: proc(t: ^testing.T) {
+	for main in ([2]string{`package test
+
+when ODIN_DEBUG {
+	f{*} :: proc() -> int { return 1 }
+} else {
+	f :: proc() -> int { return 2 }
+}
+
+g :: proc() -> int { return f() }
+`, `package test
+
+when ODIN_DEBUG {
+	f :: proc() -> int { return 1 }
+} else {
+	f{*} :: proc() -> int { return 2 }
+}
+
+g :: proc() -> int { return f() }
+`}) {
+		source := test.Source {
+			main = main,
+		}
+		test.expect_reference_locations(
+			t,
+			&source,
+			{
+				{range = {start = {line = 3, character = 1}, end = {line = 3, character = 2}}},
+				{range = {start = {line = 5, character = 1}, end = {line = 5, character = 2}}},
+				{range = {start = {line = 8, character = 28}, end = {line = 8, character = 29}}},
+			},
+		)
+	}
+}

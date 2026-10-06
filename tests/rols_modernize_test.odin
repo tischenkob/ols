@@ -969,6 +969,54 @@ g :: proc() -> int {
 `)
 }
 
+// A call in another file that names the argument keeps the parameter name.
+@(test)
+modernize_unused_parameter_keeps_a_name_another_file_passes :: proc(t: ^testing.T) {
+	main := `package test
+
+f :: proc(a: int, b: int) -> int {
+	return a
+}
+`
+	src := test.Source {
+		main = main,
+		files = {{"b.odin", `package test
+
+g :: proc() -> int {
+	return f(1, b = 2)
+}
+`}},
+		config = {enable_lint_unused_parameter = true},
+	}
+
+	test.expect_modernized(t, &src, {"unused-parameter"}, main)
+}
+
+// A call that names the argument counts when it reaches a platform variant of the procedure, as on the host.
+@(test)
+modernize_unused_parameter_keeps_a_name_a_variant_call_passes :: proc(t: ^testing.T) {
+	main := `#+build windows
+package test
+
+f :: proc(a: int, b: int) -> int {
+	return a
+}
+`
+	src := test.Source {
+		main = main,
+		files = {
+			{
+				"f_host.odin",
+				"#+build !windows\npackage test\n\nf :: proc(a: int, b: int) -> int {\n\treturn a + b\n}\n",
+			},
+			{"b.odin", "package test\n\ng :: proc() -> int {\n\treturn f(1, b = 2)\n}\n"},
+		},
+		config = {enable_lint_unused_parameter = true},
+	}
+
+	test.expect_modernized(t, &src, {"unused-parameter"}, main)
+}
+
 // Sweep: an untyped value assigned to every element of a fixed array names the element type.
 @(test)
 modernize_fill_broadcasts_untyped_values :: proc(t: ^testing.T) {

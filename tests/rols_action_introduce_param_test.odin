@@ -368,3 +368,23 @@ main :: proc() {
 }
 `}})
 }
+
+// The action edits one declaration, so a procedure with a platform variant gets no new parameter.
+@(test)
+action_introduce_param_skips_platform_variant :: proc(t: ^testing.T) {
+	expect_no_introduce_param(
+		t,
+		`#+build !windows
+package test
+
+grow :: proc(x: int) -> int {
+	return x * {*}2
+}
+
+main :: proc() {
+	a := grow(1)
+}
+`,
+		{{"grow_windows.odin", "#+build windows\npackage test\n\ngrow :: proc(x: int) -> int {\n\treturn x * 2\n}\n"}},
+	)
+}

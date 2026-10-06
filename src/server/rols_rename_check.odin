@@ -334,7 +334,8 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 				out      = out,
 				new_name = new_name,
 				types    = make([dynamic]Symbol, context.temp_allocator),
-				sites    = make([dynamic]^Document, context.temp_allocator),
+				decls    = make([dynamic]Symbol, context.temp_allocator),
+				sites   = make([dynamic]^Document, context.temp_allocator),
 				resolved = make(map[^Document]SymbolAndNodeMap, context.temp_allocator),
 			}
 			check_embedders(&scan, target, decl_document, type_name)
@@ -366,8 +367,32 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 			}
 			append(&scanned, variant.document)
 		}
-		for scan in scanned {
+		renamed := len(scanned)
+		// A sibling that mentions new_name and that some target builds with one of those files, where only its
+		// declarations visible to the package count.
+		siblings: for sibling in package_siblings(decl_document, target.h.files) {
+			slashed, _ := filepath.replace_separators(sibling, '/', context.temp_allocator)
+			for scan in scanned[:renamed] {
+				if scan.fullpath == slashed do continue siblings
+			}
+			if !file_mentions(&target.h, slashed, new_name) do continue
+			document := hierarchy_document(&target.h, common.create_uri(slashed, context.temp_allocator).uri)
+			if document == nil || document.ast.pkg_name != decl_document.ast.pkg_name {
+				continue
+			}
+			text := string(document.text[:document.used_text])
+			for scan in scanned[:renamed] {
+				if builds_together(scan.fullpath, string(scan.text[:scan.used_text]), document.fullpath, text) {
+					append(&scanned, document)
+					break
+				}
+			}
+		}
+		for scan, i in scanned {
 			for decl in top_level_value_decls(scan.ast) {
+				if i >= renamed && file_private(scan, decl) {
+					continue
+				}
 				for name in decl.names {
 					if ident, ok := name.derived.(^ast.Ident); ok && ident.name == new_name {
 						// The index's declaration is reported here.
@@ -385,6 +410,22 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 				}
 			}
 		}
+		// The index holds the files the host builds, which need not build with the renamed declaration.
+		if found {
+			if home := hierarchy_document(&target.h, other.uri); home != nil {
+				text := string(home.text[:home.used_text])
+				together := false
+				for scan in scanned[:renamed] {
+					together ||= builds_together(
+						scan.fullpath,
+						string(scan.text[:scan.used_text]),
+						home.fullpath,
+						text,
+					)
+				}
+				found = together
+			}
+		}
 		if found {
 			append(out, fmt.tprintf("`%s` is already declared in the package at %s", new_name, declared_at(other)))
 		}
@@ -398,6 +439,7 @@ Embed_Scan :: struct {
 	new_name: string,
 	site:     ^Document, // the document under walk by check_using_statements
 	types:    [dynamic]Symbol, // the owner type and every type that embeds it, directly or not
+	decls:    [dynamic]Symbol, // the declarations searched so far: those types and the aliases of them
 	sites:    [dynamic]^Document, // the documents that name one of them and contain `using` anywhere
 	resolved: map[^Document]SymbolAndNodeMap, // the new name resolved in each site
 }
@@ -424,12 +466,20 @@ check_embedders :: proc(scan: ^Embed_Scan, target: ^Rename_Target, document: ^Do
 	if !value_ok {
 		return
 	}
-	for seen in scan.types {
-		if same_symbol(seen, value) {
+	// An alias names the same type as its target but has references of its own, so declarations are deduped.
+	for seen in scan.decls {
+		if same_symbol(seen, type_symbol) {
 			return
 		}
 	}
-	append(&scan.types, value)
+	append(&scan.decls, type_symbol)
+	known := false
+	for seen in scan.types {
+		known ||= same_symbol(seen, value)
+	}
+	if !known {
+		append(&scan.types, value)
+	}
 	ast_context := globals_context(document)
 	locations, _ := find_symbol_references(
 		document,
@@ -451,6 +501,22 @@ check_embedders :: proc(scan: ^Embed_Scan, target: ^Rename_Target, document: ^Do
 		}
 		offset := common.get_absolute_position(location.range.start, site.text[:site.used_text]) or_continue
 		chain := nodes_at(site.ast.decls[:], offset)
+		// `Alias :: Foo`, `distinct Foo` or `^Foo` carries the field to every `using` of the alias.
+		for node_at in chain {
+			decl := node_at.node.derived.(^ast.Value_Decl) or_continue
+			if decl.is_mutable || len(decl.names) != 1 || len(decl.values) != 1 {
+				continue
+			}
+			value := decl.values[0]
+			if distinct_type, is_distinct := value.derived.(^ast.Distinct_Type); is_distinct {
+				value = distinct_type.type
+			}
+			used := using_type_ident(value)
+			alias, is_ident := decl.names[0].derived.(^ast.Ident)
+			if used != nil && used.pos.offset == offset && is_ident {
+				check_embedders(scan, target, site, alias)
+			}
+		}
 		for node_at, i in chain {
 			field := node_at.node.derived.(^ast.Field) or_continue
 			if .Using not_in field.flags || len(field.names) == 0 || i < 2 {
@@ -645,7 +711,8 @@ field_captures :: proc(scan: ^Embed_Scan, site: ^Document, via: string, uses, sc
 		}
 		other := hit.symbol^
 		at := common.get_token_range(ident^, site.ast.src)
-		if other.type == .Field || (other.range == at && strings.equal_fold(other.uri, site.uri.uri)) {
+		// A field that another `using` brings in is captured too, by the inner `using`.
+		if other.range == at && strings.equal_fold(other.uri, site.uri.uri) {
 			continue
 		}
 		// A declaration inside the scope shadows the field, which the collision check reports.

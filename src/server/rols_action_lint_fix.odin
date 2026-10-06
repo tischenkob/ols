@@ -2,6 +2,8 @@
 
 package server
 
+import "core:odin/ast"
+
 @(private = "package")
 add_lint_fix_action :: proc(ctx: ^ActionContext) {
 	for fix in lint_fixes(ctx.document, ctx.config) {
@@ -21,23 +23,31 @@ add_lint_fix_action :: proc(ctx: ^ActionContext) {
 }
 
 // Whether renaming the parameter under fix to `_` could break a call in another file, which the lint does
-// not see. A reference other than a call counts, as does any call in a referencing file that names an
-// argument like the parameter. A procedure not declared at the top level is visible to this file only.
+// not see.
 named_elsewhere :: proc(ctx: ^ActionContext, fix: Lint_Fix) -> bool {
 	function := ctx.position_context.function
 	if function == nil {
 		return true
 	}
-	decl, is_top := proc_decl_of(ctx.document, function)
+	return param_named_elsewhere(ctx.document, function, ctx.document.ast.src[fix.start:fix.end], ctx.files)
+}
+
+// Whether renaming the parameter name of lit, a procedure of document, to `_` could break a call in another
+// file (files stands in for the workspace). A reference other than a call counts, as does any call in a
+// referencing file that names an argument like the parameter. A call of a platform variant counts too. A
+// procedure not declared at the top level is visible to this file only.
+@(private = "package")
+param_named_elsewhere :: proc(document: ^Document, lit: ^ast.Proc_Lit, name: string, files: []Package_File) -> bool {
+	decl, is_top := proc_decl_of(document, lit)
 	if !is_top {
 		return false
 	}
-	name := ctx.document.ast.src[fix.start:fix.end]
-	h := Call_Hierarchy{ctx.files, make(map[string]^Document, context.temp_allocator)}
-	h.documents[ctx.document.uri.uri] = ctx.document
+	h := Call_Hierarchy{files, make(map[string]^Document, context.temp_allocator)}
+	h.documents[document.uri.uri] = document
 	checked := make(map[^Document]struct{}, context.temp_allocator)
-	checked[ctx.document] = {}
-	for location in proc_references(ctx.document, decl, ctx.files) {
+	checked[document] = {}
+	variants := variant_symbols(top_level_variants(document, decl, files))
+	for location in proc_references(document, decl, files, variants) {
 		caller := hierarchy_document(&h, location.uri)
 		if caller == nil {
 			return true
