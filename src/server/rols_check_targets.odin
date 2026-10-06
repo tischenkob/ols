@@ -411,7 +411,16 @@ tags_build_on :: proc(name, text: string, target: parser.Build_Target) -> bool {
 // The `-target:` value to check the file called name with the source text on, when base does not build
 // it: the first candidate that does, as Other. Nowhere when none does and the file is not `#+build ignore`.
 target_for_file :: proc(name, text: string, base: parser.Build_Target) -> (target: string, need: Target_Need) {
-	facts := build_facts(name, text)
+	return facts_target(build_facts(name, text), base)
+}
+
+// target_for_file for a parsed file, without parsing its text again.
+parsed_target_for_file :: proc(file: ast.File, base: parser.Build_Target) -> (target: string, need: Target_Need) {
+	return facts_target(facts_of(file.fullpath, build_tags(file)), base)
+}
+
+@(private = "file")
+facts_target :: proc(facts: Build_Facts, base: parser.Build_Target) -> (target: string, need: Target_Need) {
 	if facts_build_on(facts, base) || facts.tags.ignore {
 		return "", .None
 	}

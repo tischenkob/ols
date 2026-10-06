@@ -75,6 +75,9 @@ lookup :: proc(name: string, pkg: string, current_file: string, loc := #caller_l
 		return lookup_builtin_symbol(name, current_pkg, current_file_uri)
 	}
 
+	// rols: a file that the host does not build sees the declarations of the target that builds it first
+	if symbol, ok := lookup_other_target(name, pkg, current_file, current_pkg, current_file_uri); ok do return symbol, true
+
 	return lookup_symbol(name, pkg, current_pkg, current_file_uri)
 }
 

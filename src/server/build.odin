@@ -248,6 +248,8 @@ remove_index_file :: proc(uri: common.Uri) -> common.Error {
 
 	corrected_uri := common.create_uri(fullpath, context.temp_allocator)
 	invalidate_document_symbol_caches()
+	// rols: the other targets' declarations of the package are collected again
+	forget_excluded_file(fullpath)
 
 	for k, &v in indexer.index.collection.packages {
 		for k2, v2 in v.symbols {
@@ -322,6 +324,8 @@ index_file :: proc(uri: common.Uri, text: string) -> common.Error {
 
 	corrected_uri := common.create_uri(fullpath, context.temp_allocator)
 	invalidate_document_symbol_caches()
+	// rols: the other targets' declarations of the package are collected again
+	forget_excluded_file(fullpath)
 
 	for k, &v in indexer.index.collection.packages {
 		for k2, v2 in v.symbols {
@@ -369,6 +373,8 @@ free_index :: proc() {
 	}
 	delete(build_cache.loaded_pkgs)
 	delete_symbol_collection(indexer.index.collection)
+	// rols: the index of the files that the host does not build goes with it
+	free_excluded()
 	memory_index_clear_cache(&indexer.index)
 	build_cache.pkg_aliases = {}
 }

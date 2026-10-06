@@ -7,12 +7,23 @@ import "core:testing"
 import "src:common"
 import "src:server"
 
-// Like expect_hover, after `index_file` reindexes each of `reindexed` in order, as a save does.
-expect_hover_after_reindex :: proc(t: ^testing.T, src: ^Source, reindexed: []File, expect_hover_string: string) {
+// Like expect_hover, after `index_file` reindexes each of `reindexed` in order, as a save does. With
+// `hover_first`, a hover before the saves fills the caches that the saves must invalidate.
+expect_hover_after_reindex :: proc(
+	t: ^testing.T,
+	src: ^Source,
+	reindexed: []File,
+	expect_hover_string: string,
+	hover_first := false,
+) {
 	cursor := source_remove_cursor(src)
 
 	setup(src)
 	defer teardown(src)
+
+	if hover_first {
+		server.get_hover_information(src.document, cursor)
+	}
 
 	for file in reindexed {
 		fullpath := strings.join({"test", file.name}, "/", context.temp_allocator)
