@@ -476,3 +476,17 @@ apply_variants_add_one_check_each_on_the_current_target :: proc(t: ^testing.T) {
 	testing.expect_value(t, cli.gate_failure("timed out", checks[1]), "timed out (target js_wasm32)")
 	testing.expect_value(t, cli.gate_failure("timed out", checks[2]), "timed out (with -define:SIM=true)")
 }
+
+@(test)
+apply_second_after_run_keeps_only_errors_both_runs_report :: proc(t: ^testing.T) {
+	where_ := cli.Check_Error{"/core/chan.odin", 382, 1, "'where' clause evaluated to false"}
+	real := cli.Check_Error{"a.odin", 6, 2, "Undeclared name: one"}
+	// A one-off error of the first run after the write is dropped, an error of both runs stays.
+	both := cli.intersect_errors({where_, real}, {{"a.odin", 6, 2, "Undeclared name: one"}})
+	testing.expect_value(t, len(both), 1)
+	testing.expect_value(t, both[0].message, real.message)
+	// A key keeps the smaller count.
+	testing.expect_value(t, len(cli.intersect_errors({real, real}, {real})), 1)
+	testing.expect_value(t, len(cli.intersect_errors({real}, {real, real})), 1)
+	testing.expect_value(t, len(cli.intersect_errors({real}, {})), 0)
+}

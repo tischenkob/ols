@@ -152,24 +152,18 @@ with_variants :: proc(checks: []Gate_Check, dirs: []string, variants: []string) 
 	return all[:]
 }
 
-// How the summary and the failures name check: its target, its variant args, or both. Empty for the plain
-// check on the current target.
+// How the summary and the failures name c: its variant args, or its target, empty for the current one. A
+// variant always checks the current target.
 gate_label :: proc(c: Gate_Check) -> string {
-	if c.args == "" {
-		return c.target
-	}
-	return c.args if c.target == "" else fmt.tprintf("%s %s", c.target, c.args)
+	return c.args if c.args != "" else c.target
 }
 
-// failure, naming the target or variant of c unless it is the plain check on the current target.
+// failure, naming the variant or target of c unless it is the plain check on the current target.
 gate_failure :: proc(failure: string, c: Gate_Check) -> string {
-	switch {
-	case c.args != "":
-		return fmt.tprintf("%s (with %s)", failure, gate_label(c))
-	case c.target != "":
-		return fmt.tprintf("%s (target %s)", failure, c.target)
+	if c.args == "" && c.target == "" {
+		return failure
 	}
-	return failure
+	return fmt.tprintf("%s (%s %s)", failure, "with" if c.args != "" else "target", gate_label(c))
 }
 
 // The `odin check` errors of checks before the write. On an extra target, a package whose check names an

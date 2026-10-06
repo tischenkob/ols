@@ -263,7 +263,7 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, t
 				if !first.retry {
 					budget = 2 * timeout
 				}
-			} else if first.rerun {
+			} else {
 				append(&errors, first.first)
 			}
 		}
