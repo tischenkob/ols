@@ -290,7 +290,6 @@ resolve_binary_expr :: proc(binary: ^ast.Binary_Expr, data: ^FileResolveData) {
 			continue
 		}
 
-		data.position_context.binary = b
 		append(&stack, Entry{b.left, b})
 		append(&stack, Entry{b.right, b})
 	}

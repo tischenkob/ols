@@ -661,6 +661,24 @@ main :: proc() {
 	test.expect_action_missing(t, &source, ADD_EXPLICIT_TYPE_ACTION)
 }
 
+// A parameter of an inline aggregate type has no type name to write either.
+@(test)
+action_add_explicit_type_refused_for_param_of_inline_struct :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(p: struct {
+		a: int,
+	}) {
+	x{*} := p
+	_ = x
+}
+`,
+		config = {enable_code_action_add_explicit_type = true},
+	}
+	test.expect_action_missing(t, &source, ADD_EXPLICIT_TYPE_ACTION)
+}
+
 // A procedure named like a builtin type is no type, so the builtin result is written unqualified.
 @(test)
 action_add_explicit_type_builtin_result_beside_proc_of_its_name :: proc(t: ^testing.T) {

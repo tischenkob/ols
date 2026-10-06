@@ -111,7 +111,7 @@ Small fixes:
 - `src/server/file_resolve.odin`: the `offset_of` member resolves to the field of T, and struct and bit_field field names are not resolved as identifiers.
 - `src/server/references.odin`: the `offset_of` member is a reference to its field.
 - `src/server/file_resolve.odin`: `resolve_binary_expr` resolves each operand with its own parent expression as `binary`, so in `.X == a + b` the implicit selector resolves against `==`, not against `a + b`.
-- `src/server/analysis.odin`: `resolve_identifier_expr` flags a variable declared with an inline struct, union, enum, bit_set or bit_field type `Anonymous`, so "Add explicit type" and the variable type inlay hint do not write the variable name as its type.
+- `src/server/analysis.odin`: `resolve_identifier_expr` flags a variable or parameter declared with an inline struct, union, enum, bit_set or bit_field type `Anonymous`, so "Add explicit type" and the variable type inlay hint do not write the variable name as its type.
 - `src/server/imports.odin`: `find_unused_imports` counts an import as used only where the file names its package, not where a value of one of its types appears, and never reports an `@(require)` import.
 - `src/server/file_resolve.odin`: the where clauses of a union and the paths of a foreign import are resolved, so a package named only there counts as used.
 - `src/server/analysis.odin`: `resolve_slice_expression` gives a slice an anonymous type, so hover and "Add explicit type" print `[]int` for `s.arr[:2]` where upstream printed the field name.

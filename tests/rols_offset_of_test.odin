@@ -331,3 +331,26 @@ main :: proc() {
 		},
 	)
 }
+
+// A procedure named `offset_of` in another file of the package shadows the builtin through the index.
+@(test)
+offset_of_shadowed_in_a_sibling_file_resolves_its_arguments :: proc(t: ^testing.T) {
+	source := test.Source {
+		main  = `package test
+
+main :: proc() {
+	x{*} := 1
+	_ = offset_of(1, x)
+}
+`,
+		files = {{"b.odin", "package test\n\noffset_of :: proc(a: int, b: int) -> int { return a + b }\n"}},
+	}
+	test.expect_reference_locations(
+		t,
+		&source,
+		{
+			{range = {start = {line = 3, character = 1}, end = {line = 3, character = 2}}},
+			{range = {start = {line = 4, character = 18}, end = {line = 4, character = 19}}},
+		},
+	)
+}
