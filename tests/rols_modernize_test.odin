@@ -1123,16 +1123,20 @@ E :: enum {
 
 ms: [4]matrix[2, 2]f32
 ids: [4]matrix[2, 2]f32
+scaled: [4]matrix[2, 2]f32
 rows: [4][E]int
 zeros: [4][E]int
 
-f :: proc(mm: matrix[2, 2]f32) {
+f :: proc(mm: matrix[2, 2]f32, x: f32) {
 	row: [E]int
 	for &m in ms {
 		m = mm
 	}
 	for &m in ids {
 		m = matrix[2, 2]f32{1, 0, 0, 1}
+	}
+	for &m in scaled {
+		m = x
 	}
 	for &r in rows {
 		r = row
@@ -1160,13 +1164,15 @@ E :: enum {
 
 ms: [4]matrix[2, 2]f32
 ids: [4]matrix[2, 2]f32
+scaled: [4]matrix[2, 2]f32
 rows: [4][E]int
 zeros: [4][E]int
 
-f :: proc(mm: matrix[2, 2]f32) {
+f :: proc(mm: matrix[2, 2]f32, x: f32) {
 	row: [E]int
 	ms = mm
 	ids = matrix[2, 2]f32{1, 0, 0, 1}
+	scaled = x
 	rows = row
 	slice.fill(zeros[:], [E]int{})
 }

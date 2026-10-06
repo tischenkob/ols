@@ -408,10 +408,11 @@ fill_args :: proc(w: ^Stdlib_Walker, m: ^Stdlib_Match, s, v: ^ast.Node) -> bool 
 // Whether value may read an element of the array: it names root_name, the array's root
 // identifier, reads elements through a pointer, slice or multi-pointer (`p[0]`, `s.p[:]`, `p^`),
 // or reads a field through a pointer to the element type (`p.x` with `p := &items[0]`). Copying a
-// pointer or reading a field through a pointer to another type is accepted. The pattern matcher
-// already refuses a value with a call.
+// pointer or reading a field through a pointer to another type is accepted. An element type that
+// does not resolve or has no name, such as one declared inside a procedure, matches any pointer.
+// The pattern matcher already refuses a value with a call.
 // Known limit: a field read through a pointer to a field of an element (`q := &items[0].inner`,
-// then `q.x`) and a pointer to an element of an unnamed struct type are not seen.
+// then `q.x`) is not seen.
 @(private = "file")
 reads_array :: proc(symbols: SymbolAndNodeMap, value: ^ast.Node, root_name: string, elem: Symbol) -> bool {
 	Search :: struct {
@@ -447,7 +448,8 @@ reads_array :: proc(symbols: SymbolAndNodeMap, value: ^ast.Node, root_name: stri
 				   ok && !resolved.is_unresolved && resolved.symbol != nil {
 					step := resolved.symbol^
 					if field_read {
-						search.found = step.pointers > 0 && same_named_type(step, search.elem)
+						search.found =
+							step.pointers > 0 && (search.elem.name == "" || same_named_type(step, search.elem))
 					} else {
 						if step.pointers > 0 do search.found = true
 						#partial switch _ in step.value {
@@ -476,7 +478,7 @@ reads_array :: proc(symbols: SymbolAndNodeMap, value: ^ast.Node, root_name: stri
 	return search.found
 }
 
-// Whether a and b name the same declared type. An unnamed type never matches.
+// Whether a and b name the same declared type.
 @(private = "file")
 same_named_type :: proc(a, b: Symbol) -> bool {
 	a_name, a_pkg := a.type_name if a.type_name != "" else a.name, a.type_pkg if a.type_name != "" else a.pkg
@@ -651,20 +653,16 @@ stdlib_matches :: proc(document: ^Document, allocator := context.temp_allocator)
 		if m.pkg != "" && m.pkg == document.ast.pkg_name do continue
 		// A builtin target such as `max` can be shadowed in the file, also by the enclosing procedure.
 		// A declaration in another file of the package shadows it as well.
-		if m.rule.pkg == "" && (name_taken(document, m.start, m.rule.target, "") || package_declares(document, m.rule.target)) do continue
+		if m.rule.pkg == "" {
+			if name_taken(document, m.start, m.rule.target, "") do continue
+			if _, declared := lookup(m.rule.target, document.package_name, document.fullpath); declared do continue
+		}
 		for kept in out {
 			if kept.start <= m.start && m.end <= kept.end do continue outer
 		}
 		append(&out, m)
 	}
 	return out[:]
-}
-
-// Whether the package of document declares name in an indexed file.
-@(private = "file")
-package_declares :: proc(document: ^Document, name: string) -> bool {
-	_, found := lookup(name, document.package_name, document.fullpath)
-	return found
 }
 
 @(private = "file")

@@ -1114,6 +1114,23 @@ f :: proc() {
 			{},
 		},
 		{
+			"field read through a pointer to an element of a local type",
+			`package test
+
+f :: proc() {
+	Item :: struct {
+		x: int,
+	}
+	items: [4]Item
+	p := &items[0]
+	for &e in items {
+		e = Item{x = p.x * 2}
+	}
+}
+`,
+			{},
+		},
+		{
 			"call that reads a package-level array",
 			`package test
 
