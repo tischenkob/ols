@@ -644,3 +644,55 @@ main :: proc() {
 }
 `)
 }
+
+// A call in a file that only a platform variant's target builds loses its argument too.
+@(test)
+action_remove_param_call_in_variant_only_file :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+build !windows
+package test
+
+add :: proc(a: int, un{*}used: int) -> int {
+	return a
+}
+`,
+		files = {
+			{
+				"add_windows.odin",
+				"#+build windows\npackage test\n\nadd :: proc(a: int, unused: int) -> int {\n\treturn a + 1\n}\n\ntwice :: proc() -> int {\n\treturn add(2, 3)\n}\n",
+			},
+		},
+		config = {enable_code_action_remove_param = true},
+	}
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Remove parameter unused",
+		{
+			{"main.odin", "#+build !windows\npackage test\n\nadd :: proc(a: int) -> int {\n\treturn a\n}\n"},
+			{
+				"add_windows.odin",
+				"#+build windows\npackage test\n\nadd :: proc(a: int) -> int {\n\treturn a + 1\n}\n\ntwice :: proc() -> int {\n\treturn add(2)\n}\n",
+			},
+		},
+	)
+}
+
+// A platform variant that is no procedure literal keeps the procedure's parameter.
+@(test)
+action_remove_param_skips_non_procedure_variant :: proc(t: ^testing.T) {
+	expect_no_remove_param(t, "Remove parameter unused", `package test
+
+when ODIN_DEBUG {
+	add :: proc(a: int, un{*}used: int) -> int {
+		return a
+	}
+} else {
+	add :: other_add
+}
+
+other_add :: proc(a: int, unused: int) -> int {
+	return a + unused
+}
+`)
+}

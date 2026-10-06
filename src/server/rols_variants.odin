@@ -1,5 +1,6 @@
 package server
 
+import "core:fmt"
 import "core:odin/ast"
 import "core:odin/parser"
 import "core:os"
@@ -113,11 +114,14 @@ top_level_variants :: proc(h: ^Call_Hierarchy, document: ^Document, decl: ^ast.V
 
 // The members named like the member that symbol names in the platform variants of its type, as references to them
 // resolve. The member must belong directly to the struct, enum or bit_field type of a package-level declaration,
-// else there are none. A variant without such a member is left out.
-field_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> []Symbol {
+// else there are none. A variant without such a member is left out. problem names a variant whose member the
+// rename cannot reach, "" when there is none: a variant that is no struct, enum or bit_field type, such as an
+// alias `S :: S_Windows`, or a struct without the member that may reach it through a `using` field. fields then
+// holds the members found.
+field_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> (fields: []Symbol, problem: string) {
 	home := hierarchy_document(h, symbol.uri)
 	if home == nil {
-		return {}
+		return
 	}
 	home_src := string(home.text[:home.used_text])
 	for decl in top_level_value_decls(home.ast) {
@@ -132,27 +136,60 @@ field_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> []Symbol {
 					pkg   = home.package_name,
 					name  = final_name(decl.names[i]),
 				}
-				fields := make([dynamic]Symbol, context.temp_allocator)
+				found := make([dynamic]Symbol, context.temp_allocator)
 				for variant in declaration_variants(h, type_symbol) {
 					src := string(variant.document.text[:variant.document.used_text])
 					for name, j in variant.decl.names {
-						if j >= len(variant.decl.values) || common.get_token_range(name, src) != variant.symbol.range {
+						if common.get_token_range(name, src) != variant.symbol.range do continue
+						at := fmt.tprintf("`%s` at %s", type_symbol.name, declared_at(variant.symbol))
+						variant_value := variant.decl.values[j] if j < len(variant.decl.values) else nil
+						others, is_type := type_members(variant_value)
+						if !is_type {
+							problem = fmt.tprintf(
+								"the platform variant %s is no struct, enum or bit_field type, so its member `%s` cannot be renamed",
+								at,
+								member.name,
+							)
 							continue
 						}
-						for other in type_members(variant.decl.values[j]) or_continue {
+						own := false
+						for other in others {
 							if other.name != member.name do continue
+							own = true
 							field := symbol
 							field.uri = variant.symbol.uri
 							field.range = common.get_token_range(other^, src)
-							append(&fields, field)
+							append(&found, field)
+						}
+						if !own && has_using_field(variant_value) {
+							problem = fmt.tprintf(
+								"the platform variant %s may reach `%s` through a `using` field, which the rename cannot change",
+								at,
+								member.name,
+							)
 						}
 					}
 				}
-				return fields[:]
+				return found[:], problem
 			}
 		}
 	}
-	return {}
+	return
+}
+
+// Whether type_expr, a struct type or a distinct one, has a `using` field.
+@(private = "file")
+has_using_field :: proc(type_expr: ^ast.Expr) -> bool {
+	#partial switch t in type_expr.derived {
+	case ^ast.Distinct_Type:
+		return has_using_field(t.type)
+	case ^ast.Struct_Type:
+		if t.fields == nil do return false
+		for field in t.fields.list {
+			if .Using in field.flags do return true
+		}
+	}
+	return false
 }
 
 // The symbols of variants, for find_symbol_references.

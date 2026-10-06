@@ -41,8 +41,11 @@ add_remove_param_action :: proc(ctx: ^ActionContext) {
 		if variant_problem(variant, params, ctx.document.ast.src) != "" {
 			return
 		}
-		lit := variant.decl.values[0].derived.(^ast.Proc_Lit)
-		if !slice.contains(unused_param_names(lit), target.name.name) {
+		unused := false
+		for ident in unused_params(variant.decl.values[0].derived.(^ast.Proc_Lit)) {
+			unused ||= ident.name == target.name.name
+		}
+		if !unused {
 			return
 		}
 	}
@@ -73,14 +76,6 @@ add_remove_param_action :: proc(ctx: ^ActionContext) {
 			edit = workspace_edit(changes),
 		},
 	)
-}
-
-// The names of the parameters of lit that its body never reads.
-unused_param_names :: proc(lit: ^ast.Proc_Lit) -> []string {
-	unused := unused_params(lit)
-	names := make([]string, len(unused), context.temp_allocator)
-	for ident, i in unused do names[i] = ident.name
-	return names
 }
 
 // Removes the parameter at index from the parameter list of lit in document.

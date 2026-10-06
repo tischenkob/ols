@@ -509,3 +509,152 @@ rename_collision_skips_when_branch_of_other_os :: proc(t: ^testing.T) {
 		test.expect_rename_refused(t, &source, "h", c.causes)
 	}
 }
+
+// A field rename from a third file, where the type resolves through the index, renames the member in a variant of
+// another file.
+@(test)
+rename_field_of_struct_variant_in_other_file :: proc(t: ^testing.T) {
+	source := test.Source {
+		files = {
+			{"use.odin", "package test\n\ng :: proc(s: S) -> int { return s.a{*} }\n"},
+			{"s.odin", "#+build !windows\npackage test\n\nS :: struct { a: int }\n"},
+			{"s_windows.odin", "package test\n\nS :: struct { a: int, w: int }\n"},
+		},
+	}
+	test.expect_rename(
+		t,
+		&source,
+		"b",
+		{
+			{"use.odin", "package test\n\ng :: proc(s: S) -> int { return s.b }\n"},
+			{"s.odin", "#+build !windows\npackage test\n\nS :: struct { b: int }\n"},
+			{"s_windows.odin", "package test\n\nS :: struct { b: int, w: int }\n"},
+		},
+	)
+}
+
+// Renaming a value of one variant of an enum renames the same value of the other variants.
+@(test)
+rename_field_of_enum_variants :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+when ODIN_DEBUG {
+	E :: enum { A, B }
+} else {
+	E :: enum { A, C }
+}
+
+g :: proc() -> E { return .A{*} }
+`,
+	}
+	test.expect_rename(t, &source, "Z", {{"main.odin", `package test
+
+when ODIN_DEBUG {
+	E :: enum { Z, B }
+} else {
+	E :: enum { Z, C }
+}
+
+g :: proc() -> E { return .Z }
+`}})
+}
+
+// A variant that is an alias, or that may reach the member through `using`, refuses the field rename, since the
+// rename cannot change the member there. The cursor resolves through the plain struct of the `else` branch.
+@(test)
+rename_field_refused_for_unreachable_variant :: proc(t: ^testing.T) {
+	cases := [?]struct {
+		variant: string,
+		cause:   string,
+	} {
+		{
+			"S :: S_Other",
+			"the platform variant `S` at test/main.odin:4 is no struct, enum or bit_field type, so its member `a` cannot be renamed",
+		},
+		{
+			"S :: struct { using base: S_Other }",
+			"the platform variant `S` at test/main.odin:4 may reach `a` through a `using` field",
+		},
+		{
+			"S :: struct { using _: struct { a: int } }",
+			"the platform variant `S` at test/main.odin:4 may reach `a` through a `using` field",
+		},
+	}
+	for c in cases {
+		source := test.Source {
+			main = fmt.tprintf(
+				"package test\n\nwhen ODIN_DEBUG {{\n\t%s\n}} else {{\n\tS :: struct {{ a: int }}\n}}\n\nS_Other :: struct {{ a: int }}\n\ng :: proc(s: S) -> int {{ return s.a{{*}} }}\n",
+				c.variant,
+			),
+		}
+		test.expect_rename_refused(t, &source, "b", {c.cause})
+	}
+}
+
+// A `using` field of another variant of the struct that brings in the new name is a collision.
+@(test)
+rename_field_collision_through_using_in_struct_variant :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+when ODIN_DEBUG {
+	S :: struct { a: int, using base: Base }
+} else {
+	S :: struct { a: int }
+}
+
+Base :: struct { c: int }
+
+g :: proc(s: S) -> int { return s.a{*} }
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"c",
+		{"`c` is already a member of the same type through `using base` at test/main.odin:4:30"},
+	)
+}
+
+// `else when` and nested `when` branches that no target of the renamed declaration's file takes hold no collision.
+@(test)
+rename_collision_skips_else_and_nested_when_of_other_os :: proc(t: ^testing.T) {
+	cases := [?]struct {
+		body:   string,
+		causes: []string,
+	} {
+		{"when ODIN_OS == .Windows {\n} else when ODIN_ARCH == .amd64 {\n\th :: 1\n}\n", {}},
+		{
+			"when ODIN_OS == .Linux {\n} else when ODIN_ARCH == .amd64 {\n\th :: 1\n}\n",
+			{"`h` is already declared in the package at test/b.odin:5:2 (in a when branch)"},
+		},
+		{"when ODIN_ARCH == .amd64 {\n\twhen ODIN_OS == .Linux {\n\t\th :: 1\n\t}\n}\n", {}},
+		{
+			"when ODIN_ARCH == .amd64 {\n\twhen ODIN_OS == .Windows {\n\t\th :: 1\n\t}\n}\n",
+			{"`h` is already declared in the package at test/b.odin:5:3 (in a when branch)"},
+		},
+	}
+	for c in cases {
+		source := test.Source {
+			files = {
+				{"f.odin", "#+build windows\npackage test\n\nf{*} :: proc() {}\n"},
+				{"b.odin", fmt.tprintf("package test\n\n%s", c.body)},
+			},
+		}
+		test.expect_rename_refused(t, &source, "h", c.causes)
+	}
+}
+
+// A declaration of the new name that the index holds, in a `when` branch the host takes but no target of the
+// renamed declaration's file does, is no collision.
+@(test)
+rename_collision_skips_index_hit_in_when_of_other_os :: proc(t: ^testing.T) {
+	source := test.Source {
+		files = {
+			{"f.odin", "#+build windows\npackage test\n\nf{*} :: proc() {}\n"},
+			{"b.odin", "package test\n\nwhen ODIN_OS != .Windows {\n\th :: 1\n}\n"},
+		},
+	}
+	test.expect_rename_refused(t, &source, "h", {})
+}

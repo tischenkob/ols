@@ -1,6 +1,7 @@
 package tests
 
 import "base:runtime"
+import "core:odin/ast"
 import "core:odin/parser"
 import "core:os"
 import "core:path/filepath"
@@ -396,19 +397,39 @@ apply_gate_targets_follow_the_files_the_host_does_not_build :: proc(t: ^testing.
 	testing.expect_value(t, server.gate_check_timeout(100000, 8), server.GATE_TIMEOUT_CAP)
 }
 
-// A build has one project name, so files for different project names never build together.
+// A build has one project name, so files for different project names never build together. Each
+// `#+build-project-name` line must hold, as in the compiler.
 @(test)
 builds_together_reads_project_names :: proc(t: ^testing.T) {
+	together :: proc(text_a, text_b: string) -> bool {
+		tags: [2]parser.File_Tags
+		for text, i in ([2]string{text_a, text_b}) {
+			file := ast.File {
+				src      = text,
+				fullpath = "/p/x.odin",
+			}
+			p := parser.Parser {
+				flags = {.Optional_Semicolons},
+			}
+			context.allocator = context.temp_allocator
+			parser.parse_file(&p, &file)
+			tags[i] = server.build_tags(file)
+		}
+		return server.builds_together("/p/x.odin", tags[0], "/p/y.odin", tags[1])
+	}
 	a := "#+build-project-name a\npackage p\n"
 	b := "#+build-project-name b\npackage p\n"
 	not_a := "#+build-project-name !a\npackage p\n"
 	plain := "package p\n"
-	testing.expect(t, !server.builds_together("/p/x.odin", a, "/p/y.odin", b), "a and b")
-	testing.expect(t, server.builds_together("/p/x.odin", a, "/p/y.odin", a), "a and a")
-	testing.expect(t, !server.builds_together("/p/x.odin", a, "/p/y.odin", not_a), "a and !a")
-	testing.expect(t, server.builds_together("/p/x.odin", b, "/p/y.odin", not_a), "b and !a")
-	testing.expect(t, server.builds_together("/p/x.odin", not_a, "/p/y.odin", plain), "!a and no tag")
-	testing.expect(t, server.builds_together("/p/x.odin", "#+build-project-name a, b\npackage p\n", "/p/y.odin", b), "a, b and b")
+	testing.expect(t, !together(a, b), "a and b")
+	testing.expect(t, together(a, a), "a and a")
+	testing.expect(t, !together(a, not_a), "a and !a")
+	testing.expect(t, together(b, not_a), "b and !a")
+	testing.expect(t, together(not_a, plain), "!a and no tag")
+	testing.expect(t, together("#+build-project-name a, b\npackage p\n", b), "a, b and b")
+	two_lines := "#+build-project-name a, b\n#+build-project-name !b\npackage p\n"
+	testing.expect(t, !together(two_lines, b), "a, b and !b lines and b")
+	testing.expect(t, together(two_lines, a), "a, b and !b lines and a")
 }
 
 @(test)

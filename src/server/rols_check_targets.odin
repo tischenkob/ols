@@ -4,7 +4,9 @@ import "base:runtime"
 
 import "core:odin/ast"
 import "core:odin/parser"
+import "core:odin/tokenizer"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:time"
 
@@ -98,11 +100,18 @@ Build_Facts :: struct {
 	tags:   parser.File_Tags,
 }
 
+// The facts of the file called name with tags.
 @(private = "file")
-build_facts :: proc(name, text: string) -> (facts: Build_Facts) {
+facts_of :: proc(name: string, tags: parser.File_Tags) -> (facts: Build_Facts) {
+	facts.tags = tags
 	facts.named, facts.hidden = file_name_target(filepath.base(name))
+	return
+}
+
+@(private = "file")
+build_facts :: proc(name, text: string) -> Build_Facts {
 	if !strings.contains(text, "+build") && !strings.contains(text, "+ignore") {
-		return
+		return facts_of(name, {})
 	}
 	file := ast.File {
 		src      = text,
@@ -113,8 +122,48 @@ build_facts :: proc(name, text: string) -> (facts: Build_Facts) {
 	}
 	context.allocator = context.temp_allocator
 	parser.parse_file(&p, &file)
-	facts.tags = parser.parse_file_tags(file, context.temp_allocator)
-	return
+	return facts_of(name, build_tags(file))
+}
+
+// The tags of file as the compiler reads them. Each `#+build-project-name` line must hold for the file to build
+// (parse_build_project_directory_tag in odin's src/parser.cpp excludes the file on the first false line), while
+// parser.match_build_tags passes when any group of any line holds. Here the build_project_name groups become the
+// cross product of the lines, so that match_build_tags reads them as the compiler does: `#+build-project-name a, b`
+// and `#+build-project-name !b` give the groups `a !b` and `b !b`.
+build_tags :: proc(file: ast.File) -> parser.File_Tags {
+	tags := parser.parse_file_tags(file, context.temp_allocator)
+	if len(tags.build_project_name) == 0 {
+		return tags
+	}
+	// The texts parse_file_tags reads, as `#+` tags.
+	lines := make([dynamic]string, context.temp_allocator)
+	if file.docs != nil {
+		for comment in file.docs.list {
+			if strings.has_prefix(comment.text, "//+build-project-name") {
+				append(&lines, strings.concatenate({"#", comment.text[2:]}, context.temp_allocator))
+			}
+		}
+	}
+	for tag in file.tags {
+		if strings.has_prefix(tag.text, "#+build-project-name") do append(&lines, tag.text)
+	}
+	product := [][]string{{}}
+	for line in lines {
+		one := ast.File {
+			tags = make([dynamic]tokenizer.Token, 1, context.temp_allocator),
+		}
+		one.tags[0].text = line
+		groups := parser.parse_file_tags(one, context.temp_allocator).build_project_name
+		next := make([dynamic][]string, context.temp_allocator)
+		for done in product {
+			for group in groups {
+				append(&next, slice.concatenate([][]string{done, group}, context.temp_allocator))
+			}
+		}
+		product = next[:]
+	}
+	tags.build_project_name = product
+	return tags
 }
 
 // Whether odin builds the file with these facts for target: its name suffix and its `#+build` tags both
@@ -140,55 +189,49 @@ same_build_targets :: proc(
 	name_b: string,
 	tags_b: parser.File_Tags,
 ) -> bool {
-	a := Build_Facts {
-		tags = tags_a,
-	}
-	b := Build_Facts {
-		tags = tags_b,
-	}
-	a.named, a.hidden = file_name_target(filepath.base(name_a))
-	b.named, b.hidden = file_name_target(filepath.base(name_b))
-	for project in project_names(a, b) {
-		for os in runtime.Odin_OS_Type {
-			if os == .Unknown do continue
-			for arch in runtime.Odin_Arch_Type {
-				if arch == .Unknown do continue
-				target := parser.Build_Target {
-					os           = os,
-					arch         = arch,
-					project_name = project,
-				}
-				if facts_build_on(a, target) != facts_build_on(b, target) do return false
-			}
-		}
+	a, b := facts_of(name_a, tags_a), facts_of(name_b, tags_b)
+	for target in candidate_targets(a, b) {
+		if facts_build_on(a, target) != facts_build_on(b, target) do return false
 	}
 	return true
 }
 
-// Whether some OS, architecture and project name builds both the file called name_a with text_a and the file
-// called name_b with text_b, and can take both the `when` branch of at_a and that of at_b.
-builds_together :: proc(name_a, text_a, name_b, text_b: string, at_a: When_Site = {}, at_b: When_Site = {}) -> bool {
-	a, b := build_facts(name_a, text_a), build_facts(name_b, text_b)
+// Whether some OS, architecture and project name builds both the file called name_a with tags_a and the file
+// called name_b with tags_b, and can take both the `when` branch of at_a and that of at_b. The tags come from
+// build_tags.
+builds_together :: proc(
+	name_a: string,
+	tags_a: parser.File_Tags,
+	name_b: string,
+	tags_b: parser.File_Tags,
+	at_a: When_Site = {},
+	at_b: When_Site = {},
+) -> bool {
+	a, b := facts_of(name_a, tags_a), facts_of(name_b, tags_b)
+	for target in candidate_targets(a, b) {
+		if facts_build_on(a, target) &&
+		   facts_build_on(b, target) &&
+		   site_possible_on(at_a, target) &&
+		   site_possible_on(at_b, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// Every OS and architecture pair with each of project_names(a, b).
+@(private = "file")
+candidate_targets :: proc(a, b: Build_Facts) -> []parser.Build_Target {
+	targets := make([dynamic]parser.Build_Target, context.temp_allocator)
 	for project in project_names(a, b) {
 		for os in runtime.Odin_OS_Type {
 			if os == .Unknown do continue
 			for arch in runtime.Odin_Arch_Type {
-				if arch == .Unknown do continue
-				target := parser.Build_Target {
-					os           = os,
-					arch         = arch,
-					project_name = project,
-				}
-				if facts_build_on(a, target) &&
-				   facts_build_on(b, target) &&
-				   site_possible_on(at_a, target) &&
-				   site_possible_on(at_b, target) {
-					return true
-				}
+				if arch != .Unknown do append(&targets, parser.Build_Target{os, arch, project})
 			}
 		}
 	}
-	return false
+	return targets[:]
 }
 
 // A project name that no `#+build-project-name` tag can list, since a tag name never holds a space.
@@ -277,13 +320,12 @@ condition_on :: proc(expr: ^ast.Expr, target: parser.Build_Target) -> Condition 
 		}
 	case ^ast.Unary_Expr:
 		if e.op.kind == .Not {
-			switch condition_on(e.expr, target) {
-			case .True:
-				return .False
-			case .False:
-				return .True
-			case .Unknown:
+			negated := [Condition]Condition {
+				.Unknown = .Unknown,
+				.False   = .True,
+				.True    = .False,
 			}
+			return negated[condition_on(e.expr, target)]
 		}
 	case ^ast.Binary_Expr:
 		#partial switch e.op.kind {
@@ -340,11 +382,7 @@ build_oses :: proc(name, text: string) -> bit_set[runtime.Odin_OS_Type] {
 
 // build_oses for a file whose tags are already parsed.
 tags_oses :: proc(name: string, tags: parser.File_Tags) -> bit_set[runtime.Odin_OS_Type] {
-	facts := Build_Facts {
-		tags = tags,
-	}
-	facts.named, facts.hidden = file_name_target(filepath.base(name))
-	return facts_oses(facts)
+	return facts_oses(facts_of(name, tags))
 }
 
 @(private = "file")
