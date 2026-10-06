@@ -833,11 +833,16 @@ lint :: proc(targets: []string, fail_on: string, root: string) -> int {
 	}
 	root := strings.clone(root)
 	entries := make([dynamic]Entry)
-	filter := workspace_lint_filter()
 	for target in targets {
 		packages := []string{target}
 		if os.is_directory(target) {
-			packages = server.package_dirs_below(target, root, &common.config, context.allocator, filter)
+			packages = server.package_dirs_below(
+				target,
+				root,
+				&common.config,
+				context.allocator,
+				workspace_lint_filter(),
+			)
 			if len(packages) == 0 {
 				fmt.eprintfln("error: no package in %s", target)
 				return 1

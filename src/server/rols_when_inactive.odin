@@ -49,8 +49,8 @@ inactive_when_decls :: proc(file: ^ast.File, pkg: ^When_Package = nil) -> map[^a
 	// The constants outside any `when`: one inside a branch may come from a branch that an unknown name chose.
 	plain := make(map[string]^ast.Expr)
 	add_plain_consts(&plain, file)
-	// The package table costs a parse of the directory, so only a condition the file cannot decide reads it.
-	if pkg != nil && !all_when_known(file.decls[:], plain) {
+	// The package table costs a parse of the directory, so only a condition that another file can decide reads it.
+	if pkg != nil && needs_package(file.decls[:], plain) {
 		if !pkg.built do build_when_package(pkg, file.pkg_name)
 		if pkg.pkg_name == file.pkg_name {
 			for name, value in pkg.plain do if name not_in plain do plain[name] = value
@@ -71,15 +71,11 @@ inactive_when_decls :: proc(file: ^ast.File, pkg: ^When_Package = nil) -> map[^a
 when_target: Maybe(parser.Build_Target)
 
 // Points the `when` evaluation of this thread at the `-target:` of checker_args when it has one. It returns the
-// previous target for restore_when_target.
+// previous target, which the caller puts back.
 set_when_target :: proc(checker_args: string) -> (saved: Maybe(parser.Build_Target)) {
 	saved = when_target
 	if strings.contains(checker_args, "-target:") do when_target = base_target(checker_args)
 	return
-}
-
-restore_when_target :: proc(saved: Maybe(parser.Build_Target)) {
-	when_target = saved
 }
 
 // The value of ODIN_OS or ODIN_ARCH under the target of set_when_target, spelled as resolve_when_ident spells it.
@@ -116,10 +112,19 @@ build_when_package :: proc(pkg: ^When_Package, pkg_name: string) {
 @(private = "file")
 fold_plain_consts :: proc(consts: ^map[string]When_Expr, plain: map[string]^ast.Expr) {
 	folded := make(map[string]^ast.Expr, context.temp_allocator)
-	for name, value in plain do if name in consts^ do folded[name] = value
+	// Only a value that when_known accepts with every constant in view can fold at all.
+	candidates := make([dynamic]string, context.temp_allocator)
+	for name, value in plain {
+		if name in consts^ {
+			folded[name] = value
+		} else if when_known(value, plain, 0) {
+			append(&candidates, name)
+		}
+	}
 	for added := true; added; {
 		added = false
-		for name, value in plain {
+		for name in candidates {
+			value := plain[name]
 			if name in folded || !when_known(value, folded, 0) do continue
 			register_when_const(consts, name, value)
 			folded[name] = value
@@ -128,21 +133,46 @@ fold_plain_consts :: proc(consts: ^map[string]When_Expr, plain: map[string]^ast.
 	}
 }
 
-// Whether when_known accepts every condition of the `when` statements among stmts, nested ones included.
+// Whether a condition of the `when` statements among stmts, nested ones included, is unknown and names a constant
+// that another file of the package may declare.
 @(private = "file")
-all_when_known :: proc(stmts: []^ast.Stmt, plain: map[string]^ast.Expr) -> bool {
+needs_package :: proc(stmts: []^ast.Stmt, plain: map[string]^ast.Expr) -> bool {
 	for stmt in stmts {
 		if stmt == nil do continue
 		#partial switch s in stmt.derived {
 		case ^ast.Block_Stmt:
-			if !all_when_known(s.stmts[:], plain) do return false
+			if needs_package(s.stmts[:], plain) do return true
 		case ^ast.Foreign_Block_Decl:
-			if !all_when_known({s.body}, plain) do return false
+			if needs_package({s.body}, plain) do return true
 		case ^ast.When_Stmt:
-			if !when_known(s.cond, plain, 0) || !all_when_known({s.body, s.else_stmt}, plain) do return false
+			if !when_known(s.cond, plain, 0) && names_missing_const(s.cond, plain, 0) do return true
+			if needs_package({s.body, s.else_stmt}, plain) do return true
 		}
 	}
-	return true
+	return false
+}
+
+// Whether expr, or a constant of plain that it names, names a bare identifier that is neither in plain nor an
+// ODIN_* builtin or profile define. A selector such as pkg.FLAG reads another package, so it does not count.
+@(private = "file")
+names_missing_const :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth: int) -> bool {
+	if expr == nil || depth > 8 do return false
+	#partial switch e in expr.derived {
+	case ^ast.Paren_Expr:
+		return names_missing_const(e.expr, plain, depth)
+	case ^ast.Ident:
+		if strings.has_prefix(e.name, "ODIN_") || e.name == "true" || e.name == "false" do return false
+		if e.name in common.config.profile.defines do return false
+		value, is_plain := plain[e.name]
+		return !is_plain || names_missing_const(value, plain, depth + 1)
+	case ^ast.Call_Expr:
+		return len(e.args) == 2 && names_missing_const(e.args[1], plain, depth)
+	case ^ast.Unary_Expr:
+		return names_missing_const(e.expr, plain, depth)
+	case ^ast.Binary_Expr:
+		return names_missing_const(e.left, plain, depth) || names_missing_const(e.right, plain, depth)
+	}
+	return false
 }
 
 // Adds the constants of file outside any `when` to plain, by name.
