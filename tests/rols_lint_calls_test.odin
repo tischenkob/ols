@@ -416,6 +416,19 @@ main :: proc() {
 `,
 			{},
 		},
+		{
+			"a call of a returned procedure still counts its results exactly",
+			`package test
+
+h :: proc() -> proc() -> (int, int) { return nil }
+one :: proc(a: int) {}
+
+main :: proc() {
+	one(h()())
+}
+`,
+			{{6, "argument-count"}},
+		},
 	}
 
 	expect_lint_cases(t, cases, {enable_lint_call_arity = true})
