@@ -208,7 +208,6 @@ mentions :: proc(h: ^Call_Hierarchy, fullpath, name: string) -> bool {
 }
 
 // Whether decl of document is private to its file, by its attribute or by `#+private file`.
-@(private = "file")
 file_private :: proc(document: ^Document, decl: ^ast.Value_Decl) -> bool {
 	tags := parser.parse_file_tags(document.ast, context.temp_allocator)
 	return is_file_private(decl.attributes[:]) || tags.private == .File
