@@ -82,9 +82,6 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 	if !is_proc || .Local in symbol.flags || symbol.pkg != ctx.ast_context.document_package {
 		return
 	}
-	if callee.generic || len(callee.where_clauses) > 0 {
-		return
-	}
 	for name in attribute_names(callee.attributes) {
 		if name == "export" || name == "link_name" || strings.has_prefix(name, "deferred_") {
 			return
@@ -93,6 +90,10 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 
 	target, lit := find_proc_lit(ctx, symbol)
 	if lit == nil || lit.body == nil || lit.type == nil {
+		return
+	}
+	// A polymorphic call resolves to a solved symbol without `generic` or the where clauses, so check the declaration.
+	if lit.type.generic || len(lit.where_clauses) > 0 || expr_contains_poly(lit.type) {
 		return
 	}
 	body, is_block := lit.body.derived.(^ast.Block_Stmt)
