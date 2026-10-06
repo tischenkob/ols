@@ -465,6 +465,8 @@ parse_document :: proc(document: ^Document, config: ^common.Config) -> ([]Parser
 	}
 
 	parse_file(&p, &document.ast)
+	// rols: lookups from a file that the host does not build need the target that builds it
+	note_document_target(document)
 
 	parse_imports(document, config)
 

@@ -298,3 +298,101 @@ main :: proc() {
 		test.expect_hover(t, &source, c.expected)
 	}
 }
+
+// The siblings of a file that the host does not build, one for that file's OS and one for the host, as test files.
+@(private = "file")
+excluded_siblings :: proc(other_os: string) -> [2]test.File {
+	return {
+		{
+			"errors_host.odin",
+			fmt.tprintf("#+build !%s\npackage test\n\nerr :: proc() -> int {{ return 0 }}\n", other_os),
+		},
+		{fmt.tprintf("errors_%s.odin", other_os), "package test\n\nerr :: proc() -> string { return \"\" }\n"},
+	}
+}
+
+// A call in a file that the host does not build, by tag or by name, reaches the declaration of its own target.
+@(test)
+hover_from_excluded_file_reaches_its_target :: proc(t: ^testing.T) {
+	other_os := "linux" when ODIN_OS != .Linux else "windows"
+	call := "package test\n\nf :: proc() {\n\ty := e{*}rr()\n}\n"
+	mains := [2]test.File {
+		{"main.odin", fmt.tprintf("#+build %s\n%s", other_os, call)},
+		{fmt.tprintf("main_%s.odin", other_os), call},
+	}
+	for main in mains {
+		files := make([dynamic]test.File, context.temp_allocator)
+		append(&files, main)
+		siblings := excluded_siblings(other_os)
+		append(&files, ..siblings[:])
+		source := test.Source {
+			files = files[:],
+		}
+		test.expect_hover(t, &source, "test.err :: proc() -> string")
+	}
+}
+
+// A save of a sibling that the host does not build reaches lookups from a file of the same target.
+@(test)
+hover_from_excluded_file_after_sibling_save :: proc(t: ^testing.T) {
+	other_os := "linux" when ODIN_OS != .Linux else "windows"
+	files := make([dynamic]test.File, context.temp_allocator)
+	append(
+		&files,
+		test.File {
+			"main.odin",
+			fmt.tprintf("#+build %s\npackage test\n\nf :: proc() {{\n\ty := e{{*}}rr()\n}}\n", other_os),
+		},
+	)
+	siblings := excluded_siblings(other_os)
+	append(&files, ..siblings[:])
+	source := test.Source {
+		files = files[:],
+	}
+	saved := test.File{fmt.tprintf("errors_%s.odin", other_os), "package test\n\nerr :: proc() -> f64 { return 0 }\n"}
+	test.expect_hover_after_reindex(t, &source, {saved}, "test.err :: proc() -> f64", hover_first = true)
+}
+
+// A selector from a file that the host does not build reaches the other package's declaration for that target.
+@(test)
+hover_from_excluded_file_into_other_package :: proc(t: ^testing.T) {
+	other_os := "linux" when ODIN_OS != .Linux else "windows"
+	source := test.Source {
+		main = fmt.tprintf(
+			"#+build %s\npackage test\n\nimport \"core:errs\"\n\nf :: proc() {{\n\ty := errs.e{{*}}rr()\n}}\n",
+			other_os,
+		),
+		packages = {
+			{
+				pkg = "errs",
+				files = {
+					{
+						"errors_host.odin",
+						fmt.tprintf("#+build !%s\npackage errs\n\nerr :: proc() -> int {{ return 0 }}\n", other_os),
+					},
+					{
+						fmt.tprintf("errors_%s.odin", other_os),
+						"package errs\n\nerr :: proc() -> string { return \"\" }\n",
+					},
+				},
+			},
+		},
+		collections = {"core" = "test"},
+	}
+	test.expect_hover(t, &source, "errs.err :: proc() -> string")
+}
+
+// A file that the host does not build still reaches a package whose files all build on the host.
+@(test)
+hover_from_excluded_file_into_host_package :: proc(t: ^testing.T) {
+	other_os := "linux" when ODIN_OS != .Linux else "windows"
+	source := test.Source {
+		main = fmt.tprintf(
+			"#+build %s\npackage test\n\nimport \"core:plain\"\n\nf :: proc() {{\n\tplain.r{{*}}un()\n}}\n",
+			other_os,
+		),
+		packages = {{pkg = "plain", source = "package plain\n\nrun :: proc() {}\n"}},
+		collections = {"core" = "test"},
+	}
+	test.expect_hover(t, &source, "plain.run :: proc()")
+}
