@@ -254,12 +254,11 @@ final_name :: proc(type: ^ast.Expr) -> string {
 }
 
 // Whether a result of type `last` can be returned through a proc whose last result is `proc_last`:
-// bool through bool, or an error through the same error type or a union that lists it.
+// a boolean through any boolean, or an error through the same error type or a union that lists it.
 same_error :: proc(ctx: ^ActionContext, src: string, last, proc_last: ^ast.Expr, kind: Result_Kind) -> bool {
-	// Odin converts between boolean types within or_return, so any boolean would pass; the action
-	// still asks for the same type name.
+	// Odin converts between boolean types within or_return, so b32 and a distinct bool pass through bool.
 	if kind == .Bool {
-		return final_name(last) == final_name(proc_last)
+		return result_kind_in(ctx.document, ctx.document.package_name, proc_last) == .Bool
 	}
 	if result_kind(proc_last) != .Error {
 		return false
