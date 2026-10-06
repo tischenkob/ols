@@ -181,8 +181,8 @@ collect_bound :: proc(bound: ^map[string]bool, body: ^ast.Stmt) {
 
 // ponytail: syntactic; only the slice parameters of a rule are type checked, and only against strings.
 @(private = "file")
-is_string_expr :: proc(document: ^Document, node: ^ast.Node) -> bool {
-	resolved, ok := resolve_entire_file(document)[uintptr(node)]
+is_string_expr :: proc(symbols: SymbolAndNodeMap, node: ^ast.Node) -> bool {
+	resolved, ok := symbols[uintptr(node)]
 	if !ok || resolved.is_unresolved || resolved.symbol == nil do return false
 	basic, is_basic := resolved.symbol.value.(SymbolBasicValue)
 	if !is_basic || basic.ident == nil do return false
@@ -198,7 +198,7 @@ slice_arg_text :: proc(w: ^Stdlib_Walker, bound: ^ast.Node) -> (string, bool) {
 	if bin, is_bin := expr.derived.(^ast.Binary_Expr); is_bin {
 		if bin.op.kind == .Range_Half || bin.op.kind == .Range_Full do return "", false
 	}
-	resolved, ok := resolve_entire_file(w.document)[uintptr(bound)]
+	resolved, ok := w.symbols[uintptr(bound)]
 	if !ok || resolved.is_unresolved || resolved.symbol == nil do return text, true
 	array, is_array := resolved.symbol.value.(SymbolFixedArrayValue)
 	if !is_array do return text, true
@@ -211,7 +211,7 @@ slice_arg_text :: proc(w: ^Stdlib_Walker, bound: ^ast.Node) -> (string, bool) {
 	// by-value parameters, range values and call results are not.
 	root := access_root(expr)
 	if _, is_ident := root.derived.(^ast.Ident); !is_ident do return "", false
-	root_symbol, root_ok := resolve_entire_file(w.document)[uintptr(root)]
+	root_symbol, root_ok := w.symbols[uintptr(root)]
 	if !root_ok || root_symbol.symbol == nil do return "", false
 	flags := root_symbol.symbol.flags
 	if .Mutable not_in flags || .Parameter in flags do return "", false
@@ -284,6 +284,10 @@ Stdlib_Walker :: struct {
 	document:  ^Document,
 	src:       string,
 	rules:     []Stdlib_Rule,
+	// rols: the resolved nodes of the file, without the ones that resolve only to an inactive `when` branch's
+	// declaration: the walk visits only code the host builds, where such a declaration does not exist.
+	symbols:   SymbolAndNodeMap,
+	when_env:  When_Env,
 	rule:      ^Stdlib_Rule, // the rule of the current attempt
 	matcher:   Pattern_Matcher,
 	out:       [dynamic]Stdlib_Match,
@@ -303,7 +307,7 @@ finish :: proc(w: ^Stdlib_Walker, start, end: int, form: Stdlib_Form) -> (result
 		}
 		args[i] = node_text(m.src, bound)
 		if w.rule.slice_params[i] {
-			if is_string_expr(w.document, bound) do return
+			if is_string_expr(w.symbols, bound) do return
 			args[i] = slice_arg_text(w, bound) or_return
 		}
 	}
@@ -340,7 +344,7 @@ fill_args :: proc(w: ^Stdlib_Walker, m: ^Stdlib_Match, s, v: ^ast.Node) -> bool 
 	// The loop writes each element before it reads the value again, so a value that reads the
 	// array, like `arr[0] * 2` or `p[0]` with `p := &arr`, changes as the loop runs. The rewrite
 	// reads it once.
-	symbols := resolve_entire_file(w.document)
+	symbols := w.symbols
 	root_name := ""
 	if root, is_ident := access_root(s).derived.(^ast.Ident); is_ident do root_name = root.name
 
@@ -603,6 +607,8 @@ scan_stmts :: proc(w: ^Stdlib_Walker, stmts: []^ast.Stmt) {
 stdlib_matches :: proc(document: ^Document, allocator := context.temp_allocator) -> []Stdlib_Match {
 	rules := stdlib_rules()
 	if len(rules) == 0 do return nil
+	// rols: a file the host does not build resolves its names to the host's declarations, like an inactive branch.
+	if ignored, excluded := document_build(document); ignored || excluded do return nil
 
 	w := Stdlib_Walker {
 		document  = document,
@@ -610,7 +616,9 @@ stdlib_matches :: proc(document: ^Document, allocator := context.temp_allocator)
 		rules     = rules,
 		out       = make([dynamic]Stdlib_Match, context.temp_allocator),
 		allocator = allocator,
+		when_env  = make_when_env(document),
 	}
+	w.symbols, _ = split_fallbacks(resolve_entire_file(document))
 	w.matcher = pattern_matcher_make(w.src)
 	w.matcher.return_as_assign = true
 
@@ -626,6 +634,13 @@ stdlib_matches :: proc(document: ^Document, allocator := context.temp_allocator)
 				scan_stmts(w, n.body)
 			case ^ast.Paren_Expr:
 			// The inner expression is visited on its own.
+			case ^ast.When_Stmt:
+				// rols: a branch the host does not build may name another platform's declarations.
+				for branch in when_branches(&w.when_env, n) {
+					if branch.cond != nil do ast.walk(visitor, branch.cond)
+					if branch.active do ast.walk(visitor, branch.body)
+				}
+				return nil
 			case:
 				for &rule in w.rules {
 					if rule.expr == nil do continue

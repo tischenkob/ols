@@ -106,6 +106,8 @@ find_unused_imports :: proc(document: ^Document, allocator := context.temp_alloc
 
 	// rols: only a package name written in the file uses an import, a value of one of its types does not.
 	// A name, not a path, so of two imports of one path only the one the file writes is used.
+	// The resolve covers every `when` branch, so organize-imports on save keeps an import that only another
+	// target's branch names, although `odin check` reports it on the host.
 	names := make(map[string]struct{}, context.temp_allocator)
 	for _, v in symbols {
 		if _, is_pkg := v.symbol.value.(SymbolPackageValue); !is_pkg || v.node == nil do continue

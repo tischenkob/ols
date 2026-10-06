@@ -15,6 +15,8 @@ LintContext :: struct {
 	config:         ^common.Config,
 	src:            string,
 	symbols:        Maybe(SymbolAndNodeMap),
+	// The nodes of active code that `lint_symbols` leaves out, filled with it (see `lint_fallback`).
+	fallbacks:      SymbolAndNodeMap,
 	// Names the file uses as values (see `value_names`), built on first use.
 	value_names:    Maybe(map[string]struct{}),
 	// Names the file's calls give their arguments (see `named_arguments`), built on first use.
@@ -25,7 +27,7 @@ LintContext :: struct {
 	fixes:          [dynamic]Lint_Fix,
 	// The node being linted is in code the host does not build: an inactive `when` branch or an excluded file.
 	inactive:       bool,
-	// Whether the file has a `foreign import` (see `check_c_name` in rols_lint_naming.odin), found on first use.
+	// Whether the package binds a C library (see `check_c_name` in rols_lint_naming.odin), found on first use.
 	foreign_import: Maybe(bool),
 	// The walker's context without locals; its globals tell which declarations are file-private.
 	ast_context:    ^AstContext,
@@ -33,6 +35,10 @@ LintContext :: struct {
 	files:          []Package_File,
 	// The other files of the package, read on first use (see `used_as_value_elsewhere`).
 	siblings:       ^Sibling_Values,
+	// For each declaration that a name in inactive code resolved to, whether it has platform variants (see
+	// `ambiguous_in_inactive`), and the documents read to find them.
+	variants:       map[string]bool,
+	hierarchy:      ^Call_Hierarchy,
 	// The member names of each `using` expression that `visible_declaration` resolved, in temp memory.
 	using_members:  map[^ast.Expr][]string,
 }
@@ -89,19 +95,60 @@ lint_symbols :: proc(ctx: ^LintContext) -> SymbolAndNodeMap {
 	if ctx.inactive do return resolve_entire_file(ctx.document)
 	symbols, has_symbols := ctx.symbols.?
 	if has_symbols do return symbols
-	symbols = resolve_entire_file(ctx.document)
-	for _, resolved in symbols {
-		if resolved.symbol == nil || .Fallback not_in resolved.symbol.flags do continue
-		// The resolved map is cached on the document, so the filtered one is a copy.
-		active := make(SymbolAndNodeMap, len(symbols), context.temp_allocator)
-		for node, entry in symbols {
-			if entry.symbol == nil || .Fallback not_in entry.symbol.flags do active[node] = entry
-		}
-		symbols = active
-		break
-	}
+	symbols, ctx.fallbacks = split_fallbacks(resolve_entire_file(ctx.document))
 	ctx.symbols = symbols
 	return symbols
+}
+
+// The symbol of a node in active code that `lint_symbols` leaves out because it resolves only to a declaration of
+// an inactive `when` branch. A lint that reads a missing node as a local or a constant asks this first.
+lint_fallback :: proc(ctx: ^LintContext, node: ^ast.Node) -> (^Symbol, bool) {
+	if ctx.inactive do return nil, false
+	lint_symbols(ctx)
+	entry, found := ctx.fallbacks[uintptr(node)]
+	return entry.symbol, found
+}
+
+// Whether a name in inactive code that resolves to symbol may name another declaration on a target that builds
+// that code. The resolver gives the host's declaration unless only an inactive branch declares the name (.Fallback),
+// and a target that builds the inactive code may build a platform variant of it instead (see `declaration_variants`),
+// with another kind or attribute.
+@(private = "package")
+ambiguous_in_inactive :: proc(ctx: ^LintContext, symbol: ^Symbol) -> bool {
+	if !ctx.inactive || symbol == nil || .Fallback in symbol.flags do return false
+	key := fmt.tprintf("%s:%s", symbol.uri, symbol.name)
+	if ambiguous, found := ctx.variants[key]; found do return ambiguous
+	if ctx.hierarchy == nil {
+		ctx.hierarchy = new_clone(
+			Call_Hierarchy{ctx.files, make(map[string]^Document, context.temp_allocator)},
+			context.temp_allocator,
+		)
+		ctx.variants = make(map[string]bool, context.temp_allocator)
+	}
+	ambiguous := len(declaration_variants(ctx.hierarchy, symbol^)) > 0
+	ctx.variants[key] = ambiguous
+	return ambiguous
+}
+
+// symbols split into the nodes that do not resolve to a declaration only an inactive `when` branch makes, and the
+// ones that do. The resolved map is cached on the document, so the split ones are copies, made only when needed.
+@(private = "package")
+split_fallbacks :: proc(symbols: SymbolAndNodeMap) -> (active, fallbacks: SymbolAndNodeMap) {
+	active = symbols
+	for _, resolved in symbols {
+		if resolved.symbol == nil || .Fallback not_in resolved.symbol.flags do continue
+		active = make(SymbolAndNodeMap, len(symbols), context.temp_allocator)
+		fallbacks = make(SymbolAndNodeMap, context.temp_allocator)
+		for node, entry in symbols {
+			if entry.symbol != nil && .Fallback in entry.symbol.flags {
+				fallbacks[node] = entry
+			} else {
+				active[node] = entry
+			}
+		}
+		break
+	}
+	return
 }
 
 // A `{.Unnecessary}` literal inside a lint proc lives on its stack, and run_lints reads the
@@ -143,8 +190,9 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 
 // The lints that judge code by resolved symbols. They skip code that the host does not build, where a name can
 // resolve to the active branch's declaration. The other lints run everywhere: most read only the syntax. The naming
-// and deprecated lints resolve a name only for its kind or attribute, which the platform variants of a declaration
-// share, and the unused-parameter lint resolves only to spare a procedure that the file passes as a value.
+// and deprecated lints resolve a name only for its kind or attribute, and stay silent on a name whose declaration
+// has platform variants there (see `ambiguous_in_inactive`). The unused-parameter lint resolves only to spare a
+// procedure that the file passes as a value, so a wrong resolution can only spare a parameter.
 @(private = "file")
 resolving_lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_float_equality,
@@ -167,27 +215,80 @@ resolving_lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnosti
 
 @(private = "file")
 Walker :: struct {
-	ctx:         LintContext,
-	diags:       [dynamic]Diagnostic,
+	ctx:      LintContext,
+	diags:    [dynamic]Diagnostic,
 	// rols: resolution-dependent lints skip code in `when` branches that the host does not build.
+	when_env: When_Env,
+	inactive: int,
+}
+
+// How the host builds a document: a `#+build ignore` file is built nowhere, and a file whose build tags or name
+// leave out the host is excluded. A lint or hint treats an excluded file like an inactive `when` branch, since its
+// names resolve to the host's declarations.
+@(private = "package")
+document_build :: proc(document: ^Document) -> (ignored, excluded: bool) {
+	tags := parser.parse_file_tags(document.ast, context.temp_allocator)
+	if tags.ignore do return true, true
+	return false, !should_collect_file(tags) || skip_file(filepath.base(document.fullpath))
+}
+
+// What decides the `when` conditions of a document: its context without locals, whose globals also tell which
+// declarations are file-private, and the constants of the file.
+@(private = "package")
+When_Env :: struct {
 	ast_context: AstContext,
-	when_consts: map[string]When_Expr,
-	inactive:    int,
+	consts:      map[string]When_Expr,
+}
+
+@(private = "package")
+make_when_env :: proc(document: ^Document) -> When_Env {
+	env := When_Env {
+		ast_context = make_ast_context(
+			document.ast,
+			document.imports,
+			document.package_name,
+			document.uri.uri,
+			document.fullpath,
+			context.temp_allocator,
+		),
+		consts      = make_when_expr_map(),
+	}
+	get_globals(document.ast, &env.ast_context)
+	register_when_consts_from_globals(&env.consts, env.ast_context.globals)
+	return env
+}
+
+// One branch of a `when` chain: its condition (nil for the final `else`), its body, and whether the host builds it.
+@(private = "package")
+When_Branch :: struct {
+	cond:   ^ast.Expr,
+	body:   ^ast.Stmt,
+	active: bool,
+}
+
+// The branches of the `when` chain that starts at stmt, in source order. The lint walker and the use-stdlib hints
+// both read them, so the two agree on which code the host builds.
+@(private = "package")
+when_branches :: proc(env: ^When_Env, stmt: ^ast.When_Stmt) -> []When_Branch {
+	active, _ := active_when_block(&env.ast_context, stmt, env.consts)
+	branches := make([dynamic]When_Branch, context.temp_allocator)
+	for branch: ^ast.Stmt = stmt; branch != nil; {
+		when_branch, is_when := branch.derived.(^ast.When_Stmt)
+		body := when_branch.body if is_when else branch
+		block, is_block := body.derived.(^ast.Block_Stmt)
+		append(&branches, When_Branch{when_branch.cond if is_when else nil, body, is_block && block == active})
+		branch = when_branch.else_stmt if is_when else nil
+	}
+	return branches[:]
 }
 
 @(private = "file")
 walk_when_branches :: proc(visitor: ^ast.Visitor, w: ^Walker, stmt: ^ast.When_Stmt) {
-	active, _ := active_when_block(&w.ast_context, stmt, w.when_consts)
-	for branch: ^ast.Stmt = stmt; branch != nil; {
-		when_branch, is_when := branch.derived.(^ast.When_Stmt)
-		body := when_branch.body if is_when else branch
-		if is_when do ast.walk(visitor, when_branch.cond)
-		block, is_block := body.derived.(^ast.Block_Stmt)
-		is_active := is_block && block == active
-		if !is_active do w.inactive += 1
-		ast.walk(visitor, body)
-		if !is_active do w.inactive -= 1
-		branch = when_branch.else_stmt if is_when else nil
+	for branch in when_branches(&w.when_env, stmt) {
+		if branch.cond != nil do ast.walk(visitor, branch.cond)
+		if !branch.active do w.inactive += 1
+		ast.walk(visitor, branch.body)
+		if !branch.active do w.inactive -= 1
 	}
 }
 
@@ -208,25 +309,11 @@ walk_lints :: proc(document: ^Document, config: ^common.Config, files: []Package
 	}
 	// rols: nothing in a `#+build ignore` file is built, so nothing in it is linted. A file the host does not build
 	// is treated like an inactive branch, since its calls resolve to the host's declarations.
-	tags := parser.parse_file_tags(document.ast, context.temp_allocator)
-	if tags.ignore {
-		return w
-	}
-	if !should_collect_file(tags) || skip_file(filepath.base(document.fullpath)) {
-		w.inactive = 1
-	}
-	w.ast_context = make_ast_context(
-		document.ast,
-		document.imports,
-		document.package_name,
-		document.uri.uri,
-		document.fullpath,
-		context.temp_allocator,
-	)
-	get_globals(document.ast, &w.ast_context)
-	w.ctx.ast_context = &w.ast_context
-	w.when_consts = make_when_expr_map()
-	register_when_consts_from_globals(&w.when_consts, w.ast_context.globals)
+	ignored, excluded := document_build(document)
+	if ignored do return w
+	if excluded do w.inactive = 1
+	w.when_env = make_when_env(document)
+	w.ctx.ast_context = &w.when_env.ast_context
 	visitor := ast.Visitor {
 		data = &w,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
@@ -769,18 +856,7 @@ WORD_SCANS :: 3
 // A file that does not parse, or that the parse limit leaves out, counts when it holds the name.
 @(private = "file")
 used_as_value_elsewhere :: proc(ctx: ^LintContext, name: string) -> bool {
-	if ctx.siblings == nil {
-		files := package_siblings(ctx.document, ctx.files)
-		ctx.siblings = new_clone(
-			Sibling_Values {
-				files = files,
-				parsed = make([]bool, len(files), context.temp_allocator),
-				names = make(map[string]struct{}, context.temp_allocator),
-			},
-			context.temp_allocator,
-		)
-	}
-	siblings := ctx.siblings
+	siblings := sibling_values(ctx)
 	if name in siblings.names do return true
 	if siblings.scans < WORD_SCANS {
 		siblings.scans += 1
@@ -800,6 +876,23 @@ used_as_value_elsewhere :: proc(ctx: ^LintContext, name: string) -> bool {
 		if parse_sibling(siblings, i, name) do return true
 	}
 	return false
+}
+
+// The other files of the package, read on the first call of a lint run.
+@(private = "package")
+sibling_values :: proc(ctx: ^LintContext) -> ^Sibling_Values {
+	if ctx.siblings == nil {
+		files := package_siblings(ctx.document, ctx.files)
+		ctx.siblings = new_clone(
+			Sibling_Values {
+				files = files,
+				parsed = make([]bool, len(files), context.temp_allocator),
+				names = make(map[string]struct{}, context.temp_allocator),
+			},
+			context.temp_allocator,
+		)
+	}
+	return ctx.siblings
 }
 
 // Parses file i of siblings, unless it is parsed already, and reports whether name is a value use found so far.

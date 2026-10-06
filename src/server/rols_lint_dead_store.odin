@@ -199,11 +199,16 @@ deferred_mention :: proc(lit: ^ast.Proc_Lit, name: ^ast.Ident, visible: ^ast.Ide
 }
 
 // Only a local can hold a dead store: a global is readable from any procedure. An identifier
-// that does not resolve is assumed to be a local, as before.
+// that does not resolve is assumed to be a local, as before. One that resolves only to an inactive
+// `when` branch's declaration is judged by that declaration.
 @(private = "file")
 is_local_store :: proc(ctx: ^LintContext, ident: ^ast.Ident) -> bool {
 	resolved, ok := lint_symbols(ctx)[uintptr(ident)]
-	return !ok || resolved.is_unresolved || .Local in resolved.symbol.flags
+	if !ok {
+		if fallback, is_fallback := lint_fallback(ctx, ident); is_fallback do return .Local in fallback.flags
+		return true
+	}
+	return resolved.is_unresolved || .Local in resolved.symbol.flags
 }
 
 // `&x`, `&x.f` or `&x[i]` in the declaration that holds `name`: the pointer can read x at any later

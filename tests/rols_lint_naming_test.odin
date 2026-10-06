@@ -516,6 +516,41 @@ badVar := 1
 	test.expect_lint_diagnostics(t, &source, {{11, "naming"}, {12, "naming"}})
 }
 
+// A binding package may declare its library in one file and the C types in another.
+@(test)
+naming_skips_c_names_in_foreign_import_package :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+udev :: struct {
+	someField: i32,
+}
+badProc :: proc() {}
+`,
+		files = {{"a.odin", "package test\n\nforeign import lib \"system:x\"\n"}},
+		config = {enable_lint_naming = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{5, "naming"}})
+}
+
+// A package that loads its library through `core:dynlib` mirrors C names too.
+@(test)
+naming_skips_c_names_in_dynlib_package :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+udev :: struct {
+	someField: i32,
+}
+`,
+		files = {{"a.odin", "package test\n\nimport \"core:dynlib\"\n"}},
+		config = {enable_lint_naming = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
+
 @(test)
 naming_skips_c_names_in_when_foreign_import_file :: proc(t: ^testing.T) {
 	source := test.Source {
