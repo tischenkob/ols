@@ -74,6 +74,10 @@ get_rename :: proc(
 
 
 get_prepare_rename :: proc(document: ^Document, position: common.Position) -> (common.Range, bool) {
+	// rols: the name of the package clause prepares a package rename
+	if range, found := package_clause_at(document, position); found {
+		return range, true
+	}
 	// rols: an import name, at its alias or at a qualifier, prepares the token under the cursor
 	if _, range, found := import_name_at(document, position); found {
 		return range, true

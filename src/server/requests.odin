@@ -955,12 +955,13 @@ request_initialize :: proc(
 	config.signature_offset_support =
 		initialize_params.capabilities.textDocument.signatureHelp.signatureInformation.parameterInformation.labelOffsetSupport
 
-	// rols: organize-on-save and file creation need client support
+	// rols: organize-on-save, file creation and renames need client support
 	config.enable_organize_imports_on_save &= initialize_params.capabilities.workspace.applyEdit
 
 	workspace_edit := initialize_params.capabilities.workspace.workspaceEdit
 	for operation in workspace_edit.resourceOperations {
 		config.client_create_file_support |= workspace_edit.documentChanges && operation == "create"
+		config.client_rename_file_support |= workspace_edit.documentChanges && operation == "rename"
 	}
 
 	completionTriggerCharacters := []string{".", ">", "#", "\"", "/", ":"}
@@ -1903,8 +1904,12 @@ request_rename :: proc(params: json.Value, id: RequestId, config: ^common.Config
 		return .InternalError
 	}
 
-	// rols: an import name renames once here; a refusal answers with its causes
-	if edit, _, reasons, found := rename_import(document, rename_param.position, rename_param.newName); found {
+	// rols: a package clause renames its package, an import name renames once here; a refusal answers with its causes
+	edit, reasons, found := rename_package_clause(document, rename_param.position, rename_param.newName, config)
+	if !found {
+		edit, _, reasons, found = rename_import(document, rename_param.position, rename_param.newName)
+	}
+	if found {
 		if len(reasons) > 0 {
 			message := strings.join(reasons, "\n", context.temp_allocator)
 			send_error(make_response_message_error(id = id, error = {code = .RequestFailed, message = message}), writer)

@@ -21,8 +21,9 @@ Config :: struct {
 	completion_insert_replace_support:       bool,
 	hover_support_md:                        bool,
 	signature_offset_support:                bool,
-	// rols: client supports workspace file creation
+	// rols: client supports workspace file creation and renames
 	client_create_file_support:              bool,
+	client_rename_file_support:              bool,
 	collections:                             map[string]string,
 	running:                                 bool,
 	verbose:                                 bool,

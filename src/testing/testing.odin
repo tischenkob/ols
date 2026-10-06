@@ -1613,6 +1613,33 @@ expect_rename_package_refused :: proc(t: ^testing.T, src: ^Source, dir, new_name
 	expect_causes(t, reasons, causes)
 }
 
+// Renames the package of the first file to new_name from the cursor on its `package` clause, as the rename
+// request does. An empty expected means the rename is refused with one reason per cause; otherwise each
+// file listed in expected is compared by its name after the rename.
+expect_rename_package_clause :: proc(
+	t: ^testing.T,
+	src: ^Source,
+	new_name: string,
+	expected: []File,
+	causes: []string = {},
+) {
+	cursor := source_remove_cursor(src)
+
+	setup(src)
+	defer teardown(src)
+
+	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+
+	edit, reasons, found := server.rename_package_clause(src.document, cursor, new_name, &src.config, source_files(src))
+	if !testing.expect(t, found, "Expected the cursor on the package clause") do return
+	if len(expected) == 0 {
+		expect_causes(t, reasons, causes)
+		return
+	}
+	if !testing.expectf(t, len(reasons) == 0, "Expected the package rename to pass its check, but received %v", reasons) do return
+	expect_workspace_edit(t, src, edit, expected)
+}
+
 Attr_Command :: enum {
 	Add, // args: KEY[=VALUE], at the cursor
 	Remove, // args: KEY, at the cursor

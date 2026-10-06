@@ -4,6 +4,7 @@ package tests
 
 import "core:testing"
 
+import "src:common"
 import test "src:testing"
 
 // File scope, so the slice old_package returns does not point into its stack frame.
@@ -507,4 +508,69 @@ s := S{old = 1}
 			{"fresh/a_test.odin", "package fresh_test\n\nT :: 2\n"},
 		},
 	)
+}
+
+// The cursor on the name of the package clause prepares that name, without the `_test` suffix.
+@(test)
+rename_package_clause_prepare :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = "package play{*}test_test\n\nX :: 1\n",
+	}
+	range := common.Range {
+		start = {line = 0, character = 8},
+		end = {line = 0, character = 16},
+	}
+	test.expect_prepare_rename_range(t, &source, range)
+}
+
+// File scope, so the source slices outlive the procedures that build the fixtures.
+@(private = "file")
+playtest_files := [?]test.File {
+	{"playtest/a.odin", "package play{*}test\n\nT :: struct {}\n"},
+	{"playtest/a_test.odin", "package playtest_test\n\nU :: 1\n"},
+	{"main.odin", "package test\n\nimport \"shared:playtest\"\n\nV :: playtest.T\n"},
+	{"other.odin", "package test\n\nimport p \"shared:playtest\"\n\nW :: p.T\n"},
+}
+
+// A rename on the package clause renames the package: every clause, the importers' paths, the qualifiers of
+// an unaliased import and the directory, but not the qualifiers of an aliased import.
+@(test)
+rename_package_clause_renames_package :: proc(t: ^testing.T) {
+	files := playtest_files
+	source := test.Source {
+		files = files[:],
+		collections = {"shared" = "test"},
+		config = {client_rename_file_support = true},
+	}
+	test.expect_rename_package_clause(
+		t,
+		&source,
+		"gametest",
+		{
+			{"gametest/a.odin", "package gametest\n\nT :: struct {}\n"},
+			{"gametest/a_test.odin", "package gametest_test\n\nU :: 1\n"},
+			{"main.odin", "package test\n\nimport \"shared:gametest\"\n\nV :: gametest.T\n"},
+			{"other.odin", "package test\n\nimport p \"shared:gametest\"\n\nW :: p.T\n"},
+		},
+	)
+}
+
+// A client without directory renames gets the command line instead.
+@(test)
+rename_package_clause_needs_client_renames :: proc(t: ^testing.T) {
+	files := playtest_files
+	source := test.Source {
+		files = files[:],
+		collections = {"shared" = "test"},
+	}
+	test.expect_rename_package_clause(t, &source, "gametest", {}, {"the client cannot rename directories"})
+}
+
+// The symbol rename of the command line points to rename-package on the package clause.
+@(test)
+rename_package_clause_symbol_rename_refused :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = "package te{*}st\n\nX :: 1\n",
+	}
+	test.expect_rename_refused(t, &source, "fresh", {"use rename-package"})
 }
