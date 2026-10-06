@@ -402,7 +402,8 @@ fill_args :: proc(w: ^Stdlib_Walker, m: ^Stdlib_Match, s, v: ^ast.Node) -> bool 
 
 // Whether value may read an element of the array: it names root_name, the array's root
 // identifier, or it reads elements through a pointer, slice or multi-pointer (`p[0]`, `s.p[:]`,
-// `p^`). Copying a pointer or reading a field through one reaches no element.
+// `p^`). Copying a pointer or reading a field through one is accepted, which misses a pointer
+// to an element of the array (`p := &items[0]`, then `p.x`) and a call that reads the array.
 @(private = "file")
 reads_array :: proc(symbols: SymbolAndNodeMap, value: ^ast.Node, root_name: string) -> bool {
 	Search :: struct {
