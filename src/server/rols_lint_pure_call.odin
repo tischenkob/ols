@@ -17,7 +17,7 @@ PURE_PACKAGES := []string {
 	"/unicode/utf8",
 	"/path",
 	"/path/filepath",
-	"/slices",
+	"/slice",
 	"/bytes",
 }
 
@@ -28,8 +28,7 @@ MUTATING_PREFIXES := []string {
 	"buffer_", // bytes.Buffer: buffer_write*, buffer_read*, buffer_truncate, buffer_grow, ...
 	"reader_", // bytes.Reader, strings.Reader: reader_read*, reader_seek, ...
 	"write_",
-	"to_reader", // strings.to_reader, to_reader_at: fill the Reader passed by pointer
-	"intern_", // strings.Intern: intern_get, intern_get_cstring insert into the table
+	"advance_", // slice.advance_slices: advances the inner slices in place
 	"sort",
 	"reverse",
 	"swap",
@@ -50,7 +49,7 @@ MUTATING_PREFIXES := []string {
 	"insert",
 }
 
-// Procedures under a mutating prefix that only inspect their argument.
+// Procedures under a mutating prefix, or with a pointer parameter, that only inspect their argument.
 @(private = "file")
 ACCESSOR_NAMES := []string {
 	"buffer_to_bytes",
@@ -90,11 +89,13 @@ lint_pure_call :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diag
 	if !is_proc || len(value.return_types) == 0 do return
 
 	name := resolved.symbol.name
-	for prefix in MUTATING_PREFIXES {
-		if strings.has_prefix(name, prefix) && !slice.contains(ACCESSOR_NAMES, name) do return
+	if !slice.contains(ACCESSOR_NAMES, name) {
+		for prefix in MUTATING_PREFIXES {
+			if strings.has_prefix(name, prefix) do return
+		}
+		// A procedure may write through a pointer parameter, such as `to_reader` or `split_iterator`.
+		if has_pointer_param(value.arg_types) || has_pointer_param(value.orig_arg_types) do return
 	}
-	// `to_cstring` appends a terminator to the Builder, and a `*_iterator` advances its ^string or ^[]byte.
-	if name == "to_cstring" || strings.has_suffix(name, "_iterator") do return
 
 	// A pointer argument is the procedure's output.
 	for arg in call.args {
@@ -115,4 +116,20 @@ lint_pure_call :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diag
 			),
 		},
 	)
+}
+
+// `^T` or `[^]T`, written out or as the specialization of a polymorphic parameter.
+@(private = "file")
+has_pointer_param :: proc(params: []^ast.Field) -> bool {
+	for param in params {
+		type := param.type
+		if type == nil do continue
+		if poly, is_poly := type.derived.(^ast.Poly_Type); is_poly do type = poly.specialization
+		if type == nil do continue
+		#partial switch _ in unparen(type).derived {
+		case ^ast.Pointer_Type, ^ast.Multi_Pointer_Type:
+			return true
+		}
+	}
+	return false
 }

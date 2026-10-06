@@ -58,6 +58,31 @@ filled :: proc() {
 }
 
 @(test)
+lint_make_len_append_named_type :: proc(t: ^testing.T) {
+	// A named dynamic array type starts with its length too. A named slice type cannot grow by append.
+	source := test.Source {
+		main = `package test
+
+Array :: [dynamic]int
+Slice :: []int
+
+grow :: proc() {
+	a := make(Array, 4)
+	append(&a, 1)
+}
+
+fixed :: proc() {
+	s := make(Slice, 4)
+	_ = s
+}
+`,
+		config = {enable_lint_allocator = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{6, "make-len-append"}})
+}
+
+@(test)
 lint_fix_allocator_mismatch :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test

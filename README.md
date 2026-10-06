@@ -269,7 +269,7 @@ Options:
 
 - `enable_lint_unused_variable`: Mark local variables and constants that are declared but never used as unnecessary. Defaults to true.
 
-- `enable_lint_naming`: Report names that do not follow Odin conventions: snake_case procedures and variables, Ada_Case types and enum members, SCREAMING_SNAKE_CASE constants. Constants inside a procedure, declarations in `foreign` blocks and with `@(link_name)` or `@(export)`, and struct fields with a tag string are not checked. Defaults to true.
+- `enable_lint_naming`: Report names that do not follow Odin conventions: snake_case procedures and variables, Ada_Case types and enum members, SCREAMING_SNAKE_CASE constants. A `true` or `false` constant may be snake_case or SCREAMING_SNAKE_CASE. Constants inside a procedure, declarations in `foreign` blocks and with `@(link_name)` or `@(export)`, struct fields with a tag string, and parameters of a procedure type with a calling convention other than `"odin"` or `"contextless"` are not checked. In a file with a `foreign import`, type, field, enum member and constant names are not checked either, because they may mirror C names. Defaults to true.
 
 - `enable_lint_bool_logic`: Report boolean and comparison mistakes: identical operands, conditions that are always true or false, and `if` or `switch` branches that repeat an earlier one. Defaults to true.
 
@@ -279,7 +279,7 @@ Options:
 
 - `enable_lint_dead_store`: Report a value stored in a variable that is overwritten before anything reads it, and writes to fields of a struct copy taken from an index, selector or range value. Defaults to true.
 
-- `enable_lint_allocator`: Report a value allocated with an explicit allocator and then freed with the context allocator, and `make([dynamic]T, n)` whose elements `append` adds after. Defaults to true.
+- `enable_lint_allocator`: Report a value allocated with an explicit allocator and then freed with the context allocator, and `make([dynamic]T, n)`, or `make(Array, n)` for a named dynamic array type, whose elements `append` adds after. Defaults to true.
 
 - `enable_lint_sync`: Report synchronisation mistakes: a lock released on the next line, a deferred lock, an atomic result assigned back to its own target, a lock struct passed or copied by value, and cleanup deferred before the error is checked. Defaults to true.
 
@@ -309,7 +309,7 @@ Options:
 
 - `enable_lint_struct_literal`: Report a struct literal that sets the same field twice or names a field the struct does not have. Defaults to true.
 
-- `enable_lint_pure_call`: Report a call to a core package procedure, such as `strings.to_upper`, whose result is discarded. Defaults to true.
+- `enable_lint_pure_call`: Report a call to a core package procedure, such as `strings.to_upper`, whose result is discarded. A procedure with a pointer parameter is skipped, because it may write its output through it, except known accessors such as `bytes.buffer_to_string`. Defaults to true.
 
 - `enable_lint_use_stdlib`: Mark hand-written loops and comparisons that a core library procedure or builtin already does (`slice.contains`, `slice.linear_search`, `strings.contains`, `strings.has_prefix`/`has_suffix`, `min`/`max`/`abs`/`clamp`, `copy`, `slice.fill`, `math.sum`) as unnecessary and offer the rewrite as a quick fix. A fill of a fixed array becomes an array assignment (`arr = v`) where Odin broadcasts the value, and an untyped `{…}` or `.Name` value is written with its element type. Defaults to true.
 

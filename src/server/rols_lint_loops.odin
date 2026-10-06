@@ -5,7 +5,6 @@ import "core:odin/ast"
 import "core:odin/tokenizer"
 import "core:slice"
 import "core:strconv"
-import "core:strings"
 
 import "src:common"
 
@@ -330,35 +329,107 @@ intentional_inclusive :: proc(ctx: ^LintContext, n: ^ast.Range_Stmt, bound: ^ast
 	return evidence
 }
 
-// Whether an enclosing `if` condition mentions the loop variable and len(collection), written out or
-// through a local `n := len(collection)`. The operator and the comparison direction are not checked.
-// A use inside the condition only counts what comes before it, because `&&` evaluates left to right.
+// Whether an enclosing `if` keeps the loop variable below len(collection), written out or through a
+// local `n := len(collection)`. The then-branch needs `v < L`, `L > v` or `v != L` as the condition or
+// a top-level `&&` operand. The else-branch needs `v == L`, `v >= L` or `L <= v` as the condition or a
+// top-level `||` operand. A use inside the condition is guarded only by the left operand of an
+// enclosing `&&` (that holds) or `||` (that failed). A use in the init runs before the condition.
 @(private = "file")
 guarded_by_len :: proc(ctx: ^LintContext, use: ^ast.Ident, parents: []^ast.Node, collection: string) -> bool {
-	needle := fmt.tprintf("len(%s)", collection)
 	for parent in parents {
 		if_stmt, is_if := parent.derived.(^ast.If_Stmt)
 		if !is_if || if_stmt.cond == nil do continue
-		cond := if_stmt.cond
-		limit := cond.end.offset
-		if cond.pos.offset <= use.pos.offset && use.pos.offset < limit do limit = use.pos.offset
-		guarded := strings.contains(ctx.src[cond.pos.offset:limit], needle)
-		compared := false
-		for cond_use in collect_ident_uses(cond) {
-			if cond_use.ident.pos.offset >= limit do continue
-			if cond_use.ident.name == use.name {
-				compared = true
-			} else if !guarded && names_len_local(ctx, cond_use.ident, collection) {
-				guarded = true
-			}
+		guard := Len_Guard{ctx, use.name, collection}
+		switch {
+		case contains_offset(if_stmt.cond, use.pos.offset):
+			if guards_in_condition(guard, if_stmt.cond, use.pos.offset) do return true
+		case contains_offset(if_stmt.body, use.pos.offset):
+			if guards_branch(guard, if_stmt.cond, true) do return true
+		case contains_offset(if_stmt.else_stmt, use.pos.offset):
+			if guards_branch(guard, if_stmt.cond, false) do return true
 		}
-		if guarded && compared do return true
 	}
 	return false
 }
 
-// Whether ident names a declaration `ident := len(collection)` (or `::`) written before it in the
-// same top-level declaration. The match is by name, so a shadowing declaration also counts.
+@(private = "file")
+Len_Guard :: struct {
+	ctx:        ^LintContext,
+	var:        string,
+	collection: string,
+}
+
+@(private = "file")
+contains_offset :: proc(node: ^ast.Node, offset: int) -> bool {
+	return node != nil && node.pos.offset <= offset && offset < node.end.offset
+}
+
+// Whether cond, when it holds (then) or fails (else), keeps the variable below the length.
+@(private = "file")
+guards_branch :: proc(guard: Len_Guard, cond: ^ast.Expr, then: bool) -> bool {
+	bin, is_bin := unparen(cond).derived.(^ast.Binary_Expr)
+	if !is_bin do return false
+	#partial switch bin.op.kind {
+	case .Cmp_And:
+		return then && (guards_branch(guard, bin.left, then) || guards_branch(guard, bin.right, then))
+	case .Cmp_Or:
+		return !then && (guards_branch(guard, bin.left, then) || guards_branch(guard, bin.right, then))
+	}
+	var_left := is_var(guard, bin.left) && is_len(guard, bin.right)
+	var_right := is_len(guard, bin.left) && is_var(guard, bin.right)
+	#partial switch bin.op.kind {
+	case .Lt:
+		return then && var_left
+	case .Gt:
+		return then && var_right
+	case .Not_Eq:
+		return then && (var_left || var_right)
+	case .Cmp_Eq:
+		return !then && (var_left || var_right)
+	case .Gt_Eq:
+		return !then && var_left
+	case .Lt_Eq:
+		return !then && var_right
+	}
+	return false
+}
+
+// A use inside the condition runs only after the left operand of each enclosing `&&` held and of
+// each enclosing `||` failed.
+@(private = "file")
+guards_in_condition :: proc(guard: Len_Guard, cond: ^ast.Expr, offset: int) -> bool {
+	bin, is_bin := unparen(cond).derived.(^ast.Binary_Expr)
+	if !is_bin do return false
+	if contains_offset(bin.right, offset) {
+		#partial switch bin.op.kind {
+		case .Cmp_And:
+			if guards_branch(guard, bin.left, true) do return true
+		case .Cmp_Or:
+			if guards_branch(guard, bin.left, false) do return true
+		}
+		return guards_in_condition(guard, bin.right, offset)
+	}
+	return guards_in_condition(guard, bin.left, offset)
+}
+
+@(private = "file")
+is_var :: proc(guard: Len_Guard, expr: ^ast.Expr) -> bool {
+	ident, is_ident := unparen(expr).derived.(^ast.Ident)
+	return is_ident && ident.name == guard.var
+}
+
+@(private = "file")
+is_len :: proc(guard: Len_Guard, expr: ^ast.Expr) -> bool {
+	if arg, ok := len_call(expr); ok do return node_text(guard.ctx.src, arg) == guard.collection
+	ident, is_ident := unparen(expr).derived.(^ast.Ident)
+	return is_ident && names_len_local(guard.ctx, ident, guard.collection)
+}
+
+// Whether ident names a local `ident := len(collection)` (or `::`) and nothing assigns to it. The
+// declaration is the last one of the name before ident, in the same top-level declaration, whose
+// scope is still open at ident. The whole-file resolve gives a local no declaration range, so the
+// scopes are compared on the syntax tree. Any assignment to the name in the top-level declaration
+// counts, even one to another variable of that name.
 @(private = "file")
 names_len_local :: proc(ctx: ^LintContext, ident: ^ast.Ident, collection: string) -> bool {
 	top := top_level_stmt_at(ctx.document.ast.decls[:], ident.pos.offset)
@@ -367,31 +438,72 @@ names_len_local :: proc(ctx: ^LintContext, ident: ^ast.Ident, collection: string
 		ctx:        ^LintContext,
 		ident:      ^ast.Ident,
 		collection: string,
-		found:      bool,
+		is_len:     bool, // the visible declaration so far is `ident := len(collection)`
+		assigned:   bool,
 	}
 	data := Data {
 		ctx        = ctx,
 		ident      = ident,
 		collection = collection,
 	}
-	visitor := ast.Visitor {
+	declares :: proc(data: ^Data, names: []^ast.Expr) -> bool {
+		for name in names {
+			if ident, ok := name.derived.(^ast.Ident); ok && ident.name == data.ident.name do return true
+		}
+		return false
+	}
+
+	assignments := ast.Visitor {
 		data = &data,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
 			data := (^Data)(visitor.data)
-			if node == nil || data.found || node.pos.offset >= data.ident.pos.offset do return nil
-			decl, is_decl := node.derived.(^ast.Value_Decl)
-			if !is_decl || len(decl.names) != len(decl.values) do return visitor
-			for name, i in decl.names {
-				name_ident, is_ident := name.derived.(^ast.Ident)
-				if !is_ident || name_ident.name != data.ident.name do continue
-				arg, is_len := len_call(decl.values[i])
-				if is_len && node_text(data.ctx.src, arg) == data.collection do data.found = true
+			if node == nil || data.assigned do return nil
+			if assign, ok := node.derived.(^ast.Assign_Stmt); ok && declares(data, assign.lhs) do data.assigned = true
+			return visitor
+		},
+	}
+	ast.walk(&assignments, top)
+	if data.assigned do return false
+
+	declarations := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			data := (^Data)(visitor.data)
+			if node == nil || node.pos.offset >= data.ident.pos.offset do return nil
+			open := data.ident.pos.offset < node.end.offset
+			#partial switch n in node.derived {
+			case ^ast.Value_Decl:
+				if !declares(data, n.names) do return visitor
+				data.is_len = false
+				if len(n.names) != len(n.values) do return visitor
+				for name, i in n.names {
+					name_ident := name.derived.(^ast.Ident) or_continue
+					if name_ident.name != data.ident.name do continue
+					arg, is_len := len_call(n.values[i])
+					data.is_len = is_len && node_text(data.ctx.src, arg) == data.collection
+				}
+			case ^ast.Block_Stmt,
+			     ^ast.Case_Clause,
+			     ^ast.If_Stmt,
+			     ^ast.For_Stmt,
+			     ^ast.Switch_Stmt,
+			     ^ast.Type_Switch_Stmt:
+				// A scope that closed before ident declares nothing it can see.
+				if !open do return nil
+			case ^ast.Range_Stmt:
+				if !open do return nil
+				if declares(data, n.vals) do data.is_len = false
+			case ^ast.Proc_Lit:
+				if !open do return nil
+				if n.type != nil && n.type.params != nil {
+					for field in n.type.params.list do if declares(data, field.names) do data.is_len = false
+				}
 			}
 			return visitor
 		},
 	}
-	ast.walk(&visitor, top)
-	return data.found
+	ast.walk(&declarations, top)
+	return data.is_len
 }
 
 // Evaluating the expression twice cannot change anything: no calls, no `or_return`, no dereference.

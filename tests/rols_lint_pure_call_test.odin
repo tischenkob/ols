@@ -24,6 +24,10 @@ intern_get_cstring :: proc(m: ^Intern, text: string) -> (cstring, bool) { return
 to_cstring :: proc(b: ^Builder) -> (cstring, bool) { return nil, true }
 split_iterator :: proc(s: ^string, sep: string) -> (string, bool) { return "", false }
 fields_iterator :: proc(s: ^string) -> (string, bool) { return "", false }
+load_into :: proc(r: ^Reader, s: string) -> int { return 0 }
+load_many :: proc(r: [^]Reader, s: string) -> int { return 0 }
+load_poly :: proc(r: ^$T, s: string) -> int { return 0 }
+load_spec :: proc(r: $T/^Reader, s: string) -> int { return 0 }
 `,
 	},
 	{
@@ -39,12 +43,13 @@ tprintf :: proc(f: string, args: ..any) -> string { return f }
 `,
 	},
 	{
-		pkg = "slices",
-		source = `package slices
+		pkg = "slice",
+		source = `package slice
 sort :: proc(s: []int) {}
 reverse :: proc(s: []int) -> bool { return false }
 contains :: proc(s: []int, v: int) -> bool { return false }
 fill :: proc(s: []int, v: int) -> int { return 0 }
+advance_slices :: proc(slices: [][]int, elems: int) -> [][]int { return nil }
 `,
 	},
 }
@@ -55,7 +60,7 @@ lint_pure_call_unused :: proc(t: ^testing.T) {
 		main = `package test
 
 import "strings"
-import "slices"
+import "slice"
 
 main :: proc() {
 	s := "hi"
@@ -63,13 +68,14 @@ main :: proc() {
 	b: strings.Builder
 
 	strings.to_upper(s)
-	slices.contains(numbers, 1)
+	slice.contains(numbers, 1)
 
 	strings.builder_reset(&b)
 	strings.write_string(&b, s)
-	slices.reverse(numbers)
-	slices.fill(numbers, 0)
-	slices.sort(numbers)
+	slice.reverse(numbers)
+	slice.fill(numbers, 0)
+	slice.sort(numbers)
+	slice.advance_slices(nil, 1)
 	upper := strings.to_upper(s)
 	_ = strings.index_byte(upper, 'a')
 }
@@ -191,6 +197,10 @@ main :: proc(r: ^strings.Reader, m: ^strings.Intern, b: ^strings.Builder, s: ^st
 	strings.to_cstring(b)
 	strings.split_iterator(s, ",")
 	strings.fields_iterator(s)
+	strings.load_into(r, "x")
+	strings.load_many(([^]strings.Reader)(r), "x")
+	strings.load_poly(r, "x")
+	strings.load_spec(r, "x")
 }
 `,
 		packages = packages,

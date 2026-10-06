@@ -11,13 +11,15 @@ Naming_Rule :: enum {
 	Snake,
 	Screaming,
 	Ada,
+	Snake_Or_Screaming,
 }
 
 @(private = "file")
 rule_names := [Naming_Rule]string {
-	.Snake     = "snake_case",
-	.Screaming = "SCREAMING_SNAKE_CASE",
-	.Ada       = "Ada_Case",
+	.Snake              = "snake_case",
+	.Screaming          = "SCREAMING_SNAKE_CASE",
+	.Ada                = "Ada_Case",
+	.Snake_Or_Screaming = "snake_case or SCREAMING_SNAKE_CASE",
 }
 
 @(private = "file")
@@ -25,6 +27,7 @@ Decl_Kind :: enum {
 	Procedure,
 	Type,
 	Constant,
+	Bool, // `true` or `false`: a flag reads like a variable or a constant
 	Alias,
 }
 
@@ -50,15 +53,22 @@ lint_naming :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnos
 			case .Procedure:
 				check_name(ctx, diags, ident, "procedure", .Snake)
 			case .Type:
-				check_name(ctx, diags, ident, "type", .Ada)
+				check_c_name(ctx, diags, ident, "type", .Ada)
 			case .Constant:
 				// A proc-local constant reads as a local, so SCREAMING_SNAKE_CASE is not expected.
-				if is_top_level(ctx, n) do check_name(ctx, diags, ident, "constant", .Screaming)
+				if is_top_level(ctx, n) do check_c_name(ctx, diags, ident, "constant", .Screaming)
+			case .Bool:
+				if is_top_level(ctx, n) do check_c_name(ctx, diags, ident, "constant", .Snake_Or_Screaming)
 			case .Alias:
 			}
 		}
 	case ^ast.Proc_Type:
 		if n.params == nil do return
+		// A C callback's parameter names come from the C declaration.
+		if convention, is_string := n.calling_convention.(string); is_string {
+			convention = strings.trim(convention, "\"`")
+			if convention != "odin" && convention != "contextless" do return
+		}
 		for field in n.params.list {
 			if .Using in field.flags do continue
 			for name in field.names {
@@ -73,20 +83,20 @@ lint_naming :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnos
 			if field.tag.text != "" do continue
 			for name in field.names {
 				ident := name.derived.(^ast.Ident) or_continue
-				check_name(ctx, diags, ident, "field", .Snake)
+				check_c_name(ctx, diags, ident, "field", .Snake)
 			}
 		}
 	case ^ast.Bit_Field_Type:
 		for field in n.fields {
 			ident := field.name.derived.(^ast.Ident) or_continue
-			check_name(ctx, diags, ident, "field", .Snake)
+			check_c_name(ctx, diags, ident, "field", .Snake)
 		}
 	case ^ast.Enum_Type:
 		for field in n.fields {
 			expr := field
 			if field_value, ok := field.derived.(^ast.Field_Value); ok do expr = field_value.field
 			ident := expr.derived.(^ast.Ident) or_continue
-			check_name(ctx, diags, ident, "enum member", .Ada)
+			check_c_name(ctx, diags, ident, "enum member", .Ada)
 		}
 	}
 }
@@ -127,8 +137,7 @@ decl_kind :: proc(ctx: ^LintContext, value: ^ast.Expr) -> Decl_Kind {
 		return .Constant
 	case ^ast.Ident, ^ast.Selector_Expr:
 		if ident, is_ident := value.derived.(^ast.Ident); is_ident && (ident.name == "true" || ident.name == "false") {
-			// A boolean flag is named like a variable, so neither type nor constant rules apply.
-			return .Alias
+			return .Bool
 		}
 		resolved, is_resolved := lint_symbols(ctx)[uintptr(value)]
 		if !is_resolved || resolved.symbol.value == nil do return .Alias
@@ -197,6 +206,48 @@ check_name :: proc(
 	)
 }
 
+// A type, field, enum member or constant name in a file with a `foreign import` may mirror a C name.
+// Only a name that fails the rule pays for the scan of the file's declarations.
+@(private = "file")
+check_c_name :: proc(
+	ctx: ^LintContext,
+	diags: ^[dynamic]Diagnostic,
+	ident: ^ast.Ident,
+	what: string,
+	rule: Naming_Rule,
+) {
+	if ident.name == "_" || conforms(ident.name, rule) do return
+	if has_foreign_import(ctx.document.ast.decls[:]) do return
+	check_name(ctx, diags, ident, what, rule)
+}
+
+// A `foreign import` at file scope, also inside a top-level `when`.
+@(private = "file")
+has_foreign_import :: proc(stmts: []^ast.Stmt) -> bool {
+	for stmt in stmts {
+		#partial switch s in stmt.derived {
+		case ^ast.Foreign_Import_Decl:
+			return true
+		case ^ast.When_Stmt:
+			if when_has_foreign_import(s) do return true
+		}
+	}
+	return false
+}
+
+@(private = "file")
+when_has_foreign_import :: proc(s: ^ast.When_Stmt) -> bool {
+	if body, ok := s.body.derived.(^ast.Block_Stmt); ok && has_foreign_import(body.stmts) do return true
+	if s.else_stmt == nil do return false
+	#partial switch e in s.else_stmt.derived {
+	case ^ast.Block_Stmt:
+		return has_foreign_import(e.stmts)
+	case ^ast.When_Stmt:
+		return when_has_foreign_import(e)
+	}
+	return false
+}
+
 // Non-ASCII names conform. A single uppercase letter (`N`, `T`) passes snake_case.
 @(private = "file")
 conforms :: proc(name: string, rule: Naming_Rule) -> bool {
@@ -213,6 +264,8 @@ conforms :: proc(name: string, rule: Naming_Rule) -> bool {
 			else if !(is_digit(c) || c == '_') do return false
 		}
 		return has_letter
+	case .Snake_Or_Screaming:
+		return conforms(name, .Snake) || conforms(name, .Screaming)
 	case .Ada:
 		// `_1`: a name cannot start with a digit. `_Private`: snake_case and SCREAMING_SNAKE_CASE accept
 		// the leading underscore, so this rule does too.
