@@ -328,12 +328,12 @@ workspace_filter_package_aliases :: proc(t: ^testing.T) {
 		}
 	}
 
-	aliases_with :: proc(collection: string, workspace: string, cfg: common.Config) -> []string {
+	aliases_with :: proc(collection: string, workspaces: []string, cfg: common.Config) -> []string {
 		cfg := cfg
 		cfg.collections = make(map[string]string, context.temp_allocator)
 		cfg.collections["test"] = collection
-		if workspace != "" {
-			cfg.workspace_folders = make([dynamic]common.WorkspaceFolder, context.temp_allocator)
+		cfg.workspace_folders = make([dynamic]common.WorkspaceFolder, context.temp_allocator)
+		for workspace in workspaces {
 			uri := common.create_uri(workspace, context.temp_allocator)
 			append(&cfg.workspace_folders, common.WorkspaceFolder{uri = uri.uri})
 		}
@@ -355,24 +355,29 @@ workspace_filter_package_aliases :: proc(t: ^testing.T) {
 		return aliases
 	}
 
-	aliases := aliases_with(root, root, {enable_workspace_gitignore = true})
+	aliases := aliases_with(root, {root}, {enable_workspace_gitignore = true})
 	testing.expectf(t, slice.equal(aliases, []string{"api", "ex"}), "%v", aliases)
 
-	aliases = aliases_with(root, root, {enable_workspace_gitignore = true, workspace_exclude = {"ex"}})
+	aliases = aliases_with(root, {root}, {enable_workspace_gitignore = true, workspace_exclude = {"ex"}})
 	testing.expectf(t, slice.equal(aliases, []string{"api"}), "%v", aliases)
 
-	aliases = aliases_with(root, root, {enable_workspace_gitignore = true, workspace_include = {"build/dist/**"}})
+	aliases = aliases_with(root, {root}, {enable_workspace_gitignore = true, workspace_include = {"build/dist/**"}})
 	testing.expectf(t, slice.equal(aliases, []string{"api", "build/dist/api", "ex"}), "%v", aliases)
 
-	aliases = aliases_with(root, root, {enable_workspace_gitignore = false})
+	aliases = aliases_with(root, {root}, {enable_workspace_gitignore = false})
 	testing.expectf(t, slice.equal(aliases, []string{"api", "build/dist/api", "ex"}), "%v", aliases)
 
 	// A collection below the workspace root uses the workspace filter, with globs relative to the workspace.
-	aliases = aliases_with(join(root, "build"), root, {enable_workspace_gitignore = true})
+	aliases = aliases_with(join(root, "build"), {root}, {enable_workspace_gitignore = true})
 	testing.expectf(t, len(aliases) == 0, "%v", aliases)
 
+	// A folder the collection does not overlap is passed over for the one it does.
+	other := join(root, "..", "ols-ws-aliases-unrelated")
+	aliases = aliases_with(root, {other, root}, {enable_workspace_gitignore = true})
+	testing.expectf(t, slice.equal(aliases, []string{"api", "ex"}), "%v", aliases)
+
 	// A collection outside every workspace folder is walked unfiltered.
-	aliases = aliases_with(root, "", {enable_workspace_gitignore = true})
+	aliases = aliases_with(root, {}, {enable_workspace_gitignore = true})
 	testing.expectf(t, slice.equal(aliases, []string{"api", "build/dist/api", "ex"}), "%v", aliases)
 }
 

@@ -62,7 +62,7 @@ Workspace filter (`src/common/rols_workspace_filter.odin`), applied to workspace
 - `src/server/references.odin`: `workspace_odin_files` builds a filter per workspace root.
 - `src/server/build.odin`: `append_packages` takes the filter.
 - `src/server/check.odin`: the fallback package list for workspace diagnostics filters each root, and `odin check` spawns under `process_spawn_lock`.
-- `src/server/caches.odin`: `find_all_package_aliases` walks each collection with the filter of the workspace folder that contains it or lies inside it (`src/server/rols_package_aliases.odin`), one filter per folder per call. A collection outside every workspace folder is walked unfiltered.
+- `src/server/caches.odin`: `find_all_package_aliases` walks each collection with the filter of the workspace folder that contains it or lies inside it (`src/server/rols_package_aliases.odin`). A folder builds its filter, which runs git, on first use only, once per call, so a folder no collection overlaps runs no git. A collection outside every workspace folder is walked unfiltered.
 
 CLI:
 
