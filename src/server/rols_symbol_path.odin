@@ -47,7 +47,8 @@ find_symbol_path :: proc(
 	found := make([dynamic]Found, context.temp_allocator)
 	for source in sources {
 		file, parsed := parse_symbol_path_file(source)
-		if !parsed {
+		// A `#+build ignore` file, such as a doc file, is built nowhere, so its declarations do not count.
+		if !parsed || parser.parse_file_tags(file, context.temp_allocator).ignore {
 			continue
 		}
 		for decl in top_level_value_decls(file) {

@@ -1126,6 +1126,14 @@ when ODIN_OS == .Windows {
 	twice :: 2
 }
 `},
+	// A doc file that repeats a declaration is built nowhere, so it does not make Thing ambiguous.
+	{"test/doc.odin", `#+build ignore
+package test
+
+Thing :: struct {
+	field: int,
+}
+`},
 }
 
 @(test)

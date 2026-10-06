@@ -2,6 +2,7 @@ package cli
 
 import "core:fmt"
 import "core:os"
+import "core:path/filepath"
 import path "core:path/slashpath"
 import "core:slice"
 import "core:strings"
@@ -157,7 +158,8 @@ modernize :: proc(paths: []string, root: string, options: Modernize_Options) -> 
 }
 
 // Sorted absolute .odin paths, on the heap: the caller frees the temp allocator per file.
-// Directories are walked with the workspace filter; files named on the command line are kept.
+// Directories are walked with the workspace filter and skip the hidden directories below them, as lint does;
+// files named on the command line are kept.
 @(private = "file")
 modernize_files :: proc(targets: []string, root: string) -> []string {
 	// The workspace walk of the server, which has the root as its only folder.
@@ -166,7 +168,15 @@ modernize_files :: proc(targets: []string, root: string) -> []string {
 	filter := common.workspace_filter_make(root, &common.config, context.temp_allocator)
 	for target in targets {
 		if os.is_directory(target) {
-			common.search_for_odin_files(target, "", server.dir_blacklist, &found, &filter)
+			walked := make([dynamic]string, context.temp_allocator)
+			common.search_for_odin_files(target, "", server.dir_blacklist, &walked, &filter)
+			for file in walked {
+				below, _ := filepath.replace_separators(strings.trim_prefix(file, target), '/', context.temp_allocator)
+				dir := below[:strings.last_index_byte(below, '/') + 1]
+				if !strings.has_prefix(dir, ".") && !strings.contains(dir, "/.") {
+					append(&found, file)
+				}
+			}
 		} else {
 			append(&found, target)
 		}

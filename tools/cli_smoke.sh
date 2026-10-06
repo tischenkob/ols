@@ -532,6 +532,9 @@ if command -v git >/dev/null; then
 	mkdir "$mdir/gen"
 	sed 's/^package mod/package gen/; /^main ::/,$d' "$mdir/m.odin" > "$mdir/gen/gen.odin"
 fi
+# A hidden directory, such as a snapshot fixture folder, is skipped as lint skips it.
+mkdir "$mdir/.snap"
+sed 's/^package mod/package snap/; /^main ::/,$d' "$mdir/m.odin" > "$mdir/.snap/snap.odin"
 rc=0
 "$OLS" query modernize "$mdir" > "$dir/modernize.out" || rc=$?
 [[ $rc == 0 ]] || { echo "FAIL modernize dry-run: exit $rc"; exit 1; }
@@ -550,6 +553,8 @@ if [[ -d "$mdir/gen" ]]; then
 	grep -q "for e in s" "$mdir/gen/gen.odin" && ! grep -q "gen.odin" "$dir/modernize.out" || { echo "FAIL modernize touched a gitignored file"; exit 1; }
 	echo "ok modernize-gitignored"
 fi
+grep -q "for e in s" "$mdir/.snap/snap.odin" && ! grep -q "snap.odin" "$dir/modernize.out" || { echo "FAIL modernize touched a hidden directory"; exit 1; }
+echo "ok modernize-hidden"
 rc=0
 "$OLS" query --root "$mdir" modernize > /dev/null || rc=$?
 [[ $rc == 3 ]] || { echo "FAIL modernize not clean after apply: exit $rc"; exit 1; }
