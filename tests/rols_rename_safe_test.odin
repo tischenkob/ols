@@ -1610,7 +1610,35 @@ f :: proc(using bar: Bar, foo: Foo) -> int {
 	)
 }
 
-// An alias or a distinct type of the owner carries the field to the structs that embed it through `using`.
+// A field that the `using` of a nested block brings in shadows the renamed field, so the use keeps its meaning.
+@(test)
+rename_safe_allows_field_of_using_in_nested_block :: proc(t: ^testing.T) {
+	main := `#+feature using-stmt
+package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+Bar :: struct {
+	limit: int,
+}
+
+f :: proc(using foo: Foo, bar: Bar) -> int {
+	{
+		using bar
+		return limit
+	}
+}
+`
+	source := test.Source {
+		main = main,
+	}
+	test.expect_rename_refused(t, &source, "limit", {})
+}
+
+// An alias, a distinct type or a pointer alias of the owner carries the field to the structs and procedures that
+// embed it through `using`.
 @(test)
 rename_safe_refuses_collision_in_embedder_of_alias :: proc(t: ^testing.T) {
 	source := test.Source {
@@ -1627,7 +1655,8 @@ Top :: struct {
 	x: int,
 }
 `,
-		files = {{"other.odin", `package test
+		files = {
+			{"other.odin", `package test
 
 D :: distinct Foo
 
@@ -1635,7 +1664,18 @@ Top_D :: struct {
 	using d: D,
 	x: int,
 }
-`}},
+`},
+			{"ptr.odin", `#+feature using-stmt
+package test
+
+P :: ^Foo
+
+g :: proc(using p: P) {
+	x := 1
+	_ = x
+}
+`},
+		},
 	}
 	test.expect_rename_refused(
 		t,
@@ -1644,6 +1684,7 @@ Top_D :: struct {
 		{
 			"`x` is already a member of a type that embeds this one through `using a` at test/main.odin:11:2",
 			"`x` is already a member of a type that embeds this one through `using d` at test/other.odin:7:2",
+			"`x` is already declared in the scope of `using p` at test/ptr.odin:7:2",
 		},
 	)
 }
