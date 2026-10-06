@@ -907,6 +907,24 @@ f :: proc() {
 			{},
 		},
 		{
+			"fill value through a pointer field",
+			`package test
+
+S :: struct {
+	p: ^[3]int,
+}
+
+f :: proc() {
+	arr: [3]int
+	s := S{&arr}
+	for &e in arr {
+		e = s.p[0] * 2
+	}
+}
+`,
+			{},
+		},
+		{
 			"type-switch binding",
 			`package test
 
@@ -933,6 +951,54 @@ f :: proc(u: U, x: int) -> bool {
 	}
 
 	expect_lint_cases(t, cases, {enable_lint_use_stdlib = true})
+}
+
+// Copying a pointer or reading a field through one reads no element of the filled array.
+@(test)
+modernize_fill_takes_pointer_values :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+Config :: struct {
+	fill: int,
+}
+
+f :: proc(ptrs: []^int, default_ptr: ^int) {
+	for &e in ptrs {
+		e = default_ptr
+	}
+}
+
+g :: proc(xs: []int, cfg: ^Config) {
+	for &e in xs {
+		e = cfg.fill
+	}
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_modernized(
+		t,
+		&src,
+		{},
+		`package test
+
+import "core:slice"
+
+Config :: struct {
+	fill: int,
+}
+
+f :: proc(ptrs: []^int, default_ptr: ^int) {
+	slice.fill(ptrs, default_ptr)
+}
+
+g :: proc(xs: []int, cfg: ^Config) {
+	slice.fill(xs, cfg.fill)
+}
+`,
+	)
 }
 
 // The call would reach the declaration that shadows the builtin, here the procedure itself.

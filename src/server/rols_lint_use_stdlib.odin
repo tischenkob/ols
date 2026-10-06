@@ -338,26 +338,16 @@ finish :: proc(w: ^Stdlib_Walker, start, end: int, form: Stdlib_Form) -> (result
 @(private = "file")
 fill_args :: proc(w: ^Stdlib_Walker, m: ^Stdlib_Match, s, v: ^ast.Node) -> bool {
 	// The loop writes each element before it reads the value again, so a value that reads the
-	// array, like `arr[0] * 2`, changes as the loop runs. The rewrite reads it once.
-	if root, is_ident := access_root(s).derived.(^ast.Ident); is_ident {
-		for use in collect_ident_uses(v) do if use.ident.name == root.name do return false
-	}
-	// A pointer, slice or other view in the value may alias the array: `p := &arr` then `p[0]`.
+	// array, like `arr[0] * 2` or `p[0]` with `p := &arr`, changes as the loop runs. The rewrite
+	// reads it once.
 	symbols := resolve_entire_file(w.document)
-	for use in collect_ident_uses(v) {
-		resolved, ok := symbols[uintptr(use.ident)]
-		if !ok || resolved.is_unresolved || resolved.symbol == nil do continue
-		if resolved.symbol.pointers > 0 do return false
-		#partial switch _ in resolved.symbol.value {
-		case SymbolSliceValue, SymbolDynamicArrayValue, SymbolMultiPointerValue:
-			return false
-		}
-	}
+	root_name := ""
+	if root, is_ident := access_root(s).derived.(^ast.Ident); is_ident do root_name = root.name
+	if reads_array(symbols, v, root_name) do return false
 
 	elem: Symbol
 	elem_ok, fixed := false, false
-	if resolved, ok := resolve_entire_file(w.document)[uintptr(s)];
-	   ok && !resolved.is_unresolved && resolved.symbol != nil {
+	if resolved, ok := symbols[uintptr(s)]; ok && !resolved.is_unresolved && resolved.symbol != nil {
 		// Neither slice.fill nor a broadcast takes a #soa array.
 		if .Soa in resolved.symbol.flags do return false
 		elem_expr: ^ast.Expr
@@ -408,6 +398,64 @@ fill_args :: proc(w: ^Stdlib_Walker, m: ^Stdlib_Match, s, v: ^ast.Node) -> bool 
 		m.pkg = ""
 	}
 	return true
+}
+
+// Whether value may read an element of the array: it names root_name, the array's root
+// identifier, or it reads elements through a pointer, slice or multi-pointer (`p[0]`, `s.p[:]`,
+// `p^`). Copying a pointer or reading a field through one reaches no element.
+@(private = "file")
+reads_array :: proc(symbols: SymbolAndNodeMap, value: ^ast.Node, root_name: string) -> bool {
+	Search :: struct {
+		symbols:   SymbolAndNodeMap,
+		root_name: string,
+		found:     bool,
+	}
+	search := Search{symbols, root_name, false}
+	visitor := ast.Visitor {
+		data = &search,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil do return nil
+			search := (^Search)(visitor.data)
+			operand: ^ast.Node
+			#partial switch n in node.derived {
+			case ^ast.Ident:
+				if search.root_name != "" && n.name == search.root_name do search.found = true
+			case ^ast.Index_Expr:
+				operand = n.expr
+			case ^ast.Slice_Expr:
+				operand = n.expr
+			case ^ast.Deref_Expr:
+				operand = n.expr
+			}
+			// Each step of the operand chain, as `s.p` and `s` in `s.p[0]`. A selector resolves under
+			// its own node, not its field identifier.
+			for operand != nil && !search.found {
+				if resolved, ok := search.symbols[uintptr(operand)];
+				   ok && !resolved.is_unresolved && resolved.symbol != nil {
+					if resolved.symbol.pointers > 0 do search.found = true
+					#partial switch _ in resolved.symbol.value {
+					case SymbolSliceValue, SymbolDynamicArrayValue, SymbolMultiPointerValue:
+						search.found = true
+					}
+				}
+				#partial switch e in operand.derived {
+				case ^ast.Selector_Expr:
+					operand = e.expr
+				case ^ast.Index_Expr:
+					operand = e.expr
+				case ^ast.Paren_Expr:
+					operand = e.expr
+				case ^ast.Deref_Expr:
+					operand = e.expr
+				case:
+					operand = nil
+				}
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, value)
+	return search.found
 }
 
 // Types that a compound literal can build. A pointer or procedure type before `{` would parse as

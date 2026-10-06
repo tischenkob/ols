@@ -197,8 +197,16 @@ walk_lints :: proc(document: ^Document, config: ^common.Config) -> Walker {
 	return w
 }
 
+// A fix that would delete a comment is left out, for the quick fix and for modernize alike.
 lint_fixes :: proc(document: ^Document, config: ^common.Config) -> []Lint_Fix {
-	return walk_lints(document, config).ctx.fixes[:]
+	fixes := walk_lints(document, config).ctx.fixes[:]
+	kept := 0
+	for fix in fixes {
+		if fix_drops_comment(document.ast, fix.start, fix.end, fix.text) do continue
+		fixes[kept] = fix
+		kept += 1
+	}
+	return fixes[:kept]
 }
 
 lint_document :: proc(document: ^Document, config: ^common.Config) -> []Diagnostic {
