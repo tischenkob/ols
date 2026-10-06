@@ -33,6 +33,8 @@ LintContext :: struct {
 	files:          []Package_File,
 	// The other files of the package, read on first use (see `used_as_value_elsewhere`).
 	siblings:       ^Sibling_Values,
+	// The member names of each `using` expression that `visible_declaration` resolved, in temp memory.
+	using_members:  map[^ast.Expr][]string,
 }
 
 // A single-edit fix for one diagnostic, offered as a quick fix at the cursor.
