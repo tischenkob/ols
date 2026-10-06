@@ -5,7 +5,8 @@ import "core:odin/ast"
 import "src:common"
 
 // `odin test` only runs procedures marked `@(test)`, and it calls them as `proc(t: ^testing.T)`,
-// so the attribute and the signature have to agree.
+// so the attribute and the signature have to agree. The compiler checks the signature only under
+// `odin test`, so a file that does not import core:testing may mark procs for another runner.
 lint_test_attribute :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnostic) {
 	if !ctx.config.enable_lint_test_attribute do return
 	decl, is_decl := node.derived.(^ast.Value_Decl)
@@ -19,18 +20,19 @@ lint_test_attribute :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 	for attribute in attribute_names(decl.attributes[:]) {
 		if attribute == "test" do has_test = true
 	}
-	takes_t := takes_testing_t(ctx, lit)
+	testing_alias, imports_testing := core_testing_alias(ctx)
+	takes_t := imports_testing && takes_testing_t(ctx, lit, testing_alias)
 	no_results := lit.type.results == nil || len(lit.type.results.list) == 0
 
 	if has_test {
-		if takes_t && no_results do return
+		if !imports_testing || (takes_t && no_results) do return
 		append(
 			diags,
 			Diagnostic {
 				range = common.get_token_range(name, ctx.src),
 				severity = .Warning,
 				code = "test-signature",
-				message = test_signature_message(ctx),
+				message = fmt.tprintf("@(test) procedures must be proc(t: ^%s.T)", testing_alias),
 			},
 		)
 		return
@@ -73,29 +75,20 @@ is_used_elsewhere :: proc(ctx: ^LintContext, name: ^ast.Ident) -> bool {
 	return false
 }
 
+// The name this file gives core:testing.
 @(private = "file")
-takes_testing_t :: proc(ctx: ^LintContext, lit: ^ast.Proc_Lit) -> bool {
-	params := lit.type.params
-	if params == nil || len(params.list) != 1 || len(params.list[0].names) != 1 || params.list[0].type == nil do return false
+core_testing_alias :: proc(ctx: ^LintContext) -> (string, bool) {
 	for imp in ctx.document.ast.imports {
-		if imp.fullpath != `"core:testing"` do continue
-		return node_text(ctx.src, params.list[0].type) == fmt.tprintf("^%s.T", pattern_import_name(imp))
+		if imp.fullpath == `"core:testing"` do return pattern_import_name(imp), true
 	}
-	return false
+	return "", false
 }
 
-// Names the type the way this file can write it. When `testing` here is another package, the
-// usual `^testing.T` would point at that package's T.
 @(private = "file")
-test_signature_message :: proc(ctx: ^LintContext) -> string {
-	for imp in ctx.document.ast.imports {
-		if imp.fullpath != `"core:testing"` do continue
-		return fmt.tprintf("@(test) procedures must be proc(t: ^%s.T)", pattern_import_name(imp))
-	}
-	for imp in ctx.document.ast.imports {
-		if pattern_import_name(imp) == "testing" do return "@(test) procedures must be proc(t: ^T) with T from core:testing"
-	}
-	return "@(test) procedures must be proc(t: ^testing.T)"
+takes_testing_t :: proc(ctx: ^LintContext, lit: ^ast.Proc_Lit, testing_alias: string) -> bool {
+	params := lit.type.params
+	if params == nil || len(params.list) != 1 || len(params.list[0].names) != 1 || params.list[0].type == nil do return false
+	return node_text(ctx.src, params.list[0].type) == fmt.tprintf("^%s.T", testing_alias)
 }
 
 @(private = "file")

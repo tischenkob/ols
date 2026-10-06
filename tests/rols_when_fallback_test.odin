@@ -154,6 +154,7 @@ Error :: enum {{ None, Bad }}
 when ODIN_OS == .%s {{
 	open :: proc() {{}}
 }} else {{
+	@(require_results)
 	open :: proc() -> Error {{ return .None }}
 }}
 `,
@@ -215,7 +216,10 @@ resolving_lints_skip_file_the_host_does_not_build :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = fmt.tprintf("#+build %s\npackage test\n\ncheck :: proc() {{\n\topen()\n}}\n", other_os),
 		files = {
-			{"b.odin", "package test\n\nError :: enum { None, Bad }\n\nopen :: proc() -> Error { return .None }\n"},
+			{
+				"b.odin",
+				"package test\n\nError :: enum { None, Bad }\n\n@(require_results)\nopen :: proc() -> Error { return .None }\n",
+			},
 		},
 		config = {enable_lint_ignored_result = true},
 	}
