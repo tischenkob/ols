@@ -416,3 +416,32 @@ IMPL_B :: Iface{f = nil}
 
 	test.expect_lint_diagnostics(t, &source, {{8, "naming"}}, {"constant names are SCREAMING_SNAKE_CASE: pf"})
 }
+
+@(test)
+lint_naming_constant_alias_of_value_in_other_file_when :: proc(t: ^testing.T) {
+	// The `when` that picks PLATFORM also lives in b.odin.
+	source := test.Source {
+		main = `package test
+
+pf :: PLATFORM
+`,
+		files = {{name = "b.odin", source = `package test
+
+Iface :: struct {
+	f: proc() -> int,
+}
+
+IMPL_A :: Iface{f = nil}
+IMPL_B :: Iface{f = nil}
+
+when ODIN_OS == .Windows {
+	PLATFORM :: IMPL_A
+} else {
+	PLATFORM :: IMPL_B
+}
+`}},
+		config = {enable_lint_naming = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{2, "naming"}}, {"constant names are SCREAMING_SNAKE_CASE: pf"})
+}
