@@ -4,10 +4,9 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## Corpus validation (`docs/corpus-validation.md`)
 
-- **The 2026-10-05 rerun at `ac740c8c` found nine bugs that break or change code.** They are the entries dated 2026-10-05 under "Edits" in the doc, except "Cosmetic edit output", each with a reduced repro. Each needs a harness test and a fix. Four of the sweep's 5 `FAIL` lines are a script bug, and the fifth is the `pt_rescale` corpus line (see "Sweep script and environment").
 - **Formatter gaps from the 2026-10-04 rerun.** Stage S19 fixed that rerun's formatter bugs, and the 2026-10-05 rerun found no formatter failure in any project. Two formatter gaps remain: a `;`-joined `case` body statement is never wrapped (see the doc's Follow-ups), and `if` or `for` one-line blocks of `;` joined statements do not open a normal block when too wide. A block comment before the first parameter on its line prints as `\t /* ctx */x: int` (leading space, no space before the name). This predates S19, and the snapshot `rols_signature_first_field_block_comment` records it. A `//` group directly followed by `/* b */ x: int` forms one comment group, so `/* b */` still moves above the field.
 - **The doc's follow-ups have no passing harness test and each names a repro.** `docs/corpus/triage/` holds the reduced source of every confirmed case from the first sweep, and `python3 docs/corpus/triage/cli.py` reruns the CLI cases.
-- **Rerun the sweep after the nine edit bugs are fixed.** Follow "Rerunning the sweep" in the doc, including the core `modernize --apply` and tina `TINA_SIM` steps that the script does not run. Remove fixed items from the doc and this entry when nothing is left.
+- **Rerun the sweep to confirm the 2026-10-06 fixes of the 2026-10-05 edit bugs.** Follow "Rerunning the sweep" in the doc, including the core `modernize --apply` and tina `TINA_SIM` steps that the script does not run. Remove fixed items from the doc and this entry when nothing is left.
 
 ## Compile gate
 
@@ -23,6 +22,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **The fill rewrite misses a value that reads the array through an alias.** `fill_args` in `rols_lint_use_stdlib.odin` refuses a value that names the root identifier of the array, but not a pointer to it (`p := &arr; for &e in arr { e = p[0] }`).
 - **A type-switch binding is probably not refused by `slice_arg_text`.** In `switch v in u { case [3]int: … }` the value `v` is likely not addressable without `&`, but the check does not look for it. Unverified.
 - **"Expand compound assignment" leaves an `or_return` operand unparenthesised.** Its wrap list in `rols_action_rewrite_expression.odin` covers ternaries and `or_else` but not `Or_Return_Expr` or `Or_Branch_Expr`, so `x += f() or_return` becomes `x = x + f() or_return`, which Odin rejects. `operand_text` in `rols_action_split_merge_if.odin` has the full list.
+- **A builtin `use-stdlib` target can be shadowed, even by the enclosing procedure.** `stdlib_matches` in `src/server/rols_lint_use_stdlib.odin` drops a match only when the rule names a package equal to the document's package. The builtin rules (`max`, `min`, `abs`, `clamp`, `copy`) have no package, so the body of a user procedure named `max` that matches the `max` rule becomes `return max(a, b)`, which calls itself. A parameter, local or other declaration named `max` in the file or package captures the call the same way. Unverified. Calling `name_taken(document, m.start, m.rule.target, "")` (`rols_modernize.odin`) for a builtin match in `stdlib_matches` would close it within the file. Another file of the package would still need the index.
 
 ## Lints (`src/server/rols_lint*.odin`)
 
