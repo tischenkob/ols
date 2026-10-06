@@ -1557,8 +1557,8 @@ visit_expr :: proc(
 		set_source_position(p, expr.end)
 	}
 
-	// rols: a block comment before the expression on its line leads it
-	above, leading, _ := visit_comments_split(p, expr.pos)
+	// rols: a block comment before the expression on its line leads it, since nothing prints between them
+	above, leading, _ := visit_comments_split(p, expr.pos, code_between = true)
 	comments := cons(above, leading)
 	document := empty()
 

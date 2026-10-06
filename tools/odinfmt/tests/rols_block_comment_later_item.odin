@@ -19,4 +19,5 @@ g :: proc() {
 	long_call(aaaaaaaaaaaaaaaaaaaaaaa, /* b */ bbbbbbbbbbbbbbbbbbbbbbbbbb, cccccccccccccccccccccccccc)
 	arr := [?]int{1, /* b */ 2}
 	a := b + /* c */ c
+	d := e /* f */ + f
 }
