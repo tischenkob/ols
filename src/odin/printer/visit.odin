@@ -2159,10 +2159,24 @@ visit_end_brace :: proc(p: ^Printer, end: tokenizer.Pos, limit := 0) -> ^Documen
 // rols: chain_id names the group of a one-line block that may break
 visit_block_stmts :: proc(p: ^Printer, stmts: []^ast.Stmt, chain_id := "") -> ^Document {
 	document := empty()
+	// rols: `run` holds the current source line of `;` joined statements, so a `; ` group never holds an earlier line
+	run := empty()
 
 	for stmt, i in stmts {
 		last_index := max(0, i - 1)
 		joined := stmts[last_index].end.line == stmt.pos.line && i != 0 && stmt.pos.line not_in p.disabled_lines
+		// rols: a new line ends the run. The newline before a run of `;` joined statements stays outside its groups, so a fit check of its first `; ` measures the line
+		if !joined {
+			document = cons(document, run)
+			run = empty()
+			next_joined :=
+				i + 1 < len(stmts) &&
+				stmts[i + 1].pos.line == stmt.end.line &&
+				stmts[i + 1].pos.line not_in p.disabled_lines
+			if chain_id == "" && next_joined && stmt.pos.line not_in p.disabled_lines {
+				document = cons(document, move_line(p, stmt_start(stmt)))
+			}
+		}
 		// rols: adjacent backtick tokens with no `;` between them (the ``` raw string quirk) stay glued; inside a broken one-line block each statement gets its own line
 		glued := joined && stmts[last_index].end.offset == stmt.pos.offset && p.src[stmt.pos.offset] == '`'
 		// rols: the last one-line statement of a plain `;` chain sits inside the group of its `; ` break, see below
@@ -2174,11 +2188,11 @@ visit_block_stmts :: proc(p: ^Printer, stmts: []^ast.Stmt, chain_id := "") -> ^D
 			(i == len(stmts) - 1 || stmts[i + 1].pos.line != stmt.end.line)
 		semi_id := ""
 		if joined && !glued && chain_id != "" {
-			document = cons(document, if_break_or(newline(1), text("; "), chain_id))
+			run = cons(run, if_break_or(newline(1), text("; "), chain_id))
 		} else if joined && !glued && last_one_line {
 			semi_id = fmt.aprintf("semi@%d", stmt.pos.offset, allocator = p.allocator)
 		} else if joined && !glued {
-			document = group(cons(document, break_with("; ")))
+			run = group(cons(run, break_with("; ")))
 		}
 
 		stmt_document: ^Document
@@ -2191,18 +2205,35 @@ visit_block_stmts :: proc(p: ^Printer, stmts: []^ast.Stmt, chain_id := "") -> ^D
 			stmt_document = visit_stmt(p, stmt, .Generic, false, true)
 			if semi_id != "" {
 				stmt_document = if_break_or(stmt_document, enforce_fit(stmt_document), semi_id)
-				document = group(cons(document, break_with("; "), stmt_document), Document_Group_Options{id = semi_id})
+				run = group(cons(run, break_with("; "), stmt_document), Document_Group_Options{id = semi_id})
 				continue
 			}
 			stmt_document = chain_id != "" ? if_break_or(stmt_document, enforce_fit(stmt_document), chain_id) : enforce_fit(stmt_document)
+		} else if joined && !glued && chain_id == "" && i + 1 < len(stmts) && stmts[i + 1].pos.line == stmt.end.line {
+			// rols: a middle statement of a `;` chain sits in the rest of the `; ` group before it, which measures it in full
+			stmt_document = group(visit_stmt(p, stmt, .Generic, false, true), Document_Group_Options{rest_flat = true})
 		} else {
 			stmt_document = visit_stmt(p, stmt, .Generic, false, true)
 		}
 
-		document = cons(document, stmt_document)
+		run = cons(run, stmt_document)
 	}
 
-	return document
+	return cons(document, run)
+}
+
+// rols: where a statement's text starts: its first attribute for an attributed declaration
+@(private)
+stmt_start :: proc(stmt: ^ast.Stmt) -> tokenizer.Pos {
+	pos := stmt.pos
+	if decl, ok := stmt.derived.(^ast.Value_Decl); ok {
+		for attribute in decl.attributes {
+			if attribute.pos.offset < pos.offset {
+				pos = attribute.pos
+			}
+		}
+	}
+	return pos
 }
 
 List_Option :: enum u8 {

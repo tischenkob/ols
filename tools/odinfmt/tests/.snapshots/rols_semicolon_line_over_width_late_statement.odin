@@ -11,7 +11,13 @@ f :: proc(r: int) {
 		_, _ = a, b
 	case 1:
 		x := 1
-		a := 1; long_call(aaaaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbb, cccccccccccccccccc, dddddddddddddddddd)
+		a := 1
+		long_call(
+			aaaaaaaaaaaaaaaa,
+			bbbbbbbbbbbbbbbbbb,
+			cccccccccccccccccc,
+			dddddddddddddddddd,
+		)
 		_ = x
 	}
 }

@@ -138,6 +138,7 @@ The fork formatter differs from upstream OLS in these cases. Each has a `tools/o
 
 - `tools/odinfmt/tests/random/.snapshots/demo.odin`: a one-line block followed by a trailing comment (`for !did_acquire(&print_mutex) {thread.yield()} // Allow one thread ...`) loses the tab upstream prints before the comment. The tab came from the Indent comment option leaking from the opening brace to a comment after the closing brace (stage S19). The user approved this snapshot change.
 - A one-line block of `;` joined statements that does not fit opens a normal block (`rols_when_block_semicolon_line`).
+- A `;` joined line after the first line of a block breaks at its `; ` when it does not fit, and a statement between two `; ` counts in full when the line is measured (`rols_semicolon_line_wraps_after_first_line`, `rols_semicolon_line_over_width_late_statement`).
 - A comment on the operator's line in a binary chain stays on that line, and a comment above the first call argument stays above it (`rols_idempotent_binary_trailing_comment`, `rols_idempotent_call_arg_comments`).
 - `odinfmt` prints a trailing line comment with a space before it even when the document queued it without one (`flush_line_suffix` in `src/odin/printer/document.odin`).
 
