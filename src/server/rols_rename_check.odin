@@ -57,6 +57,10 @@ check_rename :: proc(
 	if _, warnings, reasons, on_import_name := rename_import(document, position, new_name); on_import_name {
 		return reasons, warnings
 	}
+	if _, on_clause := package_clause_at(document, position); on_clause {
+		append(&out, "the position is on the package clause: use rename-package to rename the package")
+		return out[:], {}
+	}
 	if reason, is_import := import_at(document, position); is_import {
 		append(&out, reason)
 		return out[:], {}
