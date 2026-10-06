@@ -18,6 +18,25 @@ Package_File :: struct {
 	text:     string,
 }
 
+// The .odin files of dir, an open file with its unsaved text. A file that cannot be read is left out.
+read_package_files :: proc(dir: string) -> (files: []Package_File, ok: bool) {
+	matches, err := filepath.glob(fmt.tprintf("%v/*.odin", dir), context.temp_allocator)
+	if err != nil && err != .Not_Exist do return nil, false
+	list := make([dynamic]Package_File, 0, len(matches), context.temp_allocator)
+	for fullpath in matches {
+		text: string
+		if open := &document_storage.documents[fullpath]; open != nil && open.client_owned {
+			text = string(open.text[:open.used_text])
+		} else {
+			data, read_err := os.read_entire_file(fullpath, context.temp_allocator)
+			if read_err != nil do continue
+			text = string(data)
+		}
+		append(&list, Package_File{fullpath, text})
+	}
+	return list[:], true
+}
+
 @(private = "file")
 Decl_Key :: struct {
 	uri:   string,
@@ -42,23 +61,15 @@ MAX_BYTES :: mem.Megabyte * 3 / 2
 lint_unused_declarations :: proc(document: ^Document, config: ^common.Config) {
 	if !config.enable_diagnostics || !config.enable_lint_unused_declaration do return
 
-	matches, err := filepath.glob(fmt.tprintf("%v/*.odin", document.package_name), context.temp_allocator)
-	if err != nil && err != .Not_Exist do return
+	all_files, read_ok := read_package_files(document.package_name)
+	if !read_ok do return
 
 	files := make([dynamic]Package_File, context.temp_allocator)
 	total := 0
-	for fullpath in matches {
-		if skip_file(filepath.base(fullpath)) do continue
-		text: string
-		if open := &document_storage.documents[fullpath]; open != nil && open.client_owned {
-			text = string(open.text[:open.used_text])
-		} else {
-			data, read_err := os.read_entire_file(fullpath, context.temp_allocator)
-			if read_err != nil do continue
-			text = string(data)
-		}
-		total += len(text)
-		append(&files, Package_File{fullpath, text})
+	for file in all_files {
+		if skip_file(filepath.base(file.fullpath)) do continue
+		total += len(file.text)
+		append(&files, file)
 	}
 
 	if len(files) > MAX_FILES || total > MAX_BYTES {
