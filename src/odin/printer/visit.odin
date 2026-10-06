@@ -1195,9 +1195,9 @@ visit_stmt :: proc(
 				document = cons(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
 			} else {
 				// rols: a one-line `else` chain block breaks with the then-block
-				pair_else_chain(p, paired, v.body, v.else_stmt)
+				saved := pair_else_chain(p, paired, v.body, v.else_stmt)
 				document = cons_with_opl(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
-				p.else_chain = {}
+				p.else_chain = saved
 			}
 
 
@@ -1472,9 +1472,9 @@ visit_stmt :: proc(
 				document = cons(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
 			} else {
 				// rols: a one-line `else` chain block breaks with the then-block
-				pair_else_chain(p, paired, v.body, v.else_stmt)
+				saved := pair_else_chain(p, paired, v.body, v.else_stmt)
 				document = cons_with_nopl(document, cons_with_nopl(text("else"), visit_stmt(p, v.else_stmt)))
-				p.else_chain = {}
+				p.else_chain = saved
 			}
 		}
 
