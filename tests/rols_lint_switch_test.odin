@@ -315,3 +315,38 @@ Kind :: enum {
 
 	test.expect_lint_diagnostics(t, &source, {{7, "redundant-partial"}})
 }
+
+@(test)
+lint_redundant_partial_folds_constant_expressions :: proc(t: ^testing.T) {
+	// ONE folds in its own package, C and D alias B through a shift, a floored modulo and rune literals.
+	source := test.Source {
+		main = `package test
+
+import "core:kinds"
+
+ONE :: 100
+
+f :: proc(k: kinds.Kind) {
+	#partial switch k {
+	case .A:
+	case .B:
+	}
+}
+`,
+		packages = {{pkg = "kinds", source = `package kinds
+
+ONE :: 2 - 1
+
+Kind :: enum {
+	A,
+	B = ONE,
+	C = (ONE << 2) %% 3,
+	D = 'b' - 'a',
+}
+`}},
+		collections = {"core" = "test"},
+		config = {enable_lint_switch = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{7, "redundant-partial"}})
+}

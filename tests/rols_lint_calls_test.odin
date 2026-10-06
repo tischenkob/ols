@@ -383,3 +383,40 @@ main :: proc() {
 
 	expect_lint_cases(t, cases, {enable_lint_call_arity = true})
 }
+
+@(test)
+argument_count_expands_call_of_unnamed_callee :: proc(t: ^testing.T) {
+	// A callee that is not a name, such as a call or an index, still passes every result of the procedure it yields.
+	cases := []Lint_Case {
+		{
+			"a call of a returned procedure",
+			`package test
+
+h :: proc() -> proc() -> (int, int) { return nil }
+two :: proc(a, b: int) {}
+
+main :: proc() {
+	two(h()())
+}
+`,
+			{},
+		},
+		{
+			"a call of an array element and of a parenthesized name",
+			`package test
+
+pair :: proc() -> (int, int) { return 1, 2 }
+two :: proc(a, b: int) {}
+
+main :: proc() {
+	arr: [2]proc() -> (int, int)
+	two(arr[0]())
+	two((pair)())
+}
+`,
+			{},
+		},
+	}
+
+	expect_lint_cases(t, cases, {enable_lint_call_arity = true})
+}
