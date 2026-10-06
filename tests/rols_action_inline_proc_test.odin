@@ -717,8 +717,9 @@ main :: proc() {
 	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
 }
 
+// The caller's file gets the import that the copied text needs.
 @(test)
-action_inline_proc_refused_import_the_caller_lacks :: proc(t: ^testing.T) {
+action_inline_proc_adds_import_the_caller_lacks :: proc(t: ^testing.T) {
 	source := inline_across_files(`package test
 
 import "core:time"
@@ -732,7 +733,16 @@ main :: proc() {
 	wa{*}it(5)
 }
 `)
-	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+import "core:time"
+
+main :: proc() {
+	{
+		d: time.Duration = 5
+		_ = d
+	}
+}
+`)
 }
 
 @(test)
@@ -1111,6 +1121,271 @@ draw :: proc(x: int) {
 main :: proc() {
 	LIMIT := 10
 	dr{*}aw(LIMIT)
+}
+`)
+}
+
+// An aliased import is added under its alias, after the caller's imports of the same collection.
+@(test)
+action_inline_proc_adds_aliased_import :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import tm "core:time"
+
+wait :: proc(d: tm.Duration) {
+	_ = d
+}
+`, `package test
+
+import "core:fmt"
+
+main :: proc() {
+	wa{*}it(5)
+	fmt.println()
+}
+`)
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+
+import "core:fmt"
+import tm "core:time"
+
+main :: proc() {
+	{
+		d: tm.Duration = 5
+		_ = d
+	}
+	fmt.println()
+}
+`)
+}
+
+// A local time at the call would capture the added import's name.
+@(test)
+action_inline_proc_refused_import_name_taken_by_caller_local :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import "core:time"
+
+wait :: proc(d: time.Duration) {
+	_ = d
+}
+`, `package test
+
+main :: proc() {
+	time := 1
+	wa{*}it(5)
+	_ = time
+}
+`)
+	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
+}
+
+// The caller imports the same package under another name.
+@(test)
+action_inline_proc_refused_import_of_same_path_under_other_name :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import "core:time"
+
+wait :: proc(d: time.Duration) {
+	_ = d
+}
+`, `package test
+
+import tm "core:time"
+
+main :: proc() {
+	wa{*}it(5)
+	_ = tm.Duration(1)
+}
+`)
+	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
+}
+
+// The parameter fmt shadows the import of the callee's file, so the copy does not use the import.
+@(test)
+action_inline_proc_parameter_named_like_callee_import :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import "core:fmt"
+
+g :: proc(fmt: int) -> int {
+	return fmt + 1
+}
+`, `package test
+
+main :: proc() {
+	x := {*}g(2)
+	_ = x
+}
+`)
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+
+main :: proc() {
+	x := 2 + 1
+	_ = x
+}
+`)
+}
+
+// The untyped literal is a map, so LIMIT is a key that main's local would capture.
+@(test)
+action_inline_proc_refused_untyped_map_key_shadowed :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+LIMIT :: 3
+
+draw :: proc(x: int) {
+	m: map[int]int = {LIMIT = x}
+	_ = m
+}
+
+main :: proc() {
+	LIMIT := 10
+	dr{*}aw(LIMIT)
+}
+`)
+}
+
+// The untyped literal is a map, so the key k is the parameter.
+@(test)
+action_inline_proc_untyped_map_key_is_parameter :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+keyed :: proc(k: int) -> map[int]int {
+	return {k = 1}
+}
+
+main :: proc() {
+	m: map[int]int = ke{*}yed(5)
+	_ = m
+}
+`, `package test
+
+keyed :: proc(k: int) -> map[int]int {
+	return {k = 1}
+}
+
+main :: proc() {
+	m: map[int]int = map[int]int{5 = 1}
+	_ = m
+}
+`)
+}
+
+// The untyped literal is a struct, so x on the left is a field name and stays. The copy names the
+// result type, since `p := {x = 1}` does not compile.
+@(test)
+action_inline_proc_untyped_struct_field_named_like_parameter :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+Point :: struct {
+	x: int,
+}
+
+make_point :: proc(x: int) -> Point {
+	return {x = x}
+}
+
+main :: proc() {
+	p := make_po{*}int(1)
+	_ = p
+}
+`, `package test
+
+Point :: struct {
+	x: int,
+}
+
+make_point :: proc(x: int) -> Point {
+	return {x = x}
+}
+
+main :: proc() {
+	p := Point{x = 1}
+	_ = p
+}
+`)
+}
+
+// The literal's type does not resolve, so k may be a field or a key.
+@(test)
+action_inline_proc_refused_unresolved_literal_key_named_like_parameter :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+keyed :: proc(k: int) -> Missing {
+	return {k = 1}
+}
+
+main :: proc() {
+	m := ke{*}yed(5)
+	_ = m
+}
+`)
+}
+
+// Corpus: karl2d karl2d.odin:5723:20. An implicit selector argument needs no parentheses.
+@(test)
+action_inline_proc_implicit_selector_argument :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+Button :: enum {
+	Left,
+	Right,
+}
+
+arr: [Button]bool
+
+get :: proc(b: Button) -> bool {
+	return arr[b]
+}
+
+main :: proc() {
+	_ = g{*}et(.Left)
+}
+`, `package test
+
+Button :: enum {
+	Left,
+	Right,
+}
+
+arr: [Button]bool
+
+get :: proc(b: Button) -> bool {
+	return arr[b]
+}
+
+main :: proc() {
+	_ = arr[.Left]
+}
+`)
+}
+
+// The untyped literal is resolved in the callee's file, which the client has not opened.
+@(test)
+action_inline_proc_untyped_struct_literal_from_other_file :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+Point :: struct {
+	x: int,
+}
+
+make_point :: proc(x: int) -> Point {
+	return {x = x}
+}
+`, `package test
+
+main :: proc() {
+	p := make_po{*}int(1)
+	_ = p
+}
+`)
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+
+main :: proc() {
+	p := Point{x = 1}
+	_ = p
 }
 `)
 }

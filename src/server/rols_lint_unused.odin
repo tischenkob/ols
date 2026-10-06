@@ -139,6 +139,14 @@ unused_declarations :: proc(
 		}
 	}
 
+	// The package clause, which may differ from the directory name.
+	pkg_name := filepath.base(pkg)
+	for document in documents {
+		if document.ast.pkg_name != "" {
+			pkg_name = document.ast.pkg_name
+			break
+		}
+	}
 	for key, candidate in candidates {
 		if candidate.used do continue
 		diags := &diagnostics[key.uri]
@@ -159,7 +167,7 @@ unused_declarations :: proc(
 					"%s %s is never used in package %s",
 					kind_name(candidate.symbol),
 					candidate.symbol.name,
-					filepath.base(pkg),
+					pkg_name,
 				),
 				tags = unnecessary_tags,
 			},

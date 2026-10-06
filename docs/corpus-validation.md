@@ -147,7 +147,7 @@ These findings have no passing harness test, and each item names a repro. Most l
 
 ### Edits
 
-- **Cosmetic edit output** (2026-10-05). `reorder-params` joins a multi-line parameter list into one line (tina: `ols query reorder-params src/allocator_io_fd_table.odin:168:1 --order 3,2,1,0`). `move` puts the imports it adds in a new group above the existing imports, with `src:` paths among `core:` ones (ols: `ols query move src/common/uri.odin:35:1 --to src/common/position.odin`). "Inline procedure call" can leave redundant parentheses (karl2d: `karl2d.odin:5723:20` gives `s.mouse_button_went_down[(.Left)]`). The `unused-declaration` message names the directory instead of the package clause (karl2d copied to a directory `lintcopy`: `render_backend_gl.odin:704` says "never used in package lintcopy" for `package karl2d`).
+- **Cosmetic edit output** (2026-10-05). `reorder-params` joins a multi-line parameter list into one line (tina: `ols query reorder-params src/allocator_io_fd_table.odin:168:1 --order 3,2,1,0`). `move` puts the imports it adds in a new group above the existing imports, with `src:` paths among `core:` ones (ols: `ols query move src/common/uri.odin:35:1 --to src/common/position.odin`).
 - **"Invert if" on an `if` without `else` leaves an empty then-branch** (`if !c {} else {…}`). This is upstream OLS's tested behavior (`action_invert_if_simple_edit`), kept for compatibility.
 
 ## Findings in the corpus itself

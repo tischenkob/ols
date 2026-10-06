@@ -776,3 +776,65 @@ main :: proc() -> []int {
 }
 `)
 }
+
+// The callee's file names the boolean type through an import that the caller's file lacks.
+@(test)
+result_if_bool_type_imported_by_callee_file_only :: proc(t: ^testing.T) {
+	files := make([]test.File, 1, context.temp_allocator)
+	files[0] = {"b.odin", `package test
+
+import o "okp"
+
+f :: proc() -> (int, o.My_Ok) { return 1, true }
+`}
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	x := f({*})
+}
+`,
+		files = files,
+		packages = {{pkg = "okp", source = "package okp\n\nMy_Ok :: distinct bool\n"}},
+		config = {enable_code_action_result_handling = true},
+	}
+	test.expect_action_applied(t, &source, HANDLE_IF_ACTION, `package test
+
+main :: proc() {
+	x, ok := f()
+	if !ok {
+		return
+	}
+}
+`)
+}
+
+// The caller's file imports another package as o, whose My_Ok is a boolean. The callee's My_Ok is not.
+@(test)
+result_if_not_bool_through_caller_import_of_same_name :: proc(t: ^testing.T) {
+	files := make([]test.File, 1, context.temp_allocator)
+	files[0] = {"b.odin", `package test
+
+import o "okp"
+
+f :: proc() -> (int, o.My_Ok) { return 1, 1 }
+`}
+	source := test.Source {
+		main = `package test
+
+import o "boolp"
+
+main :: proc() {
+	x := f({*})
+	_ = o.My_Ok(true)
+}
+`,
+		files = files,
+		packages = {
+			{pkg = "okp", source = "package okp\n\nMy_Ok :: distinct int\n"},
+			{pkg = "boolp", source = "package boolp\n\nMy_Ok :: distinct bool\n"},
+		},
+		config = {enable_code_action_result_handling = true},
+	}
+	test.expect_action_missing(t, &source, HANDLE_IF_ACTION)
+}

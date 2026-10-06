@@ -6,6 +6,8 @@ import "core:odin/ast"
 import "core:odin/parser"
 import "core:strings"
 
+import "src:common"
+
 Param :: struct {
 	name:      string,
 	type:      string, // in the callee's source, empty when the parameter is `d := 0`
@@ -109,8 +111,26 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 			if field.default_value != nil do append(&roots, field.default_value)
 		}
 	}
-	if borrows_from_file(ctx, target, lit, call, roots[:]) {
+	// An untyped literal result is copied with the result type in front.
+	result_type: ^ast.Expr
+	if lit.type.results != nil && len(lit.type.results.list) == 1 && len(body.stmts) == 1 {
+		if ret, is_return := body.stmts[0].derived.(^ast.Return_Stmt); is_return && len(ret.results) == 1 {
+			if comp, is_comp := ret.results[0].derived.(^ast.Comp_Lit); is_comp && comp.type == nil {
+				result_type = lit.type.results.list[0].type
+				if result_type == nil {
+					return
+				}
+				append(&roots, result_type)
+			}
+		}
+	}
+	imports, borrows := borrows_from_file(ctx, target, lit, call, roots[:])
+	if borrows {
 		return
+	}
+	import_edits := make([dynamic]TextEdit, context.temp_allocator)
+	for imp in imports {
+		append(&import_edits, import_edit(ctx, strings.trim(imp.fullpath, "\"`"), imp.name.text))
 	}
 
 	params := make([dynamic]Param, context.temp_allocator)
@@ -148,7 +168,7 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 	}
 
 	if stmt, is_stmt := parent.derived.(^ast.Expr_Stmt); is_stmt {
-		inline_statement(ctx, stmt, body, params[:], callee_src)
+		inline_statement(ctx, stmt, body, params[:], target, import_edits[:])
 		return
 	}
 	if len(field_types(callee.return_types)) != 1 || len(body.stmts) != 1 {
@@ -158,20 +178,24 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 	if !is_return || len(ret.results) != 1 {
 		return
 	}
-	inline_expression(ctx, call, parent, ret.results[0], params[:], callee_src)
+	inline_expression(ctx, call, parent, ret.results[0], result_type, params[:], target, import_edits[:])
 }
 
 // Every parameter occurrence becomes its argument. An argument with a call is passed through
-// once or not at all, never duplicated or dropped.
+// once or not at all, never duplicated or dropped. A non-nil result_type goes in front of expr,
+// an untyped compound literal.
 inline_expression :: proc(
 	ctx: ^ActionContext,
 	call: ^ast.Call_Expr,
 	parent: ^ast.Node,
 	expr: ^ast.Expr,
+	result_type: ^ast.Expr,
 	params: []Param,
-	callee_src: string,
+	callee: ^Document,
+	import_edits: []TextEdit,
 ) {
 	src := ctx.document.ast.src
+	callee_src := callee.ast.src
 	counts := make([]int, len(params), context.temp_allocator)
 
 	Replacement :: struct {
@@ -181,7 +205,10 @@ inline_expression :: proc(
 	replacements := make([dynamic]Replacement, context.temp_allocator)
 
 	for use in collect_ident_uses(expr) {
-		i := param_index(params, use)
+		i, known := param_index(params, use, callee)
+		if !known {
+			return
+		}
 		if i < 0 {
 			continue
 		}
@@ -213,6 +240,9 @@ inline_expression :: proc(
 	}
 
 	sb := strings.builder_make(context.temp_allocator)
+	if result_type != nil {
+		strings.write_string(&sb, node_text(callee_src, result_type))
+	}
 	at := expr.pos.offset
 	for r in replacements {
 		strings.write_string(&sb, callee_src[at:r.start])
@@ -225,12 +255,10 @@ inline_expression :: proc(
 	if needs_parens(expr, parent, call) {
 		text = strings.concatenate({"(", text, ")"}, context.temp_allocator)
 	}
-	edits := make([]TextEdit, 1, context.temp_allocator)
-	edits[0] = {
-		range   = range_of(ctx, call.pos.offset, call.end.offset),
-		newText = text,
-	}
-	append(ctx.actions, make_code_action(ctx, "Inline procedure call", "refactor.inline", edits))
+	edits := make([dynamic]TextEdit, context.temp_allocator)
+	append(&edits, ..import_edits)
+	append(&edits, TextEdit{range = range_of(ctx, call.pos.offset, call.end.offset), newText = text})
+	append(ctx.actions, make_code_action(ctx, "Inline procedure call", "refactor.inline", edits[:]))
 }
 
 // The body becomes a bare block, with a typed local per parameter the body reads. Passing a
@@ -240,16 +268,22 @@ inline_statement :: proc(
 	stmt: ^ast.Expr_Stmt,
 	body: ^ast.Block_Stmt,
 	params: []Param,
-	callee_src: string,
+	callee: ^Document,
+	import_edits: []TextEdit,
 ) {
 	if !plain_body(body) {
 		return
 	}
 	src := ctx.document.ast.src
+	callee_src := callee.ast.src
 
 	used := make([]bool, len(params), context.temp_allocator)
 	for use in collect_ident_uses(body) {
-		if i := param_index(params, use); i >= 0 {
+		i, known := param_index(params, use, callee)
+		if !known {
+			return
+		}
+		if i >= 0 {
 			used[i] = true
 		}
 	}
@@ -280,7 +314,7 @@ inline_statement :: proc(
 		}
 		// Locals declared above would capture a later argument that names them.
 		for use in collect_ident_uses(param.arg) {
-			if param_index(params, use) >= 0 {
+			if i, known := param_index(params, use, callee if param.defaulted else ctx.document); !known || i >= 0 {
 				return
 			}
 		}
@@ -302,12 +336,10 @@ inline_statement :: proc(
 	strings.write_string(&sb, ind)
 	strings.write_byte(&sb, '}')
 
-	edits := make([]TextEdit, 1, context.temp_allocator)
-	edits[0] = {
-		range   = range_of(ctx, stmt.pos.offset, stmt.end.offset),
-		newText = strings.to_string(sb),
-	}
-	append(ctx.actions, make_code_action(ctx, "Inline procedure call", "refactor.inline", edits))
+	edits := make([dynamic]TextEdit, context.temp_allocator)
+	append(&edits, ..import_edits)
+	append(&edits, TextEdit{range = range_of(ctx, stmt.pos.offset, stmt.end.offset), newText = strings.to_string(sb)})
+	append(ctx.actions, make_code_action(ctx, "Inline procedure call", "refactor.inline", edits[:]))
 }
 
 // Whether a statement directly in the body declares the name.
@@ -337,49 +369,78 @@ find_proc_lit :: proc(ctx: ^ActionContext, symbol: Symbol) -> (^Document, ^ast.P
 }
 
 // The source of roots is copied from the callee's file into the caller's, so it must mean the same
-// there. From another file it may not name a file-private declaration of the callee's file, or use an
-// import that the caller's file lacks or binds under another name. Shadowing is not tracked, so a
-// local of the same name refuses too. In either file, a name the copy takes from outside lit may not
-// be bound otherwise at the call: by a local there, a file-private declaration of the caller's file
-// or an import of another package.
+// there. A use that a local or parameter of lit binds keeps its meaning. From another file, any other
+// use may not name a file-private declaration of the callee's file. It may name an import of the
+// callee's file that the caller's file lacks only when that name is free in the caller's file, and
+// the import is then returned for the caller to add. In either file, a name the copy takes from
+// outside lit may not be bound otherwise at the call: by a local there, a file-private declaration
+// of the caller's file or an import of another package.
 borrows_from_file :: proc(
 	ctx: ^ActionContext,
 	callee: ^Document,
 	lit: ^ast.Proc_Lit,
 	call: ^ast.Call_Expr,
 	roots: []^ast.Node,
-) -> bool {
+) -> (
+	imports: []^ast.Import_Decl,
+	borrows: bool,
+) {
 	caller := ctx.document
 	same_file := callee == caller
 	private_names := file_private_names(callee)
 	caller_private := file_private_names(caller)
 	caller_locals := locals_at(caller, ctx.position_context^, call.pos.offset)
+	added := make([dynamic]^ast.Import_Decl, context.temp_allocator)
 	for root in roots {
 		for use in collect_ident_uses(root) {
 			name := use.ident.name
-			if !same_file &&
-			   (name in private_names || unmatched_import(callee.ast.imports[:], caller.ast.imports[:], name)) {
-				return true
-			}
-			if is_field_name(use, callee) {
+			kind := use_kind(use, callee)
+			if kind == .Field {
 				continue
 			}
+			private := !same_file && name in private_names
+			missing_import := !same_file && unmatched_import(callee.ast.imports[:], caller.ast.imports[:], name)
 			_, captured := get_local(caller_locals, ast.Ident{name = name, pos = call.pos})
 			if !same_file {
 				captured ||= name in caller_private
 				captured ||= unmatched_import(caller.ast.imports[:], callee.ast.imports[:], name)
 			}
-			if !captured {
+			if !private && !missing_import && !captured {
 				continue
 			}
 			// Only a use that a local of lit binds keeps its meaning in the copy.
 			callee_locals := locals_at(callee, {function = lit}, use.ident.pos.offset)
-			if _, local := get_local(callee_locals, use.ident^); !local {
-				return true
+			if _, local := get_local(callee_locals, use.ident^); local {
+				continue
+			}
+			if private || captured || kind == .Unknown {
+				return nil, true
+			}
+			imp := import_named(callee.ast.imports[:], name)
+			if imp == nil {
+				return nil, true
+			}
+			for other in caller.ast.imports {
+				if other.fullpath == imp.fullpath {
+					return nil, true
+				}
+			}
+			if import_named(added[:], name) == nil {
+				append(&added, imp)
 			}
 		}
 	}
-	return false
+	return added[:], false
+}
+
+// The import that binds name, or nil.
+import_named :: proc(imports: []^ast.Import_Decl, name: string) -> ^ast.Import_Decl {
+	for imp in imports {
+		if pattern_import_name(imp) == name {
+			return imp
+		}
+	}
+	return nil
 }
 
 // Whether from imports a package under name that to does not import from the same path under that name.
@@ -416,47 +477,66 @@ locals_at :: proc(document: ^Document, pc: DocumentPositionContext, offset: int)
 	return ast_context
 }
 
-// Whether the use is a field name, as in `p.x`, `.x` or `{x = 1}` of a struct, rather than a name in
-// scope. A key of a map or array literal is a value; a literal of a named type is resolved in
-// document when given, and counts as a struct otherwise.
-is_field_name :: proc(use: IdentUse, document: ^Document = nil) -> bool {
+Use_Kind :: enum {
+	Name, // a name in scope
+	Field, // a field name
+	Unknown, // a key or a field name of a literal whose type does not resolve
+}
+
+// Whether the use is a field name, as in `p.x`, `.x` or `{x = 1}` of a struct or bit_field, rather
+// than a name in scope. A key of a map or array literal is a name. The type of a literal is resolved
+// in document, which holds the use.
+use_kind :: proc(use: IdentUse, document: ^Document) -> Use_Kind {
 	n := len(use.parents)
 	if n == 0 {
-		return false
+		return .Name
 	}
 	#partial switch p in use.parents[n - 1].derived {
 	case ^ast.Selector_Expr:
-		return p.field == use.ident
+		return p.field == use.ident ? .Field : .Name
 	case ^ast.Implicit_Selector_Expr:
-		return true
+		return .Field
 	case ^ast.Field_Value:
 		if p.field != use.ident {
-			return false
+			return .Name
 		}
 		lit: ^ast.Comp_Lit
 		if n >= 2 {
 			lit = use.parents[n - 2].derived.(^ast.Comp_Lit) or_else nil
 		}
-		if lit == nil || lit.type == nil {
-			return true
+		if lit == nil {
+			return .Unknown
 		}
-		#partial switch _ in lit.type.derived {
-		case ^ast.Map_Type, ^ast.Array_Type, ^ast.Dynamic_Array_Type:
-			return false
-		case ^ast.Ident, ^ast.Selector_Expr:
-			if document == nil {
-				return true
+		symbol: Symbol
+		ok: bool
+		if lit.type == nil {
+			// An untyped literal takes its type from where it stands.
+			ast_context: AstContext
+			position_context: DocumentPositionContext
+			position := common.get_token_range(use.ident^, document.ast.src).start
+			if ast_context_at(document, position, &ast_context, &position_context) {
+				symbol, ok = resolve_comp_literal(&ast_context, &position_context)
 			}
-			if symbol, ok := resolve_type_in_package(document, document.package_name, lit.type); ok {
-				#partial switch _ in symbol.value {
-				case SymbolMapValue, SymbolFixedArrayValue, SymbolSliceValue, SymbolDynamicArrayValue:
-					return false
-				}
+			ok &&= position_context.comp_lit == lit
+		} else {
+			#partial switch _ in lit.type.derived {
+			case ^ast.Map_Type, ^ast.Array_Type, ^ast.Dynamic_Array_Type:
+				return .Name
 			}
+			symbol, ok = resolve_type_in_package(document, document.package_name, lit.type)
 		}
-		return true
+		if !ok {
+			return .Unknown
+		}
+		#partial switch _ in symbol.value {
+		case SymbolMapValue, SymbolFixedArrayValue, SymbolSliceValue, SymbolDynamicArrayValue:
+			return .Name
+		case SymbolStructValue, SymbolBitFieldValue:
+			return .Field
+		}
+		return lit.type == nil ? .Unknown : .Field
 	}
-	return false
+	return .Name
 }
 
 proc_lit_named :: proc(document: ^Document, name: string) -> ^ast.Proc_Lit {
@@ -469,22 +549,38 @@ proc_lit_named :: proc(document: ^Document, name: string) -> ^ast.Proc_Lit {
 	return nil
 }
 
-// Index of the parameter the use reads, or -1 for other names and for field names.
-param_index :: proc(params: []Param, use: IdentUse) -> int {
-	if is_field_name(use) {
-		return -1
-	}
+// Index of the parameter the use reads, or -1 for other names and for field names. Not known when
+// the use is named like a parameter but use_kind cannot tell a field from a key.
+param_index :: proc(params: []Param, use: IdentUse, document: ^Document) -> (index: int, known: bool) {
 	for param, i in params {
-		if param.name == use.ident.name {
-			return i
+		if param.name != use.ident.name {
+			continue
+		}
+		switch use_kind(use, document) {
+		case .Name:
+			return i, true
+		case .Field:
+			return -1, true
+		case .Unknown:
+			return -1, false
 		}
 	}
-	return -1
+	return -1, true
 }
 
+// Whether the argument binds tighter than any operator around the parameter it replaces.
 is_atom :: proc(expr: ^ast.Expr) -> bool {
 	#partial switch _ in expr.derived {
-	case ^ast.Ident, ^ast.Basic_Lit, ^ast.Selector_Expr, ^ast.Call_Expr, ^ast.Paren_Expr, ^ast.Index_Expr:
+	case ^ast.Ident,
+	     ^ast.Basic_Lit,
+	     ^ast.Selector_Expr,
+	     ^ast.Implicit_Selector_Expr,
+	     ^ast.Call_Expr,
+	     ^ast.Paren_Expr,
+	     ^ast.Index_Expr,
+	     ^ast.Slice_Expr,
+	     ^ast.Deref_Expr,
+	     ^ast.Type_Assertion:
 		return true
 	}
 	return false

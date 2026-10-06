@@ -592,8 +592,16 @@ import_alias :: proc(document: ^Document, import_path: string) -> (alias: string
 // The start of the line where `import "<import_path>"` goes, sorted among the top-level imports of
 // the same collection (`core`, `vendor`, or relative paths): before the first one whose path sorts
 // after it, else after the last one. False when the file imports nothing of that collection, or
-// the import that it would follow ends the file without a newline.
-import_group_offset :: proc(document: ^Document, import_path: string) -> (int, bool) {
+// the import that it would follow ends the file without a newline. Imports that start on a
+// 0-based line in skip_lines, such as imports being removed, are ignored.
+import_group_offset :: proc(
+	document: ^Document,
+	import_path: string,
+	skip_lines: map[int]struct{} = nil,
+) -> (
+	int,
+	bool,
+) {
 	collection :: proc(path: string) -> string {
 		colon := strings.index_byte(path, ':')
 		return colon >= 0 ? path[:colon] : ""
@@ -602,7 +610,7 @@ import_group_offset :: proc(document: ^Document, import_path: string) -> (int, b
 	after := -1
 	for decl in document.ast.decls {
 		imp, is_import := decl.derived.(^ast.Import_Decl)
-		if !is_import do continue
+		if !is_import || imp.pos.line - 1 in skip_lines do continue
 		path := strings.trim(imp.fullpath, "\"`")
 		if collection(path) != collection(import_path) do continue
 		if import_path < path {
@@ -619,26 +627,56 @@ import_group_offset :: proc(document: ^Document, import_path: string) -> (int, b
 	return after + newline + 1, true
 }
 
-// Adds `import "<import_path>"` after the last import when enable_add_import_to_bottom is set,
-// else among the imports of its collection, else after the package clause.
-import_edit :: proc(ctx: ^ActionContext, import_path: string) -> TextEdit {
+// Appends to edits an insertion for each package that import_group_offset places among the
+// imports of its collection, ignoring the imports on removed_lines. Each insertion starts a line
+// that stays, so it cannot land inside a removal edit. Returns the packages without a place.
+append_grouped_imports :: proc(
+	edits: ^[dynamic]TextEdit,
+	document: ^Document,
+	packages: []Package,
+	removed_lines: map[int]struct{},
+) -> []Package {
+	sorted := slice.clone(packages, context.temp_allocator)
+	slice.sort_by(sorted, proc(a, b: Package) -> bool {return a.original < b.original})
+	rest := make([dynamic]Package, 0, len(sorted), context.temp_allocator)
+	for pkg in sorted {
+		offset, ok := import_group_offset(document, pkg.original, removed_lines)
+		pos := common.get_relative_token_position(offset, document.text[:document.used_text], 0)
+		if _, is_removed := removed_lines[pos.line]; !ok || is_removed {
+			append(&rest, pkg)
+			continue
+		}
+		append(
+			edits,
+			TextEdit{range = {start = pos, end = pos}, newText = fmt.tprintf("import \"%s\"\n", pkg.original)},
+		)
+	}
+	return rest[:]
+}
+
+// Adds `import "<import_path>"`, or `import <alias> "<import_path>"` with an alias, after the last
+// import when enable_add_import_to_bottom is set, else among the imports of its collection, else
+// after the package clause.
+import_edit :: proc(ctx: ^ActionContext, import_path: string, alias := "") -> TextEdit {
+	decl :=
+		alias == "" ? fmt.tprintf("import \"%s\"", import_path) : fmt.tprintf("import %s \"%s\"", alias, import_path)
 	if ctx.config.enable_add_import_to_bottom {
 		line, is_import := find_most_bottom_line_number(ctx.ast_context)
 		return {
 			range = {start = {line = line, character = 0}, end = {line = line, character = 0}},
-			newText = is_import ? fmt.tprintf("import \"%s\"\n", import_path) : fmt.tprintf("\nimport \"%s\"", import_path),
+			newText = is_import ? fmt.tprintf("%s\n", decl) : fmt.tprintf("\n%s", decl),
 		}
 	}
 
 	if offset, grouped := import_group_offset(ctx.document, import_path); grouped {
-		return {range = range_of(ctx, offset, offset), newText = fmt.tprintf("import \"%s\"\n", import_path)}
+		return {range = range_of(ctx, offset, offset), newText = fmt.tprintf("%s\n", decl)}
 	}
 
 	// pkg_decl lines are 1-based, so this is the 0-based line right after the package clause.
 	line := ctx.ast_context.file.pkg_decl.end.line
 	return {
 		range = {start = {line = line, character = 0}, end = {line = line, character = 0}},
-		newText = fmt.tprintf("import \"%s\"\n", import_path),
+		newText = fmt.tprintf("%s\n", decl),
 	}
 }
 
@@ -1016,12 +1054,22 @@ make_titles_distinct :: proc(document: ^Document, actions: ^[dynamic]CodeAction)
 // indexed as unresolved, so a type declaration is told apart by ruling these out.
 VALUE_SYMBOL_TYPES :: bit_set[SymbolType]{.Function, .Field, .Variable, .Package, .Keyword, .EnumMember, .Constant}
 
-// A builtin type name that the package does not declare as a type visible to other files.
-// A constant such as `string :: "x"` is indexed as unresolved and still counts as declared.
+// A builtin type name that the package does not declare as a type visible to other files. A
+// constant such as `string :: "x"` is indexed as unresolved like a distinct type, so a literal or
+// operator value tells it apart. A constant with a call or a name as value still counts as a type.
 builtin_without_decl :: proc(name, pkg: string) -> bool {
 	if !is_builtin_type_name(name) {
 		return false
 	}
 	symbol, found := memory_index_lookup(&indexer.index, name, pkg)
-	return !found || symbol.type in VALUE_SYMBOL_TYPES || .PrivateFile in symbol.flags
+	if !found || symbol.type in VALUE_SYMBOL_TYPES || .PrivateFile in symbol.flags {
+		return true
+	}
+	if symbol.value_expr != nil {
+		#partial switch _ in symbol.value_expr.derived {
+		case ^ast.Basic_Lit, ^ast.Unary_Expr, ^ast.Binary_Expr, ^ast.Comp_Lit:
+			return true
+		}
+	}
+	return false
 }

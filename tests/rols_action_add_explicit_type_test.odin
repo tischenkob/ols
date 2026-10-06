@@ -750,3 +750,37 @@ main :: proc() {
 }
 `)
 }
+
+// A constant named like a builtin type is no type, so the builtin result stays bare. The `when` keeps
+// the package compiling on this target while the index still holds the constant.
+@(test)
+action_add_explicit_type_builtin_result_beside_builtin_named_constant :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "other"
+
+main :: proc() {
+	x{*} := other.g()
+	_ = x
+}
+`,
+		packages = {
+			{
+				pkg = "other",
+				source = "package other\n\nwhen ODIN_OS == .Windows {\n\tstring :: \"x\"\n}\n\ng :: proc() -> string {\n\treturn \"b\"\n}\n",
+			},
+		},
+		config = {enable_code_action_add_explicit_type = true},
+	}
+
+	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+
+import "other"
+
+main :: proc() {
+	x: string = other.g()
+	_ = x
+}
+`)
+}
