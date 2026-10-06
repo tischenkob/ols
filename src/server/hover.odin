@@ -514,6 +514,8 @@ get_hover_information :: proc(
 		resolved, resolved_ok := resolve_type_identifier(&ast_context, ident)
 		if !resolved_ok && ast_context.call != nil {
 			ast_context.call = nil
+			ast_context.current_package = ast_context.document_package
+			ast_context.use_locals = true
 			resolved, resolved_ok = resolve_type_identifier(&ast_context, ident)
 		}
 		if resolved_ok {
