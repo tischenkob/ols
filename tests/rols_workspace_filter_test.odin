@@ -278,6 +278,104 @@ workspace_filter_append_packages :: proc(t: ^testing.T) {
 	testing.expectf(t, slice.equal(packages, []string{a}), "%v", packages)
 }
 
+// Import completion, auto-import and add-import offer the aliases of a collection; a git-ignored
+// copy of a package inside the workspace must not appear among them.
+@(test)
+workspace_filter_package_aliases :: proc(t: ^testing.T) {
+	if !run_git(".", "--version") {
+		log.info("git is not on PATH, skipping workspace_filter_package_aliases")
+		return
+	}
+
+	root, err := os.make_directory_temp("", "ols-ws-aliases-*", context.temp_allocator)
+	if !testing.expectf(t, err == nil, "failed to create temporary directory: %v", err) {
+		return
+	}
+	defer os.remove_all(root)
+	root, err = os.get_absolute_path(root, context.temp_allocator)
+	if !testing.expectf(t, err == nil, "failed to resolve temporary directory: %v", err) {
+		return
+	}
+	if !testing.expect(t, run_git(root, "init", "-q")) {
+		return
+	}
+
+	join :: proc(elems: ..string) -> string {
+		joined, _ := filepath.join(elems, context.temp_allocator)
+		return joined
+	}
+	dirs := []string {
+		join(root, "api"),
+		join(root, "ex"),
+		join(root, "build"),
+		join(root, "build", "dist"),
+		join(root, "build", "dist", "api"),
+	}
+	for dir in dirs {
+		if !testing.expect(t, os.make_directory(dir) == nil) {
+			return
+		}
+	}
+	files := [][2]string {
+		{join(root, ".gitignore"), "build/\n"},
+		{join(root, "api", "a.odin"), "package api"},
+		{join(root, "ex", "e.odin"), "package ex"},
+		{join(root, "build", "dist", "api", "a.odin"), "package api"},
+	}
+	for file in files {
+		if !testing.expect(t, os.write_entire_file(file[0], file[1]) == nil) {
+			return
+		}
+	}
+
+	aliases_with :: proc(collection: string, workspace: string, cfg: common.Config) -> []string {
+		cfg := cfg
+		cfg.collections = make(map[string]string, context.temp_allocator)
+		cfg.collections["test"] = collection
+		if workspace != "" {
+			cfg.workspace_folders = make([dynamic]common.WorkspaceFolder, context.temp_allocator)
+			uri := common.create_uri(workspace, context.temp_allocator)
+			append(&cfg.workspace_folders, common.WorkspaceFolder{uri = uri.uri})
+		}
+
+		previous_aliases := server.build_cache.pkg_aliases
+		server.build_cache.pkg_aliases = make(map[string][dynamic]string, context.temp_allocator)
+		defer {
+			server.clear_all_package_aliases()
+			delete(server.build_cache.pkg_aliases)
+			server.build_cache.pkg_aliases = previous_aliases
+		}
+
+		server.find_all_package_aliases(&cfg)
+		aliases := slice.clone(server.build_cache.pkg_aliases["test"][:], context.temp_allocator)
+		for &alias in aliases {
+			alias = strings.clone(alias, context.temp_allocator)
+		}
+		slice.sort(aliases)
+		return aliases
+	}
+
+	aliases := aliases_with(root, root, {enable_workspace_gitignore = true})
+	testing.expectf(t, slice.equal(aliases, []string{"api", "ex"}), "%v", aliases)
+
+	aliases = aliases_with(root, root, {enable_workspace_gitignore = true, workspace_exclude = {"ex"}})
+	testing.expectf(t, slice.equal(aliases, []string{"api"}), "%v", aliases)
+
+	aliases = aliases_with(root, root, {enable_workspace_gitignore = true, workspace_include = {"build/dist/**"}})
+	testing.expectf(t, slice.equal(aliases, []string{"api", "build/dist/api", "ex"}), "%v", aliases)
+
+	aliases = aliases_with(root, root, {enable_workspace_gitignore = false})
+	testing.expectf(t, slice.equal(aliases, []string{"api", "build/dist/api", "ex"}), "%v", aliases)
+
+	// A collection below the workspace root uses the workspace filter, with globs relative to the workspace.
+	aliases = aliases_with(join(root, "build"), root, {enable_workspace_gitignore = true})
+	testing.expectf(t, len(aliases) == 0, "%v", aliases)
+
+	// A collection outside every workspace folder is walked unfiltered.
+	aliases = aliases_with(root, "", {enable_workspace_gitignore = true})
+	testing.expectf(t, slice.equal(aliases, []string{"api", "build/dist/api", "ex"}), "%v", aliases)
+}
+
 // A workspace root that its parent repository ignores keeps every path: git lists only `./` for it.
 @(test)
 workspace_filter_ignored_root :: proc(t: ^testing.T) {
