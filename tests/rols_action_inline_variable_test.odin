@@ -993,3 +993,23 @@ f :: proc() {
 }
 `)
 }
+
+// A nested procedure sees the static local of the procedure around it, and bump writes it.
+@(test)
+action_inline_variable_refused_call_after_enclosing_static_local_read :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+outer :: proc() {
+	@(static) n: int
+	bump :: proc() -> int {
+		n += 1
+		return n
+	}
+	inner :: proc() -> int {
+		v{*} := bump()
+		x := n + v
+		return x
+	}
+}
+`)
+}

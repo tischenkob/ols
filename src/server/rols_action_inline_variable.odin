@@ -65,7 +65,14 @@ add_inline_variable_action :: proc(ctx: ^ActionContext) {
 	// Inlining keeps behaviour only when the initializer still runs once, at the same point, or
 	// when it has no side effects and reads nothing the code it moves past can change.
 	typed := resolve_entire_file(ctx.document)
-	stable := stable_locals(ctx, symbols, function.body, all_uses)
+	// A nested procedure sees the static locals of the procedures around it.
+	top: ^ast.Node = function.body
+	for decl in ctx.document.ast.decls {
+		if decl.pos.offset <= function.pos.offset && function.end.offset <= decl.end.offset {
+			top = decl
+		}
+	}
+	stable := stable_locals(ctx, symbols, top, all_uses)
 	if !evaluated_in_place(typed, stable, function.body, decl, uses[:]) &&
 	   reads_state(typed, stable, value, max(int), true) {
 		return
@@ -183,11 +190,11 @@ has_side_effect :: proc(value: ^ast.Expr) -> bool {
 stable_locals :: proc(
 	ctx: ^ActionContext,
 	symbols: SymbolAndNodeMap,
-	body: ^ast.Stmt,
+	scope: ^ast.Node,
 	uses: []IdentUse,
 ) -> map[^ast.Ident]bool {
 	statics := make(map[int]struct{}, context.temp_allocator)
-	for offset in static_local_offsets(body) {
+	for offset in static_local_offsets(scope) {
 		statics[offset] = {}
 	}
 	unstable := make(map[int]struct{}, context.temp_allocator)
@@ -214,8 +221,8 @@ stable_locals :: proc(
 	return stable
 }
 
-// Name offsets of the `@(static)` locals declared in body.
-static_local_offsets :: proc(body: ^ast.Stmt) -> []int {
+// Name offsets of the `@(static)` locals declared in scope, nested procedures included.
+static_local_offsets :: proc(scope: ^ast.Node) -> []int {
 	offsets := make([dynamic]int, context.temp_allocator)
 	visitor := ast.Visitor {
 		data = &offsets,
@@ -233,7 +240,7 @@ static_local_offsets :: proc(body: ^ast.Stmt) -> []int {
 			return visitor
 		},
 	}
-	ast.walk(&visitor, body)
+	ast.walk(&visitor, scope)
 	return offsets[:]
 }
 

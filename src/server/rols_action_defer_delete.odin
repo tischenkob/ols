@@ -353,13 +353,10 @@ returns_only_scalars :: proc(document: ^Document, call: ^ast.Call_Expr) -> bool 
 
 // A solved polymorphic procedure loses `generic`, but its orig_ fields keep the written `$` names and types.
 is_polymorphic :: proc(callee: SymbolProcedureValue) -> bool {
-	if callee.generic {
+	if callee.generic || proc_has_type_poly_arg(callee) {
 		return true
 	}
 	for field in callee.orig_arg_types {
-		if expr_contains_poly(field.type) {
-			return true
-		}
 		for name in field.names {
 			if _, is_poly := name.derived.(^ast.Poly_Type); is_poly {
 				return true
