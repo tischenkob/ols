@@ -130,15 +130,37 @@ expanded_arg_count :: proc(ctx: ^LintContext, args: []^ast.Expr) -> (count: int,
 arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: bool) {
 	call, is_call := arg.derived.(^ast.Call_Expr)
 	if !is_call do return 1, true
-	// The resolve map holds named callees only. Any other callee counts as one value: right for a
-	// conversion such as `(^int)(p)`, a guess for `(f)()`, `f()()` or `arr[i]()`.
-	#partial switch _ in call.expr.derived {
+	callee := ast.unparen_expr(call.expr)
+	#partial switch _ in callee.derived {
 	case ^ast.Ident, ^ast.Selector_Expr:
-	case:
+	case ^ast.Pointer_Type,
+	     ^ast.Multi_Pointer_Type,
+	     ^ast.Array_Type,
+	     ^ast.Dynamic_Array_Type,
+	     ^ast.Map_Type,
+	     ^ast.Matrix_Type,
+	     ^ast.Bit_Set_Type,
+	     ^ast.Proc_Type,
+	     ^ast.Typeid_Type,
+	     ^ast.Distinct_Type,
+	     ^ast.Struct_Type,
+	     ^ast.Union_Type,
+	     ^ast.Enum_Type,
+	     ^ast.Bit_Field_Type,
+	     ^ast.Helper_Type:
+		// A conversion such as `(^int)(p)`.
 		return 1, true
+	case:
+		// The resolve map holds named callees only, so `f()()` or `arr[i]()` resolves here. A call
+		// resolves to the procedure it calls, which for `f()()` is the procedure that f returns.
+		symbol, ok := resolve_callee(ctx, call)
+		if !ok do return 1, false
+		value, is_proc := symbol.value.(SymbolProcedureValue)
+		if !is_proc do return 1, false
+		return proc_results(value), true
 	}
-	resolved, ok := lint_symbols(ctx)[uintptr(call.expr)]
-	if !ok || resolved.is_unresolved || resolved.symbol == nil do return group_results(ctx, call.expr)
+	resolved, ok := lint_symbols(ctx)[uintptr(callee)]
+	if !ok || resolved.is_unresolved || resolved.symbol == nil do return group_results(ctx, callee)
 
 	#partial switch v in resolved.symbol.value {
 	case SymbolProcedureValue:
@@ -147,7 +169,7 @@ arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: 
 		// The whole-file resolve keeps every group member that fits the arguments.
 		return members_results(v.symbols)
 	case SymbolProcedureGroupValue:
-		return group_results(ctx, call.expr)
+		return group_results(ctx, callee)
 	}
 	return 1, true
 }
@@ -157,11 +179,23 @@ arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: 
 @(private = "file")
 group_results :: proc(ctx: ^LintContext, callee: ^ast.Expr) -> (int, bool) {
 	// Without a call, the resolve returns every member of a group.
-	symbol, ok := resolve_type_in_package(ctx.document, ctx.document.package_name, callee)
+	symbol, ok := resolve_callee(ctx, callee)
 	if !ok do return 1, false
 	group, is_group := symbol.value.(SymbolAggregateValue)
 	if !is_group do return 1, false
 	return members_results(group.symbols)
+}
+
+// expr resolved with the locals visible at it, or with the package globals when that fails.
+@(private = "file")
+resolve_callee :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (Symbol, bool) {
+	ast_context: AstContext
+	position_context: DocumentPositionContext
+	position := common.get_token_range(expr, ctx.src).start
+	if ast_context_at(ctx.document, position, &ast_context, &position_context) {
+		if symbol, ok := resolve_type_expression(&ast_context, expr); ok do return symbol, true
+	}
+	return resolve_type_in_package(ctx.document, ctx.document.package_name, expr)
 }
 
 @(private = "file")
@@ -362,7 +396,7 @@ parse_format :: proc(f: string) -> (format: Format) {
 			}
 			if i >= len(f) || f[i] != '}' do continue
 			i += 1
-			consume_verb(&format, arg, verb)
+			consume_verb(&format, arg, verb, true)
 			continue
 		}
 
@@ -384,7 +418,7 @@ parse_format :: proc(f: string) -> (format: Format) {
 		}
 		verb, w := utf8.decode_rune_in_string(f[i:])
 		i += w
-		consume_verb(&format, explicit, verb)
+		consume_verb(&format, explicit, verb, verb != ' ')
 	}
 	return
 }
@@ -453,10 +487,13 @@ lowest_unused :: proc(format: Format) -> int {
 	return arg
 }
 
+// core:fmt reads the argument of an unknown verb too, and prints it as %!k(…). consumes is false where
+// it reads none, as for the space after `%5`.
 @(private = "file")
-consume_verb :: proc(format: ^Format, explicit: int, verb: rune) {
+consume_verb :: proc(format: ^Format, explicit: int, verb: rune, consumes: bool) {
 	if !strings.contains_rune(VERBS, verb) {
 		append(&format.unknown, verb)
+		if consumes do consume(format, explicit)
 		return
 	}
 	append(&format.uses, Format_Use{consume(format, explicit), verb})

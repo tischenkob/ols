@@ -1065,7 +1065,7 @@ globals_context :: proc(document: ^Document) -> AstContext {
 }
 
 // The resolution environment at position in document, with the globals and the locals visible there.
-@(private = "file")
+@(private = "package")
 ast_context_at :: proc(
 	document: ^Document,
 	position: common.Position,

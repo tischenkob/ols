@@ -40,7 +40,8 @@ main :: proc() {
 		config = {enable_lint_printf = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{7, "printf-verb"}, {8, "printf-verb"}})
+	// `%k` reads an argument the call does not pass, which core:fmt prints as %!(MISSING ARGUMENT).
+	test.expect_lint_diagnostics(t, &source, {{7, "printf-verb"}, {7, "printf-arity"}, {8, "printf-verb"}})
 }
 
 @(test)
@@ -442,4 +443,80 @@ f :: proc() {
 	}
 
 	test.expect_lint_diagnostics(t, &source, {{13, "printf-arity"}})
+}
+
+@(test)
+printf_unknown_verb_reads_its_argument :: proc(t: ^testing.T) {
+	// core:fmt prints the argument of an unknown verb as %!k(…), but `%5 ` has no verb and reads nothing.
+	source := test.Source {
+		main = `package test
+
+import "fmt"
+
+main :: proc() {
+	x: int
+	fmt.printf("%k", x)
+	fmt.printf("{:k}", x)
+	fmt.printf("%5 d", x)
+}
+`,
+		packages = packages,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{6, "printf-verb"}, {7, "printf-verb"}, {8, "printf-verb"}, {8, "printf-arity"}},
+	)
+}
+
+@(test)
+printf_counts_results_of_unnamed_callee :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "fmt"
+
+h :: proc() -> proc() -> (int, int) { return nil }
+
+main :: proc() {
+	arr: [2]proc() -> (int, int)
+	fmt.printf("%d %d", h()())
+	fmt.printf("%d %d", arr[0]())
+}
+`,
+		packages = packages,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
+
+@(test)
+printf_counts_results_of_local_group :: proc(t: ^testing.T) {
+	// The local group g shadows the global one, whose members return two values. An argument that does not
+	// resolve leaves the call unresolved in the whole-file resolve.
+	source := test.Source {
+		main = `package test
+
+import "fmt"
+
+a2 :: proc(x: int) -> (int, int) { return x, x }
+b2 :: proc(x: f32) -> (int, int) { return 1, 1 }
+g :: proc { a2, b2 }
+
+f :: proc(v: $T) {
+	a1 :: proc(x: int) -> int { return x }
+	b1 :: proc(x: f32) -> int { return 1 }
+	g :: proc { a1, b1 }
+	fmt.printf("%d", g(v))
+	fmt.printf("%d", g(missing))
+}
+`,
+		packages = packages,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
 }
