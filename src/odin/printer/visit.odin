@@ -636,10 +636,14 @@ visit_enum_exprs :: proc(p: ^Printer, enum_type: ast.Enum_Type, options := List_
 		alignment = get_possible_enum_alignment(enum_type.fields)
 	}
 
+	// rols: the width of the block comments that lead the current item, which its alignment takes away
+	leading_width := 0
+
 	for expr, i in enum_type.fields {
 		if i == 0 && .Enforce_Newline in options {
 			// rols: a block comment before the first item on its line leads the item
-			comment, leading, _ := visit_comments_split(p, enum_type.fields[i].pos)
+			comment, leading: ^Document
+			comment, leading, leading_width = visit_comments_split(p, enum_type.fields[i].pos)
 			if _, is_nil := comment.(Document_Nil); !is_nil {
 				comment = cons(comment, newline(1))
 			}
@@ -655,7 +659,8 @@ visit_enum_exprs :: proc(p: ^Printer, enum_type: ast.Enum_Type, options := List_
 						visit_expr(p, value.field),
 						cons_with_nopl(
 							cons(
-								repeat_space(alignment - get_node_length(value.field)),
+								// rols: a leading block comment counts toward the name's width
+								repeat_space(alignment - get_node_length(value.field) - leading_width),
 								text_position(p, "=", value.sep),
 							),
 							visit_expr(p, value.value),
@@ -675,7 +680,8 @@ visit_enum_exprs :: proc(p: ^Printer, enum_type: ast.Enum_Type, options := List_
 
 		if (i != len(enum_type.fields) - 1 && .Enforce_Newline in options) {
 			// rols: a block comment before the next item on its line leads that item
-			comment, leading, _ := visit_comments_split(p, enum_type.fields[i + 1].pos)
+			comment, leading: ^Document
+			comment, leading, leading_width = visit_comments_split(p, enum_type.fields[i + 1].pos)
 			document = cons(document, comment, newline(1), leading)
 		} else if .Enforce_Newline in options {
 			comment, _ := visit_comments(p, enum_type.end)
@@ -700,10 +706,14 @@ visit_bit_field_fields :: proc(
 
 	name_alignment, type_alignment := get_possible_bit_field_alignment(bit_field_type.fields)
 
+	// rols: the width of the block comments that lead the current item, which its alignment takes away
+	leading_width := 0
+
 	for field, i in bit_field_type.fields {
 		if i == 0 && .Enforce_Newline in options {
 			// rols: a block comment before the first item on its line leads the item
-			comment, leading, _ := visit_comments_split(p, bit_field_type.fields[i].pos)
+			comment, leading: ^Document
+			comment, leading, leading_width = visit_comments_split(p, bit_field_type.fields[i].pos)
 			if _, is_nil := comment.(Document_Nil); !is_nil {
 				comment = cons(comment, newline(1))
 			}
@@ -716,7 +726,11 @@ visit_bit_field_fields :: proc(
 				cons_with_nopl(
 					cons(visit_expr(p, field.name), text_position(p, ":", field.name.end)),
 					cons_with_nopl(
-						cons(repeat_space(name_alignment - get_node_length(field.name)), visit_expr(p, field.type)),
+						// rols: a leading block comment counts toward the name's width
+						cons(
+							repeat_space(name_alignment - get_node_length(field.name) - leading_width),
+							visit_expr(p, field.type),
+						),
 						cons_with_nopl(
 							cons(
 								repeat_space(type_alignment - get_node_length(field.type)),
@@ -754,7 +768,8 @@ visit_bit_field_fields :: proc(
 
 		if (i != len(bit_field_type.fields) - 1 && .Enforce_Newline in options) {
 			// rols: a block comment before the next item on its line leads that item
-			comment, leading, _ := visit_comments_split(p, bit_field_type.fields[i + 1].pos)
+			comment, leading: ^Document
+			comment, leading, leading_width = visit_comments_split(p, bit_field_type.fields[i + 1].pos)
 			document = cons(document, comment, newline(1), leading)
 		} else if .Enforce_Newline in options {
 			comment, _ := visit_comments(p, bit_field_type.end)
@@ -779,10 +794,14 @@ visit_union_exprs :: proc(p: ^Printer, union_type: ast.Union_Type, options := Li
 		alignment = get_possible_enum_alignment(union_type.variants)
 	}
 
+	// rols: the width of the block comments that lead the current item, which its alignment takes away
+	leading_width := 0
+
 	for expr, i in union_type.variants {
 		if i == 0 && .Enforce_Newline in options {
 			// rols: a block comment before the first item on its line leads the item
-			comment, leading, _ := visit_comments_split(p, union_type.variants[i].pos)
+			comment, leading: ^Document
+			comment, leading, leading_width = visit_comments_split(p, union_type.variants[i].pos)
 			if _, is_nil := comment.(Document_Nil); !is_nil {
 				comment = cons(comment, newline(1))
 			}
@@ -798,7 +817,8 @@ visit_union_exprs :: proc(p: ^Printer, union_type: ast.Union_Type, options := Li
 						visit_expr(p, value.field),
 						cons_with_nopl(
 							cons(
-								repeat_space(alignment - get_node_length(value.field)),
+								// rols: a leading block comment counts toward the name's width
+								repeat_space(alignment - get_node_length(value.field) - leading_width),
 								text_position(p, "=", value.sep),
 							),
 							visit_expr(p, value.value),
@@ -818,7 +838,8 @@ visit_union_exprs :: proc(p: ^Printer, union_type: ast.Union_Type, options := Li
 
 		if (i != len(union_type.variants) - 1 && .Enforce_Newline in options) {
 			// rols: a block comment before the next item on its line leads that item
-			comment, leading, _ := visit_comments_split(p, union_type.variants[i + 1].pos)
+			comment, leading: ^Document
+			comment, leading, leading_width = visit_comments_split(p, union_type.variants[i + 1].pos)
 			document = cons(document, comment, newline(1), leading)
 		} else if .Enforce_Newline in options {
 			comment, _ := visit_comments(p, union_type.end)
@@ -830,7 +851,13 @@ visit_union_exprs :: proc(p: ^Printer, union_type: ast.Union_Type, options := Li
 }
 
 @(private)
-visit_comp_lit_exprs :: proc(p: ^Printer, comp_lit: ast.Comp_Lit, options := List_Options{}) -> ^Document {
+// rols: first_leading_width is the width of the block comments that lead the first element, which the caller visited
+visit_comp_lit_exprs :: proc(
+	p: ^Printer,
+	comp_lit: ast.Comp_Lit,
+	options := List_Options{},
+	first_leading_width := 0,
+) -> ^Document {
 	if len(comp_lit.elems) == 0 {
 		return empty()
 	}
@@ -845,14 +872,16 @@ visit_comp_lit_exprs :: proc(p: ^Printer, comp_lit: ast.Comp_Lit, options := Lis
 		align_values = alignment > 0 && should_align_comp_lit(p, comp_lit) && p.config.align_struct_values
 	}
 
+	// rols: the width of the block comments that lead the current element, which its alignment takes away
+	leading_width := first_leading_width
+
 	for expr, i in comp_lit.elems {
 		if i == 0 && .Enforce_Newline in options {
-			// rols: a block comment before the first item on its line leads the item
-			comment, leading, _ := visit_comments_split(p, comp_lit.elems[i].pos)
+			comment, _ := visit_comments(p, comp_lit.elems[i].pos)
 			if _, is_nil := comment.(Document_Nil); !is_nil {
 				comment = cons(comment, newline(1))
 			}
-			document = cons(comment, document, leading)
+			document = cons(comment, document)
 		}
 
 		if (.Enforce_Newline in options) {
@@ -861,7 +890,8 @@ visit_comp_lit_exprs :: proc(p: ^Printer, comp_lit: ast.Comp_Lit, options := Lis
 				align := empty()
 				// rols: the flag was computed once before the loop
 				if align_values {
-					align = repeat_space(alignment - get_node_length(value.field))
+					// rols: a leading block comment counts toward the name's width
+					align = repeat_space(alignment - get_node_length(value.field) - leading_width)
 				}
 				document = cons(
 					document,
@@ -883,7 +913,8 @@ visit_comp_lit_exprs :: proc(p: ^Printer, comp_lit: ast.Comp_Lit, options := Lis
 
 		if (i != len(comp_lit.elems) - 1 && .Enforce_Newline in options) {
 			// rols: a block comment before the next item on its line leads that item
-			comment, leading, _ := visit_comments_split(p, comp_lit.elems[i + 1].pos)
+			comment, leading: ^Document
+			comment, leading, leading_width = visit_comments_split(p, comp_lit.elems[i + 1].pos)
 			document = cons(document, comment, newline(1), leading)
 		} else if .Enforce_Newline in options {
 			comment, _ := visit_comments(p, comp_lit.end)
@@ -1998,12 +2029,12 @@ visit_expr :: proc(
 			inner_document := empty()
 			if len(v.elems) > 0 {
 				// rols: a block comment before the first element on its line leads it
-				above, leading, _ := visit_comments_split(p, v.elems[0].pos)
+				above, leading, width := visit_comments_split(p, v.elems[0].pos)
 				inner_document = cons(
 					above,
 					newline(1),
 					leading,
-					visit_comp_lit_exprs(p, v^, {.Add_Comma, .Trailing, .Enforce_Newline}),
+					visit_comp_lit_exprs(p, v^, {.Add_Comma, .Trailing, .Enforce_Newline}, width),
 				)
 			} else {
 				inner_document, _ = visit_comments(p, v.end)
@@ -2196,14 +2227,11 @@ visit_block_stmts :: proc(p: ^Printer, stmts: []^ast.Stmt, chain_id := "") -> ^D
 		last_index := max(0, i - 1)
 		joined := stmts[last_index].end.line == stmt.pos.line && i != 0 && stmt.pos.line not_in p.disabled_lines
 		// rols: a new line ends the run. The newline before a run of `;` joined statements stays outside its groups, so a fit check of its first `; ` measures the line
+		next_on_line := i + 1 < len(stmts) && stmts[i + 1].pos.line == stmt.end.line
 		if !joined {
 			document = cons(document, run)
 			run = empty()
-			next_joined :=
-				i + 1 < len(stmts) &&
-				stmts[i + 1].pos.line == stmt.end.line &&
-				stmts[i + 1].pos.line not_in p.disabled_lines
-			if chain_id == "" && next_joined && stmt.pos.line not_in p.disabled_lines {
+			if chain_id == "" && next_on_line && stmt.pos.line not_in p.disabled_lines {
 				document = cons(document, move_line(p, stmt_start(stmt)))
 			}
 		}
@@ -2211,11 +2239,7 @@ visit_block_stmts :: proc(p: ^Printer, stmts: []^ast.Stmt, chain_id := "") -> ^D
 		glued := joined && stmts[last_index].end.offset == stmt.pos.offset && p.src[stmt.pos.offset] == '`'
 		// rols: the last one-line statement of a plain `;` chain sits inside the group of its `; ` break, see below
 		fit_stmt := p.force_statement_fit && !contains_comments_in_range(p, stmt.pos, stmt.end)
-		last_one_line :=
-			!fit_stmt &&
-			joined &&
-			stmt.pos.line == stmt.end.line &&
-			(i == len(stmts) - 1 || stmts[i + 1].pos.line != stmt.end.line)
+		last_one_line := !fit_stmt && joined && stmt.pos.line == stmt.end.line && !next_on_line
 		semi_id := ""
 		if joined && !glued && chain_id != "" {
 			run = cons(run, if_break_or(newline(1), text("; "), chain_id))
@@ -2239,7 +2263,7 @@ visit_block_stmts :: proc(p: ^Printer, stmts: []^ast.Stmt, chain_id := "") -> ^D
 				continue
 			}
 			stmt_document = chain_id != "" ? if_break_or(stmt_document, enforce_fit(stmt_document), chain_id) : enforce_fit(stmt_document)
-		} else if joined && !glued && chain_id == "" && i + 1 < len(stmts) && stmts[i + 1].pos.line == stmt.end.line {
+		} else if joined && !glued && chain_id == "" && next_on_line {
 			// rols: a middle statement of a `;` chain sits in the rest of the `; ` group before it, which measures it in full
 			stmt_document = group(visit_stmt(p, stmt, .Generic, false, true), Document_Group_Options{rest_flat = true})
 		} else {
@@ -2250,20 +2274,6 @@ visit_block_stmts :: proc(p: ^Printer, stmts: []^ast.Stmt, chain_id := "") -> ^D
 	}
 
 	return cons(document, run)
-}
-
-// rols: where a statement's text starts: its first attribute for an attributed declaration
-@(private)
-stmt_start :: proc(stmt: ^ast.Stmt) -> tokenizer.Pos {
-	pos := stmt.pos
-	if decl, ok := stmt.derived.(^ast.Value_Decl); ok {
-		for attribute in decl.attributes {
-			if attribute.pos.offset < pos.offset {
-				pos = attribute.pos
-			}
-		}
-	}
-	return pos
 }
 
 List_Option :: enum u8 {
@@ -2690,7 +2700,7 @@ visit_signature_list :: proc(
 			for comment_before_position(p, field.pos) {
 				for comment in p.comments[p.latest_comment_index].list {
 					// only a block comment can sit before the field on its line
-					above := !is_leading_comment(p, comment, field.pos)
+					above := comment.pos.line < field.pos.line
 					document = cons(document, text(comment.text), above ? newline(1) : text(" "))
 					p.source_position = comment.pos
 					p.source_position.line += strings.count(comment.text, "\n")
