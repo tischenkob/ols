@@ -36,13 +36,13 @@ rename_package_clause :: proc(
 	context.allocator = context.temp_allocator
 	_ = package_clause_at(document, position) or_return
 	if !config.client_rename_file_support {
-		out := make([]string, 1, context.temp_allocator)
+		out := make([]string, 1)
 		out[0] = "the client cannot rename directories, so it cannot rename a package: run `ols query rename-package DIR NEW` instead"
 		return {}, out, true
 	}
 	if len(files) == 0 && len(config.workspace_folders) == 0 {
 		// The walk for importers covers the workspace folders only, so it would find none.
-		out := make([]string, 1, context.temp_allocator)
+		out := make([]string, 1)
 		out[0] = "the client sent no workspace folders, so the rename cannot find the importers of the package"
 		return {}, out, true
 	}
