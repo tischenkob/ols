@@ -4,7 +4,6 @@ import "core:fmt"
 import "core:mem"
 import "core:odin/ast"
 import "core:odin/parser"
-import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
@@ -745,6 +744,10 @@ is_signature_fixed_by_use :: proc(ctx: ^LintContext, decl: ^ast.Value_Decl) -> b
 // The other files of the package, and the names that the ones parsed so far use as values.
 Sibling_Values :: struct {
 	files:  []Package_File,
+	// For each identifier word, the indices into files of the files whose text holds it, ascending. Built after
+	// WORD_SCANS names (see `used_as_value_elsewhere`).
+	words:  Maybe(map[string][dynamic]int),
+	scans:  int, // names looked up by scanning the text
 	parsed: []bool,
 	names:  map[string]struct{},
 	bytes:  int, // parsed so far
@@ -753,6 +756,11 @@ Sibling_Values :: struct {
 // Parsing the other files of the package stops at this many bytes. Their text is read whatever its size.
 @(private = "file")
 MAX_SIBLING_PARSE_BYTES :: mem.Megabyte * 3 / 2
+
+// Names looked up by scanning the text of the other files before their words are indexed. On src/server (2 MB) one
+// scan takes about 2 ms and building the index about 10 ms, and most files look up at most two names.
+@(private = "file")
+WORD_SCANS :: 3
 
 // Whether another file of the package uses name as a value. Only a file whose text holds the name as a word is
 // parsed, each at most once per lint run. A mention counts by name: a local of that name in another file counts too.
@@ -772,22 +780,68 @@ used_as_value_elsewhere :: proc(ctx: ^LintContext, name: string) -> bool {
 	}
 	siblings := ctx.siblings
 	if name in siblings.names do return true
-	for file, i in siblings.files {
-		if siblings.parsed[i] || !contains_word(file.text, name) do continue
-		if siblings.bytes + len(file.text) > MAX_SIBLING_PARSE_BYTES do return true
-		siblings.bytes += len(file.text)
-		siblings.parsed[i] = true
-		context.allocator = context.temp_allocator
-		parsed, ok := parse_syntax(file.fullpath, file.text)
-		if !ok do return true
-		for stmt in parsed.decls {
-			for use in collect_ident_uses(stmt) {
-				if is_value_use(use) do siblings.names[use.ident.name] = {}
-			}
+	if siblings.scans < WORD_SCANS {
+		siblings.scans += 1
+		for file, i in siblings.files {
+			if contains_word(file.text, name) && parse_sibling(siblings, i, name) do return true
 		}
-		if name in siblings.names do return true
+		return false
+	}
+	words, indexed := siblings.words.?
+	if !indexed {
+		words = word_files(siblings.files)
+		siblings.words = words
+	}
+	// A copy: ranging over the map element dereferences it, and a missing key has none.
+	holders := words[name]
+	for i in holders {
+		if parse_sibling(siblings, i, name) do return true
 	}
 	return false
+}
+
+// Parses file i of siblings, unless it is parsed already, and reports whether name is a value use found so far.
+// A file that does not parse, or that the parse limit leaves out, counts as a use.
+@(private = "file")
+parse_sibling :: proc(siblings: ^Sibling_Values, i: int, name: string) -> bool {
+	if siblings.parsed[i] do return false
+	file := siblings.files[i]
+	if siblings.bytes + len(file.text) > MAX_SIBLING_PARSE_BYTES do return true
+	siblings.bytes += len(file.text)
+	siblings.parsed[i] = true
+	context.allocator = context.temp_allocator
+	parsed, ok := parse_syntax(file.fullpath, file.text)
+	if !ok do return true
+	for stmt in parsed.decls {
+		for use in collect_ident_uses(stmt) {
+			if is_value_use(use) do siblings.names[use.ident.name] = {}
+		}
+	}
+	return name in siblings.names
+}
+
+// For each identifier word in the text of files, the indices of the files that hold it, in one scan of each file.
+// A word is a maximal run of identifier characters, so it matches what `contains_word` finds. A byte stands for
+// its rune: every byte of a multi-byte rune is at least 0x80, which `is_ident_rune` accepts.
+@(private = "file")
+word_files :: proc(files: []Package_File) -> map[string][dynamic]int {
+	context.allocator = context.temp_allocator
+	words := make(map[string][dynamic]int)
+	for file, i in files {
+		text := file.text
+		for start := 0; start < len(text); {
+			if !is_ident_rune(rune(text[start])) {
+				start += 1
+				continue
+			}
+			end := start + 1
+			for end < len(text) && is_ident_rune(rune(text[end])) do end += 1
+			_, list, _, _ := map_entry(&words, text[start:end])
+			if len(list) == 0 || list[len(list) - 1] != i do append(list, i)
+			start = end
+		}
+	}
+	return words
 }
 
 // The other .odin files in the directory of document, an open file with its unsaved text. files, when given,
@@ -797,26 +851,13 @@ package_siblings :: proc(document: ^Document, files: []Package_File) -> []Packag
 	siblings := make([dynamic]Package_File, context.temp_allocator)
 	dir := filepath.dir(document.fullpath)
 	base := filepath.base(document.fullpath)
-	if len(files) > 0 {
-		for file in files {
-			if filepath.base(file.fullpath) == base || filepath.dir(file.fullpath) != dir do continue
-			append(&siblings, file)
-		}
-		return siblings[:]
+	package_files := files
+	if len(package_files) == 0 {
+		package_files, _ = read_package_files(dir)
 	}
-	matches, err := filepath.glob(fmt.tprintf("%v/*.odin", dir), context.temp_allocator)
-	if err != nil do return nil
-	for fullpath in matches {
-		if filepath.base(fullpath) == base do continue
-		text: string
-		if open := &document_storage.documents[fullpath]; open != nil && open.client_owned {
-			text = string(open.text[:open.used_text])
-		} else {
-			data, read_err := os.read_entire_file(fullpath, context.temp_allocator)
-			if read_err != nil do continue
-			text = string(data)
-		}
-		append(&siblings, Package_File{fullpath, text})
+	for file in package_files {
+		if filepath.base(file.fullpath) == base || filepath.dir(file.fullpath) != dir do continue
+		append(&siblings, file)
 	}
 	return siblings[:]
 }

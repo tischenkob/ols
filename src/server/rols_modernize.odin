@@ -210,13 +210,13 @@ Param_Key :: struct {
 
 // The fixes of every selected rule, overlapping ones included. A provider runs only while its
 // lint is enabled in the config, as in the editor. files, when given, replaces the workspace walk.
-// verdicts, when given, caches the reference search of the unused-parameter fix.
+// verdicts caches the reference search of the unused-parameter fix.
 modernize_fixes :: proc(
 	document: ^Document,
 	selected: map[string]struct{},
 	config: ^common.Config,
 	files: []Package_File = {},
-	verdicts: ^Param_Verdicts = nil,
+	verdicts: ^Param_Verdicts,
 ) -> []Modernize_Fix {
 	out := make([dynamic]Modernize_Fix, context.temp_allocator)
 
@@ -295,7 +295,7 @@ modernize_fixes :: proc(
 	return out[:kept]
 }
 
-// param_named_elsewhere through verdicts, when given.
+// param_named_elsewhere through verdicts.
 @(private = "file")
 judge_param :: proc(
 	document: ^Document,
@@ -305,8 +305,8 @@ judge_param :: proc(
 	verdicts: ^Param_Verdicts,
 ) -> bool {
 	decl, is_top := proc_decl_of(document, lit)
-	// A procedure that is not top level is visible to its file only, and the search returns at once.
-	if verdicts == nil || !is_top do return param_named_elsewhere(document, lit, name, files)
+	// A procedure that is not top level is visible to its file only.
+	if !is_top do return false
 	key := Param_Key{final_name(decl.names[0]), name}
 	if verdict, found := verdicts.verdicts[key]; found do return verdict
 	if !verdicts.fresh do return true

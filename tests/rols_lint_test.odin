@@ -901,3 +901,44 @@ init :: proc() {
 
 	test.expect_lint_diagnostics(t, &source, {{7, "unused-parameter"}})
 }
+
+// After the first few names, the other files are looked up through an index of their words.
+@(test)
+lint_unused_parameter_value_use_in_another_file_indexed :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+a :: proc(x: int) { _ = 1 }
+b :: proc(x: int) { _ = 1 }
+c :: proc(x: int) { _ = 1 }
+d :: proc(x: int) { _ = 1 }
+e :: proc(x: int) { _ = 1 }
+f :: proc(x: int) { _ = 1 }
+g :: proc(x: int) { _ = 1 }
+`,
+		files = {{"b.odin", `package test
+
+register :: proc(cb: proc(x: int)) {}
+
+init :: proc() {
+	register(e)
+	d(1)
+	// f
+}
+`}},
+		config = {enable_lint_unused_parameter = true},
+	}
+
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{
+			{2, "unused-parameter"},
+			{3, "unused-parameter"},
+			{4, "unused-parameter"},
+			{5, "unused-parameter"},
+			{7, "unused-parameter"},
+			{8, "unused-parameter"},
+		},
+	)
+}
