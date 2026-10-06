@@ -171,7 +171,6 @@ callee_deferred :: proc(document: ^Document, resolved_map: SymbolAndNodeMap, cal
 	// A group call whose overload does not resolve: without a call, the resolve returns every member.
 	symbol, found := resolve_type_in_package(document, document.package_name, callee)
 	if !found do return true
-	if _, is_group := symbol.value.(SymbolProcedureGroupValue); is_group do return true
 	return symbol_deferred(symbol)
 }
 

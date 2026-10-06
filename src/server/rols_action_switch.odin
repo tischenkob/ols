@@ -110,7 +110,7 @@ add_if_to_switch_action :: proc(ctx: ^ActionContext) {
 // Whether body holds an unlabeled `break` or `or_break` aimed past body, which a case body would retarget at the switch.
 // Breaks inside a nested loop or switch belong to it. Nested proc literals keep their own control flow.
 // An `or_break` in a nested header targets the outer loop, except in a `for` init or condition (checked with
-// `odin run` on 2026-10-06; the `for` post statement targets the outer loop too).
+// `odin run` on 2026-10-06; the `for` post statement and a range loop's init target the outer loop too).
 breaks_enclosing :: proc(body: ^ast.Block_Stmt) -> bool {
 	found := false
 	visitor := ast.Visitor {
@@ -127,6 +127,7 @@ breaks_enclosing :: proc(body: ^ast.Block_Stmt) -> bool {
 				ast.walk(visitor, n.post)
 				return nil
 			case ^ast.Range_Stmt:
+				ast.walk(visitor, n.init)
 				ast.walk(visitor, n.expr)
 				return nil
 			case ^ast.Unroll_Range_Stmt:

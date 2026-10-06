@@ -2455,6 +2455,18 @@ ends :: proc(a: bool) {
 	}
 	g(3)
 }
+
+// The unwrapped y would shadow the outer y for the g(y) after the if.
+shadows :: proc(a: bool) {
+	y := 1
+	if a {
+		return
+	} else {
+		y := 2
+		g(y)
+	}
+	g(y)
+}
 `,
 		config = {enable_lint_simplify = true},
 	}
@@ -3397,6 +3409,12 @@ open :: proc {
 	open_int,
 	open_text,
 }
+plain_int :: proc(n: int) -> bool { return n > 0 }
+plain_text :: proc(s: string) -> bool { return s != "" }
+plain_group :: proc {
+	plain_int,
+	plain_text,
+}
 Box :: struct {
 	ready: proc(n: int) -> bool,
 }
@@ -3428,6 +3446,10 @@ f :: proc(done: bool, cb: proc() -> bool, box: Box) {
 	}
 	if done {
 		if open(missing) {
+		}
+	}
+	if done {
+		if plain_group(missing) {
 		}
 	}
 	if done {
@@ -3490,7 +3512,7 @@ lint_simplify_nested_if_refuses_deferred_calls :: proc(t: ^testing.T) {
 	test.expect_lint_diagnostics(
 		t,
 		&source,
-		{{56, "nested-if"}, {60, "nested-if"}, {68, "nested-if"}, {72, "nested-if"}},
+		{{62, "nested-if"}, {66, "nested-if"}, {70, "nested-if"}, {78, "nested-if"}, {82, "nested-if"}},
 	)
 }
 
@@ -3533,7 +3555,7 @@ modernize_nested_if_refuses_deferred_calls :: proc(t: ^testing.T) {
 		1,
 		context.temp_allocator,
 	)
-	for cond in ([]string{"cb()", "box.ready(1)", "len(\"ab\") > int(1)"}) {
+	for cond in ([]string{"plain_group(missing)", "cb()", "box.ready(1)", "len(\"ab\") > int(1)"}) {
 		merged, _ = strings.replace(
 			merged,
 			strings.concatenate({"if done {\n\t\tif ", cond, " {\n\t\t}\n\t}"}, context.temp_allocator),
