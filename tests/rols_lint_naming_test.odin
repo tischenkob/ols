@@ -477,17 +477,19 @@ f :: proc() {
 
 @(test)
 naming_skips_c_parameters :: proc(t: ^testing.T) {
-	// A C callback's parameter names come from the C declaration.
+	// A C callback's parameter names come from the C declaration. Odin and contextless procedures stay checked.
 	source := test.Source {
 		main = `package test
 
 foo: proc "c" (someArg: i32)
 bar: proc(someArg: i32)
+baz: proc "contextless" (someArg: i32)
+qux: proc "odin" (someArg: i32)
 `,
 		config = {enable_lint_naming = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{3, "naming"}})
+	test.expect_lint_diagnostics(t, &source, {{3, "naming"}, {4, "naming"}, {5, "naming"}})
 }
 
 @(test)

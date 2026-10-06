@@ -152,9 +152,8 @@ is_named_result :: proc(lit: ^ast.Proc_Lit, name: string) -> bool {
 
 // A `defer` registered before the store runs at a later exit and can read it. One written after
 // the store is not pending when the store runs, and neither is one in a block that closed before
-// it. A defer whose name an open declaration between it and the store shadows reads another
-// variable. An unknown procedure counts as read. The whole-file resolve gives a local no
-// declaration range, so the scopes are compared on the syntax tree.
+// it; a `when` body is no block. A defer whose name a declaration between it and the store shadows
+// reads another variable. An unknown procedure counts as read.
 @(private = "file")
 deferred_mention :: proc(lit: ^ast.Proc_Lit, name: ^ast.Ident) -> bool {
 	if lit == nil || lit.body == nil do return true
@@ -175,68 +174,22 @@ deferred_mention :: proc(lit: ^ast.Proc_Lit, name: ^ast.Ident) -> bool {
 			#partial switch n in node.derived {
 			case ^ast.Proc_Lit:
 				return nil
-			case ^ast.Block_Stmt, ^ast.Case_Clause:
-				// A defer in a block that ended before the store already ran.
-				if node.end.offset <= data.name.pos.offset do return nil
+			case ^ast.When_Stmt:
+				walk_when_body(visitor, n)
+				return nil
 			case ^ast.Defer_Stmt:
-				data.found =
-					mentions(n.stmt, data.name.name) && !declared_in_open_scope(data.body, data.name, n.end.offset)
+				if !mentions(n.stmt, data.name.name) do return nil
+				// The store names a declaration made after the defer, so the defer reads another variable.
+				visible := visible_declaration(data.body, data.name.name, data.name.pos.offset)
+				data.found = visible.ident == nil || visible.ident.pos.offset < n.pos.offset
 				return nil
 			}
+			// A defer in a block that ended before the store already ran.
+			if !scope_open(node, data.name.pos.offset) do return nil
 			return visitor
 		},
 	}
 	ast.walk(&visitor, lit.body)
-	return data.found
-}
-
-// A declaration of the name after offset `from` and up to the name itself, in a scope that is still
-// open at the name: the name then refers to that declaration, not to one visible at `from`.
-@(private = "file")
-declared_in_open_scope :: proc(body: ^ast.Node, name: ^ast.Ident, from: int) -> bool {
-	Data :: struct {
-		name:  ^ast.Ident,
-		from:  int,
-		found: bool,
-	}
-	data := Data {
-		name = name,
-		from = from,
-	}
-	visitor := ast.Visitor {
-		data = &data,
-		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
-			data := (^Data)(visitor.data)
-			if node == nil || data.found || node.pos.offset > data.name.pos.offset do return nil
-			declares :: proc(data: ^Data, names: []^ast.Expr) {
-				for expr in names {
-					ident := expr.derived.(^ast.Ident) or_continue
-					offset := ident.pos.offset
-					if ident.name == data.name.name && offset > data.from && offset <= data.name.pos.offset {
-						data.found = true
-					}
-				}
-			}
-			#partial switch n in node.derived {
-			case ^ast.Proc_Lit:
-				return nil
-			case ^ast.Value_Decl:
-				declares(data, n.names)
-				return nil
-			case ^ast.Block_Stmt, ^ast.Case_Clause, ^ast.If_Stmt, ^ast.For_Stmt, ^ast.Switch_Stmt:
-				// A scope that closed before the name declares nothing it can see.
-				if node.end.offset <= data.name.pos.offset do return nil
-			case ^ast.Range_Stmt:
-				if node.end.offset <= data.name.pos.offset do return nil
-				declares(data, n.vals)
-			case ^ast.Type_Switch_Stmt:
-				if node.end.offset <= data.name.pos.offset do return nil
-				if tag, ok := n.tag.derived.(^ast.Assign_Stmt); ok do declares(data, tag.lhs)
-			}
-			return visitor
-		},
-	}
-	ast.walk(&visitor, body)
 	return data.found
 }
 

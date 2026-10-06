@@ -391,7 +391,8 @@ f :: proc(text: string) {
 @(test)
 range_off_by_one_guard_operator_and_scope :: proc(t: ^testing.T) {
 	// A guard needs the operator that excludes len for the branch the index sits in. An if init runs before the
-	// condition, and a length local that is reassigned or shadowed is no guard.
+	// condition, and a length local that is reassigned or shadowed is no guard. Neither is one whose collection
+	// changes after it. Equivalent spellings of `b < len(text)` still guard.
 	source := test.Source {
 		main = `package test
 
@@ -459,6 +460,94 @@ guarded :: proc(text: string, c: bool) {
 		}
 	}
 }
+stale :: proc(t: string, c: bool) {
+	s := t
+	n := len(s)
+	s = s[1:]
+	for b in 0 ..= len(s) {
+		if b < n {
+			_ = s[b]
+		}
+	}
+	for b in 0 ..= len(s) {
+		if b < len(s) {
+		} else if c {
+			_ = s[b]
+		}
+	}
+}
+
+equivalent :: proc(text: string, c: bool) {
+	for b in 0 ..= len(text) {
+		if b <= len(text) - 1 {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if b + 1 <= len(text) {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if !(b >= len(text)) {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if len(text) - 1 >= b {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if len(text) >= b + 1 {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if !(len(text) <= b) {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if b > len(text) - 1 {
+		} else {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if !(b < len(text)) {
+		} else {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if b + 1 > len(text) {
+		} else {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if len(text) <= b {
+		} else {
+			_ = text[b]
+		}
+	}
+	for b in 0 ..= len(text) {
+		if b >= len(text) {
+		} else if c {
+			_ = text[b]
+		}
+	}
+	when true {
+		w := len(text)
+	}
+	for b in 0 ..= len(text) {
+		if b < w {
+			_ = text[b]
+		}
+	}
+}
+
 `,
 		config = {enable_lint_loops = true},
 	}
@@ -472,6 +561,8 @@ guarded :: proc(text: string, c: bool) {
 			{12, "range-off-by-one"},
 			{19, "range-off-by-one"},
 			{27, "range-off-by-one"},
+			{70, "range-off-by-one"},
+			{75, "range-off-by-one"},
 		},
 	)
 }
