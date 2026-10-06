@@ -164,10 +164,13 @@ mentions_proc_group_accepts_group_literals :: proc(t: ^testing.T) {
 	testing.expect(t, server.mentions_proc_group("g :: proc // c\n{a, b}", "b"))
 	testing.expect(t, server.mentions_proc_group("g :: proc{pkg.a, b}", "a"))
 	testing.expect(t, server.mentions_proc_group("g :: proc{b}\nh :: proc{c, a}", "a"))
+	testing.expect(t, server.mentions_proc_group("g :: proc{\n\tb, // old {x}\n\ta,\n}", "a"))
+	testing.expect(t, server.mentions_proc_group("g :: proc{b /* } */, a}", "a"))
 	testing.expect(t, !server.mentions_proc_group("f :: proc(x: int) {}\nh :: proc \"c\" () {}", "x"))
 	testing.expect(t, !server.mentions_proc_group("no procedures here", "a"))
 	// A group that lists other procedures, or a name that only starts or ends like one of them, does not count.
 	testing.expect(t, !server.mentions_proc_group("g :: proc{b, c}\na()", "a"))
 	testing.expect(t, !server.mentions_proc_group("g :: proc{ab, ba, a_b}", "a"))
 	testing.expect(t, !server.mentions_proc_group("g :: proc{b}\nf :: proc() { a() }", "a"))
+	testing.expect(t, !server.mentions_proc_group("g :: proc{b, // a\n}", "a"))
 }

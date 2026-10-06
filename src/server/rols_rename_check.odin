@@ -455,7 +455,7 @@ Embed_Scan :: struct {
 	texts:    []Package_File, // every workspace file with its text, read once for the whole scan
 	types:    [dynamic]Symbol, // the owner type and every type that embeds it, directly or not
 	decls:    [dynamic]Symbol, // the declarations searched so far: those types and the aliases of them
-	sites:    [dynamic]^Document, // the documents that name one of them and contain `using` anywhere
+	sites:    [dynamic]^Document, // the documents searched for `using` statements
 	resolved: map[^Document]SymbolAndNodeMap, // the new name resolved in each site
 }
 
@@ -633,36 +633,21 @@ check_embedders :: proc(scan: ^Embed_Scan, target: ^Rename_Target, document: ^Do
 }
 
 // Whether a line of text has `::`, then optional `distinct`, `^` and package qualifier, then the word name:
-// a declaration such as `Alias :: Foo` or `P :: ^pkg.Foo`. A comment or string can match too.
+// a declaration such as `Alias :: Foo` or `P :: ^pkg.Foo`. A comment or string can match too. A declaration split
+// after `::` (`Alias ::` with `Foo` on the next line) is missed; odinfmt joins it.
 @(private = "file")
 declares_alias_of :: proc(text, name: string) -> bool {
-	is_word :: proc(c: u8) -> bool {
-		return c == '_' || c >= 0x80 || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
-	}
-	from := 0
-	for {
-		at := strings.index(text[from:], name)
-		if at < 0 do return false
-		start := from + at
-		from = start + len(name)
-		if from < len(text) && is_word(text[from]) {
-			continue
-		}
-		before := text[strings.last_index_byte(text[:start], '\n') + 1:start]
+	for at := index_word(text, name, 0); at >= 0; at = index_word(text, name, at + 1) {
+		before := text[strings.last_index_byte(text[:at], '\n') + 1:at]
 		if strings.has_suffix(before, ".") {
-			before = before[:len(before) - 1]
-			for len(before) > 0 && is_word(before[len(before) - 1]) do before = before[:len(before) - 1]
-		} else if len(before) > 0 && is_word(before[len(before) - 1]) {
-			continue
+			before = strings.trim_right_proc(before[:len(before) - 1], is_ident_rune)
 		}
-		before = strings.trim_right(before, "^ \t")
-		if strings.has_suffix(before, "distinct") {
-			before = strings.trim_right_space(before[:len(before) - len("distinct")])
-		}
-		if strings.has_suffix(before, "::") {
+		before = strings.trim_suffix(strings.trim_right(before, "^ \t"), "distinct")
+		if strings.has_suffix(strings.trim_right_space(before), "::") {
 			return true
 		}
 	}
+	return false
 }
 
 // Appends a cause for each `using` statement, in the documents of scan, of a value whose type carries the
