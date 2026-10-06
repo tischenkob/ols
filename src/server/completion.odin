@@ -1760,9 +1760,14 @@ get_implicit_completion :: proc(
 			ast_context.resolve_specific_overload = true
 			old_call := ast_context.call
 			ast_context.call = call
+			// rols: a group picks its member by the parameter at the cursor, and yields every tied member on a tie
+			old_arg_call, old_arg_index := ast_context.overload_arg_call, ast_context.overload_arg_index
+			ast_context.overload_arg_call, ast_context.overload_arg_index = call, parameter_index
 			defer {
 				ast_context.resolve_specific_overload = old
 				ast_context.call = old_call
+				// rols: restore the call and argument index set above
+				ast_context.overload_arg_call, ast_context.overload_arg_index = old_arg_call, old_arg_index
 			}
 			if symbol, ok := resolve_type_expression(ast_context, call.expr); ok && parameter_ok {
 				set_ast_package_set_scoped(ast_context, symbol.pkg)
@@ -1814,6 +1819,16 @@ get_implicit_completion :: proc(
 					}
 				case SymbolEnumValue:
 					append_enum_completion_items(v, ast_context, position_context, results)
+					return is_incomplete
+				// rols: the members of a tied group call, which take different types at the argument
+				case SymbolAggregateValue:
+					append_tied_member_arg_completions(
+						ast_context,
+						position_context,
+						v.symbols,
+						parameter_index,
+						results,
+					)
 					return is_incomplete
 				case SymbolStructValue:
 					if type, ok := get_field_list_type_at_index(v.poly.list, parameter_index); ok {

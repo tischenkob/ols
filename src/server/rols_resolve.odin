@@ -85,6 +85,20 @@ top_candidates_agree :: proc(ast_context: ^AstContext, candidates: []Candidate) 
 	return true
 }
 
+// Whether `expand_call_args` knows how many values each argument passes. A bad or missing expression and `x->f()`,
+// which counts as one value whatever `f` returns, leave the count unknown.
+call_arg_counts_known :: proc(call_args: []CallArg) -> bool {
+	for arg in call_args {
+		if arg.bad_expr || arg.value_expr == nil {
+			return false
+		}
+		if _, is_selector_call := arg.value_expr.derived.(^ast.Selector_Call_Expr); is_selector_call {
+			return false
+		}
+	}
+	return true
+}
+
 // How `resolve_function_overload` picks among the members of a group, recorded with each cached result.
 OverloadMode :: enum u8 {
 	// The in-progress marker of a call, which hits in every mode and so guards against recursion.
@@ -93,36 +107,119 @@ OverloadMode :: enum u8 {
 	Specific,
 	// Every candidate, as an aggregate when several fit.
 	All,
-	// One member, for its parameters (`resolve_specific_overload`). A tie picks the first.
+	// One member, for its parameter at `overload_arg_index`. A tie between members whose parameters differ there
+	// yields every tied member as an aggregate, which only completion accepts.
 	Member,
 }
 
+// `resolve_specific_overload` asks for one member. The call that `overload_arg_call` names wants it for a
+// parameter, any other call, such as `f()` in `f()()` or a call in an argument, for its result.
 overload_mode :: proc(ast_context: ^AstContext, call_expr: ^ast.Call_Expr) -> OverloadMode {
 	if should_resolve_all_proc_overload_possibilities(ast_context, call_expr) {
 		return .All
 	}
-	return ast_context.resolve_specific_overload ? .Member : .Specific
+	if !ast_context.resolve_specific_overload {
+		return .Specific
+	}
+	return call_expr != nil && call_expr == ast_context.overload_arg_call ? .Member : .Specific
+}
+
+// The members of the candidates that share the top score, and whether they take the same type at the argument
+// at index of call. Each parameter type resolves in the package of its member. A parameter type that contains a
+// poly parameter counts as equal, as in `top_candidates_agree`.
+tied_candidates_at_arg :: proc(
+	ast_context: ^AstContext,
+	candidates: []Candidate,
+	call: ast.Call_Expr,
+	index: int,
+) -> (
+	tied: []Symbol,
+	agree: bool,
+) {
+	top, has_top := get_top_candiate(candidates)
+	if !has_top {
+		return nil, true
+	}
+	param_type :: proc(member: Symbol, call: ast.Call_Expr, index: int) -> ^ast.Expr {
+		value, is_proc := member.value.(SymbolProcedureValue)
+		if !is_proc {
+			return nil
+		}
+		field, has_field := get_call_arg_field(value, call, index)
+		if !has_field {
+			return nil
+		}
+		return field.type != nil ? field.type : field.default_value
+	}
+	resolve_param :: proc(ast_context: ^AstContext, member: Symbol, expr: ^ast.Expr) -> (Symbol, bool) {
+		set_ast_package_from_symbol_scoped(ast_context, member)
+		return resolve_type_expression(ast_context, expr)
+	}
+	members := make([dynamic]Symbol, context.temp_allocator)
+	agree = true
+	at := param_type(top.symbol, call, index)
+	for candidate in candidates {
+		if candidate.score != top.score do continue
+		append(&members, candidate.symbol)
+		bt := param_type(candidate.symbol, call, index)
+		if !agree || at == bt {
+			continue
+		}
+		if at == nil || bt == nil {
+			agree = false
+			continue
+		}
+		if expr_contains_poly(at) || expr_contains_poly(bt) {
+			continue
+		}
+		as, aok := resolve_param(ast_context, top.symbol, at)
+		bs, bok := resolve_param(ast_context, candidate.symbol, bt)
+		agree = aok && bok && is_symbol_same_typed(ast_context, as, bs)
+	}
+	return members[:], agree
 }
 
 // Whether ident lies in the top-level declaration of the file that holds local. Locals come from the procedure
 // or enum at the cursor, so a name in another top-level declaration, such as the initializer of a global that
 // the procedure uses, never names one. Calls inside such an initializer turn `use_locals` back on, so
 // `resolve_global_identifier` alone does not keep them out. A name from another file, or a synthesized one,
-// is not checked.
+// is not checked. A declaration inside a top-level `when` counts as top-level.
 in_local_top_level_decl :: proc(file: ast.File, local: DocumentLocal, ident: ast.Ident) -> bool {
 	if ident.pos.file == "" || ident.pos.file != file.fullpath {
 		return true
 	}
-	return top_level_decl_index(file, ident.pos.offset) == top_level_decl_index(file, local.lhs.pos.offset)
+	return top_level_decl_at(file.decls[:], ident.pos.offset) == top_level_decl_at(file.decls[:], local.lhs.pos.offset)
 }
 
-// The index of the last top-level declaration that starts at or before offset, or -1 before the first one.
-// End offsets are not used: a declaration that is still being typed can end before its body does.
+// The last statement of stmts that starts at or before offset, or nil before the first one. When that statement
+// is a `when` and offset lies in one of its branch bodies, the statement comes from that body instead.
+// End offsets decide only the branch: a declaration that is still being typed can end before its body does.
 @(private = "file")
-top_level_decl_index :: proc(file: ast.File, offset: int) -> int {
-	starts_at_or_before :: proc(decl: ^ast.Stmt, offset: int) -> slice.Ordering {
-		return decl.pos.offset <= offset ? .Less : .Greater
+top_level_decl_at :: proc(stmts: []^ast.Stmt, offset: int) -> ^ast.Stmt {
+	starts_at_or_before :: proc(stmt: ^ast.Stmt, offset: int) -> slice.Ordering {
+		return stmt.pos.offset <= offset ? .Less : .Greater
 	}
-	after, _ := slice.binary_search_by(file.decls[:], offset, starts_at_or_before)
-	return after - 1
+	after, _ := slice.binary_search_by(stmts, offset, starts_at_or_before)
+	if after == 0 {
+		return nil
+	}
+	stmt := stmts[after - 1]
+	for when_stmt, is_when := stmt.derived.(^ast.When_Stmt); is_when; {
+		branch: ^ast.Stmt = when_stmt.body
+		if when_stmt.else_stmt != nil && offset >= when_stmt.else_stmt.pos.offset {
+			branch = when_stmt.else_stmt
+		}
+		#partial switch b in branch.derived {
+		case ^ast.When_Stmt:
+			when_stmt = b
+			continue
+		case ^ast.Block_Stmt:
+			if offset < b.pos.offset || offset >= b.end.offset {
+				return stmt
+			}
+			return top_level_decl_at(b.stmts, offset)
+		}
+		break
+	}
+	return stmt
 }
