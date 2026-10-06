@@ -110,18 +110,7 @@ visible_declaration :: proc(ctx: ^LintContext, root: ^ast.Node, name: string, of
 // get_locals_using reads it.
 @(private = "package")
 using_member_names_of :: proc(document: ^Document, expr: ^ast.Expr) -> []string {
-	expr := expr
-	for expr != nil {
-		#partial switch e in expr.derived {
-		case ^ast.Paren_Expr:
-			expr = e.expr
-			continue
-		case ^ast.Pointer_Type:
-			expr = e.elem
-			continue
-		}
-		break
-	}
+	expr := strip_parens_and_pointers(expr)
 	if expr == nil do return {}
 	ast_context: AstContext
 	position_context: DocumentPositionContext

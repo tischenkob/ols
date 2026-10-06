@@ -341,7 +341,7 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 					continue
 				}
 				via := field.names[0].derived.(^ast.Ident) or_continue
-				if slice.contains(using_member_names(site.document, field.type), new_name) {
+				if slice.contains(using_member_names_of(site.document, field.type), new_name) {
 					append(
 						out,
 						fmt.tprintf(
@@ -372,10 +372,10 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 				}
 			}
 			check_embedders(&scan, target, decl_document, type_name)
-			// A `using` statement of a value whose type the file never names, such as a call result. Odin
-			// accepts a `using` statement only in a file with `#+feature using-stmt`.
+			// A `using` of a value whose type the file never names, such as a call result. Odin accepts a `using`
+			// statement only in a file with `#+feature using-stmt`, and a `using v := value` declaration anywhere.
 			for file in scan.texts {
-				if !strings.contains(file.text, "using-stmt") {
+				if !strings.contains(file.text, "using-stmt") && !declares_using_value(file.text) {
 					continue
 				}
 				uri := common.create_uri(file.fullpath, context.temp_allocator)
@@ -519,7 +519,7 @@ Embed_Scan :: struct {
 	texts:    []Package_File, // every workspace file with its text, read once for the whole scan
 	types:    [dynamic]Symbol, // the owner type and every type that embeds it, directly or not
 	decls:    [dynamic]Symbol, // the declarations searched so far: those types and the aliases of them
-	sites:    [dynamic]^Document, // the documents searched for `using` statements
+	sites:    [dynamic]^Document, // the documents searched for `using` statements and declarations
 	resolved: map[^Document]SymbolAndNodeMap, // the new name resolved in each site
 }
 
@@ -631,7 +631,7 @@ check_embedders :: proc(scan: ^Embed_Scan, target: ^Rename_Target, document: ^Do
 					}
 					if other != field && .Using in other.flags && len(other.names) > 0 {
 						other_via := other.names[0].derived.(^ast.Ident) or_continue
-						if slice.contains(using_member_names(site, other.type), new_name) {
+						if slice.contains(using_member_names_of(site, other.type), new_name) {
 							append(&clashes, other_via)
 						}
 					}
@@ -714,8 +714,29 @@ declares_alias_of :: proc(text, name: string) -> bool {
 	return false
 }
 
-// Appends a cause for each `using` statement, in the documents of scan, of a value whose type carries the
-// renamed field, where new_name is declared in the statement's scope or used there for something else.
+// Whether text has `using`, a name, then `:` and `=` with optional spaces: a declaration such as
+// `using v := make_foo()`, whose type the text need not name. A comment or string can match too.
+@(private = "file")
+declares_using_value :: proc(text: string) -> bool {
+	for at := index_word(text, "using", 0); at >= 0; at = index_word(text, "using", at + 1) {
+		rest := strings.trim_left(text[at + len("using"):], " \t")
+		name := strings.trim_left_proc(rest, is_ident_rune)
+		if len(name) == len(rest) {
+			continue
+		}
+		rest = strings.trim_left(name, " \t")
+		if !strings.has_prefix(rest, ":") {
+			continue
+		}
+		if strings.has_prefix(strings.trim_left(rest[1:], " \t"), "=") {
+			return true
+		}
+	}
+	return false
+}
+
+// Appends a cause for each `using` statement or `using` declaration, in the documents of scan, of a value whose
+// type carries the renamed field, where new_name is declared in its scope or used there for something else.
 @(private = "file")
 check_using_statements :: proc(scan: ^Embed_Scan) {
 	for site in scan.sites {
@@ -740,37 +761,64 @@ check_using_statements :: proc(scan: ^Embed_Scan) {
 	}
 }
 
-// The `using` statements among stmts, the statements of a block that spans the offsets of block.
+// The `using` statements and `using` declarations among stmts, the statements of a block that spans the
+// offsets of block.
 @(private = "file")
 check_using_in_block :: proc(scan: ^Embed_Scan, stmts: []^ast.Stmt, block: [2]int) {
 	for stmt, i in stmts {
 		if stmt == nil do continue
-		using_stmt := stmt.derived.(^ast.Using_Stmt) or_continue
-		for expr in using_stmt.list {
-			if !carries_field(scan, expr) {
-				continue
+		#partial switch s in stmt.derived {
+		case ^ast.Using_Stmt:
+			for expr in s.list {
+				via, _ := expr.derived.(^ast.Ident)
+				text := scan.site.ast.src[expr.pos.offset:expr.end.offset]
+				check_using_value(scan, stmts, i, expr, text, via, {s.end.offset, block[1]}, block)
 			}
-			via := scan.site.ast.src[expr.pos.offset:expr.end.offset]
-			// The names of the block, and those of the blocks after the statement.
-			names := make([dynamic]Scope_Name, context.temp_allocator)
-			collect_stmts(&names, stmts[:i])
-			append(&names, ..nested_declarations(stmts[i + 1:]))
-			for declared in names {
-				if declared.name == scan.new_name {
-					append(
-						scan.out,
-						fmt.tprintf(
-							"`%s` is already declared in the scope of `using %s` at %s",
-							scan.new_name,
-							via,
-							ident_text(scan.site, declared.ident),
-						),
-					)
-				}
-			}
-			field_captures(scan, scan.site, via, {using_stmt.end.offset, block[1]}, block, block[0])
+		case ^ast.Value_Decl:
+			// `using v: T` brings in the fields of T, and `using v := value` those of the value's type.
+			if !s.is_using || len(s.names) == 0 do continue
+			via := s.names[0].derived.(^ast.Ident) or_continue
+			expr := strip_parens_and_pointers(s.type) if s.type != nil else (s.values[0] if len(s.values) > 0 else nil)
+			check_using_value(scan, stmts, i, expr, via.name, via, {s.end.offset, block[1]}, block)
 		}
 	}
+}
+
+// Appends the causes for stmts[i], a `using` of expr, spelled text, in a block that spans the offsets of block,
+// when the type of expr carries the renamed field. via is the name that the `using` declares or names, or nil.
+// The field would come into scope from offset uses[0].
+@(private = "file")
+check_using_value :: proc(
+	scan: ^Embed_Scan,
+	stmts: []^ast.Stmt,
+	i: int,
+	expr: ^ast.Expr,
+	text: string,
+	via: ^ast.Ident,
+	uses, block: [2]int,
+) {
+	if expr == nil || !carries_field(scan, expr) {
+		return
+	}
+	// The names of the block, and those of the blocks after the statement.
+	names := make([dynamic]Scope_Name, context.temp_allocator)
+	collect_stmts(&names, scan.site, stmts[:i + 1])
+	append(&names, ..nested_declarations(stmts[i + 1:]))
+	for declared in names {
+		// The members that this `using` brings in are the old ones, which the member check covers.
+		if declared.name == scan.new_name && !(declared.through_using && declared.ident == via) {
+			append(
+				scan.out,
+				fmt.tprintf(
+					"`%s` is already declared in the scope of `using %s` at %s",
+					scan.new_name,
+					text,
+					ident_text(scan.site, declared.ident),
+				),
+			)
+		}
+	}
+	field_captures(scan, scan.site, text, uses, block, block[0])
 }
 
 // Whether the value of expr has a type that carries the renamed field.
@@ -780,7 +828,8 @@ carries_field :: proc(scan: ^Embed_Scan, expr: ^ast.Expr) -> bool {
 	position_context: DocumentPositionContext
 	at := common.get_token_range(expr^, scan.site.ast.src).start
 	ast_context_at(scan.site, at, &ast_context, &position_context) or_return
-	symbol := resolve_type_expression(&ast_context, expr) or_return
+	// A call resolves to its procedure, and `using` reads the type of its first result, as get_locals_using does.
+	symbol, _ := unwrap_procedure_until_struct_bit_field_or_package(&ast_context, expr) or_return
 	// A type resolved from a call result is the declaration, which spans the type's name, not its body.
 	for type in scan.types {
 		if same_symbol(type, symbol) {
@@ -1143,56 +1192,25 @@ ast_context_at :: proc(
 	return true
 }
 
-// The member names that a `using` of type_expr brings into scope, with the members of its own `using`
-// fields; empty when type_expr does not resolve to a struct or bit_field.
-@(private = "file")
-using_member_names :: proc(document: ^Document, type_expr: ^ast.Expr) -> []string {
-	expr := using_type_expr(type_expr)
+// expr without its parentheses and pointer types, as expand_usings reads the type of a `using` field.
+@(private = "package")
+strip_parens_and_pointers :: proc(expr: ^ast.Expr) -> ^ast.Expr {
 	if expr == nil {
-		return {}
-	}
-	ast_context: AstContext
-	position_context: DocumentPositionContext
-	if !ast_context_at(
-		document,
-		common.get_token_range(expr^, document.ast.src).start,
-		&ast_context,
-		&position_context,
-	) {
-		return {}
-	}
-	symbol, ok := resolve_type_expression(&ast_context, expr)
-	if !ok {
-		return {}
-	}
-	#partial switch v in symbol.value {
-	case SymbolStructValue:
-		return v.names
-	case SymbolBitFieldValue:
-		return v.names
-	}
-	return {}
-}
-
-// The type of a `using` field without its parentheses and pointer, as expand_usings reads it.
-@(private = "file")
-using_type_expr :: proc(type_expr: ^ast.Expr) -> ^ast.Expr {
-	if type_expr == nil {
 		return nil
 	}
-	#partial switch e in type_expr.derived {
+	#partial switch e in expr.derived {
 	case ^ast.Paren_Expr:
-		return using_type_expr(e.expr)
+		return strip_parens_and_pointers(e.expr)
 	case ^ast.Pointer_Type:
-		return using_type_expr(e.elem)
+		return strip_parens_and_pointers(e.elem)
 	}
-	return type_expr
+	return expr
 }
 
 // The identifier that names the type of a `using` field: `T`, `^T`, `(T)` or `pkg.T`.
 @(private = "file")
 using_type_ident :: proc(type_expr: ^ast.Expr) -> ^ast.Ident {
-	expr := using_type_expr(type_expr)
+	expr := strip_parens_and_pointers(type_expr)
 	if expr == nil {
 		return nil
 	}
@@ -1311,12 +1329,12 @@ scope_declarations :: proc(document: ^Document, offset: int) -> []Scope_Name {
 					return proc_scope(document, lit)
 				}
 			}
-			collect_stmts(&names, n.stmts)
+			collect_stmts(&names, document, n.stmts)
 			return names[:]
 		case ^ast.Proc_Lit:
 			return proc_scope(document, n)
 		case ^ast.Case_Clause:
-			collect_stmts(&names, n.body)
+			collect_stmts(&names, document, n.body)
 			// The variable of a type switch is declared in each clause: switch, its body, the clause.
 			if i >= 2 {
 				if switch_stmt, is_type_switch := chain[i - 2].node.derived.(^ast.Type_Switch_Stmt); is_type_switch {
@@ -1330,7 +1348,7 @@ scope_declarations :: proc(document: ^Document, offset: int) -> []Scope_Name {
 				if body, is_block := n.body.derived.(^ast.Block_Stmt); is_block {
 					for stmt in body.stmts {
 						if clause, is_clause := stmt.derived.(^ast.Case_Clause); is_clause {
-							collect_stmts(&names, clause.body)
+							collect_stmts(&names, document, clause.body)
 						}
 					}
 				}
@@ -1340,13 +1358,13 @@ scope_declarations :: proc(document: ^Document, offset: int) -> []Scope_Name {
 			collect_exprs(&names, n.vals)
 			return names[:]
 		case ^ast.For_Stmt:
-			collect_stmts(&names, {n.init})
+			collect_stmts(&names, document, {n.init})
 			return names[:]
 		case ^ast.If_Stmt:
-			collect_stmts(&names, {n.init})
+			collect_stmts(&names, document, {n.init})
 			return names[:]
 		case ^ast.Switch_Stmt:
-			collect_stmts(&names, {n.init})
+			collect_stmts(&names, document, {n.init})
 			return names[:]
 		}
 	}
@@ -1380,7 +1398,7 @@ proc_scope :: proc(document: ^Document, lit: ^ast.Proc_Lit) -> []Scope_Name {
 					continue
 				}
 				via := field.names[0].derived.(^ast.Ident) or_continue
-				for member in using_member_names(document, field.type) {
+				for member in using_member_names_of(document, field.type) {
 					append(&names, Scope_Name{member, via, true})
 				}
 			}
@@ -1388,15 +1406,16 @@ proc_scope :: proc(document: ^Document, lit: ^ast.Proc_Lit) -> []Scope_Name {
 	}
 	if lit.body != nil {
 		if body, is_block := lit.body.derived.(^ast.Block_Stmt); is_block {
-			collect_stmts(&names, body.stmts)
+			collect_stmts(&names, document, body.stmts)
 		}
 	}
 	return names[:]
 }
 
-// The names that stmts declare, with those in their `when` bodies.
+// The names that stmts of document declare, with those in their `when` bodies and the members that a
+// `using` declaration or a `using` statement of a name brings into scope.
 @(private = "file")
-collect_stmts :: proc(names: ^[dynamic]Scope_Name, stmts: []^ast.Stmt) {
+collect_stmts :: proc(names: ^[dynamic]Scope_Name, document: ^Document, stmts: []^ast.Stmt) {
 	for stmt in stmts {
 		if stmt == nil {
 			continue
@@ -1404,6 +1423,20 @@ collect_stmts :: proc(names: ^[dynamic]Scope_Name, stmts: []^ast.Stmt) {
 		#partial switch s in stmt.derived {
 		case ^ast.Value_Decl:
 			collect_exprs(names, s.names)
+			if !s.is_using || len(s.names) == 0 do continue
+			via := s.names[0].derived.(^ast.Ident) or_continue
+			// The members come from the type, or else from the value.
+			expr := s.type if s.type != nil else (s.values[0] if len(s.values) > 0 else nil)
+			for member in using_member_names_of(document, expr) {
+				append(names, Scope_Name{member, via, true})
+			}
+		case ^ast.Using_Stmt:
+			for expr in s.list {
+				via := expr.derived.(^ast.Ident) or_continue
+				for member in using_member_names_of(document, expr) {
+					append(names, Scope_Name{member, via, true})
+				}
+			}
 		case ^ast.When_Stmt:
 			// The else of a `when` is a block or another `when`.
 			for branch in ([]^ast.Stmt{s.body, s.else_stmt}) {
@@ -1411,9 +1444,9 @@ collect_stmts :: proc(names: ^[dynamic]Scope_Name, stmts: []^ast.Stmt) {
 					continue
 				}
 				if block, is_block := branch.derived.(^ast.Block_Stmt); is_block {
-					collect_stmts(names, block.stmts)
+					collect_stmts(names, document, block.stmts)
 				} else {
-					collect_stmts(names, {branch})
+					collect_stmts(names, document, {branch})
 				}
 			}
 		}

@@ -1258,6 +1258,134 @@ f :: proc(using foo: ^Foo) -> int {
 }
 
 @(test)
+rename_safe_refuses_field_capture_by_using_value_decl :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+make_foo :: proc() -> Foo {
+	return {}
+}
+
+limit :: 10
+
+f :: proc() -> int {
+	using v := make_foo()
+	return limit
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"limit",
+		{"at test/main.odin:15:9 `limit` refers to `limit` declared at test/main.odin:11, but after the rename it would mean the field through `using v`"},
+	)
+}
+
+@(test)
+rename_safe_refuses_field_capture_by_using_typed_decl :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+limit :: 10
+
+f :: proc() -> int {
+	using v: Foo
+	return limit
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"limit",
+		{"at test/main.odin:11:9 `limit` refers to `limit` declared at test/main.odin:7, but after the rename it would mean the field through `using v`"},
+	)
+}
+
+@(test)
+rename_safe_refuses_field_capture_by_using_value_decl_in_file_without_type :: proc(t: ^testing.T) {
+	source := test.Source {
+		main  = `package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+make_foo :: proc() -> Foo {
+	return {}
+}
+`,
+		files = {{"other.odin", `package test
+
+limit :: 10
+
+g :: proc() -> int {
+	using v := make_foo()
+	return limit
+}
+`}},
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"limit",
+		{"at test/other.odin:7:9 `limit` refers to `limit` declared at test/other.odin:3, but after the rename it would mean the field through `using v`"},
+	)
+}
+
+@(test)
+rename_safe_refuses_field_collision_in_using_decl_scope :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+f :: proc() {
+	using v: Foo
+	y := 1
+	_ = y
+}
+`,
+	}
+	test.expect_rename_refused(t, &source, "y", {"`y` is already declared in the scope of `using v` at test/main.odin:9:2"})
+}
+
+@(test)
+rename_safe_refuses_collision_through_using_decl :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Foo :: struct {
+	x: int,
+}
+
+f :: proc() {
+	using v: Foo
+	y{*} := 1
+	_ = y
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"x",
+		{"`x` is already declared in the same scope through `using v` at test/main.odin:8:8"},
+	)
+}
+
+@(test)
 rename_safe_allows_field_rename_in_using_param_proc :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `#+feature using-stmt
