@@ -1069,3 +1069,69 @@ f :: proc(a, b: int) -> int {
 
 	expect_lint_cases(t, cases, {enable_lint_use_stdlib = true})
 }
+
+// A package-level `max` in another file would capture the builtin call.
+@(test)
+lint_use_stdlib_builtin_declared_in_other_file :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+f :: proc(a, b: int) -> int {
+	if a > b {
+		return a
+	}
+	return b
+}
+`,
+		files = {{"other.odin", "package test\nmax :: proc(a, b: int) -> int { return a }"}},
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_lint_diagnostics(t, &src, {})
+}
+
+// The rewrite reads the value once, so a value that reads an element through a pointer to the
+// element type, or calls a procedure that may read a package-level array, keeps the loop.
+@(test)
+lint_use_stdlib_fill_skips_pointer_field_and_call :: proc(t: ^testing.T) {
+	cases := []Lint_Case {
+		{
+			"field read through a pointer to an element",
+			`package test
+
+Item :: struct {
+	x: int,
+}
+
+f :: proc() {
+	items: [4]Item
+	p := &items[0]
+	for &e in items {
+		e = Item{x = p.x * 2}
+	}
+}
+`,
+			{},
+		},
+		{
+			"call that reads a package-level array",
+			`package test
+
+items: [4]int
+
+next :: proc() -> int {
+	return items[0] + 1
+}
+
+f :: proc() {
+	for &e in items {
+		e = next()
+	}
+}
+`,
+			{},
+		},
+	}
+
+	expect_lint_cases(t, cases, {enable_lint_use_stdlib = true})
+}
