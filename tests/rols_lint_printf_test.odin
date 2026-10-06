@@ -484,13 +484,15 @@ main :: proc() {
 	arr: [2]proc() -> (int, int)
 	fmt.printf("%d %d", h()())
 	fmt.printf("%d %d", arr[0]())
+	fmt.printf("%d", h()())
+	fmt.printf("%d", arr[0]())
 }
 `,
 		packages = packages,
 		config = {enable_lint_printf = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {})
+	test.expect_lint_diagnostics(t, &source, {{10, "printf-arity"}, {11, "printf-arity"}})
 }
 
 @(test)
@@ -512,11 +514,32 @@ f :: proc(v: $T) {
 	g :: proc { a1, b1 }
 	fmt.printf("%d", g(v))
 	fmt.printf("%d", g(missing))
+	fmt.printf("%d %d", g(v))
+	fmt.printf("%d %d", g(missing))
 }
 `,
 		packages = packages,
 		config = {enable_lint_printf = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {})
+	test.expect_lint_diagnostics(t, &source, {{14, "printf-arity"}, {15, "printf-arity"}})
+}
+
+@(test)
+printf_counts_directive_call_as_one_value :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "log"
+
+main :: proc() {
+	log.infof("%v", #location())
+	log.infof("%v %v", #location())
+}
+`,
+		packages = packages,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{6, "printf-arity"}})
 }

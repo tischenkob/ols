@@ -133,34 +133,22 @@ arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: 
 	callee := ast.unparen_expr(call.expr)
 	#partial switch _ in callee.derived {
 	case ^ast.Ident, ^ast.Selector_Expr:
-	case ^ast.Pointer_Type,
-	     ^ast.Multi_Pointer_Type,
-	     ^ast.Array_Type,
-	     ^ast.Dynamic_Array_Type,
-	     ^ast.Map_Type,
-	     ^ast.Matrix_Type,
-	     ^ast.Bit_Set_Type,
-	     ^ast.Proc_Type,
-	     ^ast.Typeid_Type,
-	     ^ast.Distinct_Type,
-	     ^ast.Struct_Type,
-	     ^ast.Union_Type,
-	     ^ast.Enum_Type,
-	     ^ast.Bit_Field_Type,
-	     ^ast.Helper_Type:
-		// A conversion such as `(^int)(p)`.
-		return 1, true
-	case:
+	case ^ast.Call_Expr,
+	     ^ast.Index_Expr,
+	     ^ast.Deref_Expr,
+	     ^ast.Type_Assertion,
+	     ^ast.Proc_Lit,
+	     ^ast.Ternary_If_Expr,
+	     ^ast.Ternary_When_Expr:
 		// The resolve map holds named callees only, so `f()()` or `arr[i]()` resolves here. A call
 		// resolves to the procedure it calls, which for `f()()` is the procedure that f returns.
-		symbol, ok := resolve_callee(ctx, call)
-		if !ok do return 1, false
-		value, is_proc := symbol.value.(SymbolProcedureValue)
-		if !is_proc do return 1, false
-		return proc_results(value), true
+		return callee_results(ctx, call)
+	case:
+		// A conversion such as `(^int)(p)`, or a directive such as `#location()`.
+		return 1, true
 	}
 	resolved, ok := lint_symbols(ctx)[uintptr(callee)]
-	if !ok || resolved.is_unresolved || resolved.symbol == nil do return group_results(ctx, callee)
+	if !ok || resolved.is_unresolved || resolved.symbol == nil do return callee_results(ctx, callee)
 
 	#partial switch v in resolved.symbol.value {
 	case SymbolProcedureValue:
@@ -169,21 +157,25 @@ arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: 
 		// The whole-file resolve keeps every group member that fits the arguments.
 		return members_results(v.symbols)
 	case SymbolProcedureGroupValue:
-		return group_results(ctx, callee)
+		return callee_results(ctx, callee)
 	}
 	return 1, true
 }
 
-// A group call whose overload does not resolve, as with an argument of a poly type, still passes
-// a known number of values when every member of the group returns that many.
+// The values passed by the procedure that expr resolves to with the locals visible at it. A group
+// call whose overload does not resolve, as with an argument of a poly type, resolves without the
+// call to every member of the group, and passes a known number of values when they all agree.
 @(private = "file")
-group_results :: proc(ctx: ^LintContext, callee: ^ast.Expr) -> (int, bool) {
-	// Without a call, the resolve returns every member of a group.
-	symbol, ok := resolve_callee(ctx, callee)
+callee_results :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (int, bool) {
+	symbol, ok := resolve_callee(ctx, expr)
 	if !ok do return 1, false
-	group, is_group := symbol.value.(SymbolAggregateValue)
-	if !is_group do return 1, false
-	return members_results(group.symbols)
+	#partial switch v in symbol.value {
+	case SymbolProcedureValue:
+		return proc_results(v), true
+	case SymbolAggregateValue:
+		return members_results(v.symbols)
+	}
+	return 1, false
 }
 
 // expr resolved with the locals visible at it, or with the package globals when that fails.
