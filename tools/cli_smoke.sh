@@ -420,9 +420,13 @@ package lint
 
 helper :: proc() {}
 ODIN
-for code in unused-declaration self-assignment ignored-result naming Unused array-broadcast range-map-lookup; do
+for code in unused-declaration self-assignment naming Unused array-broadcast range-map-lookup; do
 	expect "lint-$code" "\[$code\]" "$OLS" query lint "$dir/lint"
 done
+# The compiler rejects this call too, so it stays out of the lint package that `query check` must pass.
+mkdir "$dir/lintres"
+printf 'package lintres\n\n@(require_results)\nf :: proc() -> bool { return true }\n\ng :: proc() {\n\tf()\n}\n' > "$dir/lintres/a.odin"
+expect lint-ignored-result "\[ignored-result\]" "$OLS" query lint "$dir/lintres"
 expect lint-file self-assignment "$OLS" query lint "$dir/lint/a.odin"
 if "$OLS" query lint "$dir/lint" --fail-on range-map-lookup > /dev/null; then echo "FAIL lint-fail-on: exit 0"; exit 1; fi
 "$OLS" query lint "$dir/lint" --fail-on no-such-code > /dev/null || { echo "FAIL lint-fail-on-clean"; exit 1; }

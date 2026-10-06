@@ -100,20 +100,20 @@ f :: proc() -> bool { return g() == true }
 
 @(test)
 ignored_result_reports_status_results_still :: proc(t: ^testing.T) {
-	// The proc-type, generic and deferred exemptions must leave real status results flagged.
+	// `@(require_results)` decides, with a generic result and next to a deferred attribute alike.
 	source := test.Source {
 		main = `package test
 
 Error :: enum { None, Bad }
 ErrorProc :: proc()
-status :: proc() -> bool { return true }
-fail :: proc() -> Error { return .None }
-first :: proc(x: $T) -> (T, bool) { return x, true }
+@(require_results) status :: proc() -> bool { return true }
+@(require_results) fail :: proc() -> Error { return .None }
+@(require_results) first :: proc(x: $T) -> (T, bool) { return x, true }
 cleanup :: proc() {}
 @(deferred_none=cleanup)
 guard :: proc() -> bool { return true }
 finish :: proc(ok: bool) {}
-@(deferred_out=finish)
+@(deferred_out=finish, require_results)
 guard_out :: proc() -> bool { return true }
 f :: proc() {
 	status()

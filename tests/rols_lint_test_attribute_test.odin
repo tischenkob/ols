@@ -1,3 +1,4 @@
+#+feature dynamic-literals
 package tests
 
 import "core:testing"
@@ -243,8 +244,7 @@ for{*}got :: proc(t: ^testing.T) {
 	expect_fix_twice(t, cases, {enable_lint_test_attribute = true})
 }
 
-// The message spells the type the way this file names core:testing, and avoids `testing.T` when
-// `testing` here is another package.
+// The message spells the type the way this file names core:testing.
 @(test)
 lint_test_signature_message_names_core_testing :: proc(t: ^testing.T) {
 	cases := [?]struct {
@@ -272,28 +272,6 @@ bad :: proc() {
 `,
 			"@(test) procedures must be proc(t: ^tt.T)",
 		},
-		{
-			`package test
-
-import testing "framework:test"
-
-@(test)
-bad :: proc(t: ^testing.T) {
-}
-`,
-			"@(test) procedures must be proc(t: ^T) with T from core:testing",
-		},
-		{
-			`package test
-
-import "framework:testing"
-
-@(test)
-bad :: proc(t: ^testing.T) {
-}
-`,
-			"@(test) procedures must be proc(t: ^T) with T from core:testing",
-		},
 	}
 	for c in cases {
 		source := test.Source {
@@ -302,4 +280,65 @@ bad :: proc(t: ^testing.T) {
 		}
 		test.expect_lint_diagnostics(t, &source, {{5, "test-signature"}}, {c.message})
 	}
+}
+
+// Only `odin test` checks a @(test) signature, against core:testing. A file without that import may serve
+// another runner, even one whose package is named `testing`.
+@(test)
+lint_test_signature_needs_core_testing_import :: proc(t: ^testing.T) {
+	sources := [?]string {
+		`package test
+
+import testing "framework:test"
+
+@(test)
+bad :: proc(t: ^testing.T) {
+}
+`,
+		`package test
+
+import "framework:testing"
+
+@(test)
+bad :: proc(t: ^testing.T) {
+}
+`,
+		`package test
+
+@(test)
+bad :: proc() -> bool {
+	return true
+}
+`,
+	}
+	for main in sources {
+		source := test.Source {
+			main = main,
+			config = {enable_lint_test_attribute = true},
+		}
+		test.expect_lint_diagnostics(t, &source, {})
+	}
+}
+
+// Corpus: mirage examples/nebula/nebula_test.odin runs its tests with framework:playtest.
+@(test)
+lint_test_signature_allows_another_runner_t :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "framework:playtest"
+
+@(test)
+nebula_starts :: proc(t: ^playtest.T) {
+}
+`,
+		packages = {{pkg = "playtest", source = `package playtest
+T :: struct {
+	failed: bool,
+}
+`}},
+		collections = {"framework" = "test"},
+		config = {enable_lint_test_attribute = true},
+	}
+	test.expect_lint_diagnostics(t, &source, {})
 }

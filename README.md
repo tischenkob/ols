@@ -263,7 +263,7 @@ Options:
 
 - `enable_lint_printf`: Check `fmt` and `log` format strings: unknown verbs, argument count, argument type, and format directives passed to the non-formatting `print` procedures. Defaults to true.
 
-- `enable_lint_ignored_result`: Warn when a call statement discards a `bool`, union or error result that is not marked `#optional_ok` or `#optional_allocator_error`. Defaults to true.
+- `enable_lint_ignored_result`: Warn when a call statement discards the result of a procedure marked `@(require_results)`, the calls the compiler rejects. Defaults to true.
 
 - `enable_lint_unused_parameter`: Mark procedure parameters that are never used in the body as unnecessary. A procedure that its own file uses as a value (an argument, an assignment, a composite literal element or a parameter default) is skipped, and so is a procedure literal passed to a call, stored in a composite literal, assigned, or declared with an explicit type. Defaults to true.
 
@@ -291,7 +291,7 @@ Options:
 
 - `enable_lint_recursion`: Report a procedure whose body calls itself before any branch, loop or early return. Defaults to true.
 
-- `enable_lint_test_attribute`: Report a procedure taking `^testing.T` without an `@(test)` attribute, and an `@(test)` procedure whose signature is not `proc(t: ^testing.T)`. Defaults to true.
+- `enable_lint_test_attribute`: Report a procedure taking `^testing.T` without an `@(test)` attribute, and an `@(test)` procedure whose signature is not `proc(t: ^testing.T)`. The signature is checked only in a file that imports `core:testing`, under any alias, because another test runner may define its own `T`. Defaults to true.
 
 - `enable_lint_unused_declaration`: On save, mark private declarations that nothing in their package references as unnecessary. Defaults to true.
 

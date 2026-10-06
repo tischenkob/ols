@@ -538,6 +538,8 @@ is_float_operand :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> bool {
 	return false
 }
 
+// The compiler rejects a discarded call result only when the callee is `@(require_results)`.
+// The lint reports the same calls without waiting for `odin check`.
 @(private = "file")
 lint_ignored_result :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnostic) {
 	if !ctx.config.enable_lint_ignored_result do return
@@ -557,64 +559,45 @@ lint_ignored_result :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 	resolved, is_resolved := lint_symbols(ctx)[uintptr(call.expr)]
 	if !is_resolved do return
 	value, is_proc := resolved.symbol.value.(SymbolProcedureValue)
-	if !is_proc do return
-	// testing.expect* return bool only for chaining.
-	if strings.has_suffix(resolved.symbol.pkg, "/testing") do return
+	if !is_proc || len(value.return_types) == 0 do return
+	if !slice.contains(attribute_names(value.attributes), "require_results") do return
 
-	// A guard that `@(deferred_in)` or `@(deferred_none)` pairs with a cleanup call is used for the call it
-	// queues. `deferred_out` and `deferred_in_out` pass the result to the cleanup, so it is still a result.
-	for name in attribute_names(value.attributes) {
-		if name == "deferred_in" || name == "deferred_none" do return
-	}
-
-	// Judge the declared types: a generic instantiation turns `$V` into `bool`, which is not a status.
-	results := value.return_types
-	declared := value.orig_return_types
-	if len(declared) != len(results) do declared = results
-	// Either tag makes only the last result optional.
-	if len(results) > 0 &&
-	   len(results[len(results) - 1].names) <= 1 &&
-	   (.Optional_Ok in value.tags || .Optional_Allocator_Error in value.tags) {
-		results = results[:len(results) - 1]
-		declared = declared[:len(declared) - 1]
-	}
-
-	poly_names := poly_param_names(value.orig_arg_types)
-	for field, i in results {
-		type, pkg := declared[i].type, resolved.symbol.pkg
-		// A declared poly result is judged by its instantiated type, which the call site wrote,
-		// and then only an error type counts.
-		is_poly := type != nil && names_poly_param(type, poly_names)
-		if is_poly do type, pkg = field.type, ctx.document.package_name
-		name := must_handle_type_name(ctx, pkg, type) or_continue
-		if is_poly && !strings.contains(name, "Err") do continue
-		if names_proc_type(ctx, pkg, type) do continue
-		append(
-			diags,
-			Diagnostic {
-				range = common.get_token_range(stmt, ctx.src),
-				severity = .Warning,
-				code = "ignored-result",
-				message = fmt.tprintf("result of %s is ignored (%s)", node_text(ctx.src, call.expr), name),
-			},
-		)
-		return
-	}
+	callee := node_text(ctx.src, call.expr)
+	name, has_name := result_type_name(ctx, value, resolved.symbol.pkg)
+	append(
+		diags,
+		Diagnostic {
+			range = common.get_token_range(stmt, ctx.src),
+			severity = .Warning,
+			code = "ignored-result",
+			message = has_name ? fmt.tprintf("result of %s is ignored (%s)", callee, name) : fmt.tprintf("result of %s is ignored", callee),
+		},
+	)
 }
 
-// A type named like an error that is a procedure type, such as a callback `ErrorProc`, holds no error.
+// The first result type, written as this file would write it. `callee_pkg` is the package that declares the callee.
 @(private = "file")
-names_proc_type :: proc(ctx: ^LintContext, pkg: string, type: ^ast.Expr) -> bool {
+result_type_name :: proc(ctx: ^LintContext, value: SymbolProcedureValue, callee_pkg: string) -> (string, bool) {
+	declared :=
+		value.orig_return_types if len(value.orig_return_types) == len(value.return_types) else value.return_types
+	type, pkg := declared[0].type, callee_pkg
+	// A poly result is named by its instance, which the call site wrote.
+	if type != nil && names_poly_param(type, poly_param_names(value.orig_arg_types)) {
+		type, pkg = value.return_types[0].type, ctx.document.package_name
+	}
+	if type == nil do return "", false
 	#partial switch t in type.derived {
 	case ^ast.Ident:
-		if t.name == "bool" do return false
+		if is_builtin_type_name(t.name) do return t.name, true
+		return qualified_type_name(ctx, pkg, t.name), true
 	case ^ast.Selector_Expr:
-	case:
-		return false
+		base, is_ident := t.expr.derived.(^ast.Ident)
+		if t.field == nil || !is_ident do break
+		// The indexer replaces the alias in the declaring file with that package's directory.
+		if strings.contains(base.name, "/") do return qualified_type_name(ctx, base.name, t.field.name), true
+		return fmt.tprintf("%s.%s", base.name, t.field.name), true
 	}
-	symbol := resolve_type_in_package(ctx.document, pkg, type) or_return
-	_, is_proc := symbol.value.(SymbolProcedureValue)
-	return is_proc
+	return node_to_string(type), true
 }
 
 // Resolves a type written in package `pkg`, which may be another package than the document's.
@@ -643,33 +626,6 @@ package_ast_context :: proc(
 	get_globals(file, &ast_context)
 	ast_context.current_package = pkg
 	return ast_context
-}
-
-// bool, unions and anything named like an error must be handled by the caller,
-// except Allocator_Error, which delete/free/reserve callers ignore as a matter of course.
-// The name is written as this file would write it, where `pkg` is the package that declares the callee.
-@(private = "file")
-must_handle_type_name :: proc(ctx: ^LintContext, pkg: string, type: ^ast.Expr) -> (string, bool) {
-	if type == nil do return "", false
-	#partial switch t in type.derived {
-	case ^ast.Ident:
-		if t.name == "Allocator_Error" do return "", false
-		if t.name == "bool" do return t.name, true
-		if strings.contains(t.name, "Err") do return qualified_type_name(ctx, pkg, t.name), true
-	case ^ast.Selector_Expr:
-		if t.field == nil || t.field.name == "Allocator_Error" || !strings.contains(t.field.name, "Err") do return "", false
-		base, is_ident := t.expr.derived.(^ast.Ident)
-		if !is_ident do return t.field.name, true
-		// The indexer replaces the alias in the declaring file with that package's directory.
-		if strings.contains(base.name, "/") do return qualified_type_name(ctx, base.name, t.field.name), true
-		return fmt.tprintf("%s.%s", base.name, t.field.name), true
-	case ^ast.Union_Type:
-		return "union", true
-	case ^ast.Call_Expr:
-		// Maybe(T) is a union spelled as a call.
-		if ident, is_ident := t.expr.derived.(^ast.Ident); is_ident && ident.name == "Maybe" do return "Maybe", true
-	}
-	return "", false
 }
 
 // `name` declared in the package in directory `dir`, as this file writes it: bare in its own package,

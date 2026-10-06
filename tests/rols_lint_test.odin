@@ -201,82 +201,59 @@ f :: proc(a: f32) -> bool {
 	test.expect_lint_diagnostics(t, &source, {})
 }
 
+// Only a `@(require_results)` callee makes a discarded result an error, whatever the result type.
 @(test)
 lint_ignored_result :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
 
-import "testing"
+import "expect"
 
-Allocator_Error :: enum {
+Error :: enum {
 	None,
-	Out_Of_Memory,
+	Bad,
 }
 
-Parse_Error :: union {
-	Allocator_Error,
+@(require_results)
+status :: proc() -> bool {
+	return true
 }
 
-append_elem :: proc(array: ^$T/[dynamic]$E, arg: E) -> (n: int, err: Allocator_Error) #optional_allocator_error {
-	return 0, .None
+@(require_results)
+fail :: proc() -> (Error, int) {
+	return .None, 0
 }
 
-append :: proc {
-	append_elem,
+plain_bool :: proc() -> bool {
+	return true
 }
 
-delete_slice :: proc(array: $T/[]$E, allocator := context.allocator) -> Allocator_Error {
+plain_error :: proc() -> Error {
 	return .None
 }
 
-delete :: proc {
-	delete_slice,
-}
-
-ok_proc :: proc() -> bool {
-	return true
-}
-
-set_env :: proc(key, value: string) -> bool {
-	return true
-}
-
-alloc_proc :: proc() -> (int, Allocator_Error) {
-	return 0, .None
-}
-
-union_proc :: proc() -> Parse_Error {
-	return nil
-}
-
-int_proc :: proc() -> int {
-	return 0
-}
-
 main :: proc() {
-	xs: [dynamic]int
-	append(&xs, 1)
-	s: []int
-	delete(s)
-	ok_proc()
-	_ = ok_proc()
-	set_env("a", "b")
-	(alloc_proc())
-	union_proc()
-	int_proc()
-	defer ok_proc()
-	if ok_proc() {
+	status()
+	_ = status()
+	(fail())
+	plain_bool()
+	plain_error()
+	defer status()
+	if status() {
 	}
-	tt: ^testing.T
-	testing.expect(tt, true)
+	expect.equal(nil, 1, 1)
+	expect.must(true)
 }
 `,
 		packages = {
 			{
-				pkg = "testing",
-				source = `package testing
-T :: struct {}
-expect :: proc(t: ^T, ok: bool) -> bool {
+				pkg = "expect",
+				source = `package expect
+equal :: proc(t: rawptr, a, b: int) -> bool {
+	return a == b
+}
+@(require_results)
+must :: proc(ok: bool) -> bool {
 	return ok
 }
 `,
@@ -285,7 +262,16 @@ expect :: proc(t: ^T, ok: bool) -> bool {
 		config = {enable_lint_ignored_result = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{54, "ignored-result"}, {56, "ignored-result"}, {58, "ignored-result"}})
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{28, "ignored-result"}, {30, "ignored-result"}, {37, "ignored-result"}},
+		{
+			"result of status is ignored (bool)",
+			"result of fail is ignored (Error)",
+			"result of expect.must is ignored (bool)",
+		},
+	)
 }
 
 @(test)
@@ -578,10 +564,12 @@ opt_ok :: proc(m: map[int]int, k: int) -> (int, bool) #optional_ok {
 	return m[k], false
 }
 
+@(require_results)
 maybe_proc :: proc() -> Maybe(int) {
 	return nil
 }
 
+@(require_results)
 err_proc :: proc() -> Err {
 	return .None
 }
@@ -597,7 +585,7 @@ main :: proc() {
 		config = {enable_lint_ignored_result = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{21, "ignored-result"}, {23, "ignored-result"}})
+	test.expect_lint_diagnostics(t, &source, {{23, "ignored-result"}, {25, "ignored-result"}})
 }
 
 @(test)
@@ -764,12 +752,14 @@ Error :: enum {
 	None,
 	Bad,
 }
+@(require_results)
 write :: proc() -> Error {
 	return .None
 }
 `},
 		{pkg = "other", source = `package other
 import "../io"
+@(require_results)
 get :: proc() -> io.Error {
 	return .None
 }
@@ -864,19 +854,25 @@ take :: proc(cb: Handler = default_cb) {
 
 @(test)
 ignored_result_judges_a_poly_result_by_its_instance :: proc(t: ^testing.T) {
-	// A poly result counts when the call instantiates it with an error type, not with bool.
+	// A poly result is named by the type the call instantiates it with.
 	source := test.Source {
 		main = `package test
 
 Error :: enum { None, Bad }
-make_pair :: proc(x: $T, $E: typeid) -> (T, E) { return x, E{} }
+@(require_results)
+make_pair :: proc($E: typeid, x: int) -> (E, int) { return E{}, x }
 f :: proc() {
-	make_pair(1, Error)
-	make_pair(1, bool)
+	make_pair(Error, 1)
+	make_pair(bool, 1)
 }
 `,
 		config = {enable_lint_ignored_result = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{5, "ignored-result"}}, {"result of make_pair is ignored (Error)"})
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{6, "ignored-result"}, {7, "ignored-result"}},
+		{"result of make_pair is ignored (Error)", "result of make_pair is ignored (bool)"},
+	)
 }

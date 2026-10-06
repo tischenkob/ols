@@ -502,7 +502,7 @@
 		},
 		"enable_lint_ignored_result": {
 			"type": "boolean",
-			"description": "Warn when a call statement discards a bool, union or error result that is not marked optional.",
+			"description": "Warn when a call statement discards the result of a procedure marked @(require_results).",
 			"default": true
 		},
 		"enable_lint_unused_parameter": {
@@ -572,7 +572,7 @@
 		},
 		"enable_lint_test_attribute": {
 			"type": "boolean",
-			"description": "Report a procedure taking ^testing.T without an @(test) attribute, and an @(test) procedure whose signature is not proc(t: ^testing.T).",
+			"description": "Report a procedure taking ^testing.T without an @(test) attribute, and an @(test) procedure whose signature is not proc(t: ^testing.T), in a file that imports core:testing.",
 			"default": true
 		},
 		"enable_lint_unused_declaration": {
