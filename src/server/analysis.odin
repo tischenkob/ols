@@ -3042,9 +3042,7 @@ resolve_local_identifier :: proc(
 	symbol.flags |= {.Local}
 	symbol.value_expr = local.value_expr
 	// rols: a copy of an inline aggregate variable (`x := p`) keeps the inline type of `p`, which has no name
-	if local.type_expr != nil || .Anonymous not_in symbol.flags {
-		symbol.type_expr = local.type_expr
-	}
+	if local.type_expr != nil || .Anonymous not_in symbol.flags do symbol.type_expr = local.type_expr
 	symbol.doc = get_comment(local.docs, ast_context.allocator)
 	symbol.comment = get_comment(local.comment, ast_context.allocator)
 
@@ -3098,7 +3096,8 @@ resolve_global_identifier :: proc(
 		symbol.comment = get_comment(global.comment, ast_context.allocator)
 	}
 
-	symbol.type_expr = global.type_expr
+	// rols: a copy of an inline aggregate global (`g2 := g`) keeps the inline type of `g`, which has no name
+	if global.type_expr != nil || .Anonymous not_in symbol.flags do symbol.type_expr = global.type_expr
 	symbol.value_expr = global.value_expr
 
 	return symbol, ok

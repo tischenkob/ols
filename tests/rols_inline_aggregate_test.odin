@@ -96,3 +96,22 @@ main :: proc() {
 	}
 	test.expect_hover(t, &source, "test.r: union {\n\tint,\n\tf32,\n}")
 }
+
+// A file-scope copy of an inline struct global keeps the inline type the same way.
+@(test)
+hover_poly_param_of_inline_struct_global_copy :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+foo :: proc(v: $T) -> T { return v }
+g: struct {
+	a: int,
+}
+g2 := g
+main :: proc() {
+	r{*} := foo(g2)
+}
+`,
+	}
+	test.expect_hover(t, &source, "test.r: struct {\n\ta: int,\n}")
+}
