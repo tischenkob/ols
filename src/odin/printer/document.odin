@@ -72,8 +72,10 @@ Document_Group_Mode :: enum {
 
 Document_Group_Options :: struct {
 	// rols: `measure` marks a group that is measured even in a flat region, where only the first group after a newline is
-	id:      string,
-	measure: bool,
+	id:        string,
+	measure:   bool,
+	// rols: `rest_flat` marks a group that a fit check measures flat when it comes from the rest, and that format passes through
+	rest_flat: bool,
 }
 
 Document_Break_Parent :: struct {}
@@ -412,6 +414,10 @@ fits :: proc(width: int, list: ^[dynamic]Tuple, rest: []Tuple) -> bool {
 		case Document_Group:
 			// rols: a later `measure` group in a flat region decides its own mode, so its first break may end the measured line
 			parent_mode := in_rest && v.options.measure && data.mode == .Flat ? Document_Group_Mode.Break : data.mode
+			// rols: a `rest_flat` group in the rest is measured flat, so a statement after a `; ` counts in full
+			if in_rest && v.options.rest_flat {
+				parent_mode = .Flat
+			}
 			append(
 				list,
 				Tuple {
@@ -615,6 +621,19 @@ format :: proc(width: int, list: ^[dynamic]Tuple, builder: ^strings.Builder, p: 
 				)
 			}
 		case Document_Group:
+			// rols: a `rest_flat` group only changes how a fit check measures it, so it lays out in its parent's mode
+			if v.options.rest_flat {
+				append(
+					list,
+					Tuple {
+						indentation = data.indentation,
+						mode = data.mode,
+						document = v.document,
+						alignment = data.alignment,
+					},
+				)
+				break
+			}
 			// rols: a group with `measure` set decides its own mode even after another group on its line
 			if data.mode == .Flat && !recalculate && !v.options.measure {
 				append(
