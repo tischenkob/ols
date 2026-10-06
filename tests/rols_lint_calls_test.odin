@@ -233,3 +233,124 @@ main :: proc() {
 
 	expect_lint_cases(t, cases, {enable_lint_call_arity = true})
 }
+
+@(test)
+argument_count_skips_unknown_result_counts :: proc(t: ^testing.T) {
+	// A procedure group or an unresolved callee passes an unknown number of values, unless every member agrees.
+	cases := []Lint_Case {
+		{
+			"a group whose members all return two values fills two parameters",
+			`package test
+
+pair_none :: proc() -> (int, bool) { return 1, true }
+pair_one :: proc(x: int) -> (int, bool) { return x, true }
+pair :: proc { pair_none, pair_one }
+
+take :: proc(n: int, ok: bool) -> int { return n }
+
+main :: proc() {
+	_ = take(pair())
+}
+`,
+			{},
+		},
+		{
+			"a group whose members disagree hides the count",
+			`package test
+
+one :: proc() -> int { return 1 }
+two :: proc(x: int) -> (int, bool) { return x, true }
+mixed :: proc { one, two }
+
+take :: proc(n: int, ok: bool) -> int { return n }
+
+main :: proc() {
+	_ = take(mixed())
+}
+`,
+			{},
+		},
+		{
+			"an unresolved callee hides the count",
+			`package test
+
+take :: proc(n: int, ok: bool) -> int { return n }
+
+main :: proc() {
+	_ = take(missing())
+}
+`,
+			{},
+		},
+		{
+			"a group member that never fit the call",
+			`package test
+
+one :: proc(a: int) {}
+two :: proc(a: Missing, b: int) {}
+g :: proc { one, two }
+
+main :: proc() {
+	g(1, 2)
+}
+`,
+			{},
+		},
+		{
+			"a group whose overload does not resolve still counts when its members agree",
+			`package test
+
+data_slice :: proc(value: []$E) -> [^]E { return nil }
+data_string :: proc(value: string) -> [^]byte { return nil }
+data :: proc { data_slice, data_string }
+
+f :: proc(a, b: int) {}
+
+g :: proc(slice: $S/[]$E) {
+	f(1, 2, data(slice))
+}
+`,
+			{{9, "argument-count"}},
+		},
+		{
+			"a conversion argument still counts as one value",
+			`package test
+
+take :: proc(p: ^int) {}
+
+main :: proc(r: rawptr) {
+	take((^int)(r), 1)
+}
+`,
+			{{5, "argument-count"}},
+		},
+		{
+			"a wrong-arity call through an alias",
+			`package test
+
+one :: proc(a: int) {}
+alias :: one
+
+main :: proc() {
+	alias(1, 2)
+}
+`,
+			{{6, "argument-count"}},
+		},
+		{
+			"a direct call with the wrong count still reports",
+			`package test
+
+one :: proc(a: int) {}
+g :: proc { one }
+
+main :: proc() {
+	one(1, 2)
+}
+`,
+			{{6, "argument-count"}},
+		},
+	}
+
+	expect_lint_cases(t, cases, {enable_lint_call_arity = true})
+}

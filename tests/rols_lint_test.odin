@@ -861,3 +861,22 @@ take :: proc(cb: Handler = default_cb) {
 	// default does.
 	test.expect_lint_diagnostics(t, &source, {{4, "unused-parameter"}, {14, "unused-parameter"}})
 }
+
+@(test)
+ignored_result_judges_a_poly_result_by_its_instance :: proc(t: ^testing.T) {
+	// A poly result counts when the call instantiates it with an error type, not with bool.
+	source := test.Source {
+		main = `package test
+
+Error :: enum { None, Bad }
+make_pair :: proc(x: $T, $E: typeid) -> (T, E) { return x, E{} }
+f :: proc() {
+	make_pair(1, Error)
+	make_pair(1, bool)
+}
+`,
+		config = {enable_lint_ignored_result = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{5, "ignored-result"}}, {"result of make_pair is ignored (Error)"})
+}

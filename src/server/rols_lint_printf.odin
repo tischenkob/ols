@@ -42,15 +42,29 @@ lint_printf :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnos
 	}
 
 	format := parse_format(text)
-	// A call with several results passes them all; later indexes no longer line up with args.
-	arg_count, spread_at := expanded_arg_count(ctx, args)
+	// A call with several results passes them all, so a format index can land inside one argument.
+	// owner[k] is the argument that passes value k, and results[i] how many values argument i passes.
+	owner := make([dynamic]int, context.temp_allocator)
+	results := make([]int, len(args), context.temp_allocator)
+	exact := true
+	for arg, i in args {
+		count, known := arg_results(ctx, arg)
+		if !known {
+			exact = false
+			break
+		}
+		results[i] = count
+		for _ in 0 ..< count do append(&owner, i)
+	}
+	arg_count := len(owner)
 
 	for bad in format.unknown {
 		message := bad == 0 ? "unknown format verb '%'" : fmt.tprintf("unknown format verb '%%%r'", bad)
 		append(diags, printf_diagnostic(ctx, lit, "printf-verb", message))
 	}
 
-	if format.needed > arg_count {
+	// With an unknown argument count, only the types of the values before that argument are checked.
+	if exact && format.needed > arg_count {
 		append(
 			diags,
 			printf_diagnostic(
@@ -60,28 +74,39 @@ lint_printf :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnos
 				fmt.tprintf("format needs %d arguments, call has %d", format.needed, arg_count),
 			),
 		)
-	} else if !format.positional && format.needed < arg_count {
-		extra := arg_count - format.needed
-		append(
-			diags,
-			printf_diagnostic(
-				ctx,
-				args[min(format.needed, spread_at)],
-				"printf-arity",
-				fmt.tprintf("call has %d extra argument%s", extra, extra == 1 ? "" : "s"),
-			),
-		)
+	} else if exact {
+		// core:fmt prints every argument that no verb or `*` read as %!(EXTRA …).
+		extra, first := 0, -1
+		for k in 0 ..< min(arg_count, 64) {
+			if k in format.used do continue
+			extra += 1
+			if first < 0 do first = k
+		}
+		if extra > 0 {
+			append(
+				diags,
+				printf_diagnostic(
+					ctx,
+					args[owner[first]],
+					"printf-arity",
+					fmt.tprintf("call has %d extra argument%s", extra, extra == 1 ? "" : "s"),
+				),
+			)
+		}
 	}
 
 	for use in format.uses {
-		if use.arg >= spread_at do continue
-		kind := arg_kind(ctx, args[use.arg])
+		if use.arg >= len(owner) do continue
+		arg := owner[use.arg]
+		// One value of a multi-value call has a type the lint does not know.
+		if results[arg] != 1 do continue
+		kind := arg_kind(ctx, args[arg])
 		if !verb_rejects(use.verb, kind) do continue
 		append(
 			diags,
 			printf_diagnostic(
 				ctx,
-				args[use.arg],
+				args[arg],
 				"printf-type",
 				fmt.tprintf("format verb '%%%r' does not accept %s", use.verb, kind_names[kind]),
 			),
@@ -89,26 +114,85 @@ lint_printf :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnos
 	}
 }
 
-// The number of arguments the call passes, counting every result of a multi-value call,
-// and the index of the first such call (len(args) when there is none).
-expanded_arg_count :: proc(ctx: ^LintContext, args: []^ast.Expr) -> (count, first_spread: int) {
-	first_spread = len(args)
-	for arg, i in args {
-		results := 1
-		if call, is_call := arg.derived.(^ast.Call_Expr); is_call {
-			if resolved, ok := lint_symbols(ctx)[uintptr(call.expr)]; ok && !resolved.is_unresolved {
-				// #optional_ok and #optional_allocator_error procs yield one value where an argument is wanted.
-				if value, is_proc := resolved.symbol.value.(SymbolProcedureValue);
-				   is_proc && len(value.return_types) > 0 && value.tags & {.Optional_Ok, .Optional_Allocator_Error} == {} {
-					results = 0
-					for field in value.return_types do results += max(len(field.names), 1)
-				}
-			}
-		}
-		if results > 1 do first_spread = min(first_spread, i)
+// The number of arguments the call passes, counting every result of a multi-value call.
+// exact is false when an argument passes an unknown number of values.
+expanded_arg_count :: proc(ctx: ^LintContext, args: []^ast.Expr) -> (count: int, exact: bool) {
+	for arg in args {
+		results := arg_results(ctx, arg) or_return
 		count += results
 	}
-	return
+	return count, true
+}
+
+// How many values an argument passes. known is false for a call whose callee does not resolve,
+// and for a procedure group call whose members return different numbers of results.
+@(private = "file")
+arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: bool) {
+	call, is_call := arg.derived.(^ast.Call_Expr)
+	if !is_call do return 1, true
+	// The resolve map holds named callees only; a conversion such as `(^int)(p)` passes one value.
+	#partial switch _ in call.expr.derived {
+	case ^ast.Ident, ^ast.Selector_Expr:
+	case:
+		return 1, true
+	}
+	resolved, ok := lint_symbols(ctx)[uintptr(call.expr)]
+	if !ok || resolved.is_unresolved || resolved.symbol == nil do return group_results(ctx, call.expr)
+
+	#partial switch v in resolved.symbol.value {
+	case SymbolProcedureValue:
+		return proc_results(v), true
+	case SymbolAggregateValue:
+		// The whole-file resolve keeps every group member that fits the arguments.
+		return members_results(v.symbols)
+	case SymbolProcedureGroupValue:
+		return group_results(ctx, call.expr)
+	}
+	return 1, true
+}
+
+// A group call whose overload does not resolve, as with an argument of a poly type, still passes
+// a known number of values when every member of the group returns that many.
+@(private = "file")
+group_results :: proc(ctx: ^LintContext, callee: ^ast.Expr) -> (int, bool) {
+	document := ctx.document
+	ast_context := package_ast_context(
+		document.ast,
+		document.imports,
+		document.package_name,
+		document.uri.uri,
+		document.fullpath,
+		document.package_name,
+	)
+	// Without a call, the resolve returns every member of a group.
+	symbol, ok := resolve_type_expression(&ast_context, callee)
+	if !ok do return 1, false
+	group, is_group := symbol.value.(SymbolAggregateValue)
+	if !is_group do return 1, false
+	return members_results(group.symbols)
+}
+
+@(private = "file")
+members_results :: proc(members: []Symbol) -> (results: int, known: bool) {
+	if len(members) == 0 do return 1, false
+	results = -1
+	for member in members {
+		value, is_proc := member.value.(SymbolProcedureValue)
+		if !is_proc do return 1, false
+		count := proc_results(value)
+		if results >= 0 && count != results do return 1, false
+		results = count
+	}
+	return results, true
+}
+
+@(private = "file")
+proc_results :: proc(value: SymbolProcedureValue) -> int {
+	// #optional_ok and #optional_allocator_error procs yield one value where an argument is wanted.
+	if len(value.return_types) == 0 || value.tags & {.Optional_Ok, .Optional_Allocator_Error} != {} do return 1
+	results := 0
+	for field in value.return_types do results += max(len(field.names), 1)
+	return results
 }
 
 @(private = "file")
@@ -234,15 +318,15 @@ Format_Use :: struct {
 
 @(private = "file")
 Format :: struct {
-	uses:       [dynamic]Format_Use,
-	unknown:    [dynamic]rune, // 0 stands for a trailing '%'
-	needed:     int, // one past the highest argument index the format reads
-	positional: bool,
-	used:       bit_set[0 ..< 64], // arguments read so far; 64 is core:fmt's MAX_CHECKED_ARGS
+	uses:    [dynamic]Format_Use,
+	unknown: [dynamic]rune, // 0 stands for a trailing '%'
+	needed:  int, // one past the highest argument index the format reads
+	used:    bit_set[0 ..< 64], // arguments read so far; 64 is core:fmt's MAX_CHECKED_ARGS
 }
 
 // Mirrors the scanner of core:fmt's wprintf: %% and {{ }} are literals, %[flags][width][.prec][n]verb
-// and {n:spec} each read one argument, and * reads one more.
+// and {n:spec} each read one argument, and * reads one more. `{` picks its argument before the options,
+// so `{:*d}` reads the same argument for the width and the value.
 @(private = "file")
 parse_format :: proc(f: string) -> (format: Format) {
 	format.uses = make([dynamic]Format_Use, context.temp_allocator)
@@ -273,6 +357,7 @@ parse_format :: proc(f: string) -> (format: Format) {
 				explicit = parse_digits(f, &i)
 				if explicit < 0 do continue
 			}
+			arg := explicit >= 0 ? explicit : lowest_unused(format)
 
 			verb := 'v'
 			if i < len(f) && f[i] == ':' {
@@ -285,7 +370,7 @@ parse_format :: proc(f: string) -> (format: Format) {
 			}
 			if i >= len(f) || f[i] != '}' do continue
 			i += 1
-			consume_verb(&format, explicit, verb)
+			consume_verb(&format, arg, verb)
 			continue
 		}
 
@@ -362,16 +447,17 @@ parse_digits :: proc(f: string, i: ^int) -> int {
 
 @(private = "file")
 consume :: proc(format: ^Format, explicit: int) -> int {
-	// core:fmt takes the lowest argument that no earlier verb or `[n]` used.
-	arg := explicit
-	if explicit >= 0 {
-		format.positional = true
-	} else {
-		arg = 0
-		for arg < 64 && (arg in format.used) do arg += 1
-	}
+	arg := explicit >= 0 ? explicit : lowest_unused(format^)
 	if arg < 64 do format.used += {arg}
 	format.needed = max(format.needed, arg + 1)
+	return arg
+}
+
+// core:fmt takes the lowest argument that no earlier verb, `*` or `[n]` used.
+@(private = "file")
+lowest_unused :: proc(format: Format) -> int {
+	arg := 0
+	for arg < 64 && (arg in format.used) do arg += 1
 	return arg
 }
 

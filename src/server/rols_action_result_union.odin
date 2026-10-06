@@ -705,7 +705,7 @@ call_result_types :: proc(types: ^Result_Types, call: ^ast.Call_Expr) -> ([]^ast
 		return nil, "", false
 	}
 	symbol := resolved.symbol^
-	if is_proc_group(ctx, call.expr) {
+	if is_proc_group(ctx.ast_context, ctx.document.imports, call.expr) {
 		return nil, "", false
 	}
 	#partial switch v in symbol.value {
@@ -740,12 +740,13 @@ call_result_types :: proc(types: ^Result_Types, call: ^ast.Call_Expr) -> ([]^ast
 }
 
 // The file map holds the overload a group call picked, so look at the declaration of the name.
-is_proc_group :: proc(ctx: ^ActionContext, callee: ^ast.Expr) -> bool {
+@(private = "package")
+is_proc_group :: proc(ast_context: ^AstContext, imports: []Package, callee: ^ast.Expr) -> bool {
 	name: string
-	pkg := ctx.ast_context.document_package
+	pkg := ast_context.document_package
 	#partial switch c in callee.derived {
 	case ^ast.Ident:
-		if global, is_global := ctx.ast_context.globals[c.name]; is_global && global.expr != nil {
+		if global, is_global := ast_context.globals[c.name]; is_global && global.expr != nil {
 			_, is_group := global.expr.derived.(^ast.Proc_Group)
 			return is_group
 		}
@@ -756,7 +757,7 @@ is_proc_group :: proc(ctx: ^ActionContext, callee: ^ast.Expr) -> bool {
 			return false
 		}
 		imported := false
-		for imp in ctx.document.imports {
+		for imp in imports {
 			if imp.base == base.name {
 				pkg = imp.name
 				imported = true

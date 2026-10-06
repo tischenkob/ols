@@ -526,17 +526,26 @@ lint_ignored_result :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic
 
 	// Judge the declared types: a generic instantiation turns `$V` into `bool`, which is not a status.
 	results := value.return_types
-	if len(value.orig_return_types) == len(results) do results = value.orig_return_types
+	declared := value.orig_return_types
+	if len(declared) != len(results) do declared = results
 	// Either tag makes only the last result optional.
 	if len(results) > 0 &&
 	   len(results[len(results) - 1].names) <= 1 &&
 	   (.Optional_Ok in value.tags || .Optional_Allocator_Error in value.tags) {
 		results = results[:len(results) - 1]
+		declared = declared[:len(declared) - 1]
 	}
 
-	for field in results {
-		name := must_handle_type_name(ctx, resolved.symbol.pkg, field.type) or_continue
-		if names_proc_type(ctx, resolved.symbol.pkg, field.type) do continue
+	poly_names := poly_param_names(value.orig_arg_types)
+	for field, i in results {
+		type, pkg := declared[i].type, resolved.symbol.pkg
+		// A declared poly result is judged by its instantiated type, which the call site wrote,
+		// and then only an error type counts.
+		is_poly := type != nil && names_poly_param(type, poly_names)
+		if is_poly do type, pkg = field.type, ctx.document.package_name
+		name := must_handle_type_name(ctx, pkg, type) or_continue
+		if is_poly && !strings.contains(name, "Err") do continue
+		if names_proc_type(ctx, pkg, type) do continue
 		append(
 			diags,
 			Diagnostic {
@@ -803,17 +812,7 @@ unused_params :: proc(lit: ^ast.Proc_Lit) -> []^ast.Ident {
 	if !is_block do return {}
 	if len(body.stmts) == 0 || (len(body.stmts) == 1 && is_panic_call(body.stmts[0])) do return {}
 
-	poly_names := make(map[string]struct{}, context.temp_allocator)
-	for param in lit.type.params.list {
-		for name in param.names {
-			if poly, ok := name.derived.(^ast.Poly_Type); ok do poly_names[poly.type.name] = {}
-		}
-		for use in collect_ident_uses(param.type) {
-			if len(use.parents) > 0 {
-				if _, ok := use.parents[len(use.parents) - 1].derived.(^ast.Poly_Type); ok do poly_names[use.ident.name] = {}
-			}
-		}
-	}
+	poly_names := poly_param_names(lit.type.params.list[:])
 
 	unused := make([dynamic]^ast.Ident, context.temp_allocator)
 	uses := collect_ident_uses(lit.body)
@@ -838,6 +837,36 @@ is_field_name :: proc(use: IdentUse) -> bool {
 	if len(use.parents) == 0 do return false
 	field_value, ok := use.parents[len(use.parents) - 1].derived.(^ast.Field_Value)
 	return ok && field_value.field == use.ident
+}
+
+// The names that `$` binds in a parameter list: `$T: typeid` and `x: $T` both bind T.
+@(private = "file")
+poly_param_names :: proc(params: []^ast.Field) -> map[string]struct{} {
+	poly_names := make(map[string]struct{}, context.temp_allocator)
+	for param in params {
+		if param == nil do continue
+		for name in param.names {
+			if poly, ok := name.derived.(^ast.Poly_Type); ok do poly_names[poly.type.name] = {}
+		}
+		for use in collect_ident_uses(param.type) {
+			if len(use.parents) > 0 {
+				if _, ok := use.parents[len(use.parents) - 1].derived.(^ast.Poly_Type); ok do poly_names[use.ident.name] = {}
+			}
+		}
+	}
+	return poly_names
+}
+
+// A type that is a poly parameter itself: `$T`, or `T` bound by a `$` parameter.
+@(private = "file")
+names_poly_param :: proc(type: ^ast.Expr, poly_names: map[string]struct{}) -> bool {
+	#partial switch t in type.derived {
+	case ^ast.Poly_Type:
+		return true
+	case ^ast.Ident:
+		return t.name in poly_names
+	}
+	return false
 }
 
 @(private = "file")
