@@ -1560,7 +1560,6 @@ main :: proc() {
 `)
 }
 
-
 // Code right after the package clause gets a blank line below the import too.
 @(test)
 action_inline_proc_import_after_package_clause_followed_by_code :: proc(t: ^testing.T) {
@@ -1757,4 +1756,35 @@ main :: proc() {
 	_ = int(Button.Left)
 }
 `)
+}
+
+// The callee's file has unsaved lines above the callee, so its indexed range now falls in another declaration.
+@(test)
+action_inline_proc_refused_stale_index_range :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+wait :: proc(x: int) -> int {
+	return x + 1
+}
+
+helper :: proc(x: int) -> int {
+	return x * 2
+}
+`, `package test
+
+main :: proc() {
+	_ = wa{*}it(1)
+}
+`)
+	unsaved := []test.File{{"a.odin", `package test
+
+helper :: proc(x: int) -> int {
+	return x * 2
+}
+
+wait :: proc(x: int) -> int {
+	return x + 1
+}
+`}}
+	test.expect_action_missing_unsaved(t, &source, INLINE_PROC_ACTION, unsaved)
 }

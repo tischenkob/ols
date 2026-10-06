@@ -248,7 +248,6 @@ find_decl :: proc(document: ^Document, name_range: common.Range) -> (^ast.Value_
 	return nil, false
 }
 
-@(private = "file")
 decl_containing :: proc(document: ^Document, position: common.Position) -> (decl: ^ast.Value_Decl, ok: bool) {
 	offset := common.get_absolute_position(position, document.text[:document.used_text]) or_return
 	for decl in top_level_value_decls(document.ast) {

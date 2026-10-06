@@ -404,12 +404,9 @@ find_proc_lit :: proc(ctx: ^ActionContext, symbol: Symbol) -> (^Document, ^ast.P
 		return nil, nil
 	}
 	// The range is the name from the index, and the procedure type from the current file's globals.
-	offset, valid := common.get_absolute_position(symbol.range.start, document.text[:document.used_text])
-	decl: ^ast.Value_Decl
-	for d in top_level_value_decls(document.ast) {
-		if valid && d.pos.offset <= offset && offset < d.end.offset do decl = d
-	}
-	if decl == nil || len(decl.names) != 1 || len(decl.values) != 1 {
+	// An index range is stale while the callee's file has unsaved edits, so the name must match too.
+	decl, _ := decl_containing(document, symbol.range.start)
+	if decl == nil || len(decl.names) != 1 || len(decl.values) != 1 || final_name(decl.names[0]) != symbol.name {
 		return nil, nil
 	}
 	if len(top_level_variants(&h, document, decl)) > 0 {
