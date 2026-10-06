@@ -917,7 +917,7 @@ expand_call_args :: proc(ast_context: ^AstContext, call: ^ast.Call_Expr) -> ([]C
 
 	all_valid := true
 	// rols: the member of `offset_of(T, member)` is a field name, an argument without a symbol
-	member, has_member := offset_of_member_arg(call)
+	member, has_member := offset_of_member_arg(ast_context, call)
 	for arg in call.args {
 		if has_member && arg == &member.node {
 			append(&results, CallArg{value_expr = arg})
@@ -2969,6 +2969,14 @@ resolve_identifier_expr :: proc(
 		symbol, ok = resolve_binary_expression(ast_context, v)
 	case:
 		ok = internal_resolve_type_expression(ast_context, orig_expr, &symbol)
+	}
+
+	// rols: a variable declared with an inline aggregate type (`p: struct {...}`) has a type without a name
+	if is_mutable {
+		#partial switch _ in expr.derived {
+		case ^ast.Struct_Type, ^ast.Union_Type, ^ast.Enum_Type, ^ast.Bit_Set_Type, ^ast.Bit_Field_Type:
+			symbol.flags |= {.Anonymous}
+		}
 	}
 
 	return symbol, ok

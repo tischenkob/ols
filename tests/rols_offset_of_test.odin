@@ -285,3 +285,49 @@ offset_of_missing_member_has_no_references :: proc(t: ^testing.T) {
 	}
 	test.expect_reference_locations(t, &source, {})
 }
+
+// A user procedure named `offset_of` shadows the builtin, so its second argument is an ordinary expression.
+@(test)
+offset_of_shadowed_by_a_procedure_resolves_its_arguments :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+offset_of :: proc(a: int, b: int) -> int { return a + b }
+main :: proc() {
+	x := 1
+	_ = offset_of(1, x{*})
+}
+`,
+	}
+	test.expect_reference_locations(
+		t,
+		&source,
+		{
+			{range = {start = {line = 4, character = 1}, end = {line = 4, character = 2}}},
+			{range = {start = {line = 5, character = 18}, end = {line = 5, character = 19}}},
+		},
+	)
+}
+
+// A local procedure named `offset_of_member` shadows the builtin too.
+@(test)
+offset_of_member_shadowed_by_a_local_resolves_its_arguments :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	offset_of_member := proc(a: int, b: int) -> int { return a + b }
+	x{*} := 1
+	_ = offset_of_member(1, x)
+}
+`,
+	}
+	test.expect_reference_locations(
+		t,
+		&source,
+		{
+			{range = {start = {line = 4, character = 1}, end = {line = 4, character = 2}}},
+			{range = {start = {line = 5, character = 25}, end = {line = 5, character = 26}}},
+		},
+	)
+}

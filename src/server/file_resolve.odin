@@ -269,24 +269,30 @@ resolve_binary_expr :: proc(binary: ^ast.Binary_Expr, data: ^FileResolveData) {
 		data.position_context.parent_binary = binary
 	}
 
-	stack := make([dynamic]^ast.Node, context.temp_allocator)
-	append(&stack, cast(^ast.Node)binary)
+	// rols: each operand resolves with its own parent as `binary`, not the last nested binary the walker popped
+	Entry :: struct {
+		node:   ^ast.Node,
+		parent: ^ast.Binary_Expr,
+	}
+	stack := make([dynamic]Entry, context.temp_allocator)
+	append(&stack, Entry{binary, nil})
 
 	for len(stack) > 0 {
-		node := pop(&stack)
-		if node == nil {
+		entry := pop(&stack)
+		if entry.node == nil {
 			continue
 		}
 
-		b, ok := node.derived.(^ast.Binary_Expr)
+		b, ok := entry.node.derived.(^ast.Binary_Expr)
 		if !ok {
-			resolve_node(node, data)
+			data.position_context.binary = entry.parent
+			resolve_node(entry.node, data)
 			continue
 		}
 
 		data.position_context.binary = b
-		append(&stack, b.left)
-		append(&stack, b.right)
+		append(&stack, Entry{b.left, b})
+		append(&stack, Entry{b.right, b})
 	}
 }
 
@@ -558,7 +564,7 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 		data.ast_context.call = old_ast_call
 
 		// rols: the member of `offset_of(T, member)` resolves only to the field of T
-		member, has_member := offset_of_member_arg(n)
+		member, has_member := offset_of_member_arg(data.ast_context, n)
 		for arg in n.args {
 			if has_member && arg == &member.node {
 				resolve_offset_of_member(data, n, member)

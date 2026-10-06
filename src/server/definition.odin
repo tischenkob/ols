@@ -147,7 +147,7 @@ get_definition_location :: proc(document: ^Document, position: common.Position, 
 		}
 	} else if position_context.identifier != nil {
 		// rols: the member of `offset_of(T, member)` is the field of T, not a package or global of the same name
-		if _, _, is_member := offset_of_member_at_cursor(&position_context); is_member {
+		if _, _, is_member := offset_of_member_at_cursor(&ast_context, &position_context); is_member {
 			member, found := resolve_location_offset_of_member(&ast_context, &position_context)
 			if !found do return {}, false
 			append(

@@ -76,3 +76,26 @@ main :: proc() {
 	}
 	test.expect_completion_labels(t, &source, ".", {})
 }
+
+// An implicit selector on the left of a binary expression resolves against its own expression, not against the
+// nested binary on the right that the walker popped before it.
+@(test)
+file_resolve_implicit_selector_beside_nested_binary :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Kind :: enum { X{*}, Y }
+use :: proc(a, b: Kind) -> bool {
+	return .X == a + b
+}
+`,
+	}
+	test.expect_reference_locations(
+		t,
+		&source,
+		{
+			{range = {start = {line = 2, character = 15}, end = {line = 2, character = 16}}},
+			{range = {start = {line = 4, character = 9}, end = {line = 4, character = 10}}},
+		},
+	)
+}
