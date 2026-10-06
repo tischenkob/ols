@@ -734,6 +734,7 @@ main :: proc() {
 }
 `)
 	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+
 import "core:time"
 
 main :: proc() {
@@ -1324,7 +1325,7 @@ main :: proc() {
 `)
 }
 
-// Corpus: karl2d karl2d.odin:5723:20. An implicit selector argument needs no parentheses.
+// Corpus: karl2d karl2d.odin:5723:20. An implicit selector argument gets its named type and needs no parentheses.
 @(test)
 action_inline_proc_implicit_selector_argument :: proc(t: ^testing.T) {
 	expect_inline_proc(t, `package test
@@ -1357,7 +1358,7 @@ get :: proc(b: Button) -> bool {
 }
 
 main :: proc() {
-	_ = arr[.Left]
+	_ = arr[Button.Left]
 }
 `)
 }
@@ -1547,6 +1548,7 @@ main :: proc() {
 `)
 	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `#+build darwin, linux, windows
 package test
+
 import "core:time"
 
 main :: proc() {
@@ -1554,6 +1556,205 @@ main :: proc() {
 		d: time.Duration = 5
 		_ = d
 	}
+}
+`)
+}
+
+
+// Code right after the package clause gets a blank line below the import too.
+@(test)
+action_inline_proc_import_after_package_clause_followed_by_code :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import "core:time"
+
+wait :: proc(d: time.Duration) {
+	_ = d
+}
+`, `package test
+main :: proc() {
+	wa{*}it(5)
+}
+`)
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+
+import "core:time"
+
+main :: proc() {
+	{
+		d: time.Duration = 5
+		_ = d
+	}
+}
+`)
+}
+
+// Two imports after the package clause form one group.
+@(test)
+action_inline_proc_two_imports_after_package_clause :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import "core:fmt"
+import "core:time"
+
+wait :: proc(d: time.Duration) {
+	fmt.println(d)
+}
+`, `package test
+
+main :: proc() {
+	wa{*}it(5)
+}
+`)
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+
+import "core:fmt"
+import "core:time"
+
+main :: proc() {
+	{
+		d: time.Duration = 5
+		fmt.println(d)
+	}
+}
+`)
+}
+
+// Each `when` branch defines the procedure for other targets, so a copy of one would be wrong on the others.
+@(test)
+action_inline_proc_refused_when_branch_definition :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+when ODIN_OS == .Windows {
+	wait :: proc(x: int) -> int {
+		return x + 1
+	}
+} else {
+	wait :: proc(x: int) -> int {
+		return x + 2
+	}
+}
+
+main :: proc() {
+	_ = wa{*}it(1)
+}
+`)
+}
+
+@(private = "file")
+inline_from_per_target_files :: proc(caller: string) -> test.Source {
+	files := make([]test.File, 2, context.temp_allocator)
+	files[0] = {"a.odin", `#+build !windows
+package test
+
+wait :: proc(x: int) -> int {
+	return x + 2
+}
+`}
+	files[1] = {"a_windows.odin", `package test
+
+wait :: proc(x: int) -> int {
+	return x + 1
+}
+`}
+	return test.Source{main = caller, files = files, config = {enable_code_action_inline_proc = true}}
+}
+
+// The caller also builds on Windows, where another file defines the procedure.
+@(test)
+action_inline_proc_refused_per_target_file_definition :: proc(t: ^testing.T) {
+	source := inline_from_per_target_files(`package test
+
+main :: proc() {
+	_ = wa{*}it(1)
+}
+`)
+	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
+}
+
+// A caller that builds on the callee's targets only always calls that definition.
+@(test)
+action_inline_proc_per_target_file_definition_into_same_targets :: proc(t: ^testing.T) {
+	source := inline_from_per_target_files(`#+build !windows
+package test
+
+main :: proc() {
+	_ = wa{*}it(1)
+}
+`)
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `#+build !windows
+package test
+
+main :: proc() {
+	_ = 1 + 2
+}
+`)
+}
+
+// A key of the struct literal is a field, and a key of the map literal inside it is the parameter.
+@(test)
+action_inline_proc_parameter_named_key_in_nested_untyped_literals :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+Outer :: struct {
+	k: int,
+	m: map[int]int,
+}
+
+build :: proc(k: int) -> Outer {
+	return {k = k, m = {k = 1}}
+}
+
+main :: proc() {
+	_ = bu{*}ild(5)
+}
+`, `package test
+
+Outer :: struct {
+	k: int,
+	m: map[int]int,
+}
+
+build :: proc(k: int) -> Outer {
+	return {k = k, m = {k = 1}}
+}
+
+main :: proc() {
+	_ = Outer{k = 5, m = {5 = 1}}
+}
+`)
+}
+
+// An implicit selector has no type inside a conversion, so it gets the parameter's type.
+@(test)
+action_inline_proc_implicit_selector_in_conversion :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+Button :: enum {
+	Left,
+	Right,
+}
+
+code :: proc(b: Button) -> int {
+	return int(b)
+}
+
+main :: proc() {
+	_ = co{*}de(.Left)
+}
+`, `package test
+
+Button :: enum {
+	Left,
+	Right,
+}
+
+code :: proc(b: Button) -> int {
+	return int(b)
+}
+
+main :: proc() {
+	_ = int(Button.Left)
 }
 `)
 }

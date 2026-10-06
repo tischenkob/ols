@@ -4,6 +4,7 @@ package server
 
 import "core:odin/ast"
 import "core:odin/parser"
+import "core:slice"
 import "core:strings"
 
 import "src:common"
@@ -26,8 +27,15 @@ default_blocks_inline :: proc(param: Param) -> bool {
 }
 
 // A literal takes the parameter's type: `1 / d` with `d: f32 = 2` must not become `1 / 2`.
-// A literal that already has the parameter's type by default stays bare.
+// A literal that already has the parameter's type by default stays bare. An implicit selector
+// takes a named type in front, since `int(b)` gives `.Left` no type: `int(Button.Left)`.
 typed_arg_text :: proc(param: Param, text: string) -> string {
+	if _, implicit := param.arg.derived.(^ast.Implicit_Selector_Expr); implicit && param.type_expr != nil {
+		#partial switch _ in param.type_expr.derived {
+		case ^ast.Ident, ^ast.Selector_Expr:
+			return strings.concatenate({param.type, text}, context.temp_allocator)
+		}
+	}
 	lit, is_lit := param.arg.derived.(^ast.Basic_Lit)
 	if !is_lit || param.type == "" {
 		return text
@@ -104,7 +112,8 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	callee_src := target.ast.src
-	origin := Copy{target, lit, call}
+	lit_kinds := make(map[^ast.Comp_Lit]Use_Kind, context.temp_allocator)
+	origin := Copy{target, lit, call, &lit_kinds}
 
 	params := make([dynamic]Param, context.temp_allocator)
 	if lit.type.params != nil {
@@ -166,22 +175,24 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 }
 
 // Where the copied text comes from: the callee's file and procedure literal, inlined at call.
+// lit_kinds caches what use_kind finds for the field names of each literal.
 Copy :: struct {
-	callee: ^Document,
-	lit:    ^ast.Proc_Lit,
-	call:   ^ast.Call_Expr,
+	callee:    ^Document,
+	lit:       ^ast.Proc_Lit,
+	call:      ^ast.Call_Expr,
+	lit_kinds: ^map[^ast.Comp_Lit]Use_Kind,
 }
 
 // The import edits that the text of written, copied from the callee's file, needs in the caller's
 // file. False when the text would mean something else there.
 copy_imports :: proc(ctx: ^ActionContext, origin: Copy, written: []^ast.Node) -> ([]TextEdit, bool) {
-	imports, borrows := borrows_from_file(ctx, origin.callee, origin.lit, origin.call, written)
+	imports, borrows := borrows_from_file(ctx, origin, written)
 	if borrows {
 		return nil, false
 	}
 	edits := make([dynamic]TextEdit, context.temp_allocator)
 	for imp in imports {
-		append(&edits, import_edit(ctx, strings.trim(imp.fullpath, "\"`"), imp.name.text))
+		append_import_edit(&edits, import_edit(ctx, strings.trim(imp.fullpath, "\"`"), imp.name.text))
 	}
 	return edits[:], true
 }
@@ -213,7 +224,7 @@ inline_expression :: proc(
 	replacements := make([dynamic]Replacement, context.temp_allocator)
 
 	for use in collect_ident_uses(expr) {
-		i, known := param_index(params, use, callee)
+		i, known := param_index(params, use, callee, origin)
 		if !known {
 			return
 		}
@@ -297,7 +308,7 @@ inline_statement :: proc(
 
 	used := make([]bool, len(params), context.temp_allocator)
 	for use in collect_ident_uses(body) {
-		i, known := param_index(params, use, callee)
+		i, known := param_index(params, use, callee, origin)
 		if !known {
 			return
 		}
@@ -332,7 +343,8 @@ inline_statement :: proc(
 		}
 		// Locals declared above would capture a later argument that names them.
 		for use in collect_ident_uses(param.arg) {
-			if i, known := param_index(params, use, callee if param.defaulted else ctx.document); !known || i >= 0 {
+			if i, known := param_index(params, use, callee if param.defaulted else ctx.document, origin);
+			   !known || i >= 0 {
 				return
 			}
 		}
@@ -379,17 +391,36 @@ body_declares :: proc(body: ^ast.Block_Stmt, name: string) -> bool {
 	return false
 }
 
-// The current document first: a file-private callee shadows a package one of the same name.
+// The declaration that symbol names. A callee with per-target variants is refused, since the copy
+// would carry one target's body, unless it sits outside any `when` in a file that builds on the same
+// targets as the caller's file.
 find_proc_lit :: proc(ctx: ^ActionContext, symbol: Symbol) -> (^Document, ^ast.Proc_Lit) {
-	if lit := proc_lit_named(ctx.document, symbol.name); lit != nil {
-		return ctx.document, lit
-	}
 	h := Call_Hierarchy{ctx.files, make(map[string]^Document, context.temp_allocator)}
-	document := hierarchy_document(&h, symbol.uri)
+	document := ctx.document
+	if !strings.equal_fold(symbol.uri, document.uri.uri) {
+		document = hierarchy_document(&h, symbol.uri)
+	}
 	if document == nil {
 		return nil, nil
 	}
-	return document, proc_lit_named(document, symbol.name)
+	// The range is the name from the index, and the procedure type from the current file's globals.
+	offset, valid := common.get_absolute_position(symbol.range.start, document.text[:document.used_text])
+	decl: ^ast.Value_Decl
+	for d in top_level_value_decls(document.ast) {
+		if valid && d.pos.offset <= offset && offset < d.end.offset do decl = d
+	}
+	if decl == nil || len(decl.names) != 1 || len(decl.values) != 1 {
+		return nil, nil
+	}
+	if len(top_level_variants(&h, document, decl)) > 0 {
+		callee_tags := parser.parse_file_tags(document.ast, context.temp_allocator)
+		caller_tags := parser.parse_file_tags(ctx.document.ast, context.temp_allocator)
+		if !slice.contains(document.ast.decls[:], (^ast.Stmt)(decl)) ||
+		   !same_build_targets(document.fullpath, callee_tags, ctx.document.fullpath, caller_tags) {
+			return nil, nil
+		}
+	}
+	return document, decl.values[0].derived.(^ast.Proc_Lit) or_else nil
 }
 
 // The source of roots is copied from the callee's file into the caller's, so it must mean the same
@@ -401,14 +432,13 @@ find_proc_lit :: proc(ctx: ^ActionContext, symbol: Symbol) -> (^Document, ^ast.P
 // of the caller's file or an import of another package.
 borrows_from_file :: proc(
 	ctx: ^ActionContext,
-	callee: ^Document,
-	lit: ^ast.Proc_Lit,
-	call: ^ast.Call_Expr,
+	origin: Copy,
 	roots: []^ast.Node,
 ) -> (
 	imports: []^ast.Import_Decl,
 	borrows: bool,
 ) {
+	callee, lit, call := origin.callee, origin.lit, origin.call
 	caller := ctx.document
 	same_file := callee == caller
 	private_names := file_private_names(callee)
@@ -428,7 +458,7 @@ borrows_from_file :: proc(
 			if !private && !missing_import && !captured {
 				continue
 			}
-			kind := use_kind(use, callee)
+			kind := use_kind(use, callee, origin)
 			if kind == .Field {
 				continue
 			}
@@ -527,8 +557,8 @@ Use_Kind :: enum {
 
 // Whether the use is a field name, as in `p.x`, `.x` or `{x = 1}` of a struct or bit_field, rather
 // than a name in scope. A key of a map or array literal is a name. The type of a literal is resolved
-// in document, which holds the use.
-use_kind :: proc(use: IdentUse, document: ^Document) -> Use_Kind {
+// in document, which holds the use, once per literal of origin.
+use_kind :: proc(use: IdentUse, document: ^Document, origin: Copy) -> Use_Kind {
 	n := len(use.parents)
 	if n == 0 {
 		return .Name
@@ -549,56 +579,56 @@ use_kind :: proc(use: IdentUse, document: ^Document) -> Use_Kind {
 		if lit == nil {
 			return .Unknown
 		}
-		symbol: Symbol
-		ok: bool
-		if lit.type == nil {
-			// An untyped literal takes its type from where it stands.
-			ast_context: AstContext
-			position_context: DocumentPositionContext
-			position := common.get_token_range(use.ident^, document.ast.src).start
-			if ast_context_at(document, position, &ast_context, &position_context) {
-				symbol, ok = resolve_comp_literal(&ast_context, &position_context)
-			}
-			ok &&= position_context.comp_lit == lit
-		} else {
-			#partial switch _ in lit.type.derived {
-			case ^ast.Map_Type, ^ast.Array_Type, ^ast.Dynamic_Array_Type:
-				return .Name
-			}
-			symbol, ok = resolve_type_in_package(document, document.package_name, lit.type)
+		if kind, cached := origin.lit_kinds[lit]; cached {
+			return kind
 		}
-		if !ok {
-			return .Unknown
-		}
-		#partial switch _ in symbol.value {
-		case SymbolMapValue, SymbolFixedArrayValue, SymbolSliceValue, SymbolDynamicArrayValue:
-			return .Name
-		case SymbolStructValue, SymbolBitFieldValue:
-			return .Field
-		}
-		return lit.type == nil ? .Unknown : .Field
+		kind := key_kind(lit, use, document)
+		origin.lit_kinds[lit] = kind
+		return kind
 	}
 	return .Name
 }
 
-proc_lit_named :: proc(document: ^Document, name: string) -> ^ast.Proc_Lit {
-	for decl in top_level_value_decls(document.ast) {
-		if len(decl.names) != 1 || len(decl.values) != 1 || final_name(decl.names[0]) != name {
-			continue
+// What a field name of lit is: the same for every field name of lit, which use names.
+key_kind :: proc(lit: ^ast.Comp_Lit, use: IdentUse, document: ^Document) -> Use_Kind {
+	symbol: Symbol
+	ok: bool
+	if lit.type == nil {
+		// An untyped literal takes its type from where it stands.
+		ast_context: AstContext
+		position_context: DocumentPositionContext
+		position := common.get_token_range(use.ident^, document.ast.src).start
+		if ast_context_at(document, position, &ast_context, &position_context) {
+			symbol, ok = resolve_comp_literal(&ast_context, &position_context)
 		}
-		return decl.values[0].derived.(^ast.Proc_Lit) or_else nil
+		ok &&= position_context.comp_lit == lit
+	} else {
+		#partial switch _ in lit.type.derived {
+		case ^ast.Map_Type, ^ast.Array_Type, ^ast.Dynamic_Array_Type:
+			return .Name
+		}
+		symbol, ok = resolve_type_in_package(document, document.package_name, lit.type)
 	}
-	return nil
+	if !ok {
+		return .Unknown
+	}
+	#partial switch _ in symbol.value {
+	case SymbolMapValue, SymbolFixedArrayValue, SymbolSliceValue, SymbolDynamicArrayValue:
+		return .Name
+	case SymbolStructValue, SymbolBitFieldValue:
+		return .Field
+	}
+	return lit.type == nil ? .Unknown : .Field
 }
 
 // Index of the parameter the use reads, or -1 for other names and for field names. Not known when
 // the use is named like a parameter but use_kind cannot tell a field from a key.
-param_index :: proc(params: []Param, use: IdentUse, document: ^Document) -> (index: int, known: bool) {
+param_index :: proc(params: []Param, use: IdentUse, document: ^Document, origin: Copy) -> (index: int, known: bool) {
 	for param, i in params {
 		if param.name != use.ident.name {
 			continue
 		}
-		switch use_kind(use, document) {
+		switch use_kind(use, document, origin) {
 		case .Name:
 			return i, true
 		case .Field:

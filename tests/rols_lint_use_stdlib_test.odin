@@ -271,6 +271,7 @@ main :: proc(s: []int, x: int) -> bool {
 		&src,
 		"Replace with slice.contains",
 		`package test
+
 import "core:slice"
 
 main :: proc(s: []int, x: int) -> bool {
@@ -366,6 +367,7 @@ main :: proc(xs: []int) {
 		&src,
 		"Replace with math.sum",
 		`package test
+
 import "core:math"
 
 main :: proc(xs: []int) {
@@ -394,6 +396,7 @@ main :: proc(s: string, p: string) {
 		&src,
 		"Replace with strings.has_prefix",
 		`package test
+
 import "core:strings"
 
 main :: proc(s: string, p: string) {
@@ -659,6 +662,7 @@ main :: proc(s: []int, x: int) -> bool {
 		"Replace with slice.contains",
 		`// header
 package test
+
 import "core:slice"
 
 main :: proc(s: []int, x: int) -> bool {
