@@ -333,12 +333,32 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 			scan := Embed_Scan {
 				out      = out,
 				new_name = new_name,
+				texts    = workspace_odin_files("", target.h.files),
 				types    = make([dynamic]Symbol, context.temp_allocator),
 				decls    = make([dynamic]Symbol, context.temp_allocator),
-				sites   = make([dynamic]^Document, context.temp_allocator),
+				sites    = make([dynamic]^Document, context.temp_allocator),
 				resolved = make(map[^Document]SymbolAndNodeMap, context.temp_allocator),
 			}
+			// Each file is read once here, not once per type that check_embedders searches.
+			for &file in scan.texts {
+				if file.text == "" {
+					data, err := os.read_entire_file(file.fullpath, context.temp_allocator)
+					file.text = string(data) if err == nil else ""
+				}
+			}
 			check_embedders(&scan, target, decl_document, type_name)
+			// A `using` statement of a value whose type the file never names, such as a call result. Odin
+			// accepts a `using` statement only in a file with `#+feature using-stmt`.
+			for file in scan.texts {
+				if !strings.contains(file.text, "using-stmt") {
+					continue
+				}
+				uri := common.create_uri(file.fullpath, context.temp_allocator)
+				site := hierarchy_document(&target.h, uri.uri)
+				if site != nil && !slice.contains(scan.sites[:], site) {
+					append(&scan.sites, site)
+				}
+			}
 			check_using_statements(&scan)
 		}
 	case .Local in symbol.flags:
@@ -432,6 +452,7 @@ Embed_Scan :: struct {
 	out:      ^[dynamic]string,
 	new_name: string,
 	site:     ^Document, // the document under walk by check_using_statements
+	texts:    []Package_File, // every workspace file with its text, read once for the whole scan
 	types:    [dynamic]Symbol, // the owner type and every type that embeds it, directly or not
 	decls:    [dynamic]Symbol, // the declarations searched so far: those types and the aliases of them
 	sites:    [dynamic]^Document, // the documents that name one of them and contain `using` anywhere
@@ -441,7 +462,8 @@ Embed_Scan :: struct {
 // Appends a cause for each struct that embeds the type named type_name through `using`, directly or through
 // other structs, and each procedure with a `using` parameter of such a type, where scan.new_name already
 // names another member or declaration, or a name in the scope that the field would then capture. Only the
-// files that name a type and contain the text `using` anywhere are searched.
+// files of scan.texts that name a type and contain the text `using` anywhere, or declare an alias of it, are
+// searched.
 @(private = "file")
 check_embedders :: proc(scan: ^Embed_Scan, target: ^Rename_Target, document: ^Document, type_name: ^ast.Ident) {
 	out, new_name := scan.out, scan.new_name
@@ -474,15 +496,25 @@ check_embedders :: proc(scan: ^Embed_Scan, target: ^Rename_Target, document: ^Do
 	if !known {
 		append(&scan.types, value)
 	}
+	candidates := make([dynamic]Package_File, context.temp_allocator)
+	for file in scan.texts {
+		if !strings.contains(file.text, type_name.name) {
+			continue
+		}
+		if strings.contains(file.text, "using") || declares_alias_of(file.text, type_name.name) {
+			append(&candidates, file)
+		}
+	}
 	ast_context := globals_context(document)
+	// An empty list of files would make the search walk the workspace again.
 	locations, _ := find_symbol_references(
 		document,
 		&ast_context,
 		type_symbol,
 		.Identifier,
+		current_file_only = len(candidates) == 0,
 		target_name = type_name.name,
-		files = target.h.files,
-		require_text = "using",
+		files = candidates[:],
 	)
 
 	for location in locations {
@@ -600,6 +632,39 @@ check_embedders :: proc(scan: ^Embed_Scan, target: ^Rename_Target, document: ^Do
 	}
 }
 
+// Whether a line of text has `::`, then optional `distinct`, `^` and package qualifier, then the word name:
+// a declaration such as `Alias :: Foo` or `P :: ^pkg.Foo`. A comment or string can match too.
+@(private = "file")
+declares_alias_of :: proc(text, name: string) -> bool {
+	is_word :: proc(c: u8) -> bool {
+		return c == '_' || c >= 0x80 || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
+	}
+	from := 0
+	for {
+		at := strings.index(text[from:], name)
+		if at < 0 do return false
+		start := from + at
+		from = start + len(name)
+		if from < len(text) && is_word(text[from]) {
+			continue
+		}
+		before := text[strings.last_index_byte(text[:start], '\n') + 1:start]
+		if strings.has_suffix(before, ".") {
+			before = before[:len(before) - 1]
+			for len(before) > 0 && is_word(before[len(before) - 1]) do before = before[:len(before) - 1]
+		} else if len(before) > 0 && is_word(before[len(before) - 1]) {
+			continue
+		}
+		before = strings.trim_right(before, "^ \t")
+		if strings.has_suffix(before, "distinct") {
+			before = strings.trim_right_space(before[:len(before) - len("distinct")])
+		}
+		if strings.has_suffix(before, "::") {
+			return true
+		}
+	}
+}
+
 // Appends a cause for each `using` statement, in the documents of scan, of a value whose type carries the
 // renamed field, where new_name is declared in the statement's scope or used there for something else.
 @(private = "file")
@@ -667,8 +732,14 @@ carries_field :: proc(scan: ^Embed_Scan, expr: ^ast.Expr) -> bool {
 	at := common.get_token_range(expr^, scan.site.ast.src).start
 	ast_context_at(scan.site, at, &ast_context, &position_context) or_return
 	symbol := resolve_type_expression(&ast_context, expr) or_return
+	// A type resolved from a call result is the declaration, which spans the type's name, not its body.
 	for type in scan.types {
 		if same_symbol(type, symbol) {
+			return true
+		}
+	}
+	for decl in scan.decls {
+		if same_symbol(decl, symbol) {
 			return true
 		}
 	}

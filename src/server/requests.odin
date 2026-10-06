@@ -1522,8 +1522,6 @@ notification_did_open :: proc(
 	}
 
 	check_unused_imports(document, config)
-	// rols: lint the freshly opened document
-	run_lints(document, config)
 
 	push_diagnostics(writer)
 

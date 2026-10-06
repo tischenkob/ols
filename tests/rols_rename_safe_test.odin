@@ -1688,3 +1688,69 @@ g :: proc(using p: P) {
 		},
 	)
 }
+
+@(test)
+rename_safe_refuses_collision_in_embedder_of_lone_alias :: proc(t: ^testing.T) {
+	source := test.Source {
+		main  = `package test
+
+Foo :: struct {
+	y{*}: int,
+}
+`,
+		files = {
+			{"alias.odin", `package test
+
+Alias :: Foo
+`},
+			{"top.odin", `package test
+
+Top :: struct {
+	using a: Alias,
+	x: int,
+}
+`},
+		},
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"x",
+		{"`x` is already a member of a type that embeds this one through `using a` at test/top.odin:5:2"},
+	)
+}
+
+@(test)
+rename_safe_refuses_capture_by_using_of_call_result :: proc(t: ^testing.T) {
+	source := test.Source {
+		main  = `package test
+
+Foo :: struct {
+	y{*}: int,
+}
+
+limit :: 10
+
+make_foo :: proc() -> ^Foo {
+	return nil
+}
+`,
+		files = {
+			{"b.odin", `#+feature using-stmt
+package test
+
+g :: proc() -> int {
+	f := make_foo()
+	using f
+	return limit
+}
+`},
+		},
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"limit",
+		{"at test/b.odin:7:9 `limit` refers to `limit` declared at test/main.odin:7, but after the rename it would mean the field through `using f`"},
+	)
+}
