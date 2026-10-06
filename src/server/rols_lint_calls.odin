@@ -56,8 +56,9 @@ lint_calls :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnost
 	if !exact do return
 	given += extra
 	if given >= required && given <= total do return
-	// The whole-file resolve does not filter group members by arity. When the fitting member fails to
-	// resolve, a group call resolves to a member that never fit. That member has another name than the call.
+	// Overload resolution drops a group member that takes fewer arguments than the call passes, but keeps one
+	// that needs more. When the fitting member fails to resolve, a group call resolves to such a member, which
+	// has another name than the call.
 	if written != symbol.name && calls_proc_group(ctx, callee) do return
 
 	message: string

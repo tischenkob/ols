@@ -27,36 +27,31 @@ get :: proc(m: map[string]int) -> Kind {
 	)
 }
 
-// A call through a procedure group that fails to resolve in one scope must not stay failed for a later scope.
-// In `use` the local `a` hides the global that the initializer of `G` passes, so the call fails there. `G.inner.field`
-// names the field of Inner, so it is no reference either way.
+// The initializer of a global resolves against globals only, so a local of the procedure that names the global
+// does not hide the global `a` that the initializer passes.
 @(test)
-file_resolve_failed_overload_is_not_cached :: proc(t: ^testing.T) {
+file_resolve_global_initializer_ignores_locals :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
 
-Inner :: struct { field: int }
-S :: struct { field{*}: int, inner: Inner }
+S :: struct { field{*}: int }
 make_int :: proc(v: int) -> S { return {} }
 make_f32 :: proc(v: f32) -> S { return {} }
 g :: proc{make_int, make_f32}
 use :: proc() {
 	a: string
-	_ = G.inner.field
+	_ = G.field
 }
 a: int
 G := g(a)
-main :: proc() {
-	_ = G.field
-}
 `,
 	}
 	test.expect_reference_locations(
 		t,
 		&source,
 		{
-			{range = {start = {line = 3, character = 14}, end = {line = 3, character = 19}}},
-			{range = {start = {line = 14, character = 7}, end = {line = 14, character = 12}}},
+			{range = {start = {line = 2, character = 14}, end = {line = 2, character = 19}}},
+			{range = {start = {line = 8, character = 7}, end = {line = 8, character = 12}}},
 		},
 	)
 }
