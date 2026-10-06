@@ -82,6 +82,7 @@ dead_store :: proc(ctx: ^LintContext, stmts: []^ast.Stmt, from: int, name: ^ast.
 				if mentions(value, name.name) do return
 			}
 			if !is_local_store(ctx, next) || address_taken(ctx, name) do return
+			if deferred_mention(enclosing_proc(ctx, name), name) do return
 			append(
 				diags,
 				Diagnostic {
@@ -94,9 +95,65 @@ dead_store :: proc(ctx: ^LintContext, stmts: []^ast.Stmt, from: int, name: ^ast.
 			return
 		}
 		if mentions(stmts[j], name.name) do return
-		// A bare `return` reads every named result.
-		if assigns do for ret in body_returns(stmts[j]) do if len(ret.results) == 0 do return
+		// A bare `return` reads the named results.
+		if assigns do for ret in body_returns(stmts[j]) {
+			if len(ret.results) == 0 && is_named_result(enclosing_proc(ctx, name), name.name) do return
+		}
 	}
+}
+
+// The innermost procedure literal around the name.
+@(private = "file")
+enclosing_proc :: proc(ctx: ^LintContext, name: ^ast.Ident) -> ^ast.Proc_Lit {
+	top := top_level_stmt_at(ctx.document.ast.decls[:], name.pos.offset)
+	if top == nil do return nil
+	lit: ^ast.Proc_Lit
+	for at in nodes_at({top}, name.pos.offset) {
+		if inner, ok := at.node.derived.(^ast.Proc_Lit); ok do lit = inner
+	}
+	return lit
+}
+
+@(private = "file")
+is_named_result :: proc(lit: ^ast.Proc_Lit, name: string) -> bool {
+	if lit == nil || lit.type == nil || lit.type.results == nil do return false
+	for field in lit.type.results.list {
+		for result in field.names {
+			if ident, ok := result.derived.(^ast.Ident); ok && ident.name == name do return true
+		}
+	}
+	return false
+}
+
+// A `defer` registered before the store runs at a later exit and can read it. One written after
+// the store is not pending when the store runs. An unknown procedure counts as read.
+@(private = "file")
+deferred_mention :: proc(lit: ^ast.Proc_Lit, name: ^ast.Ident) -> bool {
+	if lit == nil || lit.body == nil do return true
+	Data :: struct {
+		name:  ^ast.Ident,
+		found: bool,
+	}
+	data := Data {
+		name = name,
+	}
+	visitor := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			data := (^Data)(visitor.data)
+			if node == nil || data.found || node.pos.offset >= data.name.pos.offset do return nil
+			#partial switch n in node.derived {
+			case ^ast.Proc_Lit:
+				return nil
+			case ^ast.Defer_Stmt:
+				data.found = mentions(n.stmt, data.name.name)
+				return nil
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, lit.body)
+	return data.found
 }
 
 // Only a local can hold a dead store: a global is readable from any procedure. An identifier

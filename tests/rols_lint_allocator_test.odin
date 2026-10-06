@@ -308,3 +308,31 @@ f :: proc() -> int {
 	// A slice does not store its allocator, so only `delete(s)` frees with the wrong one.
 	test.expect_lint_diagnostics(t, &source, {{8, "allocator-mismatch"}})
 }
+
+@(test)
+allocator_mismatch_ignores_named_dynamic_types :: proc(t: ^testing.T) {
+	// A named dynamic array or map stores its allocator like the written form does.
+	source := test.Source {
+		main = `package test
+
+Array :: [dynamic]int
+Table :: map[string]int
+Ids :: distinct [dynamic]int
+Fixed :: []int
+
+f :: proc() {
+	a := make(Array, 0, 4, context.temp_allocator)
+	delete(a)
+	m := make(Table, 4, context.temp_allocator)
+	delete(m)
+	d := make(Ids, 0, 4, context.temp_allocator)
+	delete(d)
+	s := make(Fixed, 4, context.temp_allocator)
+	delete(s)
+}
+`,
+		config = {enable_lint_allocator = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{15, "allocator-mismatch"}})
+}

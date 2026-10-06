@@ -352,3 +352,38 @@ same :: proc(text: string) {
 	// Indexing the bounded collection itself without a guard still runs one past the end.
 	test.expect_lint_diagnostics(t, &source, {{16, "range-off-by-one"}, {19, "range-off-by-one"}, {23, "range-off-by-one"}})
 }
+
+@(test)
+range_off_by_one_guard_order_and_length_local :: proc(t: ^testing.T) {
+	// `&&` evaluates left to right, so only a guard before the index protects it.
+	source := test.Source {
+		main = `package test
+
+f :: proc(text: string) {
+	for b in 0 ..= len(text) {
+		if text[b] == 0 && b < len(text) {
+		}
+	}
+	for b in 0 ..= len(text) {
+		if b < len(text) && text[b] == 0 {
+		}
+	}
+	n := len(text)
+	for b in 0 ..= len(text) {
+		if b < n {
+			_ = text[b]
+		}
+	}
+	m := len(text) - 1
+	for b in 0 ..= len(text) {
+		if b < m {
+			_ = text[b]
+		}
+	}
+}
+`,
+		config = {enable_lint_loops = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{3, "range-off-by-one"}, {18, "range-off-by-one"}})
+}

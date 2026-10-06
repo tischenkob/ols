@@ -50,6 +50,14 @@ allocator_mismatch :: proc(ctx: ^LintContext, uses: []IdentUse, diags: ^[dynamic
 				#partial switch _ in call.args[0].derived {
 				case ^ast.Dynamic_Array_Type, ^ast.Map_Type:
 					continue
+				case ^ast.Ident, ^ast.Selector_Expr:
+					// A named type such as `Array :: [dynamic]int`, `distinct` or not.
+					if resolved, ok := lint_symbols(ctx)[uintptr(call.args[0])]; ok && resolved.symbol != nil {
+						#partial switch _ in resolved.symbol.value {
+						case SymbolDynamicArrayValue, SymbolMapValue:
+							continue
+						}
+					}
 				}
 			}
 			arg, has_allocator := allocator_arg(ctx.src, call)

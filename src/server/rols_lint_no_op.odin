@@ -23,8 +23,14 @@ lint_no_op :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnost
 		no_op_empty_body(ctx, n.body, diags)
 		no_op_empty_body(ctx, n.else_stmt, diags)
 	case ^ast.For_Stmt:
-		// `for {}` is a spin loop, and `for step() {}` does its work in the condition.
-		if (n.init != nil || n.cond != nil || n.post != nil) && (n.cond == nil || !calls_procedure(ctx, n.cond)) {
+		// `for {}` is a spin loop, and `for step() {}` does its work in the condition. A loop with a
+		// post statement whose init declares nothing, such as `for ; path[i] != '/'; i += 1 {}`,
+		// scans a variable that outlives the loop.
+		spins := n.init == nil && n.cond == nil && n.post == nil
+		declares := false
+		if n.init != nil do _, declares = n.init.derived.(^ast.Value_Decl)
+		scans := n.post != nil && !declares
+		if !spins && !scans && (n.cond == nil || !calls_procedure(ctx, n.cond)) {
 			no_op_empty_body(ctx, n.body, diags)
 		}
 	case ^ast.Range_Stmt:
