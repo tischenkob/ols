@@ -617,3 +617,26 @@ main :: proc() {
 	}
 	test.expect_action_missing(t, &source, ADD_EXPLICIT_TYPE_ACTION)
 }
+
+// An anonymous struct has no name to write, so `: struct` is never offered.
+@(test)
+action_add_explicit_type_refused_for_anonymous_struct :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	inner: struct {
+		a: int,
+	},
+}
+
+main :: proc() {
+	s: S
+	x{*} := s.inner
+	_ = x
+}
+`,
+		config = {enable_code_action_add_explicit_type = true},
+	}
+	test.expect_action_missing(t, &source, ADD_EXPLICIT_TYPE_ACTION)
+}

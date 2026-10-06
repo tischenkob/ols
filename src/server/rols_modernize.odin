@@ -239,11 +239,13 @@ modernize_fixes :: proc(
 		}
 	}
 
+	// Lint, migration and recipe fixes that would delete a comment are left out, as for use-stdlib.
 	wants_lint := false
 	for rule in lint_rules do if rule.id in selected do wants_lint = true
 	if wants_lint {
 		for fix in lint_fixes(document, config) {
 			if fix.code not_in selected do continue
+			if fix_drops_comment(document.ast, fix.start, fix.end, fix.text) do continue
 			append(
 				&out,
 				Modernize_Fix{rule = fix.code, title = fix.title, start = fix.start, end = fix.end, text = fix.text},
@@ -254,11 +256,15 @@ modernize_fixes :: proc(
 	wants_migration := false
 	for rule in migration_rules do if rule.id in selected do wants_migration = true
 	if wants_migration {
-		append(&out, ..migration_fixes(document, selected))
+		for fix in migration_fixes(document, selected) {
+			if !fix_drops_comment(document.ast, fix.start, fix.end, fix.text) do append(&out, fix)
+		}
 	}
 
 	if set := modernize_recipe_set(config); set != nil {
-		append(&out, ..recipe_fixes(document, set, selected))
+		for fix in recipe_fixes(document, set, selected) {
+			if !fix_drops_comment(document.ast, fix.start, fix.end, fix.text) do append(&out, fix)
+		}
 	}
 	return out[:]
 }
@@ -476,7 +482,7 @@ ident_is :: proc(expr: ^ast.Expr, name: string) -> bool {
 	return ok && ident.name == name
 }
 
-@(private = "file")
+@(private = "package")
 declares_inside :: proc(root: ^ast.Node, name: string) -> bool {
 	Search :: struct {
 		name:  string,

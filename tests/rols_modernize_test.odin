@@ -847,6 +847,36 @@ g :: proc(n: int) -> int {
 	test.expect_modernized(t, &src, {}, src.main)
 }
 
+// A lint fix whose replacement drops a comment is skipped, and the same fix without one applies.
+@(test)
+modernize_lint_fix_keeps_comment :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+f :: proc(a: int) -> int {
+	b := a + /* pad */ 0
+	c := a + 0
+	return b + c
+}
+`,
+		config = {enable_lint_no_op = true},
+	}
+
+	test.expect_modernized(
+		t,
+		&src,
+		{"no-op-arithmetic"},
+		`package test
+
+f :: proc(a: int) -> int {
+	b := a + /* pad */ 0
+	c := a
+	return b + c
+}
+`,
+	)
+}
+
 // Odin rejects `x[:]` on a constant, a by-value parameter and a range value, so the loop stays.
 @(test)
 modernize_sum_skips_fixed_array_parameter :: proc(t: ^testing.T) {

@@ -205,6 +205,8 @@ slice_arg_text :: proc(w: ^Stdlib_Walker, bound: ^ast.Node) -> (string, bool) {
 	if len_symbol, len_ok := resolve_type_in_package(w.document, resolved.symbol.pkg, array.len); len_ok {
 		if _, is_enum := len_symbol.value.(SymbolEnumValue); is_enum do return "", false
 	}
+	// A pointer to an array slices through `p[:]`, whatever holds the pointer.
+	if resolved.symbol.pointers > 0 do return strings.concatenate({text, "[:]"}, w.allocator), true
 	// Odin slices only an addressable array: a variable, or a field or element of one. Constants,
 	// by-value parameters, range values and call results are not.
 	root := access_root(expr)
@@ -235,8 +237,9 @@ access_root :: proc(node: ^ast.Node) -> ^ast.Node {
 	}
 }
 
-// True when an enclosing loop of the identifier declares its name as a value without `&`. Such a
-// value is a copy and cannot be sliced. A same-named local inside the loop refuses too, which is safe.
+// True when an enclosing loop or type switch of the identifier declares its name as a value
+// without `&`. Such a value is a copy and cannot be sliced. A same-named local inside refuses too,
+// which is safe.
 @(private = "file")
 is_range_value :: proc(document: ^Document, ident: ^ast.Ident) -> bool {
 	Search :: struct {
@@ -253,6 +256,17 @@ is_range_value :: proc(document: ^Document, ident: ^ast.Ident) -> bool {
 				if loop.body.pos.offset <= search.ident.pos.offset && search.ident.pos.offset < loop.body.end.offset {
 					for val in loop.vals {
 						if name, is_name := val.derived.(^ast.Ident); is_name && name.name == search.ident.name {
+							search.found = true
+						}
+					}
+				}
+			}
+			if sw, is_switch := node.derived.(^ast.Type_Switch_Stmt); is_switch && sw.body != nil {
+				tag, is_assign := sw.tag.derived.(^ast.Assign_Stmt)
+				inside := sw.body.pos.offset <= search.ident.pos.offset && search.ident.pos.offset < sw.body.end.offset
+				if is_assign && inside {
+					for lhs in tag.lhs {
+						if name, is_name := lhs.derived.(^ast.Ident); is_name && name.name == search.ident.name {
 							search.found = true
 						}
 					}
@@ -328,6 +342,17 @@ fill_args :: proc(w: ^Stdlib_Walker, m: ^Stdlib_Match, s, v: ^ast.Node) -> bool 
 	if root, is_ident := access_root(s).derived.(^ast.Ident); is_ident {
 		for use in collect_ident_uses(v) do if use.ident.name == root.name do return false
 	}
+	// A pointer, slice or other view in the value may alias the array: `p := &arr` then `p[0]`.
+	symbols := resolve_entire_file(w.document)
+	for use in collect_ident_uses(v) {
+		resolved, ok := symbols[uintptr(use.ident)]
+		if !ok || resolved.is_unresolved || resolved.symbol == nil do continue
+		if resolved.symbol.pointers > 0 do return false
+		#partial switch _ in resolved.symbol.value {
+		case SymbolSliceValue, SymbolDynamicArrayValue, SymbolMultiPointerValue:
+			return false
+		}
+	}
 
 	elem: Symbol
 	elem_ok, fixed := false, false
@@ -362,8 +387,6 @@ fill_args :: proc(w: ^Stdlib_Walker, m: ^Stdlib_Match, s, v: ^ast.Node) -> bool 
 		if _, is_enum := elem.value.(SymbolEnumValue); !is_enum do return false
 	}
 	if untyped {
-		// An anonymous aggregate carries the keyword as its name, which symbol_type_text would write.
-		if .Anonymous in elem.flags do return false
 		ast_context := make_ast_context(
 			w.document.ast,
 			w.document.imports,
@@ -535,6 +558,8 @@ stdlib_matches :: proc(document: ^Document, allocator := context.temp_allocator)
 	outer: for m in w.out {
 		// Inside the target package the rewrite would call itself; the package clause names it even in a copy.
 		if m.pkg != "" && m.pkg == document.ast.pkg_name do continue
+		// A builtin target such as `max` can be shadowed in the file, also by the enclosing procedure.
+		if m.rule.pkg == "" && name_taken(document, m.start, m.rule.target, "") do continue
 		for kept in out {
 			if kept.start <= m.start && m.end <= kept.end do continue outer
 		}

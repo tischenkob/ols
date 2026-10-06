@@ -848,3 +848,126 @@ f :: proc(s: []int, x: int) -> bool {
 import "core:slice"`,
 	)
 }
+
+// A pointer to an array slices through `p[:]`, even when a by-value parameter holds it.
+@(test)
+modernize_fill_slices_pointer_field_of_parameter :: proc(t: ^testing.T) {
+	src := test.Source {
+		main = `package test
+
+S :: struct {
+	ptr: ^[3]int,
+}
+
+f :: proc(s: S) {
+	for &e in s.ptr {
+		e = 1
+	}
+}
+`,
+		config = {enable_lint_use_stdlib = true},
+	}
+
+	test.expect_modernized(
+		t,
+		&src,
+		{},
+		`package test
+
+import "core:slice"
+
+S :: struct {
+	ptr: ^[3]int,
+}
+
+f :: proc(s: S) {
+	slice.fill(s.ptr[:], 1)
+}
+`,
+	)
+}
+
+// A value that reads the array through a pointer changes as the loop writes, and a type-switch
+// binding is a copy that Odin does not slice.
+@(test)
+lint_use_stdlib_refuses_alias_and_switch_binding :: proc(t: ^testing.T) {
+	cases := []Lint_Case {
+		{
+			"fill value through a pointer to the array",
+			`package test
+
+f :: proc() {
+	arr: [3]int
+	p := &arr
+	for &e in arr {
+		e = p[0]
+	}
+}
+`,
+			{},
+		},
+		{
+			"type-switch binding",
+			`package test
+
+U :: union {
+	[3]int,
+	int,
+}
+
+f :: proc(u: U, x: int) -> bool {
+	#partial switch v in u {
+	case [3]int:
+		for e in v {
+			if e == x {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+`,
+			{},
+		},
+	}
+
+	expect_lint_cases(t, cases, {enable_lint_use_stdlib = true})
+}
+
+// The call would reach the declaration that shadows the builtin, here the procedure itself.
+@(test)
+lint_use_stdlib_shadowed_builtin :: proc(t: ^testing.T) {
+	cases := []Lint_Case {
+		{
+			"procedure named max",
+			`package test
+
+max :: proc(a, b: int) -> int {
+	if a > b {
+		return a
+	}
+	return b
+}
+`,
+			{},
+		},
+		{
+			"local named max",
+			`package test
+
+f :: proc(a, b: int) -> int {
+	max := 0
+	_ = max
+	if a > b {
+		return a
+	}
+	return b
+}
+`,
+			{},
+		},
+	}
+
+	expect_lint_cases(t, cases, {enable_lint_use_stdlib = true})
+}

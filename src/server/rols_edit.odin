@@ -271,6 +271,10 @@ symbol_type_text :: proc(
 	if is_untyped && .Mutable not_in symbol.flags {
 		return "", false
 	}
+	// An anonymous aggregate carries its keyword, such as `struct`, as its name.
+	if .Anonymous in symbol.flags {
+		return "", false
+	}
 	// A variable's own symbol, as a poly call result is, can carry the package of its type argument. It is
 	// still anonymous, and must not turn the variable name into a type name.
 	if name != "" && symbol.name == name && (symbol.type == .Variable || symbol.type == .Constant) {
