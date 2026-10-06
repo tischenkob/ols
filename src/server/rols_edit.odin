@@ -673,11 +673,41 @@ import_edit :: proc(ctx: ^ActionContext, import_path: string, alias := "") -> Te
 	}
 
 	// pkg_decl lines are 1-based, so this is the 0-based line right after the package clause.
+	// A blank line goes on each side of the import, unless that line is blank or past the end.
 	line := ctx.ast_context.file.pkg_decl.end.line
+	src := ctx.document.ast.src
+	rest := src[ctx.ast_context.file.pkg_decl.end.offset:]
+	newline := strings.index_byte(rest, '\n')
+	next_line := newline < 0 ? "" : rest[newline + 1:]
+	if eol := strings.index_byte(next_line, '\n'); eol >= 0 do next_line = next_line[:eol]
+	blank := strings.trim_space(next_line) == ""
 	return {
 		range = {start = {line = line, character = 0}, end = {line = line, character = 0}},
-		newText = fmt.tprintf("%s\n", decl),
+		newText = fmt.tprintf("\n%s\n%s", decl, blank ? "" : "\n"),
 	}
+}
+
+// Appends edit, an import from import_edit, to edits unless edits already add that import. An
+// import that goes where an earlier one goes joins that edit on the line after it, so the blank
+// lines that import_edit puts around an import after the package clause stay around the group.
+append_import_edit :: proc(edits: ^[dynamic]TextEdit, edit: TextEdit) {
+	decl := strings.trim(edit.newText, "\n")
+	for &existing in edits {
+		lines := strings.trim(existing.newText, "\n")
+		if existing.range != edit.range || !strings.has_prefix(lines, "import ") {
+			continue
+		}
+		for line in strings.split_lines(lines, context.temp_allocator) {
+			if line == decl do return
+		}
+		body := strings.trim_right(existing.newText, "\n")
+		existing.newText = strings.concatenate(
+			{body, "\n", decl, existing.newText[len(body):]},
+			context.temp_allocator,
+		)
+		return
+	}
+	append(edits, edit)
 }
 
 // A type node as source text for the current document. decl_pkg is the directory of the package
@@ -951,13 +981,7 @@ package_alias :: proc(ctx: ^ActionContext, dir: string, edits: ^[dynamic]TextEdi
 	if alias in keyword_map || is_taken(ctx, probe) || document_imports_alias(ctx.document, alias) {
 		return "", false
 	}
-	edit := import_edit(ctx, import_path)
-	for existing in edits {
-		if existing.newText == edit.newText {
-			return alias, true
-		}
-	}
-	append(edits, edit)
+	append_import_edit(edits, import_edit(ctx, import_path))
 	return alias, true
 }
 
