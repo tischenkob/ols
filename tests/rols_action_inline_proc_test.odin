@@ -856,3 +856,96 @@ main :: proc() {
 `)
 	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
 }
+
+// The caller's local LIMIT would capture the body's use of the package constant.
+@(test)
+action_inline_proc_refused_caller_local_shadows_body_name :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+LIMIT :: 3
+
+draw :: proc(x: int) {
+	_ = x + LIMIT
+}
+
+main :: proc() {
+	LIMIT := 10
+	dr{*}aw(1)
+	_ = LIMIT
+}
+`)
+}
+
+@(test)
+action_inline_proc_refused_caller_local_shadows_body_name_across_files :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+LIMIT :: 3
+
+draw :: proc(x: int) {
+	_ = x + LIMIT
+}
+`, `package test
+
+main :: proc() {
+	for LIMIT in 0 ..< 2 {
+		dr{*}aw(LIMIT)
+	}
+}
+`)
+	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
+}
+
+// An import of the caller's file under a name the body takes from the package changes what it means.
+@(test)
+action_inline_proc_refused_caller_import_shadows_body_name :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+time :: 3
+
+draw :: proc(x: int) {
+	_ = x + time
+}
+`, `package test
+
+import "core:time"
+
+main :: proc() {
+	dr{*}aw(1)
+}
+`)
+	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
+}
+
+// A package constant that both the body and the caller use is the same declaration after inlining.
+@(test)
+action_inline_proc_body_and_caller_share_a_global :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+LIMIT :: 3
+
+draw :: proc(x: int) {
+	_ = x + LIMIT
+}
+
+main :: proc() {
+	n := LIMIT
+	dr{*}aw(n)
+}
+`, `package test
+
+LIMIT :: 3
+
+draw :: proc(x: int) {
+	_ = x + LIMIT
+}
+
+main :: proc() {
+	n := LIMIT
+	{
+		x: int = n
+		_ = x + LIMIT
+	}
+}
+`)
+}

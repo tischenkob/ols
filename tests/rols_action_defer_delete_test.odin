@@ -552,3 +552,48 @@ main :: proc(m: map[^Point]bool) {
 }
 `)
 }
+
+// `for &e in s` aliases each element in place, so `&e` stored outside the loop points into s.
+@(test)
+defer_delete_range_alias_stored :: proc(t: ^testing.T) {
+	expect_no_defer_delete(t, "Add defer delete(s)", `package test
+` + BUILTINS + `
+g: ^int
+
+main :: proc() {
+	s{*} := make([]int, 4)
+	for &e in s {
+		g = &e
+	}
+}
+`)
+}
+
+// Writing through the alias and copying the element out share nothing.
+@(test)
+defer_delete_range_alias_written :: proc(t: ^testing.T) {
+	expect_defer_delete(t, "Add defer delete(s)", `package test
+` + BUILTINS + `
+main :: proc() -> int {
+	s{*} := make([]int, 4)
+	x := 0
+	for &e in s {
+		e = 1
+		x = e
+	}
+	return x
+}
+`, `package test
+` + BUILTINS + `
+main :: proc() -> int {
+	s := make([]int, 4)
+	defer delete(s)
+	x := 0
+	for &e in s {
+		e = 1
+		x = e
+	}
+	return x
+}
+`)
+}

@@ -599,3 +599,15 @@ f{*} :: proc() -> () {
 }
 `)
 }
+
+@(test)
+add_ok_result_distinct_bool :: proc(t: ^testing.T) {
+	expect_no_add_ok_result(t, `package test
+
+My_Ok :: distinct bool
+
+f{*} :: proc(x: int) -> (int, My_Ok) {
+	return x, true
+}
+`)
+}

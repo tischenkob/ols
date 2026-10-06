@@ -864,3 +864,31 @@ f :: proc() {
 }
 `)
 }
+
+@(test)
+expand_or_return_distinct_bool :: proc(t: ^testing.T) {
+	expect_expand(t, EXPAND_OR_RETURN, `package test
+
+My_Ok :: distinct bool
+
+f :: proc() -> (int, My_Ok) { return 1, true }
+
+main :: proc() -> (n: int, ok: My_Ok) {
+	x := f() or_{*}return
+	return x, true
+}
+`, `package test
+
+My_Ok :: distinct bool
+
+f :: proc() -> (int, My_Ok) { return 1, true }
+
+main :: proc() -> (n: int, ok: My_Ok) {
+	x, ok2 := f()
+	if !ok2 {
+		return 0, false
+	}
+	return x, true
+}
+`)
+}

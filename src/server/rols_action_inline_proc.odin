@@ -101,18 +101,16 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	callee_src := target.ast.src
-	if target != ctx.document {
-		roots := make([dynamic]^ast.Node, context.temp_allocator)
-		append(&roots, body)
-		if lit.type.params != nil {
-			for field in lit.type.params.list {
-				if field.type != nil do append(&roots, field.type)
-				if field.default_value != nil do append(&roots, field.default_value)
-			}
+	roots := make([dynamic]^ast.Node, context.temp_allocator)
+	append(&roots, body)
+	if lit.type.params != nil {
+		for field in lit.type.params.list {
+			if field.type != nil do append(&roots, field.type)
+			if field.default_value != nil do append(&roots, field.default_value)
 		}
-		if borrows_from_file(target, ctx.document, roots[:]) {
-			return
-		}
+	}
+	if borrows_from_file(target, ctx.document, lit, enclosing_values(ctx), roots[:]) {
+		return
 	}
 
 	params := make([dynamic]Param, context.temp_allocator)
@@ -339,38 +337,113 @@ find_proc_lit :: proc(ctx: ^ActionContext, symbol: Symbol) -> (^Document, ^ast.P
 }
 
 // The source of roots is copied from the callee's file into the caller's, so it must mean the same
-// there: it may not name a file-private declaration of the callee's file, or use an import that the
-// caller's file lacks or binds under another name. Shadowing is not tracked, so a local of the same
-// name refuses too.
-borrows_from_file :: proc(callee, caller: ^Document, roots: []^ast.Node) -> bool {
-	private_names := make(map[string]struct{}, context.temp_allocator)
-	whole_file := parser.parse_file_tags(callee.ast, context.temp_allocator).private == .File
-	for decl in top_level_value_decls(callee.ast) {
-		if whole_file || is_file_private(decl.attributes[:]) {
-			for name in decl.names {
-				private_names[final_name(name)] = {}
-			}
-		}
-	}
+// there. From another file it may not name a file-private declaration of the callee's file, or use an
+// import that the caller's file lacks or binds under another name. Shadowing is not tracked, so a
+// local of the same name refuses too. In either file, a name that lit does not declare itself may not
+// be bound otherwise at the call: by a declaration inside enclosing, a file-private declaration of
+// the caller's file or an import of another package.
+borrows_from_file :: proc(
+	callee, caller: ^Document,
+	lit: ^ast.Proc_Lit,
+	enclosing: []^ast.Node,
+	roots: []^ast.Node,
+) -> bool {
+	same_file := callee == caller
+	private_names := file_private_names(callee)
+	caller_private := file_private_names(caller)
 	for root in roots {
 		for use in collect_ident_uses(root) {
 			name := use.ident.name
-			if name in private_names {
+			if !same_file {
+				if name in private_names {
+					return true
+				}
+				for imp in callee.ast.imports {
+					if pattern_import_name(imp) != name {
+						continue
+					}
+					imported := false
+					for other in caller.ast.imports {
+						imported ||= other.fullpath == imp.fullpath && pattern_import_name(other) == name
+					}
+					if !imported {
+						return true
+					}
+				}
+			}
+
+			if is_field_name(use) || declares_inside(lit, name) {
+				continue
+			}
+			for node in enclosing {
+				if declares_inside(node, name) {
+					return true
+				}
+			}
+			if same_file {
+				continue
+			}
+			if name in caller_private {
 				return true
 			}
-			for imp in callee.ast.imports {
-				if pattern_import_name(imp) != name {
+			for other in caller.ast.imports {
+				if pattern_import_name(other) != name {
 					continue
 				}
 				imported := false
-				for other in caller.ast.imports {
-					imported ||= other.fullpath == imp.fullpath && pattern_import_name(other) == name
+				for imp in callee.ast.imports {
+					imported ||= imp.fullpath == other.fullpath && pattern_import_name(imp) == name
 				}
 				if !imported {
 					return true
 				}
 			}
 		}
+	}
+	return false
+}
+
+// Names of the top-level declarations private to the document's file.
+file_private_names :: proc(document: ^Document) -> map[string]struct{} {
+	names := make(map[string]struct{}, context.temp_allocator)
+	whole_file := parser.parse_file_tags(document.ast, context.temp_allocator).private == .File
+	for decl in top_level_value_decls(document.ast) {
+		if whole_file || is_file_private(decl.attributes[:]) {
+			for name in decl.names {
+				names[final_name(name)] = {}
+			}
+		}
+	}
+	return names
+}
+
+// The top-level statement around the cursor, or the values of the declaration it is, whose own
+// name is no local.
+enclosing_values :: proc(ctx: ^ActionContext) -> []^ast.Node {
+	nodes := make([dynamic]^ast.Node, context.temp_allocator)
+	stmt := top_level_stmt_at(ctx.document.ast.decls[:], ctx.range.start)
+	if stmt == nil || stmt.pos.offset > ctx.range.start {
+		append(&nodes, ctx.position_context.function)
+	} else if decl, is_decl := stmt.derived.(^ast.Value_Decl); is_decl {
+		for value in decl.values do append(&nodes, value)
+	} else {
+		append(&nodes, stmt)
+	}
+	return nodes[:]
+}
+
+// Whether the use is a field name, as in `p.x`, `.x` or `{x = 1}`, rather than a name in scope.
+is_field_name :: proc(use: IdentUse) -> bool {
+	if len(use.parents) == 0 {
+		return false
+	}
+	#partial switch p in use.parents[len(use.parents) - 1].derived {
+	case ^ast.Selector_Expr:
+		return p.field == use.ident
+	case ^ast.Implicit_Selector_Expr:
+		return true
+	case ^ast.Field_Value:
+		return p.field == use.ident
 	}
 	return false
 }
@@ -387,19 +460,8 @@ proc_lit_named :: proc(document: ^Document, name: string) -> ^ast.Proc_Lit {
 
 // Index of the parameter the use reads, or -1 for other names and for field names.
 param_index :: proc(params: []Param, use: IdentUse) -> int {
-	if len(use.parents) > 0 {
-		#partial switch p in use.parents[len(use.parents) - 1].derived {
-		case ^ast.Selector_Expr:
-			if p.field == use.ident {
-				return -1
-			}
-		case ^ast.Implicit_Selector_Expr:
-			return -1
-		case ^ast.Field_Value:
-			if p.field == use.ident {
-				return -1
-			}
-		}
+	if is_field_name(use) {
+		return -1
 	}
 	for param, i in params {
 		if param.name == use.ident.name {

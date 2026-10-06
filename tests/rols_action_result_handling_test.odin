@@ -728,3 +728,28 @@ main :: proc() {
 }
 `)
 }
+
+@(test)
+result_or_return_distinct_bool :: proc(t: ^testing.T) {
+	expect_result_action(t, OR_RETURN_ACTION, `package test
+
+My_Ok :: distinct bool
+
+f :: proc() -> (int, My_Ok) { return 1, true }
+
+main :: proc() -> My_Ok {
+	x := f({*})
+	return x > 0
+}
+`, `package test
+
+My_Ok :: distinct bool
+
+f :: proc() -> (int, My_Ok) { return 1, true }
+
+main :: proc() -> My_Ok {
+	x := f() or_return
+	return x > 0
+}
+`)
+}

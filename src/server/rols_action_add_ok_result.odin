@@ -50,7 +50,7 @@ add_add_ok_result_action :: proc(ctx: ^ActionContext) {
 		types = field_types(results.list)
 	}
 	// A last bool result is already the ok flag, and a second one would only shadow it.
-	if len(types) > 0 && result_kind(types[len(types) - 1]) == .Bool {
+	if len(types) > 0 && result_kind_in(ctx.document, ctx.document.package_name, types[len(types) - 1]) == .Bool {
 		return
 	}
 

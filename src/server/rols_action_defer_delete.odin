@@ -184,13 +184,14 @@ add_defer_delete_action :: proc(ctx: ^ActionContext) {
 // procedure: returned, stored in a variable, field, literal or map key, appended, passed to a call
 // whose result is kept, or when the variable is reassigned. A call whose result is discarded is
 // trusted not to keep its arguments, except the append family in `stores`. Uses this walk does not
-// know count as escapes. Shadowing is ignored. name is the variable the allocation statement assigns.
-escapes :: proc(body: ^ast.Stmt, name: ^ast.Ident) -> bool {
+// know count as escapes. Shadowing is ignored. name is the variable the allocation statement assigns,
+// or with element an alias of one element, such as `e` in `for &e in s`.
+escapes :: proc(body: ^ast.Stmt, name: ^ast.Ident, element := false) -> bool {
 	for use in collect_ident_uses(body) {
 		if use.ident.name != name.name || use.ident == name || len(use.parents) == 0 {
 			continue
 		}
-		if is_value_use(use) && escapes_from(use.ident, use.parents) {
+		if is_value_use(use) && escapes_from(use.ident, use.parents, element) {
 			return true
 		}
 	}
@@ -199,10 +200,9 @@ escapes :: proc(body: ^ast.Stmt, name: ^ast.Ident) -> bool {
 
 // value is an expression that may share the allocation; parents are its ancestors, outermost first.
 // An element read (index or deref) copies out of the allocation, so it only shares it through a
-// later `&` or slice.
-escapes_from :: proc(value: ^ast.Expr, parents: []^ast.Node) -> bool {
-	value := value
-	element := false
+// later `&` or slice. element says that value itself already is such a read.
+escapes_from :: proc(value: ^ast.Expr, parents: []^ast.Node, element := false) -> bool {
+	value, element := value, element
 	for i := len(parents) - 1; i >= 0; i -= 1 {
 		#partial switch p in parents[i].derived {
 		case ^ast.Paren_Expr, ^ast.Selector_Expr:
@@ -261,11 +261,25 @@ escapes_from :: proc(value: ^ast.Expr, parents: []^ast.Node) -> bool {
 				// allocation and frees whatever it holds instead.
 				_, is_variable := value.derived.(^ast.Ident)
 				return is_variable || !slice.contains(q.lhs, value)
+			case ^ast.Range_Stmt:
+				// `for &e in s` makes e an element of s in place, so `&e` shares the allocation.
+				if q.expr != value || q.body == nil {
+					return false
+				}
+				for val in q.vals {
+					ref, is_ref := val.derived.(^ast.Unary_Expr)
+					if !is_ref || ref.op.kind != .And {
+						continue
+					}
+					if alias, is_ident := ref.expr.derived.(^ast.Ident); is_ident && escapes(q.body, alias, true) {
+						return true
+					}
+				}
+				return false
 			case ^ast.Expr_Stmt,
 			     ^ast.If_Stmt,
 			     ^ast.When_Stmt,
 			     ^ast.For_Stmt,
-			     ^ast.Range_Stmt,
 			     ^ast.Switch_Stmt,
 			     ^ast.Type_Switch_Stmt,
 			     ^ast.Case_Clause:

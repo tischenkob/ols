@@ -1012,11 +1012,16 @@ make_titles_distinct :: proc(document: ^Document, actions: ^[dynamic]CodeAction)
 	}
 }
 
-// A builtin type name that the package does not declare itself.
+// Symbol types of values. Types other than structs, unions and enums, such as distinct ones, are
+// indexed as unresolved, so a type declaration is told apart by ruling these out.
+VALUE_SYMBOL_TYPES :: bit_set[SymbolType]{.Function, .Field, .Variable, .Package, .Keyword, .EnumMember, .Constant}
+
+// A builtin type name that the package does not declare as a type visible to other files.
+// A constant such as `string :: "x"` is indexed as unresolved and still counts as declared.
 builtin_without_decl :: proc(name, pkg: string) -> bool {
 	if !is_builtin_type_name(name) {
 		return false
 	}
-	_, declared := memory_index_lookup(&indexer.index, name, pkg)
-	return !declared
+	symbol, found := memory_index_lookup(&indexer.index, name, pkg)
+	return !found || symbol.type in VALUE_SYMBOL_TYPES || .PrivateFile in symbol.flags
 }

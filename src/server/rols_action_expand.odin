@@ -209,7 +209,7 @@ add_expand_or_return :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 		if len(results) == 0 {
 			return
 		}
-		kind := result_kind(results[len(results) - 1])
+		kind := result_kind_in(ctx.document, resolved.symbol.pkg, results[len(results) - 1])
 		if kind == .Other {
 			return
 		}
