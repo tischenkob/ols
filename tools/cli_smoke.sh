@@ -992,6 +992,12 @@ if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
 	out="$("$OLS" query tests "$dir/prof")"
 	[[ "$out" == *t_differ* ]] || { echo "FAIL tests-when-string-defines: $out"; exit 1; }
 	echo "ok tests-when-string-defines"
+	# A signed hex define that does not fit an int is unknown, since the evaluator wraps it.
+	echo '{"profile": "d", "profiles": [{"name": "d", "defines": {"X": "-0x8000000000000001"}}]}' > "$dir/prof/ols.json"
+	printf 'package prof\n\nimport "core:testing"\n\nwhen #config(X, 0) < 0 {\n\t@(test)\n\tt_neg :: proc(t: ^testing.T) {}\n} else {\n\t@(test)\n\tt_nonneg :: proc(t: ^testing.T) {}\n}\n' > "$dir/prof/a_test.odin"
+	out="$("$OLS" query tests "$dir/prof")"
+	[[ "$out" == *t_neg* ]] || { echo "FAIL tests-when-signed-hex-define: $out"; exit 1; }
+	echo "ok tests-when-signed-hex-define"
 	rm -rf "$dir/prof"
 fi
 # reorder-params names the one cause that applies.
