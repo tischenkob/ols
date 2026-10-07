@@ -243,7 +243,7 @@ Walker :: struct {
 
 // How the host builds a document: a `#+build ignore` file is built nowhere, and a file whose build tags or name
 // leave out the host is excluded. A lint or hint treats an excluded file like an inactive `when` branch, since its
-// names resolve to the host's declarations.
+// names can resolve to declarations that the target building it does not have.
 @(private = "package")
 document_build :: proc(document: ^Document) -> (ignored, excluded: bool) {
 	tags := parser.parse_file_tags(document.ast, context.temp_allocator)
@@ -1031,8 +1031,8 @@ value_names :: proc(ctx: ^LintContext) -> map[string]struct{} {
 	for stmt in ctx.document.ast.decls {
 		for use in collect_ident_uses(stmt) {
 			if !is_value_use(use) do continue
-			// rols: code the host does not build resolves to the host's declarations, where the name may be a
-			// variable while that code passes a procedure, so a mention there counts by name.
+			// rols: code the host does not build can resolve a name to the host's declaration, which may be a
+			// variable where that code passes a procedure, so a mention there counts by name.
 			if in_spans(inactive, use.ident.pos.offset) {
 				names[use.ident.name] = {}
 				continue

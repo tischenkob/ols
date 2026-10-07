@@ -607,7 +607,7 @@ scan_stmts :: proc(w: ^Stdlib_Walker, stmts: []^ast.Stmt) {
 stdlib_matches :: proc(document: ^Document, allocator := context.temp_allocator) -> []Stdlib_Match {
 	rules := stdlib_rules()
 	if len(rules) == 0 do return nil
-	// rols: a file the host does not build resolves its names to the host's declarations, like an inactive branch.
+	// rols: a file the host does not build is skipped like an inactive branch (see `document_build`).
 	if ignored, excluded := document_build(document); ignored || excluded do return nil
 
 	w := Stdlib_Walker {
