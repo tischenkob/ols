@@ -360,7 +360,7 @@ cp "$dir/at/at.odin" "$dir/at.orig"
 expect attr-add-diff '^+@(private, require_results)$' sh -c "cd \"$dir\" && \"$OLS\" query attr add at.helper require_results"
 expect attr-add-json '"status": "dry_run"' sh -c "cd \"$dir\" && \"$OLS\" query attr add at.helper require_results --json"
 cmp -s "$dir/at/at.odin" "$dir/at.orig" || { echo "FAIL attr dry run wrote the file"; exit 1; }
-expect attr-add-apply "^attr add: 1 edit in 1 file written, 1 package checked$" sh -c "cd \"$dir\" && \"$OLS\" query attr add at.helper require_results --apply"
+expect attr-add-apply "^attr add: 1 edit in 1 file written, 1 package checked, also on freestanding_wasm32$" sh -c "cd \"$dir\" && \"$OLS\" query attr add at.helper require_results --apply"
 grep -q "^@(private, require_results)$" "$dir/at/at.odin" || { echo "FAIL attr-add-apply text"; exit 1; }
 odin check "$dir/at"
 echo "ok attr-add-apply check"
@@ -374,7 +374,7 @@ printf 'package at\n\n@(private) hidden := 0\n' > "$dir/at/hidden.odin"
 printf 'package smoke\n\n@(private) skipped := 0\n' > "$dir/skipped.odin"
 echo '{"workspace_exclude": ["at/hidden.odin", "skipped.odin"]}' > "$dir/ols.json"
 expect attr-remove-all-skipped '^warning: 1 workspace file skipped .* contains `private`, and attr remove does not change it: .*at/hidden.odin$' sh -c "\"$OLS\" query attr remove --all private \"$dir/at\" 2>&1"
-expect attr-remove-all "^attr remove: 3 edits in 1 file written, 1 package checked$" "$OLS" query attr remove --all private "$dir/at" --apply
+expect attr-remove-all "^attr remove: 3 edits in 1 file written, 1 package checked, also on freestanding_wasm32$" "$OLS" query attr remove --all private "$dir/at" --apply
 ! grep -q "private" "$dir/at/at.odin" && grep -q "^counter := 0$" "$dir/at/at.odin" && grep -q "^@(rodata)$" "$dir/at/at.odin" || { echo "FAIL attr-remove-all text"; cat "$dir/at/at.odin"; exit 1; }
 odin check "$dir/at"
 echo "ok attr-remove-all check"
@@ -691,6 +691,13 @@ if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
 	expect native-importer-skipped-on-js "^warning: jw/nat does not build on target js_wasm32: odin check there reports errors in .*, outside the workspace" sh -c "\"$OLS\" query attr add \"$dir/jw/wl/wl_js.odin:3:1\" cold --apply 2>&1"
 	expect_exit 4 js-importer-keeps-its-gate "$OLS" query attr add "$dir/jw/wl/wl_js.odin:4:1" private --apply
 	rm -rf "$dir/jw"
+	# A `when ODIN_OS == .Windows` branch alone adds windows_amd64: require_results on f breaks the discarded call
+	# in it, though no file of the package needs that target.
+	mkdir -p "$dir/wb"
+	printf 'package wb\n\nf :: proc() -> int {\n\treturn 1\n}\n\nwhen ODIN_OS == .Windows {\n\tg :: proc() {\n\t\tf()\n\t}\n}\n' > "$dir/wb/wb.odin"
+	expect when-branch-names-its-target "^attr add: 1 edit in 1 file written, 1 package checked, also on windows_amd64$" "$OLS" query attr add "$dir/wb.f" cold --apply
+	expect_exit 4 when-branch-rolled-back "$OLS" query attr add "$dir/wb.f" require_results --apply
+	rm -rf "$dir/wb"
 fi
 mkdir "$dir/pre"
 printf 'package pre\n\nx: int = "s"\n\nhelper :: proc() -> int {\n\treturn 1\n}\n' > "$dir/pre/pre.odin"
