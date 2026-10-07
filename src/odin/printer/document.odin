@@ -298,8 +298,9 @@ Tuple :: struct {
 
 list_fits: [dynamic]Tuple
 
-// rols: `rest` is the caller's pending stack, read from its top without a copy, so a fit check costs its width
-fits :: proc(width: int, list: ^[dynamic]Tuple, rest: []Tuple) -> bool {
+// rols: `rest` is the caller's pending stack, read from its top without a copy, so a fit check costs its width.
+// `modes` holds the modes that format already decided, so a paired `else` block follows its broken then-block.
+fits :: proc(width: int, list: ^[dynamic]Tuple, rest: []Tuple, modes: ^map[string]Document_Group_Mode = nil) -> bool {
 	assert(list != nil)
 
 	rest_index := len(rest)
@@ -390,7 +391,8 @@ fits :: proc(width: int, list: ^[dynamic]Tuple, rest: []Tuple) -> bool {
 				width -= len(v.value)
 			}
 		case Document_If_Break_Or:
-			if data.mode == .Break {
+			// rols: a paired `else` block takes the decided mode of its then-block
+			if chain_fit_mode(modes, v.group_id, data.mode) == .Break {
 				append(
 					list,
 					Tuple {
@@ -659,6 +661,7 @@ format :: proc(width: int, list: ^[dynamic]Tuple, builder: ^strings.Builder, p: 
 
 			recalculate = false
 
+			// rols: the fit check below reads the group modes decided so far
 			if data.mode == .Fit {
 				append(
 					list,
@@ -669,7 +672,9 @@ format :: proc(width: int, list: ^[dynamic]Tuple, builder: ^strings.Builder, p: 
 						alignment = data.alignment,
 					},
 				)
-			} else if fits(width - consumed, &list_fits, list[:]) && v.mode != .Break && v.mode != .Fit {
+			} else if fits(width - consumed, &list_fits, list[:], &p.group_modes) &&
+			   v.mode != .Break &&
+			   v.mode != .Fit {
 				append(
 					list,
 					Tuple {
