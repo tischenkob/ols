@@ -417,7 +417,8 @@ shadowed :: proc(s: ^S) {
 dead_store_using_local_value :: proc(t: ^testing.T) {
 	// A field of a local `using` value is a local store: overwriting it before any read of the field or the
 	// value loses the first store. A pointer, a value whose address is taken or a read of the value between
-	// the stores keeps the first store alive.
+	// the stores keeps the first store alive. So does a field that an embedded `using` pointer brings in,
+	// since the store goes through that pointer.
 	source := test.Source {
 		main = `package test
 
@@ -455,6 +456,28 @@ read_whole :: proc() {
 	t := s
 	x = 2
 	use(t)
+}
+T :: struct {
+	y: int,
+}
+E :: struct {
+	using p: ^T,
+}
+N :: struct {
+	using e: E,
+}
+observe :: proc(t: ^T) {}
+embedded_pointer :: proc(t: ^T) {
+	using s := E{p = t}
+	y = 1
+	observe(t)
+	y = 2
+}
+nested_embedded_pointer :: proc(t: ^T) {
+	using n := N{e = {p = t}}
+	y = 1
+	observe(t)
+	y = 2
 }
 `,
 		config = {enable_lint_dead_store = true},
