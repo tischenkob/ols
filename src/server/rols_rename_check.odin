@@ -314,7 +314,8 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 			offset := common.get_absolute_position(variant.range.start, document.text[:document.used_text]) or_continue
 			append(&members_at, Rename_Site{document = document, offset = offset})
 		}
-		type_name: ^ast.Ident
+		// The type name of each site whose type is a struct; each variant may have embedders of its own.
+		type_names := make([dynamic]Rename_Site_Type, context.temp_allocator)
 		for site, i in members_at {
 			members, owner, site_type_name, found := sibling_members(site.document, site.offset)
 			if !found {
@@ -335,7 +336,9 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 			}
 			struct_type := owner.derived.(^ast.Struct_Type) or_continue
 			// Only a struct carries the field on to the types that embed it.
-			if i == 0 do type_name = site_type_name
+			if site_type_name != nil {
+				append(&type_names, Rename_Site_Type{site.document, site_type_name})
+			}
 			for field in struct_type.fields.list {
 				if .Using not_in field.flags || len(field.names) == 0 {
 					continue
@@ -354,15 +357,16 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 				}
 			}
 		}
-		if type_name != nil {
+		if len(type_names) > 0 {
 			scan := Embed_Scan {
-				out      = out,
-				new_name = new_name,
-				texts    = workspace_odin_files("", target.h.files),
-				types    = make([dynamic]Symbol, context.temp_allocator),
-				decls    = make([dynamic]Symbol, context.temp_allocator),
-				sites    = make([dynamic]^Document, context.temp_allocator),
-				resolved = make(map[^Document]SymbolAndNodeMap, context.temp_allocator),
+				out         = out,
+				new_name    = new_name,
+				texts       = workspace_odin_files("", target.h.files),
+				types       = make([dynamic]Symbol, context.temp_allocator),
+				decls       = make([dynamic]Symbol, context.temp_allocator),
+				sites       = make([dynamic]^Document, context.temp_allocator),
+				resolved    = make(map[^Document]SymbolAndNodeMap, context.temp_allocator),
+				when_bodies = make(map[^ast.Block_Stmt]struct{}, context.temp_allocator),
 			}
 			// Each file is read once here, not once per type that check_embedders searches.
 			for &file in scan.texts {
@@ -371,7 +375,11 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 					file.text = string(data) if err == nil else ""
 				}
 			}
-			check_embedders(&scan, target, decl_document, type_name)
+			// scan.decls dedupes a type that two sites name.
+			for type_name in type_names {
+				check_embedders(&scan, target, type_name.document, type_name.ident)
+			}
+			check_carrier_variants(&scan, target, members_at[:], type_names[:])
 			// A `using` of a value whose type the file never names, such as a call result. Odin accepts a `using`
 			// statement only in a file with `#+feature using-stmt`, and a `using v := value` declaration anywhere.
 			for file in scan.texts {
@@ -482,6 +490,57 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 	}
 }
 
+// The type name of a struct that declares the renamed field, in document.
+@(private = "file")
+Rename_Site_Type :: struct {
+	document: ^Document,
+	ident:    ^ast.Ident,
+}
+
+// Appends a cause for each declaration in scan.decls, a type or alias that carries the renamed field, with a
+// platform variant that the rename leaves unchanged: one that neither declares a renamed member of members_at
+// nor carries the field itself. Such a declaration can live in another package than the field's type. The
+// variants of the types that declare the field, named by owners, are those that field_variants judged.
+@(private = "file")
+check_carrier_variants :: proc(
+	scan: ^Embed_Scan,
+	target: ^Rename_Target,
+	members_at: []Rename_Site,
+	owners: []Rename_Site_Type,
+) {
+	decls: for decl in scan.decls {
+		for owner in owners {
+			if strings.equal_fold(decl.uri, owner.document.uri.uri) &&
+			   decl.range == common.get_token_range(owner.ident^, owner.document.ast.src) {
+				continue decls
+			}
+		}
+		next: for variant in declaration_variants(&target.h, decl) {
+			for other in scan.decls {
+				if same_symbol(other, variant.symbol) do continue next
+			}
+			for site in members_at {
+				if site.document == variant.document &&
+				   variant.decl.pos.offset <= site.offset &&
+				   site.offset < variant.decl.end.offset {
+					continue next
+				}
+			}
+			append(
+				scan.out,
+				fmt.tprintf(
+					"`%s` at %s carries the renamed field `%s`, but its platform variant `%s` at %s is another type, which the rename does not change",
+					variant.symbol.name,
+					declared_at(decl),
+					target.old_name,
+					variant.symbol.name,
+					declared_at(variant.symbol),
+				),
+			)
+		}
+	}
+}
+
 // A declaration that a rename gives the new name: the renamed one or a variant, at offset in document.
 @(private = "file")
 Rename_Site :: struct {
@@ -513,14 +572,15 @@ builds_with_sites :: proc(sites: []Rename_Site, document: ^Document, offset: int
 // What the check of a field rename learns about the types that carry the field through `using`.
 @(private = "file")
 Embed_Scan :: struct {
-	out:      ^[dynamic]string,
-	new_name: string,
-	site:     ^Document, // the document under walk by check_using_statements
-	texts:    []Package_File, // every workspace file with its text, read once for the whole scan
-	types:    [dynamic]Symbol, // the owner type and every type that embeds it, directly or not
-	decls:    [dynamic]Symbol, // the declarations searched so far: those types and the aliases of them
-	sites:    [dynamic]^Document, // the documents searched for `using` statements and declarations
-	resolved: map[^Document]SymbolAndNodeMap, // the new name resolved in each site
+	out:         ^[dynamic]string,
+	new_name:    string,
+	site:        ^Document, // the document under walk by check_using_statements
+	texts:       []Package_File, // every workspace file with its text, read once for the whole scan
+	types:       [dynamic]Symbol, // the owner type and every type that embeds it, directly or not
+	decls:       [dynamic]Symbol, // the declarations searched so far: those types and the aliases of them
+	sites:       [dynamic]^Document, // the documents searched for `using` statements and declarations
+	resolved:    map[^Document]SymbolAndNodeMap, // the new name resolved in each site
+	when_bodies: map[^ast.Block_Stmt]struct{}, // the `when` bodies checked with the statements of their block
 }
 
 // Appends a cause for each struct that embeds the type named type_name through `using`, directly or through
@@ -748,7 +808,10 @@ check_using_statements :: proc(scan: ^Embed_Scan) {
 				scan := (^Embed_Scan)(visitor.data)
 				#partial switch n in node.derived {
 				case ^ast.Block_Stmt:
-					check_using_in_block(scan, n.stmts, {n.pos.offset, n.end.offset})
+					// A `when` body inside a block was checked with the statements of that block.
+					if n not_in scan.when_bodies {
+						check_using_in_block(scan, n.stmts, {n.pos.offset, n.end.offset})
+					}
 				case ^ast.Case_Clause:
 					check_using_in_block(scan, n.body, {n.pos.offset, n.end.offset})
 				}
@@ -762,9 +825,11 @@ check_using_statements :: proc(scan: ^Embed_Scan) {
 }
 
 // The `using` statements and `using` declarations among stmts, the statements of a block that spans the
-// offsets of block.
+// offsets of block. A `when` body opens no scope, so its statements join those of the block in text order.
 @(private = "file")
-check_using_in_block :: proc(scan: ^Embed_Scan, stmts: []^ast.Stmt, block: [2]int) {
+check_using_in_block :: proc(scan: ^Embed_Scan, block_stmts: []^ast.Stmt, block: [2]int) {
+	stmts := make([dynamic]^ast.Stmt, context.temp_allocator)
+	flatten_when_bodies(scan, &stmts, block_stmts)
 	for stmt, i in stmts {
 		if stmt == nil do continue
 		#partial switch s in stmt.derived {
@@ -772,14 +837,41 @@ check_using_in_block :: proc(scan: ^Embed_Scan, stmts: []^ast.Stmt, block: [2]in
 			for expr in s.list {
 				via, _ := expr.derived.(^ast.Ident)
 				text := scan.site.ast.src[expr.pos.offset:expr.end.offset]
-				check_using_value(scan, stmts, i, expr, text, via, block)
+				check_using_value(scan, stmts[:], i, expr, text, via, block)
 			}
 		case ^ast.Value_Decl:
 			// `using v: T` brings in the fields of T, and `using v := value` those of the value's type.
 			if !s.is_using || len(s.names) == 0 do continue
 			via := s.names[0].derived.(^ast.Ident) or_continue
 			expr := strip_parens_and_pointers(s.type) if s.type != nil else (s.values[0] if len(s.values) > 0 else nil)
-			check_using_value(scan, stmts, i, expr, via.name, via, block)
+			check_using_value(scan, stmts[:], i, expr, via.name, via, block)
+		}
+	}
+}
+
+// Appends stmts to flat with the statements of each `when` branch in place of the `when`, and records each
+// branch body in scan.when_bodies. The else of a `when` is a block or another `when`.
+@(private = "file")
+flatten_when_bodies :: proc(scan: ^Embed_Scan, flat: ^[dynamic]^ast.Stmt, stmts: []^ast.Stmt) {
+	for stmt in stmts {
+		when_stmt: ^ast.When_Stmt
+		if stmt != nil {
+			when_stmt, _ = stmt.derived.(^ast.When_Stmt)
+		}
+		if when_stmt == nil {
+			append(flat, stmt)
+			continue
+		}
+		for branch in ([]^ast.Stmt{when_stmt.body, when_stmt.else_stmt}) {
+			if branch == nil {
+				continue
+			}
+			if body, is_block := branch.derived.(^ast.Block_Stmt); is_block {
+				scan.when_bodies[body] = {}
+				flatten_when_bodies(scan, flat, body.stmts)
+			} else {
+				flatten_when_bodies(scan, flat, {branch})
+			}
 		}
 	}
 }

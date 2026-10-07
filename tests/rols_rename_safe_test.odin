@@ -1986,3 +1986,163 @@ g :: proc() -> int {
 		{"at test/b.odin:7:9 `limit` refers to `limit` declared at test/main.odin:7, but after the rename it would mean the field through `using f`"},
 	)
 }
+
+// A `when` body opens no scope, so the fields that a `using` inside it brings in stay visible after it.
+@(test)
+rename_safe_refuses_field_capture_by_using_in_when_body :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+limit :: 10
+
+f :: proc() -> int {
+	when true {
+		using v: Foo
+	}
+	return limit
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"limit",
+		{"at test/main.odin:13:9 `limit` refers to `limit` declared at test/main.odin:7, but after the rename it would mean the field through `using v`"},
+	)
+}
+
+@(test)
+rename_safe_refuses_field_capture_by_using_statement_in_when_body :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature using-stmt
+package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+limit :: 10
+
+f :: proc(foo: ^Foo) -> int {
+	when true {
+		using foo
+	}
+	return limit
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"limit",
+		{"at test/main.odin:14:9 `limit` refers to `limit` declared at test/main.odin:8, but after the rename it would mean the field through `using foo`"},
+	)
+}
+
+// A declaration after the `when` body shares the scope of the `using` inside it.
+@(test)
+rename_safe_refuses_collision_after_using_in_when_body :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+f :: proc() -> int {
+	when true {
+		using v: Foo
+	} else {
+		w := 1
+	}
+	limit := 2
+	return limit
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"limit",
+		{"`limit` is already declared in the scope of `using v` at test/main.odin:13:2"},
+	)
+}
+
+// A `using` of the struct variant that only another target builds embeds the renamed field too.
+@(test)
+rename_safe_refuses_embedder_collision_of_other_variant_file :: proc(t: ^testing.T) {
+	source := test.Source {
+		main  = `package test
+
+g :: proc(s: S) -> int { return s.a{*} }
+`,
+		files = {
+			{"s.odin", "#+build !windows\npackage test\n\nS :: struct { a: int }\n"},
+			{"s_windows.odin", "package test\n\nS :: struct { a: int }\n"},
+			{"e_windows.odin", "package test\n\nE :: struct {\n\tusing s: S,\n\tb: int,\n}\n"},
+		},
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"b",
+		{"`b` is already a member of a type that embeds this one through `using s` at test/e_windows.odin:5:2"},
+	)
+}
+
+@(test)
+rename_safe_refuses_embedder_collision_of_other_variant_when :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+when ODIN_OS == .Windows {
+	S :: struct { a: int }
+	E :: struct {
+		using s: S,
+		b: int,
+	}
+} else {
+	S :: struct { a: int }
+}
+
+g :: proc(s: S) -> int { return s.a{*} }
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"b",
+		{"`b` is already a member of a type that embeds this one through `using s` at test/main.odin:7:3"},
+	)
+}
+
+// An alias of the type in another package carries the field, and the alias's other platform variant keeps it.
+@(test)
+rename_safe_refuses_field_through_alias_with_variants_in_other_package :: proc(t: ^testing.T) {
+	source := test.Source {
+		main     = `package test
+
+import "other"
+
+when ODIN_DEBUG {
+	S :: struct { a: int }
+} else {
+	S :: other.S_Other
+}
+
+g :: proc(s: S) -> int { return s.a{*} }
+`,
+		// A relative import: the reference search parses the imports of other files with the global config.
+		packages = {{pkg = "other", source = "package other\n\nS_Other :: struct { a: int }\n"}},
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"b",
+		{"`S` at test/main.odin:8 carries the renamed field `a`, but its platform variant `S` at test/main.odin:6 is another type, which the rename does not change"},
+	)
+}
