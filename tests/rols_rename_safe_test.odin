@@ -1386,6 +1386,102 @@ f :: proc() {
 }
 
 @(test)
+rename_safe_refuses_field_collision_with_later_using_decl :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+Bar :: struct {
+	limit: int,
+}
+
+f :: proc() {
+	using v: Foo
+	using w: Bar
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"limit",
+		{"`limit` is already declared in the scope of `using v` at test/main.odin:13:8"},
+	)
+}
+
+@(test)
+rename_safe_refuses_field_collision_with_earlier_using_decl :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+Bar :: struct {
+	limit: int,
+}
+
+f :: proc() {
+	using w: Bar
+	using v: Foo
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"limit",
+		{"`limit` is already declared in the scope of `using v` at test/main.odin:12:8"},
+	)
+}
+
+@(test)
+rename_safe_refuses_collision_through_using_statement :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `#+feature using-stmt
+package test
+
+Foo :: struct {
+	x: int,
+}
+
+f :: proc(p: Foo) {
+	using p
+	y{*} := 1
+	_ = y
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"x",
+		{"`x` is already declared in the same scope through `using p` at test/main.odin:9:8"},
+	)
+}
+
+@(test)
+rename_safe_refuses_field_named_like_its_using_decl :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+f :: proc() {
+	using v: Foo
+}
+`,
+	}
+	test.expect_rename_refused(t, &source, "v", {"`v` is already declared in the scope of `using v` at test/main.odin:8:8"})
+}
+
+@(test)
 rename_safe_allows_field_rename_in_using_param_proc :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `#+feature using-stmt

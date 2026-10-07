@@ -772,21 +772,20 @@ check_using_in_block :: proc(scan: ^Embed_Scan, stmts: []^ast.Stmt, block: [2]in
 			for expr in s.list {
 				via, _ := expr.derived.(^ast.Ident)
 				text := scan.site.ast.src[expr.pos.offset:expr.end.offset]
-				check_using_value(scan, stmts, i, expr, text, via, {s.end.offset, block[1]}, block)
+				check_using_value(scan, stmts, i, expr, text, via, block)
 			}
 		case ^ast.Value_Decl:
 			// `using v: T` brings in the fields of T, and `using v := value` those of the value's type.
 			if !s.is_using || len(s.names) == 0 do continue
 			via := s.names[0].derived.(^ast.Ident) or_continue
 			expr := strip_parens_and_pointers(s.type) if s.type != nil else (s.values[0] if len(s.values) > 0 else nil)
-			check_using_value(scan, stmts, i, expr, via.name, via, {s.end.offset, block[1]}, block)
+			check_using_value(scan, stmts, i, expr, via.name, via, block)
 		}
 	}
 }
 
 // Appends the causes for stmts[i], a `using` of expr, spelled text, in a block that spans the offsets of block,
 // when the type of expr carries the renamed field. via is the name that the `using` declares or names, or nil.
-// The field would come into scope from offset uses[0].
 @(private = "file")
 check_using_value :: proc(
 	scan: ^Embed_Scan,
@@ -795,15 +794,21 @@ check_using_value :: proc(
 	expr: ^ast.Expr,
 	text: string,
 	via: ^ast.Ident,
-	uses, block: [2]int,
+	block: [2]int,
 ) {
 	if expr == nil || !carries_field(scan, expr) {
 		return
 	}
-	// The names of the block, and those of the blocks after the statement.
+	// The names of the block, those of the blocks after the statement, and the members of the later `using`s
+	// of the block, which collide with the field as the earlier ones do.
 	names := make([dynamic]Scope_Name, context.temp_allocator)
 	collect_stmts(&names, scan.site, stmts[:i + 1])
 	append(&names, ..nested_declarations(stmts[i + 1:]))
+	later := make([dynamic]Scope_Name, context.temp_allocator)
+	collect_stmts(&later, scan.site, stmts[i + 1:])
+	for name in later {
+		if name.through_using do append(&names, name)
+	}
 	for declared in names {
 		// The members that this `using` brings in are the old ones, which the member check covers.
 		if declared.name == scan.new_name && !(declared.through_using && declared.ident == via) {
@@ -818,7 +823,7 @@ check_using_value :: proc(
 			)
 		}
 	}
-	field_captures(scan, scan.site, text, uses, block, block[0])
+	field_captures(scan, scan.site, text, {stmts[i].end.offset, block[1]}, block, block[0])
 }
 
 // Whether the value of expr has a type that carries the renamed field.

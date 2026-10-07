@@ -62,7 +62,7 @@ unused_imports_on_change_preserves_previous_behavior :: proc(t: ^testing.T) {
 	server.document_storage.documents = make(map[string]server.Document)
 	defer {
 		server.document_storage_shutdown()
-		// The shutdown frees the storage but keeps its maps, which a later test on this thread would reuse.
+		// rols: the shutdown frees the storage but keeps its maps, which a later test on this thread would reuse
 		server.document_storage = {}
 	}
 
