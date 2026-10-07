@@ -385,7 +385,7 @@ condition_on :: proc(
 			if name == e.name do return .True if mask & (1 << u32(i)) != 0 else .False
 		}
 		if value, is_plain := consts[e.name]; is_plain {
-			if value == nil || depth > CONDITION_CONST_DEPTH do return .Unknown
+			if value == nil || depth >= CONDITION_CONST_DEPTH do return .Unknown
 			return condition_on(value, target, consts, free, mask, depth + 1)
 		}
 	case ^ast.Unary_Expr:
