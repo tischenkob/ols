@@ -398,6 +398,10 @@ get_locals_value_decl :: proc(file: ast.File, value_decl: ast.Value_Decl, ast_co
 			if value_decl.is_mutable {
 				flags |= {.Mutable}
 			}
+			// rols: a typed constant is a value of its type, as the collector flags a typed global constant
+			if !value_decl.is_mutable {
+				flags |= {.Variable}
+			}
 			value_expr: ^ast.Expr
 			if len(value_decl.values) > i {
 				if is_variable_declaration(value_decl.values[i]) {
