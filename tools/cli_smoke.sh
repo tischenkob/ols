@@ -360,7 +360,7 @@ cp "$dir/at/at.odin" "$dir/at.orig"
 expect attr-add-diff '^+@(private, require_results)$' sh -c "cd \"$dir\" && \"$OLS\" query attr add at.helper require_results"
 expect attr-add-json '"status": "dry_run"' sh -c "cd \"$dir\" && \"$OLS\" query attr add at.helper require_results --json"
 cmp -s "$dir/at/at.odin" "$dir/at.orig" || { echo "FAIL attr dry run wrote the file"; exit 1; }
-expect attr-add-apply "^attr add: 1 edit in 1 file written, 1 package checked, also on freestanding_wasm32$" sh -c "cd \"$dir\" && \"$OLS\" query attr add at.helper require_results --apply"
+expect attr-add-apply "^attr add: 1 edit in 1 file written, 1 package checked$" sh -c "cd \"$dir\" && \"$OLS\" query attr add at.helper require_results --apply"
 grep -q "^@(private, require_results)$" "$dir/at/at.odin" || { echo "FAIL attr-add-apply text"; exit 1; }
 odin check "$dir/at"
 echo "ok attr-add-apply check"
@@ -374,7 +374,7 @@ printf 'package at\n\n@(private) hidden := 0\n' > "$dir/at/hidden.odin"
 printf 'package smoke\n\n@(private) skipped := 0\n' > "$dir/skipped.odin"
 echo '{"workspace_exclude": ["at/hidden.odin", "skipped.odin"]}' > "$dir/ols.json"
 expect attr-remove-all-skipped '^warning: 1 workspace file skipped .* contains `private`, and attr remove does not change it: .*at/hidden.odin$' sh -c "\"$OLS\" query attr remove --all private \"$dir/at\" 2>&1"
-expect attr-remove-all "^attr remove: 3 edits in 1 file written, 1 package checked, also on freestanding_wasm32$" "$OLS" query attr remove --all private "$dir/at" --apply
+expect attr-remove-all "^attr remove: 3 edits in 1 file written, 1 package checked$" "$OLS" query attr remove --all private "$dir/at" --apply
 ! grep -q "private" "$dir/at/at.odin" && grep -q "^counter := 0$" "$dir/at/at.odin" && grep -q "^@(rodata)$" "$dir/at/at.odin" || { echo "FAIL attr-remove-all text"; cat "$dir/at/at.odin"; exit 1; }
 odin check "$dir/at"
 echo "ok attr-remove-all check"

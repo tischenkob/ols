@@ -1,6 +1,7 @@
 package cli
 
 import "core:fmt"
+import "core:odin/ast"
 import "core:odin/parser"
 import "core:os"
 import "core:path/filepath"
@@ -98,10 +99,10 @@ gate_targets :: proc(
 			append(&touched, dir)
 		}
 		if file.existed && (!file.exists || file.original != file.text) {
-			append(&sources, Gate_Source{dir, file.path, file.original, true})
+			append(&sources, Gate_Source{dir, file.path, file.original, true, nil})
 		}
 		if file.exists {
-			append(&sources, Gate_Source{dir, file.path, file.text, true})
+			append(&sources, Gate_Source{dir, file.path, file.text, true, nil})
 		}
 	}
 	for dir in touched {
@@ -117,8 +118,9 @@ gate_targets :: proc(
 	}
 	consts := dir_consts(sources[:])
 	// A `when ODIN_OS == .X` branch builds on X only, so X checks its directory even when no file needs X.
-	for source in sources {
-		for target in server.when_named_targets(source.path, source.text, base, consts[source.dir]) {
+	for &source in sources {
+		if !server.gate_may_name_target(source.text, consts[source.dir]) do continue
+		for target in server.file_when_named_targets(source_file(&source), base, consts[source.dir]) {
 			add_need(&needs, target, source.dir)
 		}
 	}
@@ -130,8 +132,9 @@ gate_targets :: proc(
 		append(&others, target)
 		append(&parsed, server.parse_target(target) or_else parser.Build_Target{})
 	}
-	for source in sources {
-		for takes, i in server.other_branch_targets(source.path, source.text, base, parsed[:], consts[source.dir]) {
+	for &source in sources {
+		if len(parsed) == 0 || !server.gate_may_name_target(source.text, consts[source.dir]) do continue
+		for takes, i in server.file_branch_targets(source_file(&source), base, parsed[:], consts[source.dir]) {
 			if takes do add_need(&needs, others[i], source.dir)
 		}
 	}
@@ -215,9 +218,9 @@ dir_consts :: proc(sources: []Gate_Source) -> map[string]server.Gate_Consts {
 	}
 	last := make(map[string]int, context.temp_allocator)
 	for source, i in sources do last[source.path] = i
-	for source, i in sources {
-		if last[source.path] != i || source.dir not_in consts do continue
-		server.add_gate_consts(&consts[source.dir], source.path, source.text)
+	for &source, i in sources {
+		if last[source.path] != i || source.dir not_in consts || !strings.contains(source.text, "::") do continue
+		server.add_gate_consts(&consts[source.dir], source_file(&source))
 	}
 	return consts
 }
@@ -227,6 +230,15 @@ dir_consts :: proc(sources: []Gate_Source) -> map[string]server.Gate_Consts {
 Gate_Source :: struct {
 	dir, path, text: string,
 	touched:         bool,
+	// The parsed text, from source_file, so each text is parsed at most once.
+	file:            ^ast.File,
+}
+
+// The parsed text of source.
+@(private = "file")
+source_file :: proc(source: ^Gate_Source) -> ^ast.File {
+	if source.file == nil do source.file = server.parse_gate_text(source.path, source.text)
+	return source.file
 }
 
 // Appends each .odin file of dir on disk that changed does not name to sources.
@@ -238,7 +250,7 @@ add_dir_sources :: proc(sources: ^[dynamic]Gate_Source, dir: string, changed: []
 			if file.path == match do continue next
 		}
 		if data, err := os.read_entire_file(match, context.temp_allocator); err == nil {
-			append(sources, Gate_Source{dir, match, string(data), false})
+			append(sources, Gate_Source{dir, match, string(data), false, nil})
 		}
 	}
 }
