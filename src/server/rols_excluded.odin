@@ -86,16 +86,26 @@ lookup_other_target :: proc(
 	return symbol, found, true
 }
 
-// The package pkg of the index for a lookup from current_file: that of the target that builds current_file when
-// the host does not and a lookup has collected pkg for that target, else that of the index. Fake methods ask this
-// for every indexed package, so it collects nothing itself.
-package_for_file :: proc(pkg, current_file: string) -> (SymbolPackage, bool) {
-	if target, ok := file_target(current_file); ok {
-		if symbols, built := target_index(target).collection.packages[pkg]; built {
+// The collection of the target that builds current_file when the host does not, for package_in.
+other_target_collection :: proc(current_file: string) -> ^SymbolCollection {
+	target, ok := file_target(current_file)
+	return &target_index(target).collection if ok else nil
+}
+
+// The package pkg of other, the result of other_target_collection, when a lookup has collected it with declarations,
+// else that of the index. Fake methods ask this for every indexed package, so it collects nothing itself.
+package_in :: proc(other: ^SymbolCollection, pkg: string) -> (SymbolPackage, bool) {
+	if other != nil {
+		if symbols, ok := other.packages[pkg]; ok && len(symbols.symbols) > 0 {
 			return symbols, true
 		}
 	}
 	return indexer.index.collection.packages[pkg]
+}
+
+// package_in for the target that builds current_file.
+package_for_file :: proc(pkg, current_file: string) -> (SymbolPackage, bool) {
+	return package_in(other_target_collection(current_file), pkg)
 }
 
 // fuzzy_search over the declarations of the target that builds current_file, when the host does not.
@@ -111,21 +121,29 @@ fuzzy_search_other_target :: proc(
 	handled: bool,
 ) {
 	target := file_target(current_file) or_return
-	index := target_index(target)
+	// Each package of the target that declares something, else that of the index, such as the builtins.
+	collection := target_index(target).collection
+	collection.packages = make(map[string]SymbolPackage, len(pkgs), context.temp_allocator)
 	for pkg in pkgs {
-		if pkg not_in index.built do build_target_package(index, target, pkg)
+		symbols: SymbolPackage
+		found: bool
+		if !is_builtin_pkg(pkg) do symbols, found = other_target_package(pkg, current_file)
+		collection.packages[pkg] = symbols if found else indexer.index.collection.packages[pkg]
 	}
-	memory_index := make_memory_index(index.collection)
+	memory_index := make_memory_index(collection)
 	results, ok = memory_index_fuzzy_search(&memory_index, name, pkgs, current_file, resolve_fields, limit = limit)
 	return results, ok, true
 }
 
+// The package pkg of the target that builds current_file when the host does not. ok is false when that target
+// builds no file of pkg that declares something: collect_symbols creates a package for every file it parses.
 @(private = "file")
 other_target_package :: proc(pkg, current_file: string) -> (symbols: SymbolPackage, ok: bool) {
 	target := file_target(current_file) or_return
 	index := target_index(target)
 	if pkg not_in index.built do build_target_package(index, target, pkg)
-	return index.collection.packages[pkg]
+	symbols, ok = index.collection.packages[pkg]
+	return symbols, ok && len(symbols.symbols) > 0
 }
 
 // Records the target of a parsed document, so lookups need not parse it again.
@@ -135,24 +153,19 @@ note_document_target :: proc(document: ^Document) {
 	set_file_target(document.fullpath, host, name, need)
 }
 
-// Keeps a file of the index that is not on disk, for the collections of the other targets. A file on disk is found
-// again from its directory.
-note_unsaved_file :: proc(collection: ^SymbolCollection, file: ast.File) {
-	if collection != &indexer.index.collection || os.exists(file.fullpath) {
-		return
-	}
+// Keeps the text of a file of the index that is not on disk, a test source, for the collections of the other
+// targets. A file on disk is found again from its directory. The test harness calls this after collect_symbols and
+// index_file.
+note_unsaved_file :: proc(fullpath, text: string) {
 	allocator := excluded_allocator()
-	forward, _ := filepath.replace_separators(file.fullpath, '/', context.temp_allocator)
+	forward, _ := filepath.replace_separators(fullpath, '/', context.temp_allocator)
 	dir := path.dir(forward, context.temp_allocator)
 	files, found := &excluded.unsaved[dir]
 	if !found {
 		files = map_insert(&excluded.unsaved, strings.clone(dir, allocator), make([dynamic]Unsaved_File, allocator))
 	}
 	forget_unsaved(files, forward)
-	append(
-		files,
-		Unsaved_File{fullpath = strings.clone(forward, allocator), text = strings.clone(file.src, allocator)},
-	)
+	append(files, Unsaved_File{fullpath = strings.clone(forward, allocator), text = strings.clone(text, allocator)})
 }
 
 // Drops what the index of other targets knows of fullpath and of its package, before a reindex or removal of it.

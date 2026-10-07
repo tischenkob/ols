@@ -452,7 +452,8 @@ hover_from_excluded_file_misses_other_targets_and_private :: proc(t: ^testing.T)
 	test.expect_hover_after_reindex(t, &source, {}, "")
 }
 
-// The removal of a sibling that the host does not build reaches lookups from a file of the same target.
+// The removal of a sibling that the host does not build reaches lookups from a file of the same target: with no
+// declaration of that target left in the package, the index answers.
 @(test)
 hover_from_excluded_file_after_sibling_removal :: proc(t: ^testing.T) {
 	other_os := "linux" when ODIN_OS != .Linux else "windows"
@@ -470,22 +471,62 @@ hover_from_excluded_file_after_sibling_removal :: proc(t: ^testing.T) {
 		files = files[:],
 	}
 	removed := []string{fmt.tprintf("errors_%s.odin", other_os)}
-	test.expect_hover_after_reindex(t, &source, {}, "", hover_first = true, removed = removed)
+	test.expect_hover_after_reindex(t, &source, {}, "test.err :: proc() -> int", hover_first = true, removed = removed)
 }
 
-// Completion in a file that the host does not build lists the declarations of its own target.
+// Completion in a file that the host does not build lists the declarations of its own target, and the builtins.
 @(test)
 completion_in_excluded_file_lists_its_target :: proc(t: ^testing.T) {
 	other_os := "linux" when ODIN_OS != .Linux else "windows"
-	files := make([dynamic]test.File, context.temp_allocator)
-	append(
-		&files,
-		test.File{"main.odin", fmt.tprintf("#+build %s\npackage test\n\nf :: proc() {{\n\ter{{*}}\n}}\n", other_os)},
-	)
-	siblings := excluded_siblings(other_os)
-	append(&files, ..siblings[:])
-	source := test.Source {
-		files = files[:],
+	for prefix in ([2]string{"er", "le"}) {
+		files := make([dynamic]test.File, context.temp_allocator)
+		append(
+			&files,
+			test.File {
+				"main.odin",
+				fmt.tprintf("#+build %s\npackage test\n\nf :: proc() {{\n\t%s{{*}}\n}}\n", other_os, prefix),
+			},
+		)
+		siblings := excluded_siblings(other_os)
+		append(&files, ..siblings[:])
+		source := test.Source {
+			files = files[:],
+		}
+		if prefix == "er" {
+			test.expect_completion_docs(
+				t,
+				&source,
+				"",
+				{"test.err :: proc() -> string"},
+				{"test.err :: proc() -> int"},
+			)
+		} else {
+			test.expect_completion_labels(t, &source, "", {"len"})
+		}
 	}
-	test.expect_completion_docs(t, &source, "", {"test.err :: proc() -> string"}, {"test.err :: proc() -> int"})
+}
+
+// A selector into a package of which the target builds no file that declares something reaches the index.
+@(test)
+hover_from_excluded_file_into_package_its_target_does_not_build :: proc(t: ^testing.T) {
+	other_os := "linux" when ODIN_OS != .Linux else "windows"
+	source := test.Source {
+		main = fmt.tprintf(
+			"#+build %s\npackage test\n\nimport \"core:errs\"\n\nf :: proc() {{\n\ty := errs.e{{*}}rr()\n}}\n",
+			other_os,
+		),
+		packages = {
+			{
+				pkg = "errs",
+				files = {
+					{
+						"errors_host.odin",
+						fmt.tprintf("#+build !%s\npackage errs\n\nerr :: proc() -> int {{ return 0 }}\n", other_os),
+					},
+				},
+			},
+		},
+		collections = {"core" = "test"},
+	}
+	test.expect_hover(t, &source, "errs.err :: proc() -> int")
 }
