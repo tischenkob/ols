@@ -439,7 +439,8 @@ rename_package_warns_on_unresolved_qualifier :: proc(t: ^testing.T) {
 	)
 }
 
-// Corpus: reduced (odin-http review), see docs/corpus-validation.md.
+// Corpus: reduced (odin-http review), see docs/corpus-validation.md. `#defined(old)` compiles inside a
+// procedure and is true while the import binds old.
 @(test)
 rename_package_rewrites_bare_package_name :: proc(t: ^testing.T) {
 	source := test.Source {
@@ -448,6 +449,10 @@ rename_package_rewrites_bare_package_name :: proc(t: ^testing.T) {
 import "shared:old"
 
 _ :: old
+
+f :: proc() {
+	when #defined(old) {}
+}
 `,
 		packages = old_package(),
 		collections = {"shared" = "test"},
@@ -463,6 +468,10 @@ _ :: old
 import "shared:fresh"
 
 _ :: fresh
+
+f :: proc() {
+	when #defined(fresh) {}
+}
 `},
 			{"fresh/a.odin", "package fresh\n\nX :: 1\n\nS :: struct {\n\told: int,\n}\n"},
 			{"fresh/a_test.odin", "package fresh_test\n\nT :: 2\n"},

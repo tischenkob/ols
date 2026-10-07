@@ -32,7 +32,7 @@ fo{*}o :: proc(a: int, s: string) -> int {
 		{
 			{
 				"main_test.odin",
-				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tresult := foo(0, \"\")\n\ttesting.expect_value(t, result, 0)\n}\n",
+				"#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tresult := foo(0, \"\")\n\ttesting.expect_value(t, result, 0)\n}\n",
 			},
 		},
 	)
@@ -87,7 +87,7 @@ pa{*}rse :: proc(s: string, p: ^Point) -> (Point, bool) {
 		{
 			{
 				"main_test.odin",
-				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_parse :: proc(t: ^testing.T) {\n\ta, b := parse(\"\", nil)\n\ttesting.expect_value(t, a, Point{})\n\ttesting.expect_value(t, b, false)\n}\n",
+				"#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_parse :: proc(t: ^testing.T) {\n\ta, b := parse(\"\", nil)\n\ttesting.expect_value(t, a, Point{})\n\ttesting.expect_value(t, b, false)\n}\n",
 			},
 		},
 	)
@@ -129,7 +129,7 @@ fo{*}o :: proc(a: int) {
 		{
 			{
 				"bar_test.odin",
-				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo(0)\n}\n",
+				"#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo(0)\n}\n",
 			},
 		},
 	)
@@ -201,17 +201,17 @@ fo{*}o :: proc() {
 	)
 }
 
-// Corpus: karl2d karl2d.odin:692, see docs/corpus-validation.md. core:testing does not compile on js.
+// Corpus: karl2d karl2d.odin:692, see docs/corpus-validation.md. core:testing does not compile on js, wasi, orca
+// or freestanding, and an importer may build the package there, so a created test file leaves out each of
+// those that its source builds on.
 @(test)
 generate_test_new_file_excludes_targets_without_core_testing :: proc(t: ^testing.T) {
-	source := generate_source(
-		`package test
+	source := generate_source(`#+build linux, js
+package test
 
 fo{*}o :: proc() {
 }
-`,
-		{{"lib_js.odin", "#+build js\npackage test\n"}, {"lib_freestanding.odin", "package test\n"}},
-	)
+`)
 	test.expect_action_applied_files(
 		t,
 		&source,
@@ -219,20 +219,17 @@ fo{*}o :: proc() {
 		{
 			{
 				"main_test.odin",
-				"#+build !js\n#+build !freestanding\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo()\n}\n",
+				"#+build !js\n#+build linux, js\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo()\n}\n",
 			},
 		},
 	)
-	// A source that never builds on wasi needs no line for a wasi-only sibling.
-	tagged := generate_source(
-		`#+build darwin, linux
+	// A source that never builds on those needs no line.
+	tagged := generate_source(`#+build darwin, linux
 package test
 
 fo{*}o :: proc() {
 }
-`,
-		{{"lib_wasi.odin", "package test\n"}},
-	)
+`)
 	test.expect_action_applied_files(
 		t,
 		&tagged,
@@ -241,31 +238,6 @@ fo{*}o :: proc() {
 			{
 				"main_test.odin",
 				"#+build darwin, linux\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo()\n}\n",
-			},
-		},
-	)
-}
-
-// A sibling that names js in a `#+build` line with another OS makes the package target js. A sibling restricted
-// by `!` alone does not.
-@(test)
-generate_test_new_file_excludes_a_named_target_without_core_testing :: proc(t: ^testing.T) {
-	source := generate_source(
-		`package test
-
-fo{*}o :: proc() {
-}
-`,
-		{{"web.odin", "#+build js, linux // web and desktop\npackage test\n"}, {"posix.odin", "#+build !windows\npackage test\n"}},
-	)
-	test.expect_action_applied_files(
-		t,
-		&source,
-		"Generate test for foo",
-		{
-			{
-				"main_test.odin",
-				"#+build !js\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo()\n}\n",
 			},
 		},
 	)
@@ -297,7 +269,7 @@ fo{*}o :: proc() {
 		{
 			{
 				"main_test.odin",
-				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo()\n}\n",
+				"#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tfoo()\n}\n",
 			},
 		},
 	)
@@ -336,7 +308,7 @@ f{*} :: proc() -> E {
 		{
 			{
 				"main_test.odin",
-				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tresult := f()\n\ttesting.expect_value(t, result, E{})\n}\n",
+				"#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tresult := f()\n\ttesting.expect_value(t, result, E{})\n}\n",
 			},
 		},
 	)
@@ -360,7 +332,7 @@ f{*} :: proc() -> tm.Time {
 		{
 			{
 				"main_test.odin",
-				"package test\n\nimport \"core:testing\"\nimport tm \"core:time\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tresult := f()\n\ttesting.expect_value(t, result, tm.Time{})\n}\n",
+				"#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\nimport tm \"core:time\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tresult := f()\n\ttesting.expect_value(t, result, tm.Time{})\n}\n",
 			},
 		},
 	)
@@ -443,7 +415,7 @@ f{*} :: proc(n: int) -> ([]int, [dynamic]int, map[string]int) {
 		{
 			{
 				"main_test.odin",
-				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\ta, b, c := f(0)\n\tdefer delete(a)\n\tdefer delete(b)\n\tdefer delete(c)\n\ttesting.expect(t, len(a) == 0)\n\ttesting.expect(t, len(b) == 0)\n\ttesting.expect(t, len(c) == 0)\n}\n",
+				"#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\ta, b, c := f(0)\n\tdefer delete(a)\n\tdefer delete(b)\n\tdefer delete(c)\n\ttesting.expect(t, len(a) == 0)\n\ttesting.expect(t, len(b) == 0)\n\ttesting.expect(t, len(c) == 0)\n}\n",
 			},
 		},
 	)
@@ -467,15 +439,16 @@ f{*} :: proc(s: string, allocator := context.allocator, n: int, flag := false) {
 		{
 			{
 				"main_test.odin",
-				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tf(\"\", n = 0)\n}\n",
+				"#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tf(\"\", n = 0)\n}\n",
 			},
 		},
 	)
 }
 
 // A struct holding a slice is not comparable, and no zero-value assertion compiles for it.
+// testing.expect_value rejects a type that is not comparable, so the stub binds such a result to `_`.
 @(test)
-generate_test_refused_for_non_comparable_result :: proc(t: ^testing.T) {
+generate_test_leaves_a_non_comparable_result_unchecked :: proc(t: ^testing.T) {
 	source := generate_source(
 		`package test
 
@@ -492,28 +465,28 @@ f{*} :: proc() -> Outer {
 }
 `,
 	)
-	test.expect_action_missing(t, &source, "Generate test for f")
+	test.expect_action_applied_files(t, &source, "Generate test for f", {{"main_test.odin", "#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\t_ = f()\n\t// Not checked: testing.expect_value cannot compare `Outer`.\n}\n"}})
 
 	any_result := generate_source(`package test
 
-f{*} :: proc() -> any {
-	return nil
+f{*} :: proc() -> (any, int) {
+	return nil, 0
 }
 `)
-	test.expect_action_missing(t, &any_result, "Generate test for f")
+	test.expect_action_applied_files(t, &any_result, "Generate test for f", {{"main_test.odin", "#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\t_, b := f()\n\t// Not checked: testing.expect_value cannot compare `any`.\n\ttesting.expect_value(t, b, 0)\n}\n"}})
 }
 
 // Corpus: review of the comparable fix. Neither `delete` nor `expect_value` accepts a fixed-capacity
-// dynamic array, a #soa fixed array or a #raw_union struct.
+// dynamic array, a #soa fixed array or a #raw_union struct, so the stub leaves each unchecked.
 @(test)
-generate_test_refused_for_uncomparable_special_types :: proc(t: ^testing.T) {
+generate_test_leaves_uncomparable_special_types_unchecked :: proc(t: ^testing.T) {
 	fixed_capacity := generate_source(`package test
 
 f{*} :: proc() -> [dynamic; 4]int {
 	return {}
 }
 `)
-	test.expect_action_missing(t, &fixed_capacity, "Generate test for f")
+	test.expect_action_applied_files(t, &fixed_capacity, "Generate test for f", {{"main_test.odin", "#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\t_ = f()\n\t// Not checked: testing.expect_value cannot compare `[dynamic; 4]int`.\n}\n"}})
 
 	soa := generate_source(`package test
 
@@ -525,7 +498,7 @@ f{*} :: proc() -> #soa[4]P {
 	return {}
 }
 `)
-	test.expect_action_missing(t, &soa, "Generate test for f")
+	test.expect_action_applied_files(t, &soa, "Generate test for f", {{"main_test.odin", "#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\t_ = f()\n\t// Not checked: testing.expect_value cannot compare `#soa[4]P`.\n}\n"}})
 
 	raw_union := generate_source(`package test
 
@@ -538,7 +511,7 @@ f{*} :: proc() -> R {
 	return {}
 }
 `)
-	test.expect_action_missing(t, &raw_union, "Generate test for f")
+	test.expect_action_applied_files(t, &raw_union, "Generate test for f", {{"main_test.odin", "#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\t_ = f()\n\t// Not checked: testing.expect_value cannot compare `R`.\n}\n"}})
 }
 
 // A variadic parameter accepts no arguments, so the call leaves it out.
@@ -556,7 +529,7 @@ f{*} :: proc(n: int, xs: ..int) {
 		{
 			{
 				"main_test.odin",
-				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tf(0)\n}\n",
+				"#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tf(0)\n}\n",
 			},
 		},
 	)
@@ -581,7 +554,7 @@ f{*} :: proc() -> Box(int) {
 		{
 			{
 				"main_test.odin",
-				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tresult := f()\n\ttesting.expect_value(t, result, Box(int){})\n}\n",
+				"#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\tresult := f()\n\ttesting.expect_value(t, result, Box(int){})\n}\n",
 			},
 		},
 	)
@@ -598,7 +571,7 @@ generate_test_ignores_raw_string_indentation :: proc(t: ^testing.T) {
 		{
 			{
 				"main_test.odin",
-				"package test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tresult := foo(0)\n\ttesting.expect_value(t, result, 0)\n}\n",
+				"#+build !freestanding\n#+build !js\n#+build !orca\n#+build !wasi\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_foo :: proc(t: ^testing.T) {\n\tresult := foo(0)\n\ttesting.expect_value(t, result, 0)\n}\n",
 			},
 		},
 	)

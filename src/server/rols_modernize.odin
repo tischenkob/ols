@@ -462,22 +462,7 @@ imports_insert :: proc(document: ^Document, fixes: []Modernize_Fix) -> []Moderni
 	if len(ungrouped) == 0 do return inserts[:]
 
 	src := document.ast.src
-	after, has_import := -1, false
-	for decl in document.ast.decls {
-		if imp, is_import := decl.derived.(^ast.Import_Decl); is_import {
-			after = max(after, imp.end.offset)
-			has_import = true
-		}
-	}
-	if !has_import && document.ast.pkg_decl != nil {
-		after = document.ast.pkg_decl.end.offset
-	}
-	offset := len(src)
-	if after >= 0 {
-		if newline := strings.index_byte(src[after:], '\n'); newline >= 0 {
-			offset = after + newline + 1
-		}
-	}
+	offset, has_import := imports_end_offset(document)
 
 	b := strings.builder_make(context.temp_allocator)
 	if offset == len(src) && !strings.has_suffix(src, "\n") do strings.write_byte(&b, '\n')

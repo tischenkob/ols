@@ -7,7 +7,6 @@ import "core:fmt"
 import "core:odin/ast"
 import "core:odin/parser"
 import "core:odin/tokenizer"
-import "core:os"
 import path "core:path/slashpath"
 import "core:slice"
 import "core:strings"
@@ -70,8 +69,14 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	names := make([]string, len(results), context.temp_allocator)
+	all_unchecked := true
 	for &name, i in names {
 		name = "result" if len(results) == 1 else fmt.tprintf("%c", 'a' + i)
+		if results[i].unchecked {
+			name = "_"
+		} else {
+			all_unchecked = false
+		}
 	}
 	// An import that a zero value names must not be shadowed by the test's own names.
 	for imp in imports {
@@ -92,7 +97,7 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	strings.write_string(&sb, unit)
 	if len(names) > 0 {
 		strings.write_string(&sb, strings.join(names, ", ", context.temp_allocator))
-		strings.write_string(&sb, " := ")
+		strings.write_string(&sb, " = " if all_unchecked else " := ")
 	}
 	strings.write_string(&sb, proc_name)
 	strings.write_byte(&sb, '(')
@@ -100,7 +105,14 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	strings.write_string(&sb, ")\n")
 	checks := strings.builder_make(context.temp_allocator)
 	for name, i in names {
-		if results[i].collection {
+		if results[i].unchecked {
+			fmt.sbprintf(
+				&checks,
+				"%s// Not checked: testing.expect_value cannot compare %s.\n",
+				unit,
+				results[i].type_text,
+			)
+		} else if results[i].collection {
 			fmt.sbprintf(&sb, "%sdefer delete(%s)\n", unit, name)
 			fmt.sbprintf(&checks, "%stesting.expect(t, len(%s) == 0)\n", unit, name)
 		} else {
@@ -110,13 +122,15 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	strings.write_string(&sb, strings.to_string(checks))
 	strings.write_string(&sb, "}\n")
 
-	// A new test file builds on the targets of its source, less those without core:testing that the package
-	// targets, and keeps its `#+private` and `#+vet` tags.
+	// A new test file builds on the targets of its source less those without core:testing, one `#+build !os`
+	// line each, since lines combine with AND and a comma within a line means OR. It keeps the `#+private`
+	// and `#+vet` tags of its source.
 	tags := make([dynamic]tokenizer.Token, context.temp_allocator)
 	if !test_exists {
-		for excluded in excluded_test_oses(ctx, source_oses) {
-			name := strings.to_lower(fmt.tprint(excluded), context.temp_allocator)
-			append(&tags, tokenizer.Token{text = fmt.tprintf("#+build !%s", name)})
+		for excluded in NO_TESTING_OS_NAMES {
+			if excluded.os in source_oses {
+				append(&tags, tokenizer.Token{text = fmt.tprintf("#+build !%s", excluded.name)})
+			}
 		}
 	}
 	append(&tags, ..document.ast.tags[:])
@@ -142,66 +156,12 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	)
 }
 
-// The operating systems the new test file leaves out, one `#+build !os` line each: those without core:testing
-// that the source builds on and the package targets, because some other file of the package builds only on
-// them or names one in a `#+build` line, as `#+build js, linux` does. A file restricted by `!` alone, such as
-// `#+build !windows`, does not mark a target.
-excluded_test_oses :: proc(
-	ctx: ^ActionContext,
-	source_oses: bit_set[runtime.Odin_OS_Type],
-) -> bit_set[runtime.Odin_OS_Type] {
-	excluded: bit_set[runtime.Odin_OS_Type]
-	candidates := source_oses & NO_TESTING_OSES
-	if candidates == {} {
-		return {}
-	}
-	note :: proc(
-		excluded: ^bit_set[runtime.Odin_OS_Type],
-		candidates: bit_set[runtime.Odin_OS_Type],
-		name, text: string,
-	) {
-		oses := build_oses(name, text)
-		if oses != {} && oses <= NO_TESTING_OSES {
-			excluded^ += oses & candidates
-		} else if oses != {} && strings.contains(text, "+build") {
-			excluded^ += oses & candidates & build_line_oses(text)
-		}
-	}
-	if len(ctx.files) > 0 {
-		for file in ctx.files {
-			if file.fullpath != ctx.document.fullpath &&
-			   path.dir(file.fullpath, context.temp_allocator) == ctx.document.package_name {
-				note(&excluded, candidates, file.fullpath, file.text)
-			}
-		}
-		return excluded
-	}
-	for sibling in package_siblings(ctx.document, ctx.files) {
-		if data, err := os.read_entire_file(sibling, context.temp_allocator); err == nil {
-			note(&excluded, candidates, sibling, string(data))
-		}
-	}
-	return excluded
-}
-
-// The operating systems that a `#+build` line of text names without `!`, such as js in `#+build js, linux`.
-build_line_oses :: proc(text: string) -> (oses: bit_set[runtime.Odin_OS_Type]) {
-	rest := text
-	for line in strings.split_lines_iterator(&rest) {
-		line := strings.trim_space(line)
-		if strings.has_prefix(line, "package ") do break
-		if !strings.has_prefix(line, "#+build ") do continue
-		if comment := strings.index(line, "//"); comment >= 0 do line = line[:comment]
-		for kind in strings.split(line[len("#+build "):], ",", context.temp_allocator) {
-			for term in strings.fields(kind, context.temp_allocator) {
-				if os, _ := parser.get_build_os_from_string(term); os != .Unknown {
-					oses += {os}
-				}
-			}
-		}
-	}
-	return
-}
+// NO_TESTING_OSES with their build tag names, sorted by name.
+@(rodata)
+NO_TESTING_OS_NAMES := [?]struct {
+	name: string,
+	os:   runtime.Odin_OS_Type,
+}{{"freestanding", .Freestanding}, {"js", .JS}, {"orca", .Orca}, {"wasi", .WASI}}
 
 // Zero values for the parameters without a default value and not variadic. A parameter after a
 // skipped one is passed by name, since its position no longer matches.
@@ -237,6 +197,10 @@ is_variadic :: proc(type: ^ast.Expr) -> bool {
 Result_Check :: struct {
 	// A slice, dynamic array or map: not comparable, so the test checks its length and deletes it.
 	collection: bool,
+	// Another type that testing.expect_value cannot compare, such as a struct holding a slice: the test
+	// binds the result to `_` and says so in a comment naming type_text.
+	unchecked:  bool,
+	type_text:  string,
 	// The expected value for testing.expect_value otherwise.
 	zero:       string,
 }
@@ -244,7 +208,7 @@ Result_Check :: struct {
 // testing.expect_value needs a comparable type and cannot infer a bare `{}`, so an aggregate zero value
 // is spelled `E{}`, or `pkg.E{}` with the import of pkg added to imports. That fails (ok is false) for a
 // type the test file cannot spell, a multi-line one or one naming a package the document does not
-// import, and for a type that is not comparable, such as a struct holding a slice.
+// import. A type that is not comparable, such as a struct holding a slice, gets an unchecked result.
 result_checks :: proc(
 	ctx: ^ActionContext,
 	fields: ^ast.Field_List,
@@ -269,14 +233,16 @@ result_checks :: proc(
 			case SymbolSliceValue, SymbolDynamicArrayValue, SymbolMapValue:
 				// `delete` has no overload for a fixed-capacity dynamic array.
 				if v, fixed := symbol.value.(SymbolDynamicArrayValue); fixed && v.cap != nil {
-					return nil, nil, false
+					checks[i] = unchecked(ctx.document, type)
+					continue
 				}
 				checks[i].collection = true
 				continue
 			}
 		}
 		if resolved && !is_comparable(ctx.ast_context, symbol, 0) {
-			return nil, nil, false
+			checks[i] = unchecked(ctx.document, type)
+			continue
 		}
 		checks[i].zero = zero_value_text(symbol, resolved)
 		if checks[i].zero == "{}" {
@@ -291,6 +257,26 @@ result_checks :: proc(
 		}
 	}
 	return checks, imports, true
+}
+
+// The check of a result of type that testing.expect_value cannot compare.
+unchecked :: proc(document: ^Document, type: ^ast.Expr) -> Result_Check {
+	src := document.ast.src
+	// The node of `#soa[4]P` starts at its bracket, after the tag.
+	start := type.pos.offset
+	#partial switch v in type.derived {
+	case ^ast.Array_Type:
+		if v.tag != nil do start = min(start, v.tag.pos.offset)
+	case ^ast.Dynamic_Array_Type:
+		if v.tag != nil do start = min(start, v.tag.pos.offset)
+	}
+	text := src[start:type.end.offset]
+	if strings.contains_any(text, "\r\n") {
+		text = "this type"
+	} else {
+		text = fmt.tprintf("`%s`", text)
+	}
+	return {unchecked = true, type_text = text}
 }
 
 // Appends to imports, once each, the imports of document that type names as a selector base, such as

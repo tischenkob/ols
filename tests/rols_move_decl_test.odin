@@ -1,8 +1,10 @@
 #+feature dynamic-literals
 package tests
 
+import "core:odin/ast"
 import "core:testing"
 
+import "src:server"
 import test "src:testing"
 
 @(private = "file")
@@ -197,7 +199,91 @@ sh{*}ow :: proc() {
 	fmt.println("x")
 }
 `, {{"b.odin", "package test\n\nimport f \"core:fmt\"\n\nother :: proc() {\n\tf.println()\n}\n"}})
-	test.expect_move_declaration(t, &source, "b.odin", {}, "imports core:fmt as f")
+	test.expect_move_declaration(t, &source, "b.odin", {}, "b.odin imports core:fmt as f")
+}
+
+// `import ".."` binds the name of the parent package, which Package.base holds, but its import path gives
+// the name `..` that a target's import is read with. The harness's relative paths cannot show it, so the append
+// gets the import directly.
+@(test)
+move_decl_append_matches_a_relative_import_by_its_path :: proc(t: ^testing.T) {
+	decl := ast.Import_Decl {
+		fullpath = `".."`,
+	}
+	pkg := server.Package {
+		original    = `".."`,
+		base        = "b",
+		import_decl = &decl,
+	}
+	files := []server.Package_File{{fullpath = "/w/a/b/c/x.odin", text = "package c\n\nimport \"..\"\n"}}
+	changes := make(server.Changes, context.temp_allocator)
+	_, reason, ok := server.append_to_package_file(
+		&changes,
+		"c",
+		"file:///w/a/b/c/x.odin",
+		nil,
+		{pkg},
+		"show :: proc() {}\n",
+		files,
+	)
+	testing.expectf(t, ok, "Expected the append to pass, but received %q", reason)
+}
+
+@(test)
+move_decl_into_a_target_without_imports :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+import str "core:strings"
+
+sh{*}ow :: proc() -> string {
+	return str.to_upper("x")
+}
+`, {{"b.odin", "package test\n\nother :: proc() {}\n"}})
+	test.expect_move_declaration(
+		t,
+		&source,
+		"b.odin",
+		{
+			{"main.odin", "package test\n"},
+			{"b.odin", "package test\n\nimport str \"core:strings\"\n\nother :: proc() {}\n\nshow :: proc() -> string {\n\treturn str.to_upper(\"x\")\n}\n"},
+		},
+	)
+}
+
+// An aliased import keeps its alias among the target's imports, and a new group follows an import that ends the
+// file without a newline.
+@(test)
+move_decl_places_an_aliased_import_and_one_at_the_end :: proc(t: ^testing.T) {
+	grouped := move_source(`package test
+
+import str "core:strings"
+
+sh{*}ow :: proc() -> string {
+	return str.to_upper("x")
+}
+`, {{"b.odin", "package test\n\nimport \"core:fmt\"\nimport \"core:slice\"\n\nother :: proc() {\n\tfmt.println()\n\tslice.reverse(nil)\n}\n"}})
+	test.expect_move_declaration(
+		t,
+		&grouped,
+		"b.odin",
+		{
+			{"b.odin", "package test\n\nimport \"core:fmt\"\nimport \"core:slice\"\nimport str \"core:strings\"\n\nother :: proc() {\n\tfmt.println()\n\tslice.reverse(nil)\n}\n\nshow :: proc() -> string {\n\treturn str.to_upper(\"x\")\n}\n"},
+		},
+	)
+	at_end := move_source(`package test
+
+import "../util"
+
+sh{*}ow :: proc() {
+	_ = util.name
+}
+`, {{"b.odin", "package test\n\nimport \"core:fmt\""}})
+	test.expect_move_declaration(
+		t,
+		&at_end,
+		"b.odin",
+		{{"b.odin", "package test\n\nimport \"core:fmt\"\n\nimport \"../util\"\n\nshow :: proc() {\n\t_ = util.name\n}\n"}},
+	)
 }
 
 @(test)
