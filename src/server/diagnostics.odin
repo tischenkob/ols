@@ -49,10 +49,11 @@ remove_diagnostics_locked :: proc(type: DiagnosticType, uri: string) {
 	clear(diagnostic_array)
 }
 
-add_diagnostics :: proc(type: DiagnosticType, uri: string, diagnostic: Diagnostic) {
+// rols: gates on the caller's config, so a test's own config never touches the global one
+add_diagnostics :: proc(type: DiagnosticType, uri: string, diagnostic: Diagnostic, config: ^common.Config) {
 	spall.trace(#procedure, uri)
 
-	if !common.config.enable_diagnostics {
+	if !config.enable_diagnostics {
 		return
 	}
 
@@ -128,6 +129,28 @@ clear_diagnostics :: proc(type: DiagnosticType) {
 		}
 		clear(&diagnostic_array)
 	}
+}
+
+// rols: tests free what they stored, under the lock
+// Frees every diagnostic, key and map with the context allocator and leaves the maps unset. Only a caller that
+// allocated all of them, such as a test that holds the maps alone, may call it.
+reset_diagnostics :: proc() {
+	sync.lock(&diagnostic_mutex)
+	defer sync.unlock(&diagnostic_mutex)
+
+	for &type_map in diagnostics {
+		for uri, &list in type_map {
+			for diagnostic in list {
+				delete(diagnostic.message)
+				delete(diagnostic.code)
+				delete(diagnostic.tags)
+			}
+			delete(list)
+			delete(uri)
+		}
+		delete(type_map)
+	}
+	diagnostics = {}
 }
 
 get_merged_diagnostics :: proc() -> map[string][dynamic]Diagnostic {

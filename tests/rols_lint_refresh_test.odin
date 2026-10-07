@@ -13,8 +13,8 @@ import "src:common"
 import "src:server"
 import test "src:testing"
 
-// Tests that replace the global diagnostics maps take turns, with the tests that seed a checker diagnostic, and
-// leave the maps unset for the next one.
+// Tests that store diagnostics in the global maps take turns, with the tests that seed a checker diagnostic, and
+// free what they stored before the next one.
 @(private = "package")
 lock_global_diagnostics :: proc() {
 	sync.lock(&test.seed_mutex)
@@ -22,7 +22,7 @@ lock_global_diagnostics :: proc() {
 
 @(private = "package")
 unlock_global_diagnostics :: proc() {
-	server.diagnostics = {}
+	server.reset_diagnostics()
 	sync.unlock(&test.seed_mutex)
 }
 
@@ -111,20 +111,6 @@ with_package :: proc(t: ^testing.T, b_text: string, body: proc(t: ^testing.T, pk
 
 	lock_global_diagnostics()
 	defer unlock_global_diagnostics()
-	previous_diagnostics := common.config.enable_diagnostics
-	common.config.enable_diagnostics = true
-	defer common.config.enable_diagnostics = previous_diagnostics
-	for type in server.DiagnosticType {
-		server.diagnostics[type] = make(map[string][dynamic]server.Diagnostic)
-	}
-	defer for type in server.DiagnosticType {
-		server.clear_diagnostics(type)
-		for uri, &list in server.diagnostics[type] {
-			delete(list)
-			delete(uri)
-		}
-		delete(server.diagnostics[type])
-	}
 
 	server.document_storage.documents = make(map[string]server.Document)
 	defer {

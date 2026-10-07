@@ -164,6 +164,8 @@ check_unused_imports :: proc(document: ^Document, config: ^common.Config) {
 				message = "unused import",
 				tags = {.Unnecessary},
 			},
+			// rols: the caller's config gates the store
+			config,
 		)
 	}
 }
@@ -471,6 +473,8 @@ check :: proc(mode: Check_Mode, check_paths: []string, config: ^common.Config, t
 					},
 					message = message,
 				},
+				// rols: the caller's config gates the store
+				config,
 			)
 		}
 

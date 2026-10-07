@@ -10,25 +10,6 @@ import "src:common"
 import "src:server"
 
 @(private = "file")
-setup_diagnostics :: proc() {
-	for diagnostic_type in server.DiagnosticType {
-		server.diagnostics[diagnostic_type] = make(map[string][dynamic]server.Diagnostic)
-	}
-}
-
-@(private = "file")
-teardown_diagnostics :: proc() {
-	for diagnostic_type in server.DiagnosticType {
-		server.clear_diagnostics(diagnostic_type)
-		for uri, &arr in server.diagnostics[diagnostic_type] {
-			delete(arr)
-			delete(uri)
-		}
-		delete(server.diagnostics[diagnostic_type])
-	}
-}
-
-@(private = "file")
 TestWriterCapture :: struct {
 	data: [dynamic]u8,
 }
@@ -52,15 +33,9 @@ unused_imports_on_change_preserves_previous_behavior :: proc(t: ^testing.T) {
 	}
 	defer delete(config.collections)
 
-	// rols: tests that replace the global diagnostics maps take turns (see rols_lint_refresh_test.odin)
+	// rols: tests that store diagnostics in the global maps take turns (see rols_lint_refresh_test.odin)
 	lock_global_diagnostics()
 	defer unlock_global_diagnostics()
-	previous_diagnostics := common.config.enable_diagnostics
-	common.config.enable_diagnostics = true
-	defer common.config.enable_diagnostics = previous_diagnostics
-
-	setup_diagnostics()
-	defer teardown_diagnostics()
 
 	server.document_storage.documents = make(map[string]server.Document)
 	defer {
@@ -152,7 +127,7 @@ main :: proc() {
 			len(unused),
 			len(document.imports),
 			len(unused_imports),
-			common.config.enable_diagnostics,
+			config.enable_diagnostics,
 		)
 		return
 	}

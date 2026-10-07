@@ -420,6 +420,8 @@ document_refresh :: proc(document: ^Document, config: ^common.Config, writer: ^W
 					code = "Syntax",
 					message = error.message,
 				},
+				// rols: the caller's config gates the store
+				config,
 			)
 		}
 
