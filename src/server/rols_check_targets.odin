@@ -282,8 +282,9 @@ branch_possible_on :: proc(file: ast.File, offset: int, target: parser.Build_Tar
 }
 
 // The first of GATE_TARGET_CANDIDATES that builds file and can take every `when` branch around offset, when base
-// cannot take one of them. ok is false when base can take them all or no candidate can. A branch whose condition
-// branch_possible_on cannot read, such as `when FLAG`, is possible on base, so it has no target here.
+// cannot take one of them. A candidate of base's OS comes first, so an ODIN_ARCH branch keeps the OS. ok is false
+// when base can take them all or no candidate can. A branch whose condition branch_possible_on cannot read, such
+// as `when FLAG`, is possible on base, so it has no target here.
 branch_target :: proc(
 	file: ast.File,
 	offset: int,
@@ -294,9 +295,12 @@ branch_target :: proc(
 ) {
 	if branch_possible_on(file, offset, base) do return {}, false
 	facts := facts_of(file.fullpath, build_tags(file))
-	for candidate in GATE_TARGET_CANDIDATES {
-		parsed, _ := parse_target(candidate)
-		if facts_build_on(facts, parsed) && branch_possible_on(file, offset, parsed) do return parsed, true
+	for same_os in ([2]bool{true, false}) {
+		for candidate in GATE_TARGET_CANDIDATES {
+			parsed, _ := parse_target(candidate)
+			if (parsed.os == base.os) != same_os do continue
+			if facts_build_on(facts, parsed) && branch_possible_on(file, offset, parsed) do return parsed, true
+		}
 	}
 	return {}, false
 }
@@ -319,6 +323,11 @@ stmt_possible_on :: proc(stmt: ^ast.Stmt, offset: int, target: parser.Build_Targ
 		}
 	case ^ast.Foreign_Block_Decl:
 		return stmt_possible_on(s.body, offset, target)
+	case ^ast.Value_Decl:
+		// A `when` among the statements and plain blocks of a procedure body. One in an `if`, `for` or `switch` is not.
+		for value in s.values {
+			if lit, ok := value.derived.(^ast.Proc_Lit); ok && !stmt_possible_on(lit.body, offset, target) do return false
+		}
 	}
 	return true
 }

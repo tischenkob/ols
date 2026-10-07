@@ -638,3 +638,91 @@ hover_in_host_branch_keeps_host_declaration :: proc(t: ^testing.T) {
 	}
 	test.expect_hover(t, &source, "T.h: int")
 }
+
+// An ODIN_ARCH branch keeps the host's OS: code under it reaches the fallback of the host's OS for that
+// architecture, not that of the first OS that builds the file.
+@(test)
+hover_in_inactive_arch_branch_keeps_host_os :: proc(t: ^testing.T) {
+	when ODIN_OS == .Windows {
+		host_os, other_os, arch := "windows", "linux", "i386"
+	} else when ODIN_OS == .Linux {
+		host_os, other_os, arch := "linux", "windows", "arm64"
+	} else {
+		host_os, other_os, arch := "darwin", "windows", "amd64"
+	}
+	decl := "package test\n\nwhen ODIN_ARCH == .%s {{\n\tT :: struct {{ %s: int }}\n}}\n"
+	source := test.Source {
+		main  = fmt.tprintf(
+			"package test\n\nwhen ODIN_ARCH == .%s {{\n\tf :: proc(t: T) -> int {{\n\t\treturn t.h{{*}}\n\t}}\n}}\n",
+			arch,
+		),
+		files = {
+			{fmt.tprintf("t_%s.odin", other_os), fmt.tprintf(decl, arch, "o")},
+			{fmt.tprintf("t_%s.odin", host_os), fmt.tprintf(decl, arch, "h")},
+		},
+	}
+	test.expect_hover(t, &source, "T.h: int")
+}
+
+// A `when` in a procedure body places the names under it like one at file scope.
+@(test)
+hover_in_inactive_branch_of_procedure_body :: proc(t: ^testing.T) {
+	a, b := other_oses()
+	source := test.Source {
+		main  = fmt.tprintf(
+			"package test\n\nf :: proc() {{\n\twhen ODIN_OS == .%s {{\n\t\tv: T\n\t\tx := v.b{{*}}\n\t}}\n}}\n",
+			b,
+		),
+		files = {
+			{"a.odin", fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ a: int }}\n}}\n", a)},
+			{"b.odin", fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ b: int }}\n}}\n", b)},
+		},
+	}
+	test.expect_hover(t, &source, "T.b: int")
+}
+
+// The package `posix` of the selector tests, which declares pid_t for two OSes other than the host's.
+@(private = "file")
+posix_package :: proc(a, b: string) -> test.Package {
+	return {
+		pkg = "posix",
+		source = fmt.tprintf(
+			"package posix\n\nwhen ODIN_OS == .%s {{\n\tpid_t :: struct {{ a: int }}\n}} else when ODIN_OS == .%s {{\n\tpid_t :: struct {{ b: int }}\n}}\n",
+			a,
+			b,
+		),
+	}
+}
+
+// A selector into another package under `when ODIN_OS == .B` reaches the declaration that B builds.
+@(test)
+hover_selector_in_inactive_branch_reaches_its_targets_fallback :: proc(t: ^testing.T) {
+	a, b := other_oses()
+	source := test.Source {
+		main = fmt.tprintf(
+			"package test\n\nimport \"core:posix\"\n\nwhen ODIN_OS == .%s {{\n\tf :: proc(p: posix.pid_t) -> int {{\n\t\treturn p.b{{*}}\n\t}}\n}}\n",
+			b,
+		),
+		packages = {posix_package(a, b)},
+		collections = {"core" = "test"},
+	}
+	test.expect_hover(t, &source, "pid_t.b: int")
+}
+
+// Go to definition on a selector into another package under `when ODIN_OS == .B` lands on B's declaration.
+@(test)
+definition_selector_in_inactive_branch_reaches_its_targets_fallback :: proc(t: ^testing.T) {
+	a, b := other_oses()
+	source := test.Source {
+		main = fmt.tprintf(
+			"package test\n\nimport \"core:posix\"\n\nwhen ODIN_OS == .%s {{\n\tf :: proc(p: posix.pi{{*}}d_t) {{}}\n}}\n",
+			b,
+		),
+		packages = {posix_package(a, b)},
+		collections = {"core" = "test"},
+	}
+	location := common.Location {
+		range = {start = {line = 5, character = 1}, end = {line = 5, character = 6}},
+	}
+	test.expect_definition_locations(t, &source, {location})
+}
