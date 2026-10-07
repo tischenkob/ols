@@ -460,7 +460,7 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 				}
 				for name in decl.names {
 					if ident, ok := name.derived.(^ast.Ident); ok && ident.name == new_name {
-						// A declaration under a `when` that no target takes together with a renamed one.
+						// A declaration that no target builds together with a renamed one.
 						if !builds_with_sites(sites[:], scan, ident.pos.offset) {
 							continue
 						}
