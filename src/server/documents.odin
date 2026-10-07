@@ -328,7 +328,7 @@ document_apply_changes :: proc(
 		}
 	}
 
-	// rols: relint the open package files whose verdicts the change may turn; the refresh pushes their diagnostics
+	// rols: relint the open package files whose verdicts the change may turn. The refresh pushes their diagnostics.
 	relint_package_siblings(document, config)
 
 	return document_refresh(document, config, writer)
