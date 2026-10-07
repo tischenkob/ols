@@ -412,3 +412,53 @@ shadowed :: proc(s: ^S) {
 
 	test.expect_lint_diagnostics(t, &source, {{30, "dead-store"}, {31, "dead-store"}})
 }
+
+@(test)
+dead_store_using_local_value :: proc(t: ^testing.T) {
+	// A field of a local `using` value is a local store: overwriting it before any read of the field or the
+	// value loses the first store. A pointer, a value whose address is taken or a read of the value between
+	// the stores keeps the first store alive.
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	x: int,
+}
+use :: proc(s: S) {}
+local_decl :: proc() {
+	using s: S
+	x = 1
+	x = 2
+	use(s)
+}
+local_value :: proc() {
+	using s := S{}
+	x = 1
+	x = 2
+	use(s)
+}
+pointer_decl :: proc(p: ^S) {
+	using s: ^S = p
+	x = 1
+	x = 2
+}
+addressed :: proc() {
+	using s: S
+	q := &s
+	x = 1
+	x = 2
+	use(q^)
+}
+read_whole :: proc() {
+	using s: S
+	x = 1
+	t := s
+	x = 2
+	use(t)
+}
+`,
+		config = {enable_lint_dead_store = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{8, "dead-store"}, {14, "dead-store"}})
+}
