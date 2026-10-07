@@ -1619,6 +1619,23 @@ main :: proc() {
 `)
 }
 
+// A one-line caller file has no line after the package clause, so the import goes at the end of the file.
+@(test)
+action_inline_proc_import_into_one_line_file :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import "core:time"
+
+wait :: proc(d: time.Duration) -> time.Duration {
+	return d
+}
+`, `package test; main :: proc() {_ = wa{*}it(5)}`)
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test; main :: proc() {_ = time.Duration(5)}
+
+import "core:time"
+`)
+}
+
 // Each `when` branch defines the procedure for other targets, so a copy of one would be wrong on the others.
 @(test)
 action_inline_proc_refused_when_branch_definition :: proc(t: ^testing.T) {
@@ -1636,6 +1653,65 @@ when ODIN_OS == .Windows {
 
 main :: proc() {
 	_ = wa{*}it(1)
+}
+`)
+}
+
+// A caller in the same `when` branch builds only with that branch's definition. The test host is not Windows.
+@(test)
+action_inline_proc_caller_in_same_when_branch :: proc(t: ^testing.T) {
+	expect_inline_proc(t, `package test
+
+when ODIN_OS == .Windows {
+	wait :: proc(x: int) -> int {
+		return x + 1
+	}
+} else {
+	wait :: proc(x: int) -> int {
+		return x + 2
+	}
+
+	run :: proc() {
+		_ = wa{*}it(1)
+	}
+}
+`, `package test
+
+when ODIN_OS == .Windows {
+	wait :: proc(x: int) -> int {
+		return x + 1
+	}
+} else {
+	wait :: proc(x: int) -> int {
+		return x + 2
+	}
+
+	run :: proc() {
+		_ = 1 + 2
+	}
+}
+`)
+}
+
+// A caller in another `when` statement may build with another branch's definition.
+@(test)
+action_inline_proc_refused_caller_in_other_when :: proc(t: ^testing.T) {
+	expect_no_inline_proc(t, `package test
+
+when ODIN_OS == .Windows {
+	wait :: proc(x: int) -> int {
+		return x + 1
+	}
+} else {
+	wait :: proc(x: int) -> int {
+		return x + 2
+	}
+}
+
+when ODIN_OS != .Windows {
+	run :: proc() {
+		_ = wa{*}it(1)
+	}
 }
 `)
 }

@@ -677,6 +677,10 @@ import_edit :: proc(ctx: ^ActionContext, import_path: string, alias := "") -> Te
 	line := ctx.ast_context.file.pkg_decl.end.line
 	src := ctx.document.ast.src
 	rest := src[ctx.ast_context.file.pkg_decl.end.offset:]
+	// A file without a line break after the package clause has no next line, so the import ends the file.
+	if !strings.contains(rest, "\n") {
+		return {range = range_of(ctx, len(src), len(src)), newText = fmt.tprintf("\n\n%s\n", decl)}
+	}
 	_, _, after := strings.partition(rest, "\n")
 	next_line, _, _ := strings.partition(after, "\n")
 	blank := strings.trim_space(next_line) == ""

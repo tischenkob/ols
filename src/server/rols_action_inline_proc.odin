@@ -99,7 +99,7 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 		}
 	}
 
-	target, lit := find_proc_lit(ctx, symbol)
+	target, lit := find_proc_lit(ctx, symbol, call)
 	if lit == nil || lit.body == nil || lit.type == nil {
 		return
 	}
@@ -393,8 +393,9 @@ body_declares :: proc(body: ^ast.Block_Stmt, name: string) -> bool {
 
 // The declaration that symbol names. A callee with per-target variants is refused, since the copy
 // would carry one target's body, unless it sits outside any `when` in a file that builds on the same
-// targets as the caller's file.
-find_proc_lit :: proc(ctx: ^ActionContext, symbol: Symbol) -> (^Document, ^ast.Proc_Lit) {
+// targets as the caller's file, or in the `when` branch of the caller's file that also holds call.
+// Code in that branch builds only where the branch does, and there no variant may share its scope.
+find_proc_lit :: proc(ctx: ^ActionContext, symbol: Symbol, call: ^ast.Call_Expr) -> (^Document, ^ast.Proc_Lit) {
 	h := Call_Hierarchy{ctx.files, make(map[string]^Document, context.temp_allocator)}
 	document := ctx.document
 	if !strings.equal_fold(symbol.uri, document.uri.uri) {
@@ -409,7 +410,7 @@ find_proc_lit :: proc(ctx: ^ActionContext, symbol: Symbol) -> (^Document, ^ast.P
 	if decl == nil || len(decl.names) != 1 || len(decl.values) != 1 || final_name(decl.names[0]) != symbol.name {
 		return nil, nil
 	}
-	if len(top_level_variants(&h, document, decl)) > 0 {
+	if len(top_level_variants(&h, document, decl)) > 0 && !in_same_when_branch(ctx.document, document, decl, call) {
 		callee_tags := parser.parse_file_tags(document.ast, context.temp_allocator)
 		caller_tags := parser.parse_file_tags(ctx.document.ast, context.temp_allocator)
 		if !slice.contains(document.ast.decls[:], (^ast.Stmt)(decl)) ||
@@ -418,6 +419,15 @@ find_proc_lit :: proc(ctx: ^ActionContext, symbol: Symbol) -> (^Document, ^ast.P
 		}
 	}
 	return document, decl.values[0].derived.(^ast.Proc_Lit) or_else nil
+}
+
+// Whether decl sits in a `when` branch of the caller's file that also holds call.
+in_same_when_branch :: proc(caller, callee: ^Document, decl: ^ast.Value_Decl, call: ^ast.Call_Expr) -> bool {
+	if callee != caller {
+		return false
+	}
+	branch := when_branch_of(callee.ast, decl.pos.offset)
+	return branch != nil && branch.pos.offset <= call.pos.offset && call.end.offset <= branch.end.offset
 }
 
 // The source of roots is copied from the callee's file into the caller's, so it must mean the same
