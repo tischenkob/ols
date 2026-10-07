@@ -273,14 +273,21 @@ site_possible_on :: proc(site: When_Site, target: parser.Build_Target) -> bool {
 
 // Whether target can take every `when` branch around offset in file: no condition on the way is known to rule
 // it out. Only comparisons of ODIN_OS or ODIN_ARCH with an implicit selector such as `.Linux`, the literals
-// true and false, `!`, `&&`, `||` and parentheses are known. Any other condition can go either way.
-branch_possible_on :: proc(file: ast.File, offset: int, target: parser.Build_Target) -> bool {
+// true and false, `!`, `&&`, `||`, parentheses and a name of consts are known. Any other condition can go either
+// way.
+branch_possible_on :: proc(
+	file: ast.File,
+	offset: int,
+	target: parser.Build_Target,
+	consts: map[string]^ast.Expr = nil,
+) -> bool {
 	Data :: struct {
 		offset:   int,
 		target:   parser.Build_Target,
 		possible: bool,
+		consts:   map[string]^ast.Expr,
 	}
-	data := Data{offset, target, true}
+	data := Data{offset, target, true, consts}
 	visitor := ast.Visitor {
 		data = &data,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
@@ -289,7 +296,7 @@ branch_possible_on :: proc(file: ast.File, offset: int, target: parser.Build_Tar
 				return nil
 			}
 			if s, ok := node.derived.(^ast.When_Stmt); ok {
-				value := condition_on(s.cond, data.target)
+				value := condition_on(s.cond, data.target, data.consts)
 				if s.body != nil && s.body.pos.offset <= data.offset && data.offset < s.body.end.offset {
 					if value == .False do data.possible = false
 				} else if s.else_stmt != nil &&
@@ -309,8 +316,9 @@ branch_possible_on :: proc(file: ast.File, offset: int, target: parser.Build_Tar
 
 // The first of GATE_TARGET_CANDIDATES that builds file and can take every `when` branch around offset, when base
 // cannot take one of them. A candidate of base's OS comes first, so an ODIN_ARCH branch keeps the OS. ok is false
-// when base can take them all or no candidate can. A branch whose condition branch_possible_on cannot read, such
-// as `when FLAG`, is possible on base, so it has no target here.
+// when base can take them all or no candidate can. A condition reads the constants of file_constants. A branch whose
+// condition branch_possible_on cannot read, such as `when FLAG` with `FLAG :: #config(FLAG, false)`, is possible on
+// base, so it has no target here.
 branch_target :: proc(
 	file: ast.File,
 	offset: int,
@@ -319,13 +327,14 @@ branch_target :: proc(
 	target: parser.Build_Target,
 	ok: bool,
 ) {
-	if branch_possible_on(file, offset, base) do return {}, false
+	consts := file_constants(file)
+	if branch_possible_on(file, offset, base, consts) do return {}, false
 	facts := facts_of(file.fullpath, build_tags(file))
 	for same_os in ([2]bool{true, false}) {
 		for candidate in GATE_TARGET_CANDIDATES {
 			parsed, _ := parse_target(candidate)
 			if (parsed.os == base.os) != same_os do continue
-			if facts_build_on(facts, parsed) && branch_possible_on(file, offset, parsed) do return parsed, true
+			if facts_build_on(facts, parsed) && branch_possible_on(file, offset, parsed, consts) do return parsed, true
 		}
 	}
 	return {}, false
@@ -338,19 +347,47 @@ Condition :: enum {
 	True,
 }
 
-// The value of a `when` condition on target, as far as branch_possible_on knows it.
+// The longest chain of constants that condition_on follows, so a cycle such as `X :: !X` ends as Unknown. It is
+// short because a name that occurs twice in a value, as in `X :: X && X`, doubles the work at each step.
 @(private = "file")
-condition_on :: proc(expr: ^ast.Expr, target: parser.Build_Target) -> Condition {
+CONDITION_CONST_DEPTH :: 8
+
+// The value expression of each constant that file declares at file scope, by name. A constant of a `when` branch
+// is left out: its value can differ between targets.
+file_constants :: proc(file: ast.File) -> map[string]^ast.Expr {
+	consts := make(map[string]^ast.Expr, context.temp_allocator)
+	for decl in file.decls {
+		value_decl, ok := decl.derived.(^ast.Value_Decl)
+		if !ok || value_decl.is_mutable || len(value_decl.names) != len(value_decl.values) do continue
+		for name, i in value_decl.names {
+			if ident, is_ident := name.derived.(^ast.Ident); is_ident do consts[ident.name] = value_decl.values[i]
+		}
+	}
+	return consts
+}
+
+// The value of a `when` condition on target, as far as branch_possible_on knows it. A name of consts reads as the
+// value of its expression, up to CONDITION_CONST_DEPTH names deep. A `#config` value stays Unknown.
+@(private = "file")
+condition_on :: proc(
+	expr: ^ast.Expr,
+	target: parser.Build_Target,
+	consts: map[string]^ast.Expr = nil,
+	depth := 0,
+) -> Condition {
 	if expr == nil do return .Unknown
 	#partial switch e in expr.derived {
 	case ^ast.Paren_Expr:
-		return condition_on(e.expr, target)
+		return condition_on(e.expr, target, consts, depth)
 	case ^ast.Ident:
 		switch e.name {
 		case "true":
 			return .True
 		case "false":
 			return .False
+		}
+		if value, ok := consts[e.name]; ok && depth < CONDITION_CONST_DEPTH {
+			return condition_on(value, target, consts, depth + 1)
 		}
 	case ^ast.Unary_Expr:
 		if e.op.kind == .Not {
@@ -359,16 +396,16 @@ condition_on :: proc(expr: ^ast.Expr, target: parser.Build_Target) -> Condition 
 				.False   = .True,
 				.True    = .False,
 			}
-			return negated[condition_on(e.expr, target)]
+			return negated[condition_on(e.expr, target, consts, depth)]
 		}
 	case ^ast.Binary_Expr:
 		#partial switch e.op.kind {
 		case .Cmp_And:
-			left, right := condition_on(e.left, target), condition_on(e.right, target)
+			left, right := condition_on(e.left, target, consts, depth), condition_on(e.right, target, consts, depth)
 			if left == .False || right == .False do return .False
 			if left == .True && right == .True do return .True
 		case .Cmp_Or:
-			left, right := condition_on(e.left, target), condition_on(e.right, target)
+			left, right := condition_on(e.left, target, consts, depth), condition_on(e.right, target, consts, depth)
 			if left == .True || right == .True do return .True
 			if left == .False && right == .False do return .False
 		case .Cmp_Eq, .Not_Eq:
