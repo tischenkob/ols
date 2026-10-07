@@ -90,6 +90,8 @@ resolve_entire_file_internal :: proc(
 
 	// rols: no preallocation: most files resolve to far fewer nodes
 	symbols = make(SymbolAndNodeMap, allocator)
+	// rols: the lint call counts read the callee of an argument call from here instead of resolving it again
+	arg_callees := make(map[uintptr]Arg_Callee, allocator)
 
 	for decl in document.ast.decls {
 		resolve_decl(
@@ -103,6 +105,7 @@ resolve_entire_file_internal :: proc(
 			target_name = "",
 			should_cancel = should_cancel,
 			cancelled = &cancelled,
+			arg_callees = &arg_callees,
 		)
 		if cancelled {
 			// rols: release the partly filled cache arena
@@ -115,6 +118,8 @@ resolve_entire_file_internal :: proc(
 	}
 
 	document.symbols = symbols
+	// rols: cached and cleared together with symbols
+	document.arg_callees = arg_callees
 	return symbols, true
 }
 
@@ -178,6 +183,9 @@ FileResolveData :: struct {
 	save_unresolved:  bool,
 	should_cancel:    ResolveCancelProc,
 	cancelled:        ^bool,
+	// rols: the argument callees to record, nil when not wanted, and the procedure literals around the node
+	arg_callees:      ^map[uintptr]Arg_Callee,
+	proc_lits:        [dynamic]^ast.Proc_Lit,
 }
 
 @(private = "file")
@@ -192,6 +200,8 @@ resolve_decl :: proc(
 	target_name := "",
 	should_cancel: ResolveCancelProc = nil,
 	cancelled: ^bool = nil,
+	// rols: the whole-file resolve records argument callees here
+	arg_callees: ^map[uintptr]Arg_Callee = nil,
 ) {
 	data := FileResolveData {
 		position_context = position_context,
@@ -203,7 +213,11 @@ resolve_decl :: proc(
 		save_unresolved  = save_unresolved,
 		should_cancel    = should_cancel,
 		cancelled        = cancelled,
+		// rols: argument callees
+		arg_callees      = arg_callees,
 	}
+	// rols: the procedure literal stack grows in the request's temp memory
+	data.proc_lits.allocator = context.temp_allocator
 
 	resolve_node(decl, &data)
 }
@@ -458,6 +472,10 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 
 		append(&data.position_context.functions, data.position_context.function)
 
+		// rols: a poly parameter of an enclosing procedure literal turns `T(x)` into a conversion
+		if data.arg_callees != nil do append(&data.proc_lits, n)
+		defer if data.arg_callees != nil do pop(&data.proc_lits)
+
 		resolve_node(n.body, data)
 	case ^ast.Unroll_Range_Stmt:
 		local_scope(data, n)
@@ -575,6 +593,8 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 			data.position_context.comp_lit, data.position_context.parent_comp_lit = nil, nil
 			defer data.position_context.comp_lit, data.position_context.parent_comp_lit = old_comp_lit, old_parent_comp_lit
 			resolve_node(arg, data)
+			// rols: with the locals of the call in place
+			record_arg_callee(data, arg)
 		}
 	case ^ast.Index_Expr:
 		// rols: restore the index fields after this node, a stale index decides a later implicit selector

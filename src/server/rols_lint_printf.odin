@@ -128,31 +128,15 @@ expanded_arg_count :: proc(ctx: ^LintContext, args: []^ast.Expr) -> (count: int,
 // and for a procedure group call whose members return different numbers of results.
 @(private = "file")
 arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: bool) {
-	call, is_call := arg.derived.(^ast.Call_Expr)
-	// `x->f()` wraps the call `x->f(x)`.
-	if selector_call, is_selector_call := arg.derived.(^ast.Selector_Call_Expr); is_selector_call {
-		call, is_call = selector_call.call, selector_call.call != nil
-	}
-	if !is_call do return 1, true
-	callee := ast.unparen_expr(call.expr)
-	#partial switch _ in callee.derived {
-	case ^ast.Ident, ^ast.Selector_Expr:
-	case ^ast.Call_Expr,
-	     ^ast.Index_Expr,
-	     ^ast.Deref_Expr,
-	     ^ast.Type_Assertion,
-	     ^ast.Proc_Lit,
-	     ^ast.Ternary_If_Expr,
-	     ^ast.Ternary_When_Expr:
-		// The resolve map holds named callees only, so `f()()` or `arr[i]()` resolves here. A call
-		// resolves to the procedure it calls, which for `f()()` is the procedure that f returns.
-		return callee_results(ctx, call)
-	case:
-		// A conversion such as `(^int)(p)`, or a directive such as `#location()`.
-		return 1, true
-	}
+	callee, named := arg_call_target(arg)
+	if callee == nil do return 1, true
+	// The resolve map holds named callees only, so `f()()` or `arr[i]()` resolves the whole call.
+	if !named do return callee_results(ctx, callee)
 	resolved, ok := lint_symbols(ctx)[uintptr(callee)]
-	if !ok || resolved.is_unresolved || resolved.symbol == nil do return callee_results(ctx, callee)
+	if !ok || resolved.is_unresolved || resolved.symbol == nil {
+		if recorded, found := ctx.document.arg_callees[uintptr(callee)]; found && recorded.poly_conversion do return 1, true
+		return callee_results(ctx, callee)
+	}
 
 	if names_proc_type(resolved.symbol^) do return 1, true
 	#partial switch v in resolved.symbol.value {
@@ -168,6 +152,118 @@ arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: 
 		if resolved.symbol.type == .Variable do return 1, false
 	}
 	return 1, true
+}
+
+// The procedure an argument call calls, which the whole-file resolve records with the locals of the call for the
+// arguments whose count `callee_results` resolves (see `record_arg_callee`).
+Arg_Callee :: struct {
+	// nil when the callee does not resolve.
+	symbol:          ^Symbol,
+	// The callee is a name that `$` binds in the parameters of an enclosing procedure literal, as T in `T(x)`.
+	poly_conversion: bool,
+}
+
+// What counts the values of an argument call: its callee when that is a name, the call itself when the callee is
+// unnamed, as in `f()()` or `arr[i]()`, and nil when the argument is no call, or is a conversion such as
+// `(^int)(p)` or a directive such as `#location()`. A call resolves to the procedure it calls, which for `f()()` is
+// the procedure that f returns.
+@(private = "file")
+arg_call_target :: proc(arg: ^ast.Expr) -> (target: ^ast.Expr, named: bool) {
+	call, is_call := arg.derived.(^ast.Call_Expr)
+	// `x->f()` wraps the call `x->f(x)`.
+	if selector_call, is_selector_call := arg.derived.(^ast.Selector_Call_Expr); is_selector_call {
+		call, is_call = selector_call.call, selector_call.call != nil
+	}
+	if !is_call do return nil, false
+	callee := ast.unparen_expr(call.expr)
+	#partial switch _ in callee.derived {
+	case ^ast.Ident, ^ast.Selector_Expr:
+		return callee, true
+	case ^ast.Call_Expr,
+	     ^ast.Index_Expr,
+	     ^ast.Deref_Expr,
+	     ^ast.Type_Assertion,
+	     ^ast.Proc_Lit,
+	     ^ast.Ternary_If_Expr,
+	     ^ast.Ternary_When_Expr:
+		return call, false
+	}
+	return nil, false
+}
+
+// Records the callee of an argument call that `arg_results` would resolve again: an unnamed callee, and a name
+// that did not resolve or resolved to a procedure group. Called by the whole-file resolve right after it resolved
+// arg, so the locals of the call are in place, which spares the lint a position lookup for each argument.
+@(private = "package")
+record_arg_callee :: proc(data: ^FileResolveData, arg: ^ast.Expr) {
+	if data.arg_callees == nil do return
+	target, named := arg_call_target(arg)
+	if target == nil do return
+	if named {
+		if resolved, ok := data.symbols[uintptr(target)]; ok && !resolved.is_unresolved && resolved.symbol != nil {
+			if _, is_group := resolved.symbol.value.(SymbolProcedureGroupValue); !is_group do return
+		}
+		if ident, is_ident := target.derived.(^ast.Ident); is_ident && binds_poly_name(data.proc_lits[:], ident.name) {
+			data.arg_callees[uintptr(target)] = {
+				poly_conversion = true,
+			}
+			return
+		}
+	}
+
+	// Resolve as `resolve_callee` does: outside any call, so a group yields every member, and with the package
+	// globals alone when the locals fail.
+	ast_context := data.ast_context
+	old_call, old_package, old_whole_file :=
+		ast_context.call, ast_context.current_package, ast_context.whole_file_resolve
+	defer {
+		ast_context.call, ast_context.current_package, ast_context.whole_file_resolve =
+			old_call, old_package, old_whole_file
+		reset_ast_context(ast_context)
+	}
+	ast_context.call, ast_context.current_package, ast_context.whole_file_resolve =
+		nil, ast_context.document_package, false
+	reset_ast_context(ast_context)
+	symbol, ok := resolve_type_expression(ast_context, target)
+	if !ok {
+		reset_ast_context(ast_context)
+		ast_context.use_locals = false
+		symbol, ok = resolve_type_expression(ast_context, target)
+	}
+	data.arg_callees[uintptr(target)] = {
+		symbol = new_clone(symbol, ast_context.allocator) if ok else nil,
+	}
+}
+
+// Whether `$` binds name in the parameters of one of the procedure literals, as `v: $T` or `$T: typeid` bind T.
+@(private = "file")
+binds_poly_name :: proc(lits: []^ast.Proc_Lit, name: string) -> bool {
+	Data :: struct {
+		name:  string,
+		found: bool,
+	}
+	data := Data {
+		name = name,
+	}
+	visitor := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			data := (^Data)(visitor.data)
+			if node == nil || data.found do return nil
+			if poly, is_poly := node.derived.(^ast.Poly_Type);
+			   is_poly && poly.type != nil && poly.type.name == data.name {
+				data.found = true
+				return nil
+			}
+			return visitor
+		},
+	}
+	for lit in lits {
+		if lit.type == nil || lit.type.params == nil do continue
+		ast.walk(&visitor, lit.type.params)
+		if data.found do return true
+	}
+	return false
 }
 
 // The values passed by the procedure that expr resolves to with the locals visible at it. A group
@@ -192,11 +288,17 @@ callee_results :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (int, bool) {
 	return 1, true
 }
 
-// expr resolved with the locals visible at it, or with the package globals when that fails. The context shares
-// the walker's globals, since collecting them walks every declaration of the file, which for each argument made
-// a lint run quadratic.
+// expr resolved with the locals visible at it, or with the package globals when that fails. The whole-file resolve
+// records the callees of the arguments of active code. Other callees resolve here with a context that shares the
+// walker's globals, since collecting them walks every declaration of the file, which for each argument made a lint
+// run quadratic.
 @(private = "file")
 resolve_callee :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (Symbol, bool) {
+	lint_symbols(ctx)
+	if recorded, found := ctx.document.arg_callees[uintptr(expr)]; found {
+		if recorded.symbol == nil do return {}, false
+		return recorded.symbol^, true
+	}
 	document := ctx.document
 	position := common.get_token_range(expr, ctx.src).start
 	if position_context, found := get_document_position_context(document, position, .Hover); found {
