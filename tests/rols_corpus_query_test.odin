@@ -199,7 +199,7 @@ g :: proc{a, b}
 
 // Corpus: reduced, see docs/corpus-validation.md.
 @(test)
-hover_promoted_field_offset_is_zero :: proc(t: ^testing.T) {
+hover_promoted_field_layout :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
 

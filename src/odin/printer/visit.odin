@@ -2358,7 +2358,7 @@ visit_struct_field_list :: proc(p: ^Printer, list: ^ast.Field_List, options := L
 		// Initialize alignment for the first section and update it at each section boundary.
 		if multiline_alignment_enabled && i == section_end {
 			section_end = get_struct_field_alignment_section_end(p, list.list, i)
-			section_name_width = get_max_struct_field_name_width(p, list.list[i:section_end])
+			section_name_width = get_max_struct_field_name_width(p, list.list[i:section_end], leading_width)
 		}
 
 		// A field is neither a Decl nor a Stmt, so it reaches neither place that consults
@@ -2443,9 +2443,10 @@ visit_struct_field_list :: proc(p: ^Printer, list: ^ast.Field_List, options := L
 
 		if i != len(list.list) - 1 && .Enforce_Newline in options {
 			if p.config.preserve_struct_blank_lines {
-				// rols: the field starts at its first flag
-				document = cons(document, move_line(p, field_start(p, list.list[i + 1])))
-				leading_width = 0
+				// rols: the field starts at its first flag, and move_line prints its leading block comment on its line
+				next := field_start(p, list.list[i + 1])
+				leading_width, _ = peek_leading_width(p, next, p.latest_comment_index)
+				document = cons(document, move_line(p, next))
 			} else {
 				// rols: a block comment before the next field on its line leads that field and its flags
 				comment, leading: ^Document
@@ -2919,13 +2920,17 @@ get_struct_field_name_width :: proc(field: ^ast.Field) -> int {
 
 @(private)
 // rols: the printer gives the alignment the width of the block comments that lead each field
-get_max_struct_field_name_width :: proc(p: ^Printer, fields: []^ast.Field) -> int {
+get_max_struct_field_name_width :: proc(p: ^Printer, fields: []^ast.Field, first_leading_width: int) -> int {
 	longest_name := 0
 	comment_index := p.latest_comment_index
 
-	for field in fields {
+	for field, i in fields {
 		leading_width: int
 		leading_width, comment_index = peek_leading_width(p, field_start(p, field), comment_index)
+		// The loop already printed the first field's leading comment, so the peek no longer sees it.
+		if i == 0 {
+			leading_width += first_leading_width
+		}
 		longest_name = max(longest_name, get_struct_field_name_width(field) + leading_width)
 	}
 
