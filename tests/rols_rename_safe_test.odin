@@ -2146,3 +2146,115 @@ g :: proc(s: S) -> int { return s.a{*} }
 		{"`S` at test/main.odin:8 carries the renamed field `a`, but its platform variant `S` at test/main.odin:6 is another type, which the rename does not change"},
 	)
 }
+
+// Two branches of one `when` never build together, so a use in one branch cannot be captured by a `using` in the
+// other, and a declaration there does not collide with it.
+@(test)
+rename_safe_allows_using_and_use_in_separate_when_branches :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+limit :: 10
+
+f :: proc() -> int {
+	when ODIN_DEBUG {
+		using v: Foo
+	} else {
+		return limit
+	}
+	return 0
+}
+`,
+	}
+	test.expect_rename_refused(t, &source, "limit", {})
+}
+
+@(test)
+rename_safe_allows_declaration_in_other_when_branch_than_using :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Foo :: struct {
+	x{*}: int,
+}
+
+f :: proc() -> int {
+	when ODIN_DEBUG {
+		limit := 2
+		_ = limit
+	} else when ODIN_OS == .Windows {
+		using v: Foo
+	}
+	return 0
+}
+`,
+	}
+	test.expect_rename_refused(t, &source, "limit", {})
+}
+
+// Two aliases that carry the field share a variant that does not, which is reported once.
+@(test)
+rename_safe_reports_shared_alias_variant_once :: proc(t: ^testing.T) {
+	source := test.Source {
+		main     = `package test
+
+import "other"
+
+when ODIN_OS == .Windows {
+	S :: other.S_Other
+} else when ODIN_OS == .Linux {
+	S :: other.S_Other
+} else {
+	S :: struct { a: int }
+}
+
+g :: proc(s: other.S_Other) -> int { return s.a{*} }
+`,
+		packages = {{pkg = "other", source = "package other\n\nS_Other :: struct { a: int }\n"}},
+	}
+	test.expect_rename_refused(t, &source, "b", {"its platform variant `S` at test/main.odin:10 is another type"})
+}
+
+// Every variant of an embedder embeds the field's type, so each carries the renamed field.
+@(test)
+rename_safe_allows_embedder_variants_that_all_embed_the_type :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Common :: struct { a: int }
+
+when ODIN_OS == .Windows {
+	W :: struct { using base: Common }
+} else {
+	W :: struct { using base: Common, x: int }
+}
+
+g :: proc(w: W) -> int { return w.a{*} }
+`,
+	}
+	test.expect_rename_refused(t, &source, "b", {})
+}
+
+@(test)
+rename_safe_allows_embedder_variants_in_other_package_that_all_embed_the_type :: proc(t: ^testing.T) {
+	source := test.Source {
+		main     = `package test
+
+import "other"
+
+when ODIN_OS == .Windows {
+	W :: struct { using base: other.Common }
+} else {
+	W :: struct { using base: other.Common, x: int }
+}
+
+g :: proc(w: W) -> int { return w.a{*} }
+`,
+		packages = {{pkg = "other", source = "package other\n\nCommon :: struct { a: int }\n"}},
+	}
+	test.expect_rename_refused(t, &source, "b", {})
+}
