@@ -610,6 +610,48 @@ results :: proc(text: string) {
 }
 
 @(test)
+range_off_by_one_guard_stale_after_base_assignment :: proc(t: ^testing.T) {
+	// An assignment to a base of the collection, such as `s = t` for `s.items`, makes a length local stale.
+	// An assignment to a sibling field, or to a field whose name only starts with the collection's, does not.
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	items:  []int,
+	items2: []int,
+	other:  int,
+}
+
+base :: proc(s: S, t: S) {
+	s := s
+	n := len(s.items)
+	s = t
+	for b in 0 ..= len(s.items) {
+		if b < n {
+			_ = s.items[b]
+		}
+	}
+}
+
+sibling :: proc(s: S, t: S) {
+	s := s
+	n := len(s.items)
+	s.other = 1
+	s.items2 = t.items
+	for b in 0 ..= len(s.items) {
+		if b < n {
+			_ = s.items[b]
+		}
+	}
+}
+`,
+		config = {enable_lint_loops = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{12, "range-off-by-one"}})
+}
+
+@(test)
 range_off_by_one_using_field_hides_length_local :: proc(t: ^testing.T) {
 	// A field that `using` brings into scope hides an outer length local of its name, so it guards nothing.
 	source := test.Source {
