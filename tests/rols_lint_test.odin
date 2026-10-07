@@ -902,6 +902,58 @@ init :: proc() {
 	test.expect_lint_diagnostics(t, &source, {{7, "unused-parameter"}})
 }
 
+// A procedure that a workspace package importing its package passes as a value has its signature fixed there. A
+// call through the import, or a selector on an alias of another package, is no such use.
+@(test)
+lint_unused_parameter_value_use_in_an_importing_package :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+handler :: proc(x: int) {
+	n := 1
+	_ = n
+}
+
+called :: proc(x: int) {
+	n := 1
+	_ = n
+}
+
+other :: proc(x: int) {
+	n := 1
+	_ = n
+}
+`,
+		packages = {
+			{
+				pkg = "b",
+				source = `package b
+
+import a ".."
+
+register :: proc(cb: proc(x: int)) {}
+
+init :: proc() {
+	register(a.handler)
+	a.called(1)
+}
+`,
+			},
+			{pkg = "c", source = `package c
+
+import a "../b"
+
+init :: proc() {
+	a.register(a.other)
+}
+`},
+		},
+		config = {enable_lint_unused_parameter = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{7, "unused-parameter"}, {12, "unused-parameter"}})
+}
+
 // After the first few names, the other files are looked up through an index of their words.
 @(test)
 lint_unused_parameter_value_use_in_another_file_indexed :: proc(t: ^testing.T) {

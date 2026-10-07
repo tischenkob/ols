@@ -305,7 +305,7 @@ rewrite_importer :: proc(r: ^Package_Rename, document: ^Document) {
 
 // The collection prefix with its colon, the rest of the path, and the directory the rest starts at: the
 // collection root, or the directory of file for a relative path. Fails on an unknown collection.
-@(private = "file")
+@(private = "package")
 split_import_path :: proc(
 	config: ^common.Config,
 	file, body: string,
