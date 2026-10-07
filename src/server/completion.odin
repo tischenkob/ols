@@ -478,6 +478,9 @@ convert_completion_results :: proc(
 		append_non_imported_packages(ast_context, position_context, &items, config)
 	}
 
+	// rols: see rols_unimported_package_symbol
+	rols_append_auto_import_edit(ast_context, items[:])
+
 	return items[:]
 }
 
@@ -1076,6 +1079,11 @@ get_selector_completion :: proc(
 	reset_ast_context(ast_context)
 
 	selector, ok = resolve_type_expression(ast_context, position_context.selector)
+
+	// rols: an unimported package lists its members, each item importing it
+	if !ok {
+		selector, ok = rols_unimported_package_symbol(ast_context, position_context, config)
+	}
 
 	if !ok {
 		return is_incomplete

@@ -164,3 +164,8 @@ main :: proc() {
 - **`ignored-result` misses two cases that the compiler rejects.** It skips `f() or_return` when a result is left over, and a call in `defer`, though the compiler checks `@(require_results)` in both.
 - **An import alias outside ASCII is not found at a qualifier.** `import_name_at` in `src/server/rols_rename_import.odin` finds the word under the cursor by bytes.
 - **agent-lsp: `TestSpeculativeSessions/Go` fails on `main` before and after the `exclude_globs` fix.** All six subtests fail in the `test/` integration package, which `make test` does not run.
+
+## Completion auto-import (`src/server/rols_completion_auto_import.odin`)
+
+- **The "add import" quick fix misses nested packages.** `add_missing_imports` (`src/server/action.odin:375`) compares the collection-relative path with the identifier (`pkg == name.name`), so `virtual.arena_init(...)` never offers `import "core:mem/virtual"`. Compare `path.base(pkg)` as `find_used_not_imported` and the selector auto-import do.
+- **The import edit is built three times.** `append_non_imported_packages`, `add_missing_imports` and `import_edit` in the fork file place the same `import "c:p"` edit. Sharing one helper needs edits to the two upstream procs beyond hook points.
