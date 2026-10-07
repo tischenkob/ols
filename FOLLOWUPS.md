@@ -4,7 +4,7 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 
 ## Upstream layout hover (2026-10-07)
 
-- **Upstream's `enable_hover_layout` shows no offset for a promoted field.** The fork's `enable_hover_struct_size` was dropped for upstream's layout hover when rols moved to `master`. Hovering `d.magic` in `Derived :: struct { using base: Base, extra: int }` prints `// size=8, align=8` without `offset=0`, which the fork's version showed (`hover_promoted_field_layout` in `tests/rols_corpus_query_test.odin` checks the current output). Fix it upstream in `construct_field_layout` (`src/server/layout.odin`).
+- **`src/server/layout.odin` and `tests/rols_corpus_query_test.odin` are not odinfmt-clean on master.** Running `./odinfmt -w` on either rewrites unrelated lines, such as the `SymbolLabelValue` indent in `symbol_layout` and the long `expectf` calls in the test file.
 
 ## Hand-off of the follow-up rounds (2026-10-07)
 
