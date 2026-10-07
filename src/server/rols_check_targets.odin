@@ -113,7 +113,7 @@ build_facts :: proc(name, text: string) -> Build_Facts {
 	if !strings.contains(text, "+build") && !strings.contains(text, "+ignore") {
 		return facts_of(name, {})
 	}
-	return facts_of(name, build_tags(parse_text(name, text)))
+	return facts_of(name, build_tags(parse_gate_text(name, text)^))
 }
 
 // The tags of file as the compiler reads them. Each `#+build-project-name` line must hold for the file to build
@@ -369,8 +369,8 @@ file_constants :: proc(file: ast.File) -> Gate_Consts {
 }
 
 // The value of a `when` condition on target, as far as branch_possible_on knows it. A name of plain reads its
-// value. A name of free, a boolean that no constant of plain gives, reads its bit of mask, and any other name is
-// unknown.
+// value. A name of free, a boolean that no constant of plain fixes, reads its bit of mask, and any other name is
+// unknown. free comes before plain, since a `#config` constant of plain is free.
 @(private = "file")
 condition_on :: proc(
 	expr: ^ast.Expr,
@@ -391,12 +391,12 @@ condition_on :: proc(
 		case "false":
 			return .False
 		}
-		if value, is_plain := plain[e.name]; is_plain {
-			if value == nil || depth >= CONST_DEPTH do return .Unknown
-			return condition_on(value, target, plain, free, mask, depth + 1)
-		}
 		for name, i in free {
 			if name == e.name do return .True if mask & (1 << u32(i)) != 0 else .False
+		}
+		if value, is_plain := plain[e.name]; is_plain {
+			if value == nil || depth > CONST_DEPTH do return .Unknown
+			return condition_on(value, target, plain, free, mask, depth + 1)
 		}
 	case ^ast.Unary_Expr:
 		if e.op.kind == .Not {
@@ -437,7 +437,9 @@ condition_on :: proc(
 MAX_FREE_NAMES :: 6
 
 // Appends to free each name that expr, or a constant of plain that it names, uses as an operand of `!`, `&&` or
-// `||`, or as the whole condition, that is neither true, false, an ODIN_* builtin nor a name of plain.
+// `||`, or as the whole condition, that is neither true, false nor an ODIN_* builtin, and is either missing from
+// plain or a `#config(NAME, default)` constant of it, which a `-define:` can set either way, whose default names
+// neither ODIN_OS nor ODIN_ARCH.
 @(private = "file")
 collect_free_names :: proc(expr: ^ast.Expr, plain: Gate_Consts, free: ^[dynamic]string, depth := 0) {
 	if expr == nil || depth > CONST_DEPTH do return
@@ -453,7 +455,9 @@ collect_free_names :: proc(expr: ^ast.Expr, plain: Gate_Consts, free: ^[dynamic]
 		}
 	case ^ast.Ident:
 		if e.name == "true" || e.name == "false" || strings.has_prefix(e.name, "ODIN_") do return
-		if value, is_plain := plain[e.name]; is_plain {
+		value, is_plain := plain[e.name]
+		fallback, is_config := config_default(value)
+		if is_plain && !(is_config && !names_target(fallback, plain)) {
 			collect_free_names(value, plain, free, depth + 1)
 		} else if !slice.contains(free[:], e.name) {
 			append(free, e.name)
@@ -478,26 +482,46 @@ condition_differs :: proc(cond: ^ast.Expr, base, target: parser.Build_Target, pl
 	return false
 }
 
-// Whether expr, or a constant of plain that it names, names ODIN_OS or ODIN_ARCH.
+// The default of expr when it is `#config(NAME, default)`.
+@(private = "file")
+config_default :: proc(expr: ^ast.Expr) -> (fallback: ^ast.Expr, ok: bool) {
+	if expr == nil do return
+	call := expr.derived.(^ast.Call_Expr) or_return
+	directive := call.expr.derived.(^ast.Basic_Directive) or_return
+	if directive.name != "config" || len(call.args) != 2 do return
+	return call.args[1], true
+}
+
+// Whether expr, or a constant of plain that it names, names a builtin that starts with ODIN_OS or ODIN_ARCH, such
+// as ODIN_OS_STRING, in any kind of expression.
 @(private = "file")
 names_target :: proc(expr: ^ast.Expr, plain: Gate_Consts, depth := 0) -> bool {
 	if expr == nil || depth > CONST_DEPTH do return false
-	#partial switch e in expr.derived {
-	case ^ast.Paren_Expr:
-		return names_target(e.expr, plain, depth)
-	case ^ast.Unary_Expr:
-		return names_target(e.expr, plain, depth)
-	case ^ast.Binary_Expr:
-		return names_target(e.left, plain, depth) || names_target(e.right, plain, depth)
-	case ^ast.Call_Expr:
-		for arg in e.args {
-			if names_target(arg, plain, depth) do return true
-		}
-	case ^ast.Ident:
-		if e.name == "ODIN_OS" || e.name == "ODIN_ARCH" do return true
-		return names_target(plain[e.name], plain, depth + 1)
+	Data :: struct {
+		plain: Gate_Consts,
+		depth: int,
+		found: bool,
 	}
-	return false
+	data := Data {
+		plain = plain,
+		depth = depth,
+	}
+	visitor := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			data := (^Data)(visitor.data)
+			if node == nil || data.found do return nil
+			if ident, ok := node.derived.(^ast.Ident); ok {
+				data.found =
+					strings.has_prefix(ident.name, "ODIN_OS") ||
+					strings.has_prefix(ident.name, "ODIN_ARCH") ||
+					names_target(data.plain[ident.name], data.plain, data.depth + 1)
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, expr)
+	return data.found
 }
 
 // Whether the target's OS or architecture, named by the identifier constant, equals the implicit selector value.
@@ -578,9 +602,9 @@ facts_target :: proc(facts: Build_Facts, base: parser.Build_Target) -> (target: 
 }
 
 // The file called name with the source text, parsed in the temp allocator.
-@(private = "file")
-parse_text :: proc(name, text: string) -> ast.File {
-	file := ast.File {
+parse_gate_text :: proc(name, text: string) -> ^ast.File {
+	file := new(ast.File, context.temp_allocator)
+	file^ = ast.File {
 		src      = text,
 		fullpath = name,
 	}
@@ -588,18 +612,15 @@ parse_text :: proc(name, text: string) -> ast.File {
 		flags = {.Optional_Semicolons},
 	}
 	context.allocator = context.temp_allocator
-	parser.parse_file(&p, &file)
+	parser.parse_file(&p, file)
 	return file
 }
 
-// Adds the constants of the file called name with the source text to consts: one outside any `when` with its
-// value, unless another file of consts declares it too, and one in a `when` branch as nil. Allocates in the temp
-// allocator.
-add_gate_consts :: proc(consts: ^Gate_Consts, name, text: string) {
-	if !strings.contains(text, "::") do return
-	file := parse_text(name, text)
+// Adds the constants of file to consts: one outside any `when` with its value, unless another file of consts
+// declares it too, and one in a `when` branch as nil. Allocates in the temp allocator.
+add_gate_consts :: proc(consts: ^Gate_Consts, file: ^ast.File) {
 	mine := make(map[string]^ast.Expr, context.temp_allocator)
-	add_plain_consts(&mine, &file)
+	add_plain_consts(&mine, file)
 	for key, value in mine {
 		consts[key] = nil if key in consts else value
 	}
@@ -651,21 +672,18 @@ other_branch_targets :: proc(
 	targets: []parser.Build_Target,
 	plain: Gate_Consts = nil,
 ) -> []bool {
-	if !may_name_target(text, plain) do return make([]bool, len(targets), context.temp_allocator)
-	file := parse_text(name, text)
-	return branch_targets(&file, base, targets, plain)
+	if !gate_may_name_target(text, plain) do return make([]bool, len(targets), context.temp_allocator)
+	return file_branch_targets(parse_gate_text(name, text), base, targets, plain)
 }
 
 // Whether a `when` condition of text can name ODIN_OS or ODIN_ARCH, directly or through a constant of plain.
-@(private = "file")
-may_name_target :: proc(text: string, plain: Gate_Consts) -> bool {
+gate_may_name_target :: proc(text: string, plain: Gate_Consts) -> bool {
 	if !strings.contains(text, "when") do return false
 	return strings.contains(text, "ODIN_OS") || strings.contains(text, "ODIN_ARCH") || len(plain) > 0
 }
 
 // other_branch_targets for a parsed file.
-@(private = "file")
-branch_targets :: proc(
+file_branch_targets :: proc(
 	file: ^ast.File,
 	base: parser.Build_Target,
 	targets: []parser.Build_Target,
@@ -725,15 +743,19 @@ branch_targets :: proc(
 // first candidate of OS X. `ODIN_ARCH == .Y` names the candidate of the OS of base with architecture Y, else the
 // first candidate with Y.
 when_named_targets :: proc(name, text: string, base: parser.Build_Target, plain: Gate_Consts = nil) -> []string {
-	if !may_name_target(text, plain) do return {}
-	file := parse_text(name, text)
+	if !gate_may_name_target(text, plain) do return {}
+	return file_when_named_targets(parse_gate_text(name, text), base, plain)
+}
+
+// when_named_targets for a parsed file.
+file_when_named_targets :: proc(file: ^ast.File, base: parser.Build_Target, plain: Gate_Consts = nil) -> []string {
 	Data :: struct {
 		plain: Gate_Consts,
 		base:  parser.Build_Target,
 		names: [dynamic]string,
 	}
 	data := Data {
-		plain = file_consts(&file, plain),
+		plain = file_consts(file, plain),
 		base  = base,
 		names = make([dynamic]string, context.temp_allocator),
 	}
@@ -742,8 +764,18 @@ when_named_targets :: proc(name, text: string, base: parser.Build_Target, plain:
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
 			data := (^Data)(visitor.data)
 			if node == nil do return nil
-			if s, ok := node.derived.(^ast.When_Stmt); ok {
-				collect_named_targets(s.cond, data.plain, data.base, &data.names)
+			s, is_when := node.derived.(^ast.When_Stmt)
+			if !is_when do return visitor
+			mine := make([dynamic]string, context.temp_allocator)
+			collect_named_targets(s.cond, data.plain, data.base, &mine)
+			for name in mine {
+				// Without an else, a target that skips the branch builds less than base, which adds no error there.
+				target, _ := parse_target(name)
+				if slice.contains(data.names[:], name) ||
+				   (s.else_stmt == nil && condition_on(s.cond, target, data.plain) == .False) {
+					continue
+				}
+				append(&data.names, name)
 			}
 			return visitor
 		},
@@ -757,7 +789,7 @@ when_named_targets :: proc(name, text: string, base: parser.Build_Target, plain:
 		parsed[i], _ = parse_target(target)
 	}
 	named := make([dynamic]string, context.temp_allocator)
-	for takes, i in branch_targets(&file, base, parsed, plain) {
+	for takes, i in file_branch_targets(file, base, parsed, plain) {
 		if takes do append(&named, data.names[i])
 	}
 	return named[:]
@@ -791,34 +823,21 @@ collect_named_targets :: proc(
 		if !found {
 			name, found = compared_target(e.right, e.left, base)
 		}
-		if parsed, _ := parse_target(name); found && parsed != base && !slice.contains(names[:], name) {
-			append(names, name)
-		}
+		if found && !slice.contains(names[:], name) do append(names, name)
 	}
 }
 
-// The candidate that the comparison of constant, ODIN_OS or ODIN_ARCH, with the implicit selector value names.
+// The candidate on which the comparison of constant, ODIN_OS or ODIN_ARCH, with the implicit selector value reads
+// otherwise than on base: the first such candidate of the OS of base, else the first such one.
 @(private = "file")
 compared_target :: proc(constant, value: ^ast.Expr, base: parser.Build_Target) -> (name: string, found: bool) {
-	ident := constant.derived.(^ast.Ident) or_return
-	selector := value.derived.(^ast.Implicit_Selector_Expr) or_return
-	switch ident.name {
-	case "ODIN_OS":
-		os, _ := parser.get_build_os_from_string(selector.field.name)
-		if os == .Unknown do return
+	on_base, known := target_comparison(constant, value, base)
+	if !known do return
+	for same_os in ([2]bool{true, false}) {
 		for candidate in GATE_TARGET_CANDIDATES {
-			if parsed, _ := parse_target(candidate); parsed.os == os do return candidate, true
-		}
-	case "ODIN_ARCH":
-		arch := parser.get_build_arch_from_string(selector.field.name)
-		if arch == .Unknown do return
-		for candidate in GATE_TARGET_CANDIDATES {
-			if parsed, _ := parse_target(candidate); parsed.os == base.os && parsed.arch == arch {
-				return candidate, true
-			}
-		}
-		for candidate in GATE_TARGET_CANDIDATES {
-			if parsed, _ := parse_target(candidate); parsed.arch == arch do return candidate, true
+			parsed, _ := parse_target(candidate)
+			if same_os && parsed.os != base.os do continue
+			if on, _ := target_comparison(constant, value, parsed); on != on_base do return candidate, true
 		}
 	}
 	return
