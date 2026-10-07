@@ -275,10 +275,36 @@ site_possible_on :: proc(site: When_Site, target: parser.Build_Target) -> bool {
 // it out. Only comparisons of ODIN_OS or ODIN_ARCH with an implicit selector such as `.Linux`, the literals
 // true and false, `!`, `&&`, `||` and parentheses are known. Any other condition can go either way.
 branch_possible_on :: proc(file: ast.File, offset: int, target: parser.Build_Target) -> bool {
-	for stmt in file.decls {
-		if !stmt_possible_on(stmt, offset, target) do return false
+	Data :: struct {
+		offset:   int,
+		target:   parser.Build_Target,
+		possible: bool,
 	}
-	return true
+	data := Data{offset, target, true}
+	visitor := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			data := (^Data)(visitor.data)
+			if node == nil || !data.possible || data.offset < node.pos.offset || data.offset >= node.end.offset {
+				return nil
+			}
+			if s, ok := node.derived.(^ast.When_Stmt); ok {
+				value := condition_on(s.cond, data.target)
+				if s.body != nil && s.body.pos.offset <= data.offset && data.offset < s.body.end.offset {
+					if value == .False do data.possible = false
+				} else if s.else_stmt != nil &&
+				   s.else_stmt.pos.offset <= data.offset &&
+				   data.offset < s.else_stmt.end.offset {
+					if value == .True do data.possible = false
+				}
+			}
+			return visitor
+		},
+	}
+	for decl in file.decls {
+		ast.walk(&visitor, decl)
+	}
+	return data.possible
 }
 
 // The first of GATE_TARGET_CANDIDATES that builds file and can take every `when` branch around offset, when base
@@ -303,33 +329,6 @@ branch_target :: proc(
 		}
 	}
 	return {}, false
-}
-
-@(private = "file")
-stmt_possible_on :: proc(stmt: ^ast.Stmt, offset: int, target: parser.Build_Target) -> bool {
-	if stmt == nil || offset < stmt.pos.offset || offset >= stmt.end.offset do return true
-	#partial switch s in stmt.derived {
-	case ^ast.When_Stmt:
-		value := condition_on(s.cond, target)
-		if s.body != nil && s.body.pos.offset <= offset && offset < s.body.end.offset {
-			return value != .False && stmt_possible_on(s.body, offset, target)
-		}
-		if s.else_stmt != nil && s.else_stmt.pos.offset <= offset && offset < s.else_stmt.end.offset {
-			return value != .True && stmt_possible_on(s.else_stmt, offset, target)
-		}
-	case ^ast.Block_Stmt:
-		for inner in s.stmts {
-			if !stmt_possible_on(inner, offset, target) do return false
-		}
-	case ^ast.Foreign_Block_Decl:
-		return stmt_possible_on(s.body, offset, target)
-	case ^ast.Value_Decl:
-		// A `when` among the statements and plain blocks of a procedure body. One in an `if`, `for` or `switch` is not.
-		for value in s.values {
-			if lit, ok := value.derived.(^ast.Proc_Lit); ok && !stmt_possible_on(lit.body, offset, target) do return false
-		}
-	}
-	return true
 }
 
 @(private = "file")
