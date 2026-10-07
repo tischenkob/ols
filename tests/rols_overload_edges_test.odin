@@ -89,3 +89,40 @@ main :: proc() {
 	}
 	test.expect_signature_labels(t, &source, {"test.f1 :: proc(e: E1, p: []u8)", "test.f2 :: proc(e: E2, p: ^int)"})
 }
+
+// A poly-type argument binds a generic member's poly parameter, so the enum argument picks the member.
+@(test)
+hover_overload_generic_members_with_poly_argument :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+E1 :: enum { A, B }
+f1 :: proc(v: $T, e: E1) {}
+f2 :: proc(v: $T, s: string) {}
+g :: proc { f1, f2 }
+h :: proc(v: $T) {
+	{*}g(v, .A)
+}
+`,
+	}
+	test.expect_hover(t, &source, "test.g :: proc(v: $T, e: E1)")
+}
+
+// Completion in a tied call with a poly-type argument offers the values of the generic members.
+@(test)
+completion_overload_generic_members_with_poly_argument :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+E1 :: enum { A, B }
+E2 :: enum { A, C }
+f1 :: proc(v: $T, e: E1) {}
+f2 :: proc(v: $T, e: E2) {}
+g :: proc { f1, f2 }
+h :: proc(v: $T) {
+	g(v, .{*})
+}
+`,
+	}
+	test.expect_completion_labels(t, &source, ".", {"A", "B", "C"}, {})
+}
