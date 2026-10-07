@@ -359,10 +359,100 @@ walk_when_branches :: proc(visitor: ^ast.Visitor, w: ^Walker, stmt: ^ast.When_St
 	}
 }
 
+// The lints of a document, with the fixes they offer. files, when given, stands in for the files of the package.
+// A file that the host does not build is linted for the first target that builds it. When it calls a name with
+// platform variants (see `ambiguous_in_inactive`), each further target that builds it may build another variant,
+// so the file is linted for each of them too. Their diagnostics and fixes join the first ones, each once.
+@(private = "file")
+walk_lints :: proc(document: ^Document, config: ^common.Config, files: []Package_File) -> Walker {
+	w := walk_target(document, config, files)
+	first, has_target := w.ctx.target.?
+	if !has_target || !calls_variant(&w.ctx) do return w
+	Diagnostic_Key :: struct {
+		range: common.Range,
+		code:  string,
+	}
+	seen_diags := make(map[Diagnostic_Key]struct{}, context.temp_allocator)
+	seen_fixes := make(map[Lint_Fix]struct{}, context.temp_allocator)
+	for d in w.diags do seen_diags[{d.range, d.code}] = {}
+	for f in w.ctx.fixes do seen_fixes[f] = {}
+	for target in file_targets(document.fullpath, string(document.text[:document.used_text])) {
+		if target == first do continue
+		other := walk_other_target(document, config, files, target)
+		for d in other.diags {
+			key := Diagnostic_Key{d.range, d.code}
+			if key in seen_diags do continue
+			seen_diags[key] = {}
+			append(&w.diags, d)
+		}
+		for f in other.ctx.fixes {
+			if f in seen_fixes do continue
+			seen_fixes[f] = {}
+			append(&w.ctx.fixes, f)
+		}
+	}
+	return w
+}
+
+// Whether a call of the linted file names a declaration with platform variants.
+@(private = "file")
+calls_variant :: proc(ctx: ^LintContext) -> bool {
+	Search :: struct {
+		ctx:   ^LintContext,
+		found: bool,
+	}
+	search := Search {
+		ctx = ctx,
+	}
+	visitor := ast.Visitor {
+		data = &search,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			search := (^Search)(visitor.data)
+			if node == nil || search.found do return nil
+			call, is_call := node.derived.(^ast.Call_Expr)
+			if !is_call do return visitor
+			callee := ast.unparen_expr(call.expr)
+			entry, resolved := lint_symbols(search.ctx)[uintptr(callee)]
+			if !resolved {
+				if selector, is_selector := callee.derived.(^ast.Selector_Expr); is_selector && selector.field != nil {
+					entry, resolved = lint_symbols(search.ctx)[uintptr(selector.field)]
+				}
+			}
+			search.found = resolved && ambiguous_in_inactive(search.ctx, entry.symbol)
+			return nil if search.found else visitor
+		},
+	}
+	for decl in ctx.document.ast.decls {
+		ast.walk(&visitor, decl)
+		if search.found do break
+	}
+	return search.found
+}
+
+// The lints of document for target, a further target that builds it: file_target gives target for the file
+// meanwhile, and the file resolves again for it, in temp memory, without touching its cached resolve.
+@(private = "file")
+walk_other_target :: proc(
+	document: ^Document,
+	config: ^common.Config,
+	files: []Package_File,
+	target: parser.Build_Target,
+) -> Walker {
+	saved_override := lint_target_override
+	lint_target_override = {document.fullpath, target}
+	saved_symbols, saved_callees := document.symbols, document.arg_callees
+	defer {
+		lint_target_override = saved_override
+		document.symbols, document.arg_callees = saved_symbols, saved_callees
+	}
+	document.symbols, document.arg_callees = resolve_entire_file_uncached(document)
+	return walk_target(document, config, files)
+}
+
 // One AST walk; every lint sees every node and checks its own config key. files, when given, stands in for the
 // files of the package.
 @(private = "file")
-walk_lints :: proc(document: ^Document, config: ^common.Config, files: []Package_File) -> Walker {
+walk_target :: proc(document: ^Document, config: ^common.Config, files: []Package_File) -> Walker {
 	w := Walker {
 		ctx = {
 			document = document,

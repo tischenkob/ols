@@ -310,3 +310,30 @@ excluded_when_source :: proc(target_callee, host_callee, call: string) -> string
 
 @(private = "file")
 B_REQUIRED :: "package test\n\n@(require_results)\ng :: proc() -> int { return 1 }\n\nk :: proc() -> int { return 1 }\n"
+
+// A file that several targets build is linted for each of them when a name it calls has platform variants: here
+// freebsd_amd64 and netbsd_amd64 build `x.odin`, and either one's `g` may require its results. A diagnostic that
+// both targets report comes once.
+@(test)
+ignored_result_reports_variant_of_each_target_that_builds_the_file :: proc(t: ^testing.T) {
+	Row :: struct {
+		freebsd, netbsd: string,
+		expected:        []test.LintExpect,
+	}
+	plain :: "package test\n\ng :: proc() -> int { return 1 }\n"
+	required :: "package test\n\n@(require_results)\ng :: proc() -> int { return 1 }\n"
+	rows := []Row {
+		{plain, plain, {}},
+		{required, plain, {{4, "ignored-result"}}},
+		{plain, required, {{4, "ignored-result"}}},
+		{required, required, {{4, "ignored-result"}}},
+	}
+	for row in rows {
+		source := test.Source {
+			main = "#+build freebsd, netbsd\npackage test\n\nh :: proc() {\n\tg()\n}\n",
+			files = {{"x_freebsd.odin", row.freebsd}, {"x_netbsd.odin", row.netbsd}},
+			config = {enable_lint_ignored_result = true},
+		}
+		test.expect_lint_diagnostics(t, &source, row.expected)
+	}
+}
