@@ -661,7 +661,13 @@ import_edit :: proc(ctx: ^ActionContext, import_path: string, alias := "") -> Te
 	decl :=
 		alias == "" ? fmt.tprintf("import \"%s\"", import_path) : fmt.tprintf("import %s \"%s\"", alias, import_path)
 	if ctx.config.enable_add_import_to_bottom {
+		// The 1-based end line of the last node, used as a 0-based line, is the line after it. A file
+		// without a final line break has no such line, so the import ends the file.
 		line, is_import := find_most_bottom_line_number(ctx.ast_context)
+		src := ctx.document.ast.src
+		if line > strings.count(src, "\n") {
+			return {range = range_of(ctx, len(src), len(src)), newText = fmt.tprintf("\n%s", decl)}
+		}
 		return {
 			range = {start = {line = line, character = 0}, end = {line = line, character = 0}},
 			newText = is_import ? fmt.tprintf("%s\n", decl) : fmt.tprintf("\n%s", decl),

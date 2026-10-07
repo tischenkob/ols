@@ -1636,6 +1636,23 @@ import "core:time"
 `)
 }
 
+// With imports at the bottom, the last line of a file without a final line break is the last
+// declaration, so the import goes at the end of the file.
+@(test)
+action_inline_proc_import_to_bottom_of_one_line_file :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import "core:time"
+
+wait :: proc(d: time.Duration) -> time.Duration {
+	return d
+}
+`, `package test; main :: proc() {_ = wa{*}it(5)}`)
+	source.config.enable_add_import_to_bottom = true
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test; main :: proc() {_ = time.Duration(5)}
+import "core:time"`)
+}
+
 // Each `when` branch defines the procedure for other targets, so a copy of one would be wrong on the others.
 @(test)
 action_inline_proc_refused_when_branch_definition :: proc(t: ^testing.T) {
