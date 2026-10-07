@@ -104,14 +104,12 @@ pair_else_chain :: proc(p: ^Printer, paired: bool, body: ^ast.Stmt, else_stmt: ^
 // Once format decides that group's mode, a fit check inside the header measures the paired block in that mode.
 @(private)
 chain_fit_mode :: proc(
-	modes: ^map[string]Document_Group_Mode,
+	modes: map[string]Document_Group_Mode,
 	group_id: string,
 	mode: Document_Group_Mode,
 ) -> Document_Group_Mode {
-	if modes != nil && strings.has_prefix(group_id, "chain@") {
-		if decided, ok := modes[group_id]; ok {
-			return decided
-		}
+	if strings.has_prefix(group_id, "chain@") {
+		return modes[group_id] or_else mode
 	}
 	return mode
 }
