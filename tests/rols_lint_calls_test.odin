@@ -379,6 +379,27 @@ main :: proc(p: Cb) {
 			{{12, "argument-count"}, {13, "argument-count"}},
 		},
 		{
+			"a conversion to a procedure type passes one value to a group",
+			`package test
+
+Cb :: proc() -> (int, int)
+f :: proc() -> (int, int) { return 1, 2 }
+one :: proc(c: Cb) {}
+two :: proc(c: Cb, n: int) {}
+g :: proc { one, two }
+
+h1 :: proc(a: int) {}
+h2 :: proc(a, b: int) {}
+h :: proc { h1, h2 }
+
+main :: proc(v: Cb) {
+	g(Cb(f))
+	h(v())
+}
+`,
+			{},
+		},
+		{
 			"a result field with several names passes one value per name",
 			`package test
 
