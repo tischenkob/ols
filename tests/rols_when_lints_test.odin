@@ -216,8 +216,8 @@ f :: proc(x: int) {
 	test.expect_lint_diagnostics(t, &source, {{5, "duplicate-condition"}})
 }
 
-// On the host `handler` is a variable, but `register(handler)` in the other branch resolves to the procedure that
-// branch declares, the file's own declaration there, so its parameter is spared.
+// On the host `handler` is a variable, so `register(handler)` in the other branch resolves to it, but the target
+// that builds that branch passes the procedure there, whose signature the callback type fixes.
 @(test)
 unused_parameter_counts_value_use_in_inactive_branch_by_name :: proc(t: ^testing.T) {
 	source := test.Source {

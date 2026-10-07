@@ -31,6 +31,8 @@ LintContext :: struct {
 	foreign_import: Maybe(bool),
 	// The walker's context without locals; its globals tell which declarations are file-private.
 	ast_context:    ^AstContext,
+	// The walker's `when` environment, which ast_context belongs to.
+	when_env:       ^When_Env,
 	// Stands in for the files of the package when given (see `package_siblings`).
 	files:          []Package_File,
 	// The other files of the package, read on first use (see `used_as_value_elsewhere`).
@@ -206,8 +208,8 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 // resolve to the active branch's declaration. The other lints run everywhere: most read only the syntax. The naming
 // and deprecated lints resolve a name only for its kind or attribute, and stay silent on a name whose declaration
 // has platform variants there (see `ambiguous_in_inactive`). The unused-parameter lint resolves a mention only to
-// spare a procedure that the file passes as a value, and a mention resolves to the file's own declaration of the
-// name, in any `when` branch, before another file's, so it finds the procedure that the lint judges.
+// spare a procedure that the file passes as a value, and counts a mention in inactive code by name (see
+// `value_names`), so there it can only spare a parameter.
 @(private = "file")
 resolving_lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_float_equality,
@@ -329,6 +331,7 @@ walk_lints :: proc(document: ^Document, config: ^common.Config, files: []Package
 	if excluded do w.inactive = 1
 	w.when_env = make_when_env(document)
 	w.ctx.ast_context = &w.when_env.ast_context
+	w.ctx.when_env = &w.when_env
 	visitor := ast.Visitor {
 		data = &w,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
@@ -954,6 +957,48 @@ word_files :: proc(files: []Package_File) -> map[string][dynamic]int {
 	return words
 }
 
+// The bodies of the `when` branches that the host does not build, as offset ranges, or the whole file when the host
+// does not build it.
+@(private = "file")
+inactive_spans :: proc(ctx: ^LintContext) -> [][2]int {
+	spans := make([dynamic][2]int, context.temp_allocator)
+	if _, excluded := document_build(ctx.document); excluded {
+		append(&spans, [2]int{0, len(ctx.src)})
+		return spans[:]
+	}
+	if ctx.when_env == nil do return nil
+	Search :: struct {
+		env:   ^When_Env,
+		spans: ^[dynamic][2]int,
+	}
+	search := Search{ctx.when_env, &spans}
+	visitor := ast.Visitor {
+		data = &search,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil do return nil
+			stmt, is_when := node.derived.(^ast.When_Stmt)
+			if !is_when do return visitor
+			search := (^Search)(visitor.data)
+			for branch in when_branches(search.env, stmt) {
+				if branch.active {
+					ast.walk(visitor, branch.body)
+				} else {
+					append(search.spans, [2]int{branch.body.pos.offset, branch.body.end.offset})
+				}
+			}
+			return nil
+		},
+	}
+	for decl in ctx.document.ast.decls do ast.walk(&visitor, decl)
+	return spans[:]
+}
+
+@(private = "file")
+in_spans :: proc(spans: [][2]int, offset: int) -> bool {
+	for span in spans do if span[0] <= offset && offset < span[1] do return true
+	return false
+}
+
 // The other .odin files in the directory of document, an open file with its unsaved text. files, when given,
 // stands in for the disk.
 @(private = "file")
@@ -980,10 +1025,17 @@ value_names :: proc(ctx: ^LintContext) -> map[string]struct{} {
 	if has_names do return names
 
 	names = make(map[string]struct{}, context.temp_allocator)
-	symbols := lint_symbols(ctx)
+	symbols, _ := split_fallbacks(resolve_entire_file(ctx.document))
+	inactive := inactive_spans(ctx)
 	for stmt in ctx.document.ast.decls {
 		for use in collect_ident_uses(stmt) {
 			if !is_value_use(use) do continue
+			// rols: code the host does not build resolves to the host's declarations, where the name may be a
+			// variable while that code passes a procedure, so a mention there counts by name.
+			if in_spans(inactive, use.ident.pos.offset) {
+				names[use.ident.name] = {}
+				continue
+			}
 			if resolved, found := symbols[uintptr(use.ident)]; found && !resolved.is_unresolved {
 				#partial switch _ in resolved.symbol.value {
 				case SymbolProcedureValue, SymbolProcedureGroupValue:
