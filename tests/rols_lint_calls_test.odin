@@ -312,6 +312,59 @@ main :: proc(y: int) {
 			{},
 		},
 		{
+			"a group member that needs more arguments than the argument passes",
+			`package test
+
+one :: proc(a: Missing) -> (int, int) { return 1, 2 }
+two :: proc(a, b: int) -> int { return a }
+g :: proc { one, two }
+
+h2 :: proc(a, b: int) {}
+
+main :: proc() {
+	h2(g(1))
+}
+`,
+			{},
+		},
+		{
+			"a group member that needs more arguments than a call with an arrow call argument passes",
+			`package test
+
+one :: proc(a: int, b: int) {}
+two :: proc(a: Missing) {}
+g :: proc { one, two }
+
+Obj :: struct {
+	single: proc(o: ^Obj) -> int,
+}
+
+main :: proc() {
+	x: ^Obj
+	g(x->single())
+}
+`,
+			{},
+		},
+		{
+			"an arrow call passes every result",
+			`package test
+
+Obj :: struct {
+	pair: proc(o: ^Obj) -> (int, int),
+}
+
+take :: proc(a, b: int) {}
+
+main :: proc() {
+	x: ^Obj
+	take(x->pair())
+	take(1, x->pair())
+}
+`,
+			{{11, "argument-count"}},
+		},
+		{
 			"a group member that needs more arguments than the call passes",
 			`package test
 

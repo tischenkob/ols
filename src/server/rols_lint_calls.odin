@@ -56,10 +56,10 @@ lint_calls :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnost
 	if !exact do return
 	given += extra
 	if given >= required && given <= total do return
-	// Overload resolution drops a group member that takes fewer arguments than the call passes, but keeps one
-	// that needs more. When the fitting member fails to resolve, a group call resolves to such a member, which
-	// has another name than the call.
-	if written != symbol.name && calls_proc_group(ctx, callee) do return
+	// The whole-file resolve drops a group member that needs more arguments than the call passes, unless an
+	// argument passes a count it does not know (`call_arg_counts_known`). Then a group call can resolve to such a
+	// member, which has another name than the call.
+	if given < required && written != symbol.name && !arg_counts_known_to_resolver(call.args) do return
 
 	message: string
 	if required == total {
@@ -80,16 +80,14 @@ lint_calls :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnost
 	)
 }
 
+// Whether the resolver knows the value count of every argument, as `call_arg_counts_known` judges it.
 @(private = "file")
-calls_proc_group :: proc(ctx: ^LintContext, callee: ^ast.Expr) -> bool {
-	document := ctx.document
-	ast_context := package_ast_context(
-		document.ast,
-		document.imports,
-		document.package_name,
-		document.uri.uri,
-		document.fullpath,
-		document.package_name,
-	)
-	return is_proc_group(&ast_context, document.imports, callee)
+arg_counts_known_to_resolver :: proc(args: []^ast.Expr) -> bool {
+	for arg in args {
+		#partial switch _ in arg.derived {
+		case ^ast.Selector_Call_Expr, ^ast.Bad_Expr:
+			return false
+		}
+	}
+	return true
 }
