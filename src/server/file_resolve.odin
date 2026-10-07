@@ -216,7 +216,7 @@ resolve_decl :: proc(
 		// rols: argument callees
 		arg_callees      = arg_callees,
 	}
-	// rols: the procedure literal stack grows in the request's temp memory
+	// rols: the procedure literal stack lives in temp memory, which the whole-file resolve rebinds to the cache arena
 	data.proc_lits.allocator = context.temp_allocator
 
 	resolve_node(decl, &data)
@@ -473,8 +473,8 @@ resolve_node :: proc(node: ^ast.Node, data: ^FileResolveData) {
 		append(&data.position_context.functions, data.position_context.function)
 
 		// rols: a poly parameter of an enclosing procedure literal turns `T(x)` into a conversion
-		if data.arg_callees != nil do append(&data.proc_lits, n)
-		defer if data.arg_callees != nil do pop(&data.proc_lits)
+		append(&data.proc_lits, n)
+		defer pop(&data.proc_lits)
 
 		resolve_node(n.body, data)
 	case ^ast.Unroll_Range_Stmt:
