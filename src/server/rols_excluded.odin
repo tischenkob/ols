@@ -88,6 +88,20 @@ file_build_target :: proc(current_file: string) -> parser.Build_Target {
 	return file_target(current_file) or_else host_target()
 }
 
+// The target that builds fullpath when the host does not. ok is false when the host builds it or no target does.
+excluded_file_target :: proc(fullpath: string) -> (target: parser.Build_Target, ok: bool) {
+	return file_target(fullpath)
+}
+
+// Whether target builds the file of uri, read as a lookup reads it: an open document, an unsaved file, else the
+// disk. A uri without a file, such as that of a keyword, counts as built, and a file that cannot be read does not.
+target_builds_uri :: proc(uri: string, target: parser.Build_Target) -> bool {
+	if uri == "" do return true
+	fullpath := common.uri_to_path(uri, context.temp_allocator)
+	text, ok := file_text(fullpath)
+	return ok && builds_on(fullpath, text, target)
+}
+
 // The collection of the target that builds current_file when the host does not, for package_in.
 other_target_collection :: proc(current_file: string) -> ^SymbolCollection {
 	target, ok := file_target(current_file)

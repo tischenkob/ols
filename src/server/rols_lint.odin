@@ -25,8 +25,14 @@ LintContext :: struct {
 	// an attribute fixes, callback literals, and procedures the file uses as values.
 	skip:           map[^ast.Node]struct{},
 	fixes:          [dynamic]Lint_Fix,
-	// The node being linted is in code the host does not build: an inactive `when` branch or an excluded file.
+	// The node being linted is in code the host does not build: an inactive `when` branch or an excluded file
+	// that no known target builds.
 	inactive:       bool,
+	// The target that builds the file when the host does not, which decides its `when` branches and which
+	// declarations its names may resolve to (see `lint_symbols`).
+	target:         Maybe(parser.Build_Target),
+	// For each file uri of a resolved declaration, whether target builds it, filled on first use.
+	target_built:   map[string]bool,
 	// Whether the package binds a C library (see `check_c_name` in rols_lint_naming.odin), found on first use.
 	foreign_import: Maybe(bool),
 	// The walker's context without locals; its globals tell which declarations are file-private.
@@ -93,15 +99,50 @@ declares :: proc(stmt: ^ast.Stmt, decl: ^ast.Value_Decl) -> bool {
 
 // The file's resolved nodes. In active code it leaves out the ones that resolve to a declaration only an inactive
 // `when` branch makes: the host does not build such a declaration, so no lint judges a use by it there. In inactive
-// code such a declaration is the right target, so the whole map comes back.
+// code such a declaration is the right target, so the whole map comes back. In a file that the host does not build,
+// it also leaves out the nodes that resolve to a declaration in a file that the target building it does not build:
+// a lookup that this target cannot answer falls back to the host's declarations.
 lint_symbols :: proc(ctx: ^LintContext) -> SymbolAndNodeMap {
 	// The whole-file resolve is cached on the document.
 	if ctx.inactive do return resolve_entire_file(ctx.document)
 	symbols, has_symbols := ctx.symbols.?
 	if has_symbols do return symbols
 	symbols, ctx.fallbacks = split_fallbacks(resolve_entire_file(ctx.document))
+	if _, has_target := ctx.target.?; has_target do symbols = drop_unbuilt(ctx, symbols)
 	ctx.symbols = symbols
 	return symbols
+}
+
+// Whether the target that builds the file builds the declaration of symbol. Always true in a file the host builds.
+@(private = "package")
+lint_target_builds :: proc(ctx: ^LintContext, symbol: Symbol) -> bool {
+	target, has_target := ctx.target.?
+	// The target builds the file being linted, whose text may live only in its document.
+	if !has_target || symbol.uri == ctx.document.uri.uri do return true
+	if ctx.target_built == nil do ctx.target_built = make(map[string]bool, context.temp_allocator)
+	built, known := ctx.target_built[symbol.uri]
+	if !known {
+		built = target_builds_uri(symbol.uri, target)
+		ctx.target_built[symbol.uri] = built
+	}
+	return built
+}
+
+// symbols without the nodes whose declaration the target of the file does not build, a copy when any is dropped.
+@(private = "file")
+drop_unbuilt :: proc(ctx: ^LintContext, symbols: SymbolAndNodeMap) -> SymbolAndNodeMap {
+	kept := symbols
+	copied := false
+	for node, entry in symbols {
+		if entry.symbol == nil || lint_target_builds(ctx, entry.symbol^) do continue
+		if !copied {
+			kept = make(SymbolAndNodeMap, len(symbols), context.temp_allocator)
+			for key, value in symbols do kept[key] = value
+			copied = true
+		}
+		delete_key(&kept, node)
+	}
+	return kept
 }
 
 // The symbol of a node in active code that `lint_symbols` leaves out because it resolves only to a declaration of
@@ -119,7 +160,9 @@ lint_fallback :: proc(ctx: ^LintContext, node: ^ast.Node) -> (^Symbol, bool) {
 // platform variant of it instead (see `declaration_variants`), with another kind or attribute.
 @(private = "package")
 ambiguous_in_inactive :: proc(ctx: ^LintContext, symbol: ^Symbol) -> bool {
-	if !ctx.inactive || symbol == nil || .Fallback in symbol.flags do return false
+	_, has_target := ctx.target.?
+	// Another target than the one the lints evaluate may build an excluded file too, with other variants.
+	if !(ctx.inactive || has_target) || symbol == nil || .Fallback in symbol.flags do return false
 	// A local, a keyword or a builtin has no package-level declaration, so it has no variants.
 	if .Local in symbol.flags || symbol.type == .Keyword || symbol.uri == "" do return false
 	key := fmt.tprintf("%s:%s", symbol.uri, symbol.name)
@@ -207,11 +250,12 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 }
 
 // The lints that judge code by resolved symbols. They skip code that the host does not build, where a name can
-// resolve to the active branch's declaration. The other lints run everywhere: most read only the syntax. The naming
-// and deprecated lints resolve a name only for its kind or attribute, and stay silent on a name whose declaration
-// has platform variants there (see `ambiguous_in_inactive`). The unused-parameter lint resolves a mention only to
-// spare a procedure that the file passes as a value, and counts a mention in inactive code by name (see
-// `value_names`), so there it can only spare a parameter.
+// resolve to the active branch's declaration, unless it is a file that a known target builds: there they judge
+// the code that this target builds by the declarations of this target. The other lints run everywhere: most read
+// only the syntax. The naming and deprecated lints resolve a name only for its kind or attribute, and stay silent
+// on a name whose declaration has platform variants there (see `ambiguous_in_inactive`). The unused-parameter lint
+// resolves a mention only to spare a procedure that the file passes as a value, and counts a mention in inactive
+// code by name (see `value_names`), so there it can only spare a parameter.
 @(private = "file")
 resolving_lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_float_equality,
@@ -241,9 +285,19 @@ Walker :: struct {
 	inactive: int,
 }
 
+// The `when` branches of stmt, evaluated for the target that builds the file when the host does not.
+@(private = "file")
+walker_branches :: proc(w: ^Walker, stmt: ^ast.When_Stmt) -> []When_Branch {
+	saved := when_eval_target
+	defer when_eval_target = saved
+	if target, has_target := w.ctx.target.?; has_target do when_eval_target = target
+	return when_branches(&w.when_env, stmt)
+}
+
 // How the host builds a document: a `#+build ignore` file is built nowhere, and a file whose build tags or name
-// leave out the host is excluded. A lint or hint treats an excluded file like an inactive `when` branch, since its
-// names can resolve to declarations that the target building it does not have.
+// leave out the host is excluded. The use-stdlib hints treat an excluded file like an inactive `when` branch, since
+// its names can resolve to declarations that the target building it does not have, and so do the lints when no
+// known target builds it (see `walk_lints`).
 @(private = "package")
 document_build :: proc(document: ^Document) -> (ignored, excluded: bool) {
 	tags := parser.parse_file_tags(document.ast, context.temp_allocator)
@@ -303,7 +357,7 @@ when_branches :: proc(env: ^When_Env, stmt: ^ast.When_Stmt) -> []When_Branch {
 
 @(private = "file")
 walk_when_branches :: proc(visitor: ^ast.Visitor, w: ^Walker, stmt: ^ast.When_Stmt) {
-	for branch in when_branches(&w.when_env, stmt) {
+	for branch in walker_branches(w, stmt) {
 		if branch.cond != nil do ast.walk(visitor, branch.cond)
 		if !branch.active do w.inactive += 1
 		ast.walk(visitor, branch.body)
@@ -327,12 +381,24 @@ walk_lints :: proc(document: ^Document, config: ^common.Config, files: []Package
 		diags = make([dynamic]Diagnostic, context.temp_allocator),
 	}
 	// rols: nothing in a `#+build ignore` file is built, so nothing in it is linted. A file the host does not build
-	// is treated like an inactive branch (see `document_build`): a name there can still resolve to a declaration that
-	// the target building it does not have.
+	// is linted for the target that builds it: its lookups reach that target's declarations, its `when` branches are
+	// evaluated for it, and `lint_symbols` drops a name that resolves to a file it does not build. Without such a
+	// target, the file is treated like an inactive branch (see `document_build`).
 	ignored, excluded := document_build(document)
 	if ignored do return w
-	if excluded do w.inactive = 1
+	target: parser.Build_Target
+	has_target := false
+	if excluded do target, has_target = excluded_file_target(document.fullpath)
+	if excluded && !has_target do w.inactive = 1
+	saved_target := when_eval_target
+	if has_target {
+		// The whole-file resolve is cached on the document, so it evaluates `when` as every other request does.
+		resolve_entire_file(document)
+		w.ctx.target = target
+		when_eval_target = target
+	}
 	w.when_env = make_when_env(document)
+	when_eval_target = saved_target
 	w.ctx.ast_context = &w.when_env.ast_context
 	w.ctx.when_env = &w.when_env
 	visitor := ast.Visitor {
