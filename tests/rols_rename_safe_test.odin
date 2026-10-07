@@ -2124,9 +2124,9 @@ g :: proc(s: S) -> int { return s.a{*} }
 @(test)
 rename_safe_refuses_field_through_alias_with_variants_in_other_package :: proc(t: ^testing.T) {
 	source := test.Source {
-		main     = `package test
+		main = `package test
 
-import "other"
+import "shared:other"
 
 when ODIN_DEBUG {
 	S :: struct { a: int }
@@ -2136,8 +2136,8 @@ when ODIN_DEBUG {
 
 g :: proc(s: S) -> int { return s.a{*} }
 `,
-		// A relative import: the reference search parses the imports of other files with the global config.
 		packages = {{pkg = "other", source = "package other\n\nS_Other :: struct { a: int }\n"}},
+		collections = {"shared" = "test"},
 	}
 	test.expect_rename_refused(
 		t,
