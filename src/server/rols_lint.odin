@@ -485,7 +485,7 @@ run_lints :: proc(document: ^Document, config: ^common.Config) {
 	defer end_lint_verdicts()
 	remove_diagnostics(.Lint, uri.uri)
 	for d in lint_document(document, config) {
-		add_diagnostics(.Lint, uri.uri, d)
+		add_diagnostics(.Lint, uri.uri, d, config)
 	}
 }
 

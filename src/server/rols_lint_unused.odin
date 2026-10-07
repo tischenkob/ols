@@ -83,7 +83,7 @@ lint_unused_declarations :: proc(document: ^Document, config: ^common.Config) {
 		remove_diagnostics(.Unused_Decl, common.create_uri(file.fullpath, context.temp_allocator).uri)
 	}
 	for uri, diags in diagnostics {
-		for d in diags do add_diagnostics(.Unused_Decl, uri, d)
+		for d in diags do add_diagnostics(.Unused_Decl, uri, d, config)
 	}
 }
 

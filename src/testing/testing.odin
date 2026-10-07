@@ -182,9 +182,13 @@ teardown :: proc(src: ^Source) {
 	// rols: take the test's collections out of the global config
 	unlock_global_collections(src)
 
-	// rols: release the lock a seeded checker diagnostic took
+	// rols: free the seeded checker diagnostic and release the lock it took
 	if seed_locked {
 		seed_locked = false
+		{
+			context.allocator = runtime.default_allocator()
+			server.reset_diagnostics()
+		}
 		sync.unlock(&seed_mutex)
 	}
 
@@ -1041,11 +1045,11 @@ seed_locked: bool
 /*
 	Puts one checker diagnostic on the main file, which no test ever runs the checker for. Call it
 	before the assertion, which runs the setup. The positions are those of the source without its
-	cursor mark. The diagnostic outlives the test, so it is allocated off the per-test allocators,
-	which is also what frees the one a previous test seeded.
+	cursor mark. The diagnostic is allocated off the per-test allocators, and the teardown frees it
+	with the same allocator.
 
-	Every seed goes to the same global slot, so a seeding test holds `seed_mutex` until its teardown
-	to keep parallel tests from swapping the diagnostic under it.
+	Every seed goes to the global maps, so a seeding test holds `seed_mutex` until its teardown to
+	keep parallel tests from swapping the diagnostic under it.
 */
 seed_check_diagnostic :: proc(src: ^Source, line, col, end_col: int, message: string) {
 	sync.lock(&seed_mutex)
@@ -1056,12 +1060,9 @@ seed_check_diagnostic :: proc(src: ^Source, line, col, end_col: int, message: st
 	context.allocator = runtime.default_allocator()
 	uri := common.create_uri(strings.join({"test", name}, "/", context.temp_allocator), context.temp_allocator)
 
-	server.remove_diagnostics(.Check, uri.uri)
-
-	enabled := common.config.enable_diagnostics
-	common.config.enable_diagnostics = true
-	defer common.config.enable_diagnostics = enabled
-
+	config := common.Config {
+		enable_diagnostics = true,
+	}
 	server.add_diagnostics(
 		.Check,
 		uri.uri,
@@ -1071,6 +1072,7 @@ seed_check_diagnostic :: proc(src: ^Source, line, col, end_col: int, message: st
 			range = {start = {line = line, character = col}, end = {line = line, character = end_col}},
 			message = message,
 		},
+		&config,
 	)
 }
 
