@@ -203,7 +203,7 @@ diff <(git show upstream/master:misc/ols.schema.json | grep -o '"enable_[a-z_]*"
 - `enable_code_action_ternary`
 - `enable_code_action_unwrap`
 
-### `enable_lint_*` (31)
+### `enable_lint_*` (32)
 
 - `enable_lint_allocator`
 - `enable_lint_bool_logic`
@@ -231,6 +231,7 @@ diff <(git show upstream/master:misc/ols.schema.json | grep -o '"enable_[a-z_]*"
 - `enable_lint_switch`
 - `enable_lint_sync`
 - `enable_lint_test_attribute`
+- `enable_lint_triple_quote`
 - `enable_lint_unreachable_code`
 - `enable_lint_unused_declaration`
 - `enable_lint_unused_parameter`
