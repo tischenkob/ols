@@ -96,6 +96,9 @@ Consumer :: struct {
 
 run_check_consumer :: proc(c: Consumer) {
 	context.logger = c.logger
+	// rols: the check failure last shown to the user
+	shown: string
+	defer delete(shown, runtime.heap_allocator())
 	for {
 		request, ok := chan.recv(c.ch)
 		if !ok {
@@ -107,6 +110,8 @@ run_check_consumer :: proc(c: Consumer) {
 			append(&paths, request.path)
 		}
 		check(request.check_mode, paths[:], request.config)
+		// rols: show a check that did not run, such as odin refusing a Windows target on another host
+		report_check_failure(c.w, &shown)
 		push_diagnostics(c.w)
 		for path in paths {
 			delete(path, checker.allocator)

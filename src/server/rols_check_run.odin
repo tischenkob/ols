@@ -1,5 +1,6 @@
 package server
 
+import "base:runtime"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
@@ -11,12 +12,16 @@ import "src:common"
 // run". failure is empty when every package check finished with output that parsed; ran is false when
 // `check` returned before starting any process. The CLI's compile gate resets it before each check.
 // error_files holds, per package check path, the files that its errors name; `check` makes it in its temp
-// memory, and record_check_run keeps it.
+// memory, and record_check_run keeps it. windows_sdk tells that odin refused a Windows target on another host.
 Check_Run :: struct {
 	ran:         bool,
 	failure:     string,
 	error_files: map[string][dynamic]string,
+	windows_sdk: bool,
 }
+
+// The failure of a check that ran out of its time budget.
+CHECK_TIMED_OUT :: "`odin check` timed out"
 
 @(thread_local)
 check_run: Check_Run
@@ -52,7 +57,7 @@ record_check_run :: proc(path_count: int, processes: []CheckProcess, parsed: int
 			started += 1
 		}
 		if !p.finished {
-			check_run.failure = "`odin check` timed out"
+			check_run.failure = CHECK_TIMED_OUT
 			return
 		}
 		if len(p.buffer) > 0 {
@@ -78,8 +83,13 @@ record_check_run :: proc(path_count: int, processes: []CheckProcess, parsed: int
 				continue
 			}
 			line, _, _ := strings.partition(text, "\n")
+			// Since odin dev-2026-10, odin asks for -windows-sdk-root to target Windows on another host, and
+			// only `odin build` takes that flag.
+			check_run.windows_sdk = strings.contains(line, "-windows-sdk-root")
+			hint :=
+				"; odin check cannot target Windows on this host, so drop the Windows -target: from checker_args" if check_run.windows_sdk else ""
 			check_run.failure = strings.concatenate(
-				{check_run.failure, ": ", strings.trim_space(line)},
+				{check_run.failure, ": ", strings.trim_space(line), hint},
 				context.temp_allocator,
 			)
 			break
@@ -110,4 +120,25 @@ note_error_files :: proc(check_path: string, output: Json_Errors) {
 		append(&files, file)
 	}
 	check_run.error_files[check_path] = files
+}
+
+// Shows the user the failure of the last editor `check` in a window/showMessage, which the server otherwise only
+// logs. shown holds the failure last shown, in the heap allocator: a failure shows once until a check succeeds
+// or fails otherwise. A timeout is left to the log, since the next check can finish in time.
+report_check_failure :: proc(writer: ^Writer, shown: ^string) {
+	failure := check_run.failure
+	if failure == CHECK_TIMED_OUT || failure == shown^ {
+		return
+	}
+	delete(shown^, runtime.heap_allocator())
+	shown^ = strings.clone(failure, runtime.heap_allocator())
+	if failure == "" {
+		return
+	}
+	notification := Notification {
+		jsonrpc = "2.0",
+		method = "window/showMessage",
+		params = NotificationLoggingParams{type = .Error, message = failure},
+	}
+	send_notification(notification, writer)
 }
