@@ -85,10 +85,10 @@ dead_store :: proc(ctx: ^LintContext, stmts: []^ast.Stmt, from: int, name: ^ast.
 			}
 			if !is_local_store(ctx, next) || address_taken(ctx, name) do return
 			lit := enclosing_proc(ctx, name)
-			// A field that `using` brings into scope belongs to a value that outlives the store. The resolver
-			// gives such a field the .Local flag, so is_local_store does not see it.
+			// A field that `using` brings into scope usually belongs to a value that outlives the store. The
+			// resolver gives such a field the .Local flag, so is_local_store does not see it.
 			visible := visible_declaration(ctx, lit, name.name, name.pos.offset)
-			if visible.through_using do return
+			if visible.through_using && !local_using_value(ctx, stmts[from + 1:j + 1], visible, exits) do return
 			// A `defer` runs before the overwrite only through an exit between the two stores.
 			if exits && deferred_mention(lit, name, visible.ident) do return
 			append(
@@ -107,6 +107,21 @@ dead_store :: proc(ctx: ^LintContext, stmts: []^ast.Stmt, from: int, name: ^ast.
 		if named do for ret in body_returns(stmts[j]) do if len(ret.results) == 0 do return
 		exits = exits || has_exit(stmts[j])
 	}
+}
+
+// The field belongs to a local `using s: S` value that is no pointer and no `@(static)` local, whose
+// address is never taken, and that no statement of between mentions. between runs from the statement
+// after the store through the overwrite. A pending defer can read the value at an exit, so an exit
+// between the stores keeps the store.
+@(private = "file")
+local_using_value :: proc(ctx: ^LintContext, between: []^ast.Stmt, visible: Visible_Decl, exits: bool) -> bool {
+	decl, value := visible.using_decl, visible.ident
+	if decl == nil || value == nil || exits || len(decl.attributes) > 0 do return false
+	resolved, ok := lint_symbols(ctx)[uintptr(value)]
+	if !ok || resolved.is_unresolved || resolved.symbol.pointers > 0 do return false
+	if address_taken(ctx, value) do return false
+	for stmt in between do if mentions(stmt, value.name) do return false
+	return true
 }
 
 // A `return`, `break`, `continue` or other branch inside stmt, which runs pending defers.

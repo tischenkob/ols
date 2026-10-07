@@ -17,6 +17,9 @@ Visible_Decl :: struct {
 	// The name is a field of a struct or bit_field, a member of an enum or a declaration of a package
 	// that `using` brings into scope.
 	through_using: bool,
+	// The `using` value declaration that brings the field into scope, or nil for a parameter or a `using`
+	// statement.
+	using_decl:    ^ast.Value_Decl,
 }
 
 // What a `using` expression brings into scope: the member names of a struct, bit_field or enum, or
@@ -54,12 +57,17 @@ visible_declaration :: proc(ctx: ^LintContext, root: ^ast.Node, name: string, of
 				for name, i in names {
 					ident := name.derived.(^ast.Ident) or_continue
 					if ident.name != data.name || ident.pos.offset > data.offset do continue
-					data.found = {ident, values[i] if len(values) == len(names) else nil, false}
+					data.found = {ident, values[i] if len(values) == len(names) else nil, false, nil}
 				}
 			}
 			// `using expr` declares name when the type of expr has a member of that name, or when expr is
 			// an imported package that declares the name.
-			using_declares :: proc(data: ^Data, expr: ^ast.Expr, names: []^ast.Expr = nil) {
+			using_declares :: proc(
+				data: ^Data,
+				expr: ^ast.Expr,
+				names: []^ast.Expr = nil,
+				decl: ^ast.Value_Decl = nil,
+			) {
 				if expr == nil do return
 				if data.ctx.using_members == nil {
 					data.ctx.using_members = make(map[^ast.Expr]Using_Scope, context.temp_allocator)
@@ -75,7 +83,7 @@ visible_declaration :: proc(ctx: ^LintContext, root: ^ast.Node, name: string, of
 				}
 				if !declared do return
 				ident, _ := (names[0] if len(names) > 0 else expr).derived.(^ast.Ident)
-				data.found = {ident, nil, true}
+				data.found = {ident, nil, true, decl}
 			}
 			#partial switch n in node.derived {
 			case ^ast.When_Stmt:
@@ -86,9 +94,9 @@ visible_declaration :: proc(ctx: ^LintContext, root: ^ast.Node, name: string, of
 				// The fields come into scope after the declaration, from its type or else from each value.
 				if n.is_using && n.end.offset <= data.offset {
 					if n.type != nil {
-						using_declares(data, n.type, n.names)
+						using_declares(data, n.type, n.names, n)
 					} else {
-						for value in n.values do using_declares(data, value, n.names)
+						for value in n.values do using_declares(data, value, n.names, n)
 					}
 				}
 				return visitor
