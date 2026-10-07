@@ -138,7 +138,7 @@ main :: proc() {
 
 ## Overload resolution and hover (`src/server/analysis.odin`, `src/server/hover.odin`)
 
-- **A poly-type argument drops every generic member of a group call.** Inside `h :: proc(v: $T)`, a call `g(v, .A)` over `f1 :: proc(v: $T, e: E1)` and `f2 :: proc(v: $T, s: string)` resolves no member: `resolve_generic_function_symbol` in `src/server/generics.odin` returns false, probably because `symbol_to_expr` has no case for the argument's `SymbolPolyTypeValue` (unverified), and `resolve_proc_lit` in `src/server/analysis.odin` drops a generic member that fails while `overloading` is set. Hover on `g` shows the whole group, where `h :: proc(v: int)` shows `f1`. With `f2 :: proc(v: $T, e: E2)` and `E2 :: enum { A, C }`, completion in `g(v, .)` offers nothing. A call of `f1` alone resolves, because outside overloading `resolve_proc_lit` keeps the unsubstituted procedure. A fix could keep the poly type unsubstituted in `resolve_generic_function_symbol` instead of failing.
+- **Hover on a local whose type comes from a generic call on a poly argument fails with "Failed get_hover_information", before and after A13.** In the hover path of `src/server`, with `foo :: proc(x: $T) -> T { return x }` and `h :: proc(w: $U) { r := foo(w); r }`, hover on `r` fails.
 
 ## Build tags and `when` (`src/server/build.odin`, `src/server/when.odin`)
 
