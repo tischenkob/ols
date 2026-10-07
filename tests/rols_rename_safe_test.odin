@@ -2367,7 +2367,7 @@ B :: struct { x{*}: int }
 
 when ODIN_OS == .Windows {
 	S :: struct { using b: B }
-} else when ODIN_OS == .Linux {
+} else when ODIN_OS == .Haiku {
 	S :: struct { using b: B }
 
 	f :: proc() -> int {
