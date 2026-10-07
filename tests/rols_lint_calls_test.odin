@@ -724,6 +724,29 @@ main :: proc() {
 }
 
 @(test)
+argument_count_expands_call_of_local_procedure_constant :: proc(t: ^testing.T) {
+	// A typed local constant of a procedure type is a value of that type, as a global one is.
+	source := test.Source {
+		main = `package test
+
+Cb :: proc() -> (int, int)
+f :: proc() -> (int, int) { return 1, 2 }
+one :: proc(a: int) {}
+take :: proc(a, b: int) {}
+
+main :: proc() {
+	local : Cb : f
+	take(local())
+	one(local())
+}
+`,
+		config = {enable_lint_call_arity = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{10, "argument-count"}})
+}
+
+@(test)
 argument_count_resolves_argument_callee_with_locals_at_the_call :: proc(t: ^testing.T) {
 	// The whole-file resolve records the procedure of each argument call whose callee it does not resolve by name.
 	cases := []Lint_Case {
