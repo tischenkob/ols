@@ -120,6 +120,8 @@ lint_fallback :: proc(ctx: ^LintContext, node: ^ast.Node) -> (^Symbol, bool) {
 @(private = "package")
 ambiguous_in_inactive :: proc(ctx: ^LintContext, symbol: ^Symbol) -> bool {
 	if !ctx.inactive || symbol == nil || .Fallback in symbol.flags do return false
+	// A local, a keyword or a builtin has no package-level declaration, so it has no variants.
+	if .Local in symbol.flags || symbol.type == .Keyword || symbol.uri == "" do return false
 	key := fmt.tprintf("%s:%s", symbol.uri, symbol.name)
 	if ambiguous, found := ctx.variants[key]; found do return ambiguous
 	if ctx.hierarchy == nil {
@@ -966,7 +968,6 @@ inactive_spans :: proc(ctx: ^LintContext) -> [][2]int {
 		append(&spans, [2]int{0, len(ctx.src)})
 		return spans[:]
 	}
-	if ctx.when_env == nil do return nil
 	Search :: struct {
 		env:   ^When_Env,
 		spans: ^[dynamic][2]int,
@@ -1025,7 +1026,7 @@ value_names :: proc(ctx: ^LintContext) -> map[string]struct{} {
 	if has_names do return names
 
 	names = make(map[string]struct{}, context.temp_allocator)
-	symbols, _ := split_fallbacks(resolve_entire_file(ctx.document))
+	symbols := resolve_entire_file(ctx.document)
 	inactive := inactive_spans(ctx)
 	for stmt in ctx.document.ast.decls {
 		for use in collect_ident_uses(stmt) {
@@ -1036,7 +1037,9 @@ value_names :: proc(ctx: ^LintContext) -> map[string]struct{} {
 				names[use.ident.name] = {}
 				continue
 			}
-			if resolved, found := symbols[uintptr(use.ident)]; found && !resolved.is_unresolved {
+			// A mention that resolves only to an inactive branch's declaration counts by name too.
+			if resolved, found := symbols[uintptr(use.ident)];
+			   found && !resolved.is_unresolved && .Fallback not_in resolved.symbol.flags {
 				#partial switch _ in resolved.symbol.value {
 				case SymbolProcedureValue, SymbolProcedureGroupValue:
 				case:

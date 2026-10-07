@@ -225,12 +225,11 @@ check_c_name :: proc(
 }
 
 // Whether a file of the package has a `foreign import` or imports `core:dynlib`: a binding package may declare its
-// library in one file and the C types in another. Only another file whose text holds either is scanned.
+// library in one file and the C types in another.
 @(private = "file")
 package_binds_c :: proc(ctx: ^LintContext) -> bool {
-	if binds_c(ctx.document.ast.decls[:]) do return true
+	if tokens_bind_c(ctx.src, ctx.document.ast.pkg_name) do return true
 	for file in sibling_values(ctx).files {
-		if !strings.contains(file.text, "foreign import") && !strings.contains(file.text, "core:dynlib") do continue
 		if tokens_bind_c(file.text, ctx.document.ast.pkg_name) do return true
 	}
 	return false
@@ -240,6 +239,8 @@ package_binds_c :: proc(ctx: ^LintContext) -> bool {
 // tell, without a parse: both can only stand at file scope, and a comment or a string holds neither.
 @(private = "file")
 tokens_bind_c :: proc(src, pkg_name: string) -> bool {
+	// Most files hold neither text, so they are not scanned.
+	if !strings.contains(src, "foreign import") && !strings.contains(src, "core:dynlib") do return false
 	silent :: proc(pos: tokenizer.Pos, msg: string, args: ..any) {}
 	t: tokenizer.Tokenizer
 	tokenizer.init(&t, src, "", silent)
@@ -262,25 +263,6 @@ tokens_bind_c :: proc(src, pkg_name: string) -> bool {
 		}
 		prev, before = token.kind, prev
 	}
-}
-
-// A `foreign import` or an import of `core:dynlib` at file scope, also in any branch of a top-level `when`.
-@(private = "file")
-binds_c :: proc(stmts: []^ast.Stmt) -> bool {
-	for stmt in stmts {
-		if stmt == nil do continue
-		#partial switch s in stmt.derived {
-		case ^ast.Foreign_Import_Decl:
-			return true
-		case ^ast.Import_Decl:
-			if strings.trim(s.relpath.text, "\"`") == "core:dynlib" do return true
-		case ^ast.When_Stmt:
-			if binds_c({s.body, s.else_stmt}) do return true
-		case ^ast.Block_Stmt:
-			if binds_c(s.stmts) do return true
-		}
-	}
-	return false
 }
 
 // Non-ASCII names conform. A single uppercase letter (`N`, `T`) passes snake_case.
