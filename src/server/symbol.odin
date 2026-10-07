@@ -694,7 +694,8 @@ append_objc_ivars :: proc(
 			objc_struct.superclass,
 			objc_struct.pkg,
 		); ok {
-			if pkg, ok := indexer.index.collection.packages[superclass_pkg]; ok {
+			// rols: a file that the host does not build sees the classes of the target that builds it
+			if pkg, ok := package_for_file(superclass_pkg, ast_context.fullpath); ok {
 				if parent, ok := pkg.objc_structs[superclass_name]; ok {
 					append_objc_ivars(ast_context, b, superclass_name, parent, visited)
 					return
@@ -705,7 +706,8 @@ append_objc_ivars :: proc(
 		// Preserve aliases and other uncommon superclass expressions without paying
 		// for full type resolution on ordinary qualified class references.
 		if superclass, ok := resolve_type_expression(ast_context, objc_struct.superclass); ok {
-			if pkg, ok := indexer.index.collection.packages[superclass.pkg]; ok {
+			// rols: a file that the host does not build sees the classes of the target that builds it
+			if pkg, ok := package_for_file(superclass.pkg, ast_context.fullpath); ok {
 				if parent, ok := pkg.objc_structs[superclass.name]; ok {
 					append_objc_ivars(ast_context, b, superclass.name, parent, visited)
 				}
@@ -717,7 +719,8 @@ append_objc_ivars :: proc(
 expand_objc :: proc(ast_context: ^AstContext, b: ^SymbolStructValueBuilder) {
 	symbol := b.symbol
 	if .ObjC in symbol.flags {
-		pkg := indexer.index.collection.packages[symbol.pkg]
+		// rols: a file that the host does not build sees the classes of the target that builds it
+		pkg, _ := package_for_file(symbol.pkg, ast_context.fullpath)
 
 		if obj_struct, ok := pkg.objc_structs[symbol.name]; ok {
 			if obj_struct.ivar != nil || obj_struct.superclass != nil {

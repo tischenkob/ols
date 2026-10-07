@@ -75,8 +75,10 @@ lookup :: proc(name: string, pkg: string, current_file: string, loc := #caller_l
 		return lookup_builtin_symbol(name, current_pkg, current_file_uri)
 	}
 
-	// rols: a file that the host does not build sees the declarations of the target that builds it first
-	if symbol, ok := lookup_other_target(name, pkg, current_file, current_pkg, current_file_uri); ok do return symbol, true
+	// rols: a file that the host does not build sees the declarations of the target that builds it
+	if symbol, ok, handled := lookup_other_target(name, pkg, current_file, current_pkg, current_file_uri); handled {
+		return symbol, ok
+	}
 
 	return lookup_symbol(name, pkg, current_pkg, current_file_uri)
 }
@@ -104,6 +106,11 @@ fuzzy_search :: proc(
 	bool,
 ) {
 	spall.trace(#procedure, fmt.tprint(name, pkgs, current_file))
+
+	// rols: completion in a file that the host does not build lists the declarations of the target that builds it
+	if results, ok, handled := fuzzy_search_other_target(name, pkgs, current_file, resolve_fields, limit); handled {
+		return results, ok
+	}
 
 	results, ok := memory_index_fuzzy_search(&indexer.index, name, pkgs, current_file, resolve_fields, limit = limit)
 	if !ok {
