@@ -47,7 +47,7 @@ main :: proc() {
 
 ## Edits (stage S9)
 
-- **Known limit: the fill rewrite accepts a field read through a pointer to a field of an element.** `reads_array` in `src/server/rols_lint_use_stdlib.odin` refuses a field read through a pointer whose type is the element type (`p := &items[0]`, then `p.x`), but not through a pointer to a nested field (`q := &items[0].inner`, then `q.x`), so the rewrite reads `q.x` once. A value with a call is already refused by the pattern matcher.
+- **Known limit: the fill rewrite checks only a pointer's initializer.** The use-stdlib fill rewrite in `src/server/rols_lint_use_stdlib.odin` (`reads_array`) checks only a pointer's initializer, so `q: ^Inner; q = &items[0].inner; for &e in items { e = Item{y = q.x} }` and `r := q` with `q := &items[0].inner` are still offered the rewrite.
 - **Known limit: the "organize imports" code action still adds imports at the upstream anchor.** `source_organize_imports` in `action.odin` (upstream) calls `organize_import_edits` without `grouped`, so a new import goes after the first import, or above all imports when the first one is removed. The upstream test `action_organize_imports_add_and_remove` in `tests/actions_test.odin` pins that position. Organize-on-save passes `grouped` and places each import among the kept imports of its collection.
 
 ## Lints (`src/server/rols_lint*.odin`)
