@@ -428,7 +428,7 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 				append(&sites, Rename_Site{variant.document, variant_offset, build_tags(variant.document.ast)})
 			}
 			for scan in scanned {
-				if scan.fullpath == variant.document.fullpath do continue next
+				if same_path(scan.fullpath, variant.document.fullpath) do continue next
 			}
 			append(&scanned, variant.document)
 		}
@@ -438,7 +438,7 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 		siblings: for sibling in package_siblings(decl_document, target.h.files) {
 			slashed, _ := filepath.replace_separators(sibling, '/', context.temp_allocator)
 			for scan in scanned[:renamed] {
-				if scan.fullpath == slashed do continue siblings
+				if same_path(scan.fullpath, slashed) do continue siblings
 			}
 			if !file_mentions(&target.h, slashed, new_name) do continue
 			document := hierarchy_document(&target.h, common.create_uri(slashed, context.temp_allocator).uri)
@@ -551,7 +551,8 @@ Rename_Site :: struct {
 builds_with_sites :: proc(sites: []Rename_Site, document: ^Document, offset: int) -> bool {
 	tags := build_tags(document.ast)
 	for site in sites {
-		if site.document.fullpath == document.fullpath && in_other_when_arms(document.ast, site.offset, offset) {
+		if same_path(site.document.fullpath, document.fullpath) &&
+		   in_other_when_arms(document.ast, site.offset, offset) {
 			continue
 		}
 		if builds_together(
