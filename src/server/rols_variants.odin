@@ -160,6 +160,8 @@ field_variants :: proc(caller: ^Call_Hierarchy, symbol: Symbol) -> (fields: []Sy
 				}
 				append(&types, Decl_Variant{home, decl, owner})
 				covered[owner.name] = {}
+				found := make([dynamic]Symbol, context.temp_allocator)
+				variants_of := make([dynamic][]Decl_Variant, context.temp_allocator)
 				// types grows while it is walked, so aliases of aliases are found too.
 				for k := 0; k < len(types); k += 1 {
 					for user in type_users(h, types[k]) {
@@ -167,10 +169,26 @@ field_variants :: proc(caller: ^Call_Hierarchy, symbol: Symbol) -> (fields: []Sy
 						covered[user.symbol.name] = {}
 						append(&types, user)
 					}
+					variants := declaration_variants(h, types[k].symbol)
+					append(&variants_of, variants)
+					// A variant that aliases another type with the member reaches the member there, so that type
+					// counts as reaching it, and its member is renamed as when the rename starts from it.
+					for variant in variants {
+						target, target_member := alias_target(h, variant, member.name) or_continue
+						if target.symbol.name in covered do continue
+						covered[target.symbol.name] = {}
+						append(&types, target)
+						field := symbol
+						field.uri = target.symbol.uri
+						field.range = common.get_token_range(
+							target_member^,
+							string(target.document.text[:target.document.used_text]),
+						)
+						append(&found, field)
+					}
 				}
-				found := make([dynamic]Symbol, context.temp_allocator)
-				for reaching in types {
-					for variant in declaration_variants(h, reaching.symbol) {
+				for reaching, k in types {
+					for variant in variants_of[k] {
 						add_member_variant(
 							variant,
 							reaching.symbol.name,
@@ -233,6 +251,53 @@ add_member_variant :: proc(
 			)
 		}
 	}
+}
+
+// The package-level struct, enum or bit_field type that variant, an alias, names when that type has a member
+// named member_name, with that member. It is looked up in the variant's file and the other files of its package
+// that mention its name. A declaration private to another file is left out.
+@(private = "file")
+alias_target :: proc(
+	h: ^Call_Hierarchy,
+	variant: Decl_Variant,
+	member_name: string,
+) -> (
+	target: Decl_Variant,
+	member: ^ast.Ident,
+	ok: bool,
+) {
+	src := string(variant.document.text[:variant.document.used_text])
+	value: ^ast.Expr
+	for name, j in variant.decl.names {
+		if j < len(variant.decl.values) && common.get_token_range(name, src) == variant.symbol.range {
+			value = variant.decl.values[j]
+		}
+	}
+	if _, is_type := type_members(value); is_type do return
+	named := named_type(value)
+	if named == nil do return
+	for document in package_documents(h, variant.document, named.name, false) {
+		other_file := document.fullpath != variant.document.fullpath
+		document_src := string(document.text[:document.used_text])
+		for decl in top_level_value_decls(document.ast) {
+			if other_file && file_private(document, decl) do continue
+			for name, i in decl.names {
+				if i >= len(decl.values) || final_name(name) != named.name do continue
+				members := type_members(decl.values[i]) or_continue
+				for candidate in members {
+					if candidate.name != member_name do continue
+					target = variant
+					target.document = document
+					target.decl = decl
+					target.symbol.uri = document.uri.uri
+					target.symbol.range = common.get_token_range(name, document_src)
+					target.symbol.name = named.name
+					return target, candidate, true
+				}
+			}
+		}
+	}
+	return
 }
 
 // The package-level declarations that alias the type that reaching names or embed it with `using`, read in its file
