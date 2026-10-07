@@ -738,10 +738,10 @@ file_branch_targets :: proc(
 }
 
 // The `-target:` values that a `when` condition of the file called name with the source text names, other than
-// base, where the file builds and can take another branch than on base, as other_branch_targets decides. A
-// comparison `ODIN_OS == .X` or `ODIN_OS != .X`, directly or through a constant of plain or of the file, names the
-// first candidate of OS X. `ODIN_ARCH == .Y` names the candidate of the OS of base with architecture Y, else the
-// first candidate with Y.
+// base, where the file builds and can take another branch than on base, as other_branch_targets decides. An
+// ODIN_OS or ODIN_ARCH comparison, directly or through a constant of plain or of the file, names the first candidate
+// on which it reads otherwise than on base, candidates of the OS of base first. A `when` without an else keeps a
+// named target only when its condition does not read false there.
 when_named_targets :: proc(name, text: string, base: parser.Build_Target, plain: Gate_Consts = nil) -> []string {
 	if !gate_may_name_target(text, plain) do return {}
 	return file_when_named_targets(parse_gate_text(name, text), base, plain)
@@ -795,8 +795,8 @@ file_when_named_targets :: proc(file: ^ast.File, base: parser.Build_Target, plai
 	return named[:]
 }
 
-// Appends to names, once each, the candidate other than base that each ODIN_OS or ODIN_ARCH comparison of expr,
-// or of a constant of plain that it names, compares with, as when_named_targets picks it.
+// Appends to names, once each, the candidate that compared_target picks for each ODIN_OS or ODIN_ARCH comparison of
+// expr, or of a constant of plain that it names: the first on which the comparison reads otherwise than on base.
 @(private = "file")
 collect_named_targets :: proc(
 	expr: ^ast.Expr,
