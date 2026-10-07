@@ -4,7 +4,7 @@ package odinfmt_test
 S :: struct {
 	// line
 	/* b */ x: int,
-	y: int,
+	y:         int,
 }
 
 f :: proc(

@@ -16,3 +16,8 @@ V :: struct {
 	/* c */ #subtype base: Base,
 	z: int,
 }
+
+W :: struct {
+	#subtype base: Base,
+	z: int,
+}

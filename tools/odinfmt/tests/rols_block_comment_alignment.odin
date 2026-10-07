@@ -24,3 +24,26 @@ f :: proc() {
 		y = 3,
 	}
 }
+
+L :: struct {
+	/* a long comment */ x: int,
+	longer: int,
+}
+
+M :: enum {
+	/* a long comment */ A = 1,
+	LONGER = 2,
+}
+
+C :: bit_field u8 {
+	/* a long comment */ a: u8 | 4,
+	longer: u8 | 4,
+}
+
+g :: proc() {
+	l := L {
+		/* a long comment */ x = 1,
+		longer = 2,
+		/* c */ y = 3,
+	}
+}

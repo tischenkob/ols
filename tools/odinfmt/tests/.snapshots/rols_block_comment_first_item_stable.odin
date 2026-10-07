@@ -3,7 +3,7 @@ package odinfmt_test
 
 S :: struct {
 	/* a */ x: int,
-	longer: int,
+	longer:    int,
 }
 
 E :: enum {
