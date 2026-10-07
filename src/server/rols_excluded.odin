@@ -79,11 +79,13 @@ lookup_other_target :: proc(
 	handled: bool,
 ) {
 	symbols := other_target_package(pkg, current_file) or_return
-	symbol, found = symbols.symbols[name]
-	if found && should_skip_private_symbol(symbol, current_pkg, current_file_uri) {
-		return {}, false, true
-	}
+	symbol, found = package_symbol(symbols, name, current_pkg, current_file_uri)
 	return symbol, found, true
+}
+
+// The target that builds current_file: the host, or the target that builds it when the host does not.
+file_build_target :: proc(current_file: string) -> parser.Build_Target {
+	return file_target(current_file) or_else host_target()
 }
 
 // The collection of the target that builds current_file when the host does not, for package_in.
@@ -144,8 +146,7 @@ other_target_package :: proc(pkg, current_file: string) -> (symbols: SymbolPacka
 }
 
 // The symbol `name` of `pkg` that target declares, for a lookup from code of current_file under a `when` branch
-// that target takes and the host does not. found is false for a file that the host does not build, whose lookups
-// already reach its own target.
+// that target takes and the target that builds current_file does not.
 lookup_on_target :: proc(
 	name, pkg, current_file: string,
 	target: parser.Build_Target,
@@ -153,10 +154,21 @@ lookup_on_target :: proc(
 	symbol: Symbol,
 	found: bool,
 ) {
-	if _, excluded := file_target(current_file); excluded do return {}, false
 	symbols := target_package(pkg, target) or_return
-	symbol, found = symbols.symbols[name]
 	current_pkg, current_file_uri := lookup_file_info(current_file)
+	return package_symbol(symbols, name, current_pkg, current_file_uri)
+}
+
+// The symbol `name` of symbols, unless it is private to another package or file than current_pkg and current_file_uri.
+@(private = "file")
+package_symbol :: proc(
+	symbols: SymbolPackage,
+	name, current_pkg, current_file_uri: string,
+) -> (
+	symbol: Symbol,
+	found: bool,
+) {
+	symbol, found = symbols.symbols[name]
 	if found && should_skip_private_symbol(symbol, current_pkg, current_file_uri) do return {}, false
 	return
 }
