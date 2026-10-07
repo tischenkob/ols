@@ -348,7 +348,6 @@ add_variant_declarations :: proc(locations: ^[dynamic]common.Location, variants:
 }
 
 // The `when` branch block that holds offset most closely in file, nil outside any `when`.
-@(private = "file")
 when_branch_of :: proc(file: ast.File, offset: int) -> ^ast.Stmt {
 	innermost: ^ast.Stmt
 	for stmt in file.decls do visit(stmt, offset, &innermost)
