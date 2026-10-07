@@ -2,6 +2,7 @@ package server
 
 import "core:odin/ast"
 import "core:slice"
+import "core:strings"
 
 // The parameter that the call argument at index binds to: by name for `name = value`, else by position. The
 // positional arguments of `x->f(...)` start after the receiver parameter.
@@ -138,14 +139,27 @@ names_proc_type :: proc(symbol: Symbol) -> bool {
 	return symbol.type == .Type_Function && .Mutable not_in symbol.flags
 }
 
-// Whether `expand_call_args` knows how many values each argument passes. A bad expression leaves the count unknown.
+// Whether `expand_call_args` knows how many values each argument passes. A bad expression or an unresolved argument
+// leaves the count unknown.
 call_arg_counts_known :: proc(call_args: []CallArg) -> bool {
 	for arg in call_args {
-		if arg.bad_expr {
+		if arg.bad_expr || arg.unresolved {
 			return false
 		}
 	}
 	return true
+}
+
+// Whether a comma follows the last argument of call in file, as in `g(1, )` while the next argument is typed.
+call_has_trailing_comma :: proc(file: ast.File, call: ^ast.Call_Expr) -> bool {
+	if call == nil || len(call.args) == 0 || call.pos.file != file.fullpath {
+		return false
+	}
+	start, end := call.args[len(call.args) - 1].end.offset, call.close.offset
+	if start < 0 || end > len(file.src) || start >= end {
+		return false
+	}
+	return strings.has_prefix(strings.trim_left_space(file.src[start:end]), ",")
 }
 
 // How `resolve_function_overload` picks among the members of a group, recorded with each cached result.

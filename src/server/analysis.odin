@@ -816,10 +816,20 @@ CallArg :: struct {
 	has_symbol:        bool,
 	is_constant:       bool,
 	is_poly_type:      bool,
+	// rols: an argument that `keep_unresolved` kept, whose value count is unknown
+	unresolved:        bool,
 }
 
 // Returns false if any of the arguments fail to resolve
-expand_call_args :: proc(ast_context: ^AstContext, call: ^ast.Call_Expr) -> ([]CallArg, bool) {
+// rols: keep_unresolved keeps an argument that resolves to no symbol, with has_symbol false, and returns true
+expand_call_args :: proc(
+	ast_context: ^AstContext,
+	call: ^ast.Call_Expr,
+	keep_unresolved := false,
+) -> (
+	[]CallArg,
+	bool,
+) {
 	results := make([dynamic]CallArg, context.temp_allocator)
 	if call == nil {
 		return results[:], true
@@ -831,6 +841,7 @@ expand_call_args :: proc(ast_context: ^AstContext, call: ^ast.Call_Expr) -> ([]C
 		arg: ^ast.Expr,
 		results: ^[dynamic]CallArg,
 		used_named: ^bool,
+		keep_unresolved: bool,
 	) -> bool {
 		ast_context.use_locals = true
 
@@ -922,7 +933,7 @@ expand_call_args :: proc(ast_context: ^AstContext, call: ^ast.Call_Expr) -> ([]C
 							// A named argument is one value and keeps its name on the first result.
 							results_named := false
 							first := len(results)
-							if !append_arg(ast_context, expr, results, &results_named) {
+							if !append_arg(ast_context, expr, results, &results_named, keep_unresolved) {
 								return false
 							}
 							if call_arg.named {
@@ -944,6 +955,11 @@ expand_call_args :: proc(ast_context: ^AstContext, call: ^ast.Call_Expr) -> ([]C
 				append(results, call_arg)
 				return true
 			}
+		} else if keep_unresolved {
+			// rols: an unresolved argument, which matches every member
+			call_arg.unresolved = true
+			append(results, call_arg)
+			return true
 		} else {
 			return false
 		}
@@ -961,7 +977,7 @@ expand_call_args :: proc(ast_context: ^AstContext, call: ^ast.Call_Expr) -> ([]C
 		}
 		reset_ast_context(ast_context)
 		ast_context.current_package = ast_context.document_package
-		if !append_arg(ast_context, arg, &results, &used_named) {
+		if !append_arg(ast_context, arg, &results, &used_named, keep_unresolved) {
 			all_valid = false
 			append(&results, CallArg{})
 		}
@@ -1249,7 +1265,8 @@ resolve_function_overload :: proc(ast_context: ^AstContext, group: ^ast.Proc_Gro
 	resolve_all_possibilities := requested_mode == .All
 
 	candidates := make([dynamic]Candidate, context.temp_allocator)
-	call_args, ok := expand_call_args(ast_context, call_expr)
+	// rols: the All and Member modes list members, so an unresolved argument rules none out
+	call_args, ok := expand_call_args(ast_context, call_expr, requested_mode == .All || requested_mode == .Member)
 	if !ok {
 		// rols: replace the in-progress marker with a failure of this mode
 		if call_expr != nil {
@@ -1263,7 +1280,8 @@ resolve_function_overload :: proc(ast_context: ^AstContext, group: ^ast.Proc_Gro
 		return {}, false
 	}
 
-	if !resolve_all_possibilities {
+	// rols: the Member mode keeps one member, or the tied ones, whatever the poly-type arguments
+	if !resolve_all_possibilities && requested_mode != .Member {
 		for arg in call_args {
 			if arg.is_poly_type {
 				resolve_all_possibilities = true
@@ -1301,9 +1319,11 @@ resolve_function_overload :: proc(ast_context: ^AstContext, group: ^ast.Proc_Gro
 						continue
 					}
 				}
-				// rols: and one that needs more, when the value count of every argument is known
+				// rols: and one that needs more, when the value count of every argument is known and no trailing comma
+				// says that another argument is being typed
 				if ast_context.whole_file_resolve &&
 				   call_arg_counts_known(call_args) &&
+				   !call_has_trailing_comma(ast_context.file, call_expr) &&
 				   len(call_args) < proc_required_arg_count(procedure) {
 					continue
 				}
