@@ -38,6 +38,22 @@ lookup_active :: proc(name, pkg, current_file: string, fallback: ^Maybe(Symbol))
 	return {}, false
 }
 
+// rols: the `fallback` that lookup_active set aside, or the declaration of a target that takes the `when` branches
+// around node when the host does not, as for code under `when ODIN_OS == .Linux` on darwin. The index keeps one
+// fallback of a name, which can belong to another branch. Only a node of the open file is placed.
+branch_fallback :: proc(ast_context: ^AstContext, node: ast.Ident, fallback: Maybe(Symbol)) -> (Symbol, bool) {
+	symbol, ok := fallback.?
+	if !ok do return {}, false
+	if is_builtin_pkg(symbol.pkg) || node.pos.file != ast_context.file.fullpath do return symbol, true
+	target, has_target := branch_target(ast_context.file, node.pos.offset, host_target())
+	if !has_target do return symbol, true
+	if built, found := lookup_on_target(node.name, symbol.pkg, node.pos.file, target);
+	   found && .Fallback not_in built.flags {
+		return built, true
+	}
+	return symbol, true
+}
+
 // rols: drops the hidden fallbacks that `uri` declared, before a reindex or removal of that file.
 forget_hidden_fallbacks :: proc(collection: ^SymbolCollection, uri: string, fold := false) {
 	for _, &pkg in collection.packages {
