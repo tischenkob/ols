@@ -411,12 +411,11 @@ fill_args :: proc(w: ^Stdlib_Walker, m: ^Stdlib_Match, s, v: ^ast.Node) -> bool 
 
 // Whether value may read an element of the array: it names root_name, the array's root
 // identifier, reads elements through a pointer, slice or multi-pointer (`p[0]`, `s.p[:]`, `p^`),
-// or reads a field through a pointer to the element type (`p.x` with `p := &items[0]`). Copying a
+// or reads a field through a pointer to the element type (`p.x` with `p := &items[0]`) or through a
+// pointer initialized with an address in the array (`q.x` with `q := &items[0].inner`). Copying a
 // pointer or reading a field through a pointer to another type is accepted. An element type that
 // does not resolve or has no name, such as one declared inside a procedure, matches any pointer.
 // The pattern matcher already refuses a value with a call.
-// Known limit: a field read through a pointer to a field of an element (`q := &items[0].inner`,
-// then `q.x`) is not seen.
 @(private = "file")
 reads_array :: proc(symbols: SymbolAndNodeMap, value: ^ast.Node, root_name: string, elem: Symbol) -> bool {
 	Search :: struct {
@@ -453,7 +452,10 @@ reads_array :: proc(symbols: SymbolAndNodeMap, value: ^ast.Node, root_name: stri
 					step := resolved.symbol^
 					if field_read {
 						search.found =
-							step.pointers > 0 && (search.elem.name == "" || same_named_type(step, search.elem))
+							step.pointers > 0 &&
+							(search.elem.name == "" ||
+									same_named_type(step, search.elem) ||
+									addresses_root(step.value_expr, search.root_name))
 					} else {
 						if step.pointers > 0 do search.found = true
 						#partial switch _ in step.value {
@@ -480,6 +482,16 @@ reads_array :: proc(symbols: SymbolAndNodeMap, value: ^ast.Node, root_name: stri
 	}
 	ast.walk(&visitor, value)
 	return search.found
+}
+
+// Whether init takes the address of root_name or of a part of it, as `&items[0].inner`.
+@(private = "file")
+addresses_root :: proc(init: ^ast.Expr, root_name: string) -> bool {
+	if init == nil || root_name == "" do return false
+	unary, is_unary := pattern_unparen(init).derived.(^ast.Unary_Expr)
+	if !is_unary || unary.op.kind != .And do return false
+	root, is_ident := access_root(unary.expr).derived.(^ast.Ident)
+	return is_ident && root.name == root_name
 }
 
 // Whether a and b name the same declared type.
