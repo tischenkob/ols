@@ -2258,3 +2258,47 @@ g :: proc(w: W) -> int { return w.a{*} }
 	}
 	test.expect_rename_refused(t, &source, "b", {})
 }
+
+// Every variant of the alias carries the field: one aliases the type, the other a distinct alias of it.
+@(test)
+rename_safe_allows_alias_variants_that_all_carry_the_field :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S_Other :: struct { a: int }
+
+T :: S_Other
+
+when ODIN_DEBUG {
+	S :: S_Other
+} else {
+	S :: distinct T
+}
+
+g :: proc(s: S) -> int { return s.a{*} }
+`,
+	}
+	test.expect_rename_refused(t, &source, "b", {})
+}
+
+@(test)
+rename_safe_allows_alias_variants_in_other_package_that_all_carry_the_field :: proc(t: ^testing.T) {
+	source := test.Source {
+		main     = `package test
+
+import "other"
+
+T :: other.S_Other
+
+when ODIN_DEBUG {
+	S :: other.S_Other
+} else {
+	S :: distinct T
+}
+
+g :: proc(s: S) -> int { return s.a{*} }
+`,
+		packages = {{pkg = "other", source = "package other\n\nS_Other :: struct { a: int }\n"}},
+	}
+	test.expect_rename_refused(t, &source, "b", {})
+}
