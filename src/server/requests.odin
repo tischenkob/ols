@@ -1645,8 +1645,10 @@ notification_did_save :: proc(
 	document := document_get(save_params.textDocument.uri)
 	if document != nil && (!config.enable_compiler_semantics || !sync.atomic_load(&semantics_store.loaded)) {
 		check_unused_imports(document, config)
-		// rols: the expensive checks and the import cleanup run on save
+		// rols: the expensive checks and the import cleanup run on save, and the lints of the open package files whose
+		// verdicts the saved text may turn
 		run_lints(document, config)
+		relint_package_siblings(document, config)
 		lint_unused_declarations(document, config)
 
 		if config.enable_organize_imports_on_save {

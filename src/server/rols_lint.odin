@@ -425,6 +425,8 @@ run_lints :: proc(document: ^Document, config: ^common.Config) {
 	}
 	uri := common.create_uri(path, context.temp_allocator)
 
+	begin_lint_verdicts(document)
+	defer end_lint_verdicts()
 	remove_diagnostics(.Lint, uri.uri)
 	for d in lint_document(document, config) {
 		add_diagnostics(.Lint, uri.uri, d)
@@ -848,7 +850,10 @@ is_signature_fixed_by_use :: proc(ctx: ^LintContext, decl: ^ast.Value_Decl) -> b
 	// Other files see neither a local procedure nor a file-private one.
 	if !is_top_level(ctx, decl) do return false
 	if global, found := ctx.ast_context.globals[name.name]; found && global.private == .File do return false
-	return used_as_value_elsewhere(ctx, name.name)
+	used := used_as_value_elsewhere(ctx, name.name)
+	// A change to another file can turn this verdict (see `relint_package_siblings`).
+	record_lint_verdict(ctx, name.name, used)
+	return used
 }
 
 // The other files of the package, and the names that the ones parsed so far use as values.
