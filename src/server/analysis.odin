@@ -841,6 +841,7 @@ expand_call_args :: proc(
 		arg: ^ast.Expr,
 		results: ^[dynamic]CallArg,
 		used_named: ^bool,
+		// rols: the keep_unresolved of `expand_call_args`
 		keep_unresolved: bool,
 	) -> bool {
 		ast_context.use_locals = true
