@@ -129,7 +129,13 @@ is_proc_type_conversion :: proc(ast_context: ^AstContext, expr: ^ast.Expr, symbo
 	reset_ast_context(ast_context)
 	callee_symbol, ok := resolve_call_arg_type_expression(ast_context, callee)
 	reset_ast_context(ast_context)
-	return ok && callee_symbol.type == .Type_Function
+	return ok && names_proc_type(callee_symbol)
+}
+
+// Whether symbol names a procedure type rather than a value of one. The index gives a global of a procedure type
+// declared in another file the symbol type of a procedure type too, but flags it .Mutable.
+names_proc_type :: proc(symbol: Symbol) -> bool {
+	return symbol.type == .Type_Function && .Mutable not_in symbol.flags
 }
 
 // Whether `expand_call_args` knows how many values each argument passes. A bad expression leaves the count unknown.
