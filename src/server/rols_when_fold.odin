@@ -5,17 +5,24 @@ import "core:odin/ast"
 // rols: folds the constants of `globals` into `consts` in dependency order. A mutable or fallback global, or a
 // global without a value, reads as unknown. A procedure or a type stays out and reads as false.
 fold_when_globals :: proc(consts: ^map[string]When_Expr, globals: map[string]GlobalExpr) {
-	fold := When_Fold {
-		consts   = consts,
-		values   = make(map[string]^ast.Expr, context.temp_allocator),
-		deferred = make(map[string]struct{}, context.temp_allocator),
-	}
+	values := make(map[string]^ast.Expr, context.temp_allocator)
 	for name, global in globals {
 		if global.flags & {.Mutable, .Fallback} != {} || global.value_expr == nil {
-			fold.values[name] = nil
+			values[name] = nil
 		} else if when_fold_form(global.value_expr) {
-			fold.values[name] = global.value_expr
+			values[name] = global.value_expr
 		}
+	}
+	fold_when_consts(consts, values)
+}
+
+// rols: folds `values`, the declared constants by name, into `consts` in dependency order. A nil value marks a
+// declared name that does not fold, and a name that `values` lacks reads as false.
+fold_when_consts :: proc(consts: ^map[string]When_Expr, values: map[string]^ast.Expr) {
+	fold := When_Fold {
+		consts   = consts,
+		values   = values,
+		deferred = make(map[string]struct{}, context.temp_allocator),
 	}
 	fold_when_values(&fold)
 }

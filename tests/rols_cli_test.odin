@@ -260,6 +260,120 @@ when ODIN_DEBUG {
 	testing.expect_value(t, server.when_builtins, [server.When_Builtin]Maybe(bool){})
 }
 
+// tests folds a selector in a `when` condition to the constant outside any `when` of the imported package, through
+// a relative import or a collection, and reads a name that the package does not declare or that does not fold as
+// unknown.
+@(test)
+cli_tests_fold_when_selectors_of_imported_packages :: proc(t: ^testing.T) {
+	app := `package app
+
+import "core:testing"
+import cfg "../cfg"
+import "shared:other"
+
+LOCAL :: cfg.ON
+
+when cfg.ON {
+	@(test)
+	t_on :: proc(t: ^testing.T) {}
+} else {
+	@(test)
+	t_off :: proc(t: ^testing.T) {}
+}
+
+when !LOCAL {
+	@(test)
+	t_local_off :: proc(t: ^testing.T) {}
+}
+
+when other.LEVEL >= 2 {
+	@(test)
+	t_level_high :: proc(t: ^testing.T) {}
+} else {
+	@(test)
+	t_level_low :: proc(t: ^testing.T) {}
+}
+
+when cfg.MISSING {
+	@(test)
+	t_missing_a :: proc(t: ^testing.T) {}
+} else {
+	@(test)
+	t_missing_b :: proc(t: ^testing.T) {}
+}
+
+when cfg.UNFOLDABLE {
+	@(test)
+	t_unfoldable_a :: proc(t: ^testing.T) {}
+} else {
+	@(test)
+	t_unfoldable_b :: proc(t: ^testing.T) {}
+}
+`
+	dir, ok := fixture(t, {})
+	defer os.remove_all(dir)
+	if !ok do return
+	files := [][2]string {
+		{"app/a.odin", app},
+		{"cfg/cfg.odin", "package cfg\n\nON :: true\nUNFOLDABLE :: size_of(int) > 4\n"},
+		{"shared/other/other.odin", "package other\n\nLEVEL :: BASE\nBASE :: 3\n"},
+	}
+	for entry in files {
+		file, _ := filepath.join({dir, entry[0]}, context.temp_allocator)
+		if !testing.expect_value(t, os.make_directory_all(filepath.dir(file)), nil) do return
+		if !testing.expect_value(t, os.write_entire_file(file, entry[1]), nil) do return
+	}
+
+	config: common.Config
+	config.collections = make(map[string]string, context.temp_allocator)
+	config.collections["shared"], _ = filepath.join({dir, "shared"}, context.temp_allocator)
+	app_dir, _ := filepath.join({dir, "app"}, context.temp_allocator)
+	names := make([dynamic]string, context.temp_allocator)
+	for test in server.find_tests(app_dir, &config) do append(&names, test.name)
+	expected := []string{"t_on", "t_level_high", "t_missing_a", "t_missing_b", "t_unfoldable_a", "t_unfoldable_b"}
+	testing.expectf(t, slice.equal(names[:], expected), "got %v, expected %v", names, expected)
+}
+
+// tests reads `#config(NAME, default)` as the `-define:NAME=VALUE` of checker_args, in a condition and in a
+// constant, and restores the defines of the `when` evaluation.
+@(test)
+cli_tests_read_defines_of_checker_args :: proc(t: ^testing.T) {
+	text := `package p
+
+import "core:testing"
+
+FAST_ON :: #config(FAST, false)
+
+when #config(FAST, false) {
+	@(test)
+	t_fast :: proc(t: ^testing.T) {}
+} else {
+	@(test)
+	t_slow :: proc(t: ^testing.T) {}
+}
+
+when !FAST_ON {
+	@(test)
+	t_not_fast :: proc(t: ^testing.T) {}
+}
+
+when #config(LEVEL, 0) > 1 {
+	@(test)
+	t_level :: proc(t: ^testing.T) {}
+}
+`
+	dir, ok := fixture(t, {{"a.odin", text}})
+	defer os.remove_all(dir)
+	if !ok do return
+
+	config: common.Config
+	config.checker_args = "-define:FAST=false -define:LEVEL=2 -define:FAST=true"
+	names := make([dynamic]string, context.temp_allocator)
+	for test in server.find_tests(dir, &config) do append(&names, test.name)
+	testing.expectf(t, slice.equal(names[:], []string{"t_fast", "t_level"}), "got %v", names)
+	testing.expect_value(t, len(server.when_defines), 0)
+}
+
 // A directory named on the command line that the filter skips keeps its subdirectories.
 @(test)
 cli_package_dirs_below_a_filtered_start_keep_their_subdirectories :: proc(t: ^testing.T) {
