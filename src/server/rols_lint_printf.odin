@@ -129,6 +129,10 @@ expanded_arg_count :: proc(ctx: ^LintContext, args: []^ast.Expr) -> (count: int,
 @(private = "file")
 arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: bool) {
 	call, is_call := arg.derived.(^ast.Call_Expr)
+	// `x->f()` wraps the call `x->f(x)`.
+	if selector_call, is_selector_call := arg.derived.(^ast.Selector_Call_Expr); is_selector_call {
+		call, is_call = selector_call.call, selector_call.call != nil
+	}
 	if !is_call do return 1, true
 	callee := ast.unparen_expr(call.expr)
 	#partial switch _ in callee.derived {
@@ -165,6 +169,7 @@ arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: 
 // The values passed by the procedure that expr resolves to with the locals visible at it. A group
 // call whose overload does not resolve, as with an argument of a poly type, resolves without the
 // call to every member of the group, and passes a known number of values when they all agree.
+// A callee that resolves to a type, as in `Vec(int)(v)`, is a conversion and passes one value.
 @(private = "file")
 callee_results :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (int, bool) {
 	symbol, ok := resolve_callee(ctx, expr)
@@ -174,20 +179,42 @@ callee_results :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (int, bool) {
 		return proc_results(v), true
 	case SymbolAggregateValue:
 		return members_results(v.symbols)
+	case SymbolProcedureGroupValue, SymbolGenericValue, SymbolPolyTypeValue, SymbolPackageValue, SymbolUntypedValue:
+		return 1, false
 	}
-	return 1, false
+	return 1, true
 }
 
 // expr resolved with the locals visible at it, or with the package globals when that fails.
 @(private = "file")
 resolve_callee :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (Symbol, bool) {
-	ast_context: AstContext
-	position_context: DocumentPositionContext
+	ast_context := lint_globals_context(ctx)
 	position := common.get_token_range(expr, ctx.src).start
-	if ast_context_at(ctx.document, position, &ast_context, &position_context) {
+	if position_context, found := get_document_position_context(ctx.document, position, .Hover); found {
+		ast_context.position_hint = position_context.hint
+		get_locals(&ast_context, &position_context)
 		if symbol, ok := resolve_type_expression(&ast_context, expr); ok do return symbol, true
 	}
-	return resolve_type_in_package(ctx.document, ctx.document.package_name, expr)
+	package_context := lint_globals_context(ctx)
+	return resolve_type_expression(&package_context, expr)
+}
+
+// A context with the package globals of the file and no locals. It shares the walker's globals, since
+// collecting them walks every declaration of the file, which for each argument made a lint run quadratic.
+@(private = "file")
+lint_globals_context :: proc(ctx: ^LintContext) -> AstContext {
+	document := ctx.document
+	if ctx.ast_context == nil do return globals_context(document)
+	ast_context := make_ast_context(
+		document.ast,
+		document.imports,
+		document.package_name,
+		document.uri.uri,
+		document.fullpath,
+		context.temp_allocator,
+	)
+	ast_context.globals = ctx.ast_context.globals
+	return ast_context
 }
 
 @(private = "file")

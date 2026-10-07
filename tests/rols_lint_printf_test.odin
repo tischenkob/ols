@@ -543,3 +543,74 @@ main :: proc() {
 
 	test.expect_lint_diagnostics(t, &source, {{6, "printf-arity"}})
 }
+
+@(test)
+printf_counts_group_call_by_members_that_fit :: proc(t: ^testing.T) {
+	// two needs more arguments than the call passes, so the call does not resolve to it.
+	source := test.Source {
+		main = `package test
+
+import "fmt"
+
+one :: proc(a: Missing) -> (int, int) { return 1, 2 }
+two :: proc(a, b: int) -> int { return a }
+g :: proc { one, two }
+
+main :: proc() {
+	fmt.printf("%d %d", g(1))
+}
+`,
+		packages = packages,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
+
+@(test)
+printf_counts_results_of_arrow_call :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "fmt"
+
+Obj :: struct {
+	pair: proc(o: ^Obj) -> (int, int),
+}
+
+main :: proc() {
+	x: ^Obj
+	fmt.printf("%d %d", x->pair())
+	fmt.printf("%d", x->pair())
+}
+`,
+		packages = packages,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{11, "printf-arity"}})
+}
+
+@(test)
+printf_counts_conversion_to_poly_struct_as_one_value :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "fmt"
+
+Vec :: struct($T: typeid) {
+	x: T,
+}
+
+main :: proc() {
+	v: Vec(int)
+	fmt.printf("%v", Vec(int)(v))
+	fmt.printf("%v %v", Vec(int)(v))
+}
+`,
+		packages = packages,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{11, "printf-arity"}})
+}
