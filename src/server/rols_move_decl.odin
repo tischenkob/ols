@@ -409,12 +409,20 @@ is_file_private :: proc(attributes: []^ast.Attribute) -> bool {
 	return false
 }
 
-// The imports of document whose names are in inside, the import uses of the moved declaration.
+// The imports of document whose names are in inside, the import uses of the moved declaration. It reads the AST
+// imports because Document.imports leaves out an import of a collection that the configuration lacks.
 @(private = "file")
 used_imports :: proc(document: ^Document, inside: map[string]struct{}) -> []Package {
 	used := make([dynamic]Package, context.temp_allocator)
-	for imp in document.imports {
-		if imp.base in inside do append(&used, imp)
+	outer: for imp in document.ast.imports {
+		for pkg in document.imports {
+			if pkg.import_decl == imp {
+				if pkg.base in inside do append(&used, pkg)
+				continue outer
+			}
+		}
+		name := pattern_import_name(imp)
+		if name in inside do append(&used, Package{original = imp.fullpath, base = name, import_decl = imp})
 	}
 	return used[:]
 }

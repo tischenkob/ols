@@ -969,3 +969,28 @@ show :: proc() -> string {
 `}},
 	)
 }
+
+@(test)
+move_decl_takes_import_of_an_unconfigured_collection :: proc(t: ^testing.T) {
+	source := move_source(`package test
+
+import "lib:util"
+
+sh{*}ow :: proc() -> string {
+	return util.name
+}
+`, {{"b.odin", "package test\n"}})
+	test.expect_move_declaration(
+		t,
+		&source,
+		"b.odin",
+		{{"main.odin", "package test\n"}, {"b.odin", `package test
+
+import "lib:util"
+
+show :: proc() -> string {
+	return util.name
+}
+`}},
+	)
+}
