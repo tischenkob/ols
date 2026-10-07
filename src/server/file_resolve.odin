@@ -44,10 +44,20 @@ resolve_entire_file_cancellable :: proc(
 	return resolve_entire_file_internal(document, should_cancel)
 }
 
+// rols: a whole-file resolve in temp memory that leaves the document's cache alone, with its argument callees. The
+// lints of a file that several targets build resolve it once more per further target (see `walk_lints`).
+resolve_entire_file_uncached :: proc(document: ^Document) -> (SymbolAndNodeMap, map[uintptr]Arg_Callee) {
+	arg_callees: map[uintptr]Arg_Callee
+	symbols, _ := resolve_entire_file_internal(document, nil, &arg_callees)
+	return symbols, arg_callees
+}
+
 @(private = "file")
 resolve_entire_file_internal :: proc(
 	document: ^Document,
 	should_cancel: ResolveCancelProc,
+	// rols: when given, the resolve lives in temp memory, skips the cache and receives the argument callees here
+	uncached: ^map[uintptr]Arg_Callee = nil,
 ) -> (symbols: SymbolAndNodeMap, completed: bool) {
 	spall.trace(#procedure, document.fullpath)
 
@@ -55,12 +65,16 @@ resolve_entire_file_internal :: proc(
 
 	allocator, has_allocator := document_allocator(document^)
 	assert(has_allocator, "Open document should have an allocator set")
+	// rols: an uncached resolve lives in temp memory
+	if uncached != nil do allocator = context.temp_allocator
 
 	if should_cancel != nil && should_cancel() {
 		return nil, false
 	}
 
 	reuse_cached: {
+		// rols: an uncached resolve never reads the cache
+		if uncached != nil do break reuse_cached
 		symbols = document.symbols.? or_break reuse_cached
 		return symbols, true
 	}
@@ -117,6 +131,11 @@ resolve_entire_file_internal :: proc(
 		clear(&ast_context.call_expr_recursion_cache)
 	}
 
+	// rols: an uncached resolve hands its argument callees back instead of caching them
+	if uncached != nil {
+		uncached^ = arg_callees
+		return symbols, true
+	}
 	document.symbols = symbols
 	// rols: cached and cleared together with symbols
 	document.arg_callees = arg_callees

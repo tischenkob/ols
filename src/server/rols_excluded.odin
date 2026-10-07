@@ -291,12 +291,21 @@ set_file_target :: proc(
 	return
 }
 
+// The file that the lints walk for a further target that builds it, and that target, which file_target gives for
+// that file meanwhile (see `walk_lints`).
+@(thread_local)
+lint_target_override: struct {
+	fullpath: string,
+	target:   parser.Build_Target,
+}
+
 // The target that builds fullpath when the host does not. A lookup asks once per identifier, so the answer is kept
 // until a reindex or removal of the file, a parse of its document, or a change of the host.
 file_target :: proc(fullpath: string) -> (parser.Build_Target, bool) {
 	if fullpath == "" {
 		return {}, false
 	}
+	if fullpath == lint_target_override.fullpath do return lint_target_override.target, true
 	host := host_target()
 	if entry, ok := excluded.targets[fullpath]; ok && entry.host == host {
 		return entry.target.?
@@ -304,6 +313,18 @@ file_target :: proc(fullpath: string) -> (parser.Build_Target, bool) {
 	text, _ := file_text(fullpath)
 	name, need := target_for_file(fullpath, text, host)
 	return set_file_target(fullpath, host, name, need).target.?
+}
+
+// Every candidate target that builds the file fullpath with the source text when the host does not, in the order of
+// GATE_TARGET_CANDIDATES, so file_target is the first. In temp memory.
+file_targets :: proc(fullpath, text: string) -> []parser.Build_Target {
+	if _, has_target := file_target(fullpath); !has_target do return nil
+	targets := make([dynamic]parser.Build_Target, context.temp_allocator)
+	for candidate in GATE_TARGET_CANDIDATES {
+		target, _ := parse_target(candidate)
+		if builds_on(fullpath, text, target) do append(&targets, target)
+	}
+	return targets[:]
 }
 
 // The text of an open document, else of an unsaved file, else of the file on disk, in temp memory.
