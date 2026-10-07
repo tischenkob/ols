@@ -2357,6 +2357,37 @@ when ODIN_OS == .Windows {
 	)
 }
 
+// Each inactive embedder keeps its own branch: a `using` in the second one still collides.
+@(test)
+rename_safe_refuses_using_of_second_inactive_embedder :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+B :: struct { x{*}: int }
+
+when ODIN_OS == .Windows {
+	S :: struct { using b: B }
+} else when ODIN_OS == .Linux {
+	S :: struct { using b: B }
+
+	f :: proc() -> int {
+		y := 1
+		using s: S
+		return y
+	}
+} else {
+	S :: struct { c: int }
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"y",
+		{"`y` is already declared in the scope of `using s` at test/main.odin:11:3"},
+	)
+}
+
 // A `using` outside the `when` names the inactive embedder on the target that builds it.
 @(test)
 rename_safe_refuses_using_outside_when_of_inactive_embedder :: proc(t: ^testing.T) {

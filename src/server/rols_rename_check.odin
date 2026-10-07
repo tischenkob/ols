@@ -579,9 +579,8 @@ Embed_Scan :: struct {
 	when_bodies: map[^ast.Block_Stmt]struct{}, // the `when` bodies checked with the statements of their block
 }
 
-// A type that carries the renamed field. A type that the name of an inactive declaration resolves to, the active
-// variant, carries it only for a `using` that a target builds with that declaration: one outside other branches of
-// whens than the declaration's, at offset of document.
+// A type that carries the renamed field. document, offset and whens anchor an active variant that an inactive
+// declaration's name resolves to. The entry then counts only for a `using` outside the other branches of those whens.
 @(private = "file")
 Embed_Type :: struct {
 	symbol:   Symbol,
@@ -590,13 +589,15 @@ Embed_Type :: struct {
 	whens:    []^ast.When_Stmt,
 }
 
-// Appends type to scan.types unless an entry has its symbol. An entry without a document, which counts for every
-// `using`, wins over one with a document.
+// Appends type to scan.types, one entry per anchor. An entry without a document counts for every `using`, so it
+// covers any other entry of its symbol and replaces an anchored one.
 @(private = "file")
 add_embed_type :: proc(scan: ^Embed_Scan, type: Embed_Type) {
 	for &seen in scan.types {
-		if same_symbol(seen.symbol, type.symbol) {
-			if type.document == nil do seen = type
+		if !same_symbol(seen.symbol, type.symbol) do continue
+		if seen.document == nil || (seen.document == type.document && seen.offset == type.offset) do return
+		if type.document == nil {
+			seen = type
 			return
 		}
 	}
@@ -659,9 +660,7 @@ check_embedders :: proc(scan: ^Embed_Scan, target: ^Rename_Target, document: ^Do
 			}
 			whens := make([dynamic]^ast.When_Stmt, context.temp_allocator)
 			for outer in chain {
-				if when_stmt, is_when := outer.node.derived.(^ast.When_Stmt); is_when {
-					append(&whens, when_stmt)
-				}
+				if w, ok := outer.node.derived.(^ast.When_Stmt); ok do append(&whens, w)
 			}
 			embed_type = {value, document, type_name.pos.offset, whens[:]}
 			if own, own_ok := resolve_type_expression(&ast_context_value, decl.values[0]); own_ok {
