@@ -886,6 +886,8 @@ expand_call_args :: proc(ast_context: ^AstContext, call: ^ast.Call_Expr) -> ([]C
 			}
 		}
 		if !resolved {
+			// The inner call may have turned locals off for a global callee.
+			reset_ast_context(ast_context)
 			symbol, resolved = resolve_call_arg_type_expression(ast_context, resolve_expr)
 		}
 		if resolved {
@@ -898,6 +900,11 @@ expand_call_args :: proc(ast_context: ^AstContext, call: ^ast.Call_Expr) -> ([]C
 				append(results, call_arg)
 				return true
 			} else if v, ok := symbol.value.(SymbolProcedureValue); ok {
+				// rols: a conversion to a procedure type, such as `Callback(f)`, passes one value.
+				if is_proc_type_conversion(ast_context, resolve_expr, symbol) {
+					append(results, call_arg)
+					return true
+				}
 				if _, ok := resolve_expr.derived.(^ast.Call_Expr); ok {
 					if len(v.return_types) == 0 {
 						return false

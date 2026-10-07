@@ -645,3 +645,32 @@ main :: proc() {
 
 	test.expect_lint_diagnostics(t, &source, {{11, "printf-arity"}})
 }
+
+@(test)
+printf_counts_group_call_with_local_arrow_call_argument :: proc(t: ^testing.T) {
+	// x->single() passes one value, so g(x->single()) calls one.
+	source := test.Source {
+		main = `package test
+
+import "fmt"
+
+one :: proc(a: int) -> (int, int) { return a, a }
+two :: proc(a: string) -> int { return 0 }
+g :: proc { one, two }
+
+Obj :: struct {
+	single: proc(o: ^Obj) -> int,
+}
+
+main :: proc() {
+	x: ^Obj
+	fmt.printf("%d %d", g(x->single()))
+	fmt.printf("%d", g(x->single()))
+}
+`,
+		packages = packages,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{15, "printf-arity"}})
+}

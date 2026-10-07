@@ -192,34 +192,28 @@ callee_results :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (int, bool) {
 	return 1, true
 }
 
-// expr resolved with the locals visible at it, or with the package globals when that fails.
+// expr resolved with the locals visible at it, or with the package globals when that fails. The context shares
+// the walker's globals, since collecting them walks every declaration of the file, which for each argument made
+// a lint run quadratic.
 @(private = "file")
 resolve_callee :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (Symbol, bool) {
-	ast_context := lint_globals_context(ctx)
+	document := ctx.document
 	position := common.get_token_range(expr, ctx.src).start
-	if position_context, found := get_document_position_context(ctx.document, position, .Hover); found {
+	if position_context, found := get_document_position_context(document, position, .Hover); found {
+		ast_context := make_ast_context(
+			document.ast,
+			document.imports,
+			document.package_name,
+			document.uri.uri,
+			document.fullpath,
+			context.temp_allocator,
+		)
+		ast_context.globals = ctx.ast_context.globals
 		ast_context.position_hint = position_context.hint
 		get_locals(&ast_context, &position_context)
 		if symbol, ok := resolve_type_expression(&ast_context, expr); ok do return symbol, true
 	}
-	return resolve_type_with(ctx.ast_context, ctx.document.package_name, expr)
-}
-
-// A context with the package globals of the file and no locals. It shares the walker's globals, since
-// collecting them walks every declaration of the file, which for each argument made a lint run quadratic.
-@(private = "file")
-lint_globals_context :: proc(ctx: ^LintContext) -> AstContext {
-	document := ctx.document
-	ast_context := make_ast_context(
-		document.ast,
-		document.imports,
-		document.package_name,
-		document.uri.uri,
-		document.fullpath,
-		context.temp_allocator,
-	)
-	ast_context.globals = ctx.ast_context.globals
-	return ast_context
+	return resolve_type_with(ctx.ast_context, document.package_name, expr)
 }
 
 @(private = "file")

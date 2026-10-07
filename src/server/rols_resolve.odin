@@ -113,6 +113,25 @@ proc_result_value_count :: proc(procedure: SymbolProcedureValue) -> int {
 	return count
 }
 
+// Whether expr, which resolved to symbol, converts to a procedure type: a call whose callee names a procedure
+// type. The call of a value of a procedure type resolves to that type too, so the callee itself must be the type.
+is_proc_type_conversion :: proc(ast_context: ^AstContext, expr: ^ast.Expr, symbol: Symbol) -> bool {
+	call, is_call := expr.derived.(^ast.Call_Expr)
+	if !is_call || symbol.type != .Type_Function {
+		return false
+	}
+	callee := ast.unparen_expr(call.expr)
+	#partial switch _ in callee.derived {
+	case ^ast.Ident, ^ast.Selector_Expr:
+	case:
+		return false
+	}
+	reset_ast_context(ast_context)
+	callee_symbol, ok := resolve_call_arg_type_expression(ast_context, callee)
+	reset_ast_context(ast_context)
+	return ok && callee_symbol.type == .Type_Function
+}
+
 // Whether `expand_call_args` knows how many values each argument passes. A bad expression leaves the count unknown.
 call_arg_counts_known :: proc(call_args: []CallArg) -> bool {
 	for arg in call_args {
