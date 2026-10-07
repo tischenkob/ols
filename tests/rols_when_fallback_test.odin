@@ -726,3 +726,48 @@ definition_selector_in_inactive_branch_reaches_its_targets_fallback :: proc(t: ^
 	}
 	test.expect_definition_locations(t, &source, {location})
 }
+
+// A `when` nested in an `if` of a procedure body places the names under it like one at file scope.
+@(test)
+hover_in_inactive_branch_nested_in_if :: proc(t: ^testing.T) {
+	a, b := other_oses()
+	source := test.Source {
+		main  = fmt.tprintf(
+			"package test\n\nf :: proc() {{\n\tif true {{\n\t\twhen ODIN_OS == .%s {{\n\t\t\tv: T\n\t\t\tx := v.b{{*}}\n\t\t}}\n\t}}\n}}\n",
+			b,
+		),
+		files = {
+			{"a.odin", fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ a: int }}\n}}\n", a)},
+			{"b.odin", fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ b: int }}\n}}\n", b)},
+		},
+	}
+	test.expect_hover(t, &source, "T.b: int")
+}
+
+// In a file that the host does not build, an ODIN_ARCH branch is judged on that file's target, not on the host.
+@(test)
+hover_in_inactive_arch_branch_of_excluded_file :: proc(t: ^testing.T) {
+	when ODIN_OS == .Linux {
+		file_os, x, y := "windows", "arm64", "i386"
+	} else {
+		file_os, x, y := "linux", "i386", "arm64"
+	}
+	source := test.Source {
+		main  = fmt.tprintf(
+			"#+build %s\npackage test\n\nwhen ODIN_ARCH == .%s {{\n\tf :: proc(t: T) -> int {{\n\t\treturn t.b{{*}}\n\t}}\n}}\n",
+			file_os,
+			y,
+		),
+		files = {
+			{
+				"c.odin",
+				fmt.tprintf(
+					"package test\n\nwhen ODIN_ARCH == .%s {{\n\tT :: struct {{ a: int }}\n}} else when ODIN_ARCH == .%s {{\n\tT :: struct {{ b: int }}\n}}\n",
+					x,
+					y,
+				),
+			},
+		},
+	}
+	test.expect_hover(t, &source, "T.b: int")
+}
