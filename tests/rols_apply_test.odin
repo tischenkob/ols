@@ -346,14 +346,14 @@ apply_importer_dirs_follow_importers_of_importers :: proc(t: ^testing.T) {
 		{"/ws/d/d.odin", "package d\n\nimport \"../e\"\n"},
 		{"/ws/e/e.odin", "package e\n"},
 	}
-	found := server.importer_dirs([]string{"/ws/c"}, &config, files)
+	found := server.graph_importers(server.import_graph(&config, files), []string{"/ws/c"})
 	testing.expect_value(t, len(found), 2)
 	if len(found) == 2 {
 		testing.expect_value(t, found[0], "/ws/a")
 		testing.expect_value(t, found[1], "/ws/b")
 	}
 	// The unrelated pair is not an importer of c.
-	testing.expect_value(t, len(server.importer_dirs([]string{"/ws/a"}, &config, files)), 0)
+	testing.expect_value(t, len(server.graph_importers(server.import_graph(&config, files), []string{"/ws/a"})), 0)
 }
 
 @(test)
@@ -463,7 +463,9 @@ apply_gate_targets_check_each_target_on_the_packages_that_need_it :: proc(t: ^te
 		files[i] = {file, source[1]}
 	}
 	lib := join(root, "lib")
-	importers := server.importer_dirs({lib}, &common.config, files)
+	// One graph serves the importers of the touched directories and those of each target.
+	graph := server.import_graph(&common.config, files)
+	importers := server.graph_importers(graph, {lib})
 	if !testing.expect_value(t, len(importers), 3) do return
 	dirs := []string{lib, importers[0], importers[1], importers[2]}
 	changed := []cli.File_State {
@@ -476,7 +478,7 @@ apply_gate_targets_check_each_target_on_the_packages_that_need_it :: proc(t: ^te
 		},
 	}
 
-	checks := cli.gate_targets(changed, dirs, importers, nil, files)
+	checks := cli.gate_targets(changed, dirs, importers, nil, graph)
 	if !testing.expect_value(t, len(checks), 3) do return
 	testing.expect_value(t, checks[0].target, "")
 	testing.expect_value(t, len(checks[0].dirs), 4)
@@ -490,6 +492,85 @@ apply_gate_targets_check_each_target_on_the_packages_that_need_it :: proc(t: ^te
 	testing.expect_value(t, checks[2].target, "wasi_wasm32")
 	testing.expect_value(t, len(checks[2].dirs), 4)
 	testing.expect_value(t, checks[2].dirs[0], lib)
+}
+
+// An edit that touches directories that do not import each other checks a touched directory with a
+// `when ODIN_OS == .JS` branch, in a touched file or a file next to one, on js_wasm32, which another touched
+// directory needs.
+@(test)
+apply_gate_targets_check_a_touched_when_branch_on_a_target_another_directory_needs :: proc(t: ^testing.T) {
+	root, dir_err := os.make_directory_temp("", "rols_gate_when_*", context.temp_allocator)
+	if !testing.expect_value(t, dir_err, nil) do return
+	defer os.remove_all(root)
+
+	join :: proc(parts: ..string) -> string {
+		joined, _ := filepath.join(parts, context.temp_allocator)
+		return joined
+	}
+	when_js := "package b\n\nwhen ODIN_OS == .JS {\n\tx :: 1\n}\n"
+	when_orca := "package c\n\nwhen ODIN_OS == .Orca {\n\tx :: 1\n}\n"
+	sources := [][2]string {
+		{"a/a.odin", "package a\n"},
+		{"a/a_js.odin", "package a\n"},
+		{"b/b.odin", "package b\n"},
+		{"c/c.odin", "package c\n"},
+		{"d/d.odin", "package d\n\nf :: proc() {}\n"},
+		{"d/d_use.odin", "package d\n\nwhen ODIN_OS == .JS {\n\tg :: proc() {f()}\n}\n"},
+	}
+	files := make([]server.Package_File, len(sources), context.temp_allocator)
+	for source, i in sources {
+		file := join(root, source[0])
+		os.make_directory_all(filepath.dir(file))
+		testing.expect_value(t, os.write_entire_file(file, source[1]), nil)
+		files[i] = {file, source[1]}
+	}
+	a, b, c, d := join(root, "a"), join(root, "b"), join(root, "c"), join(root, "d")
+	changed := []cli.File_State {
+		{
+			path = files[0].fullpath,
+			existed = true,
+			original = "package a\n",
+			exists = true,
+			text = "package a\n\nx :: 1\n",
+		},
+		// The old text holds the branch, so an edit that removes it is checked there too.
+		{path = files[2].fullpath, existed = true, original = when_js, exists = true, text = "package b\n"},
+		// js takes the else of the Orca branch, as the current target does.
+		{path = files[3].fullpath, existed = true, original = "package c\n", exists = true, text = when_orca},
+		// The branch is in d_use.odin, which the edit does not touch.
+		{
+			path = files[4].fullpath,
+			existed = true,
+			original = "package d\n\nf :: proc() {}\n",
+			exists = true,
+			text = "package d\n\nf :: proc() {}\n\nh :: proc() {}\n",
+		},
+	}
+	dirs := []string{a, b, c, d}
+	checks := cli.gate_targets(changed, dirs, {}, nil, server.import_graph(&common.config, files))
+	if !testing.expect_value(t, len(checks), 2) do return
+	testing.expect_value(t, checks[1].target, "js_wasm32")
+	if testing.expect_value(t, len(checks[1].dirs), 3) {
+		testing.expect_value(t, checks[1].dirs[0], a)
+		testing.expect_value(t, checks[1].dirs[1], b)
+		testing.expect_value(t, checks[1].dirs[2], d)
+	}
+
+	// One parse answers for every target.
+	base := parser.Build_Target{.Darwin, .arm64, ""}
+	targets := []parser.Build_Target{{.JS, .wasm32, ""}, {.Orca, .wasm32, ""}, {.Linux, .amd64, ""}}
+	takes := server.other_branch_targets("/p/b.odin", when_js, base, targets)
+	testing.expect(t, takes[0] && !takes[1] && !takes[2], "a JS branch")
+	takes = server.other_branch_targets("/p/b.odin", when_orca, base, targets)
+	testing.expect(t, !takes[0] && takes[1] && !takes[2], "an Orca branch")
+	takes = server.other_branch_targets("/p/b_linux.odin", when_js, base, targets)
+	testing.expect(t, !takes[0] && !takes[1] && !takes[2], "a file only Linux builds")
+	nested := "package b\n\nwhen ODIN_OS == .Windows {\n\twhen ODIN_ARCH == .wasm32 {\n\t\tx :: 1\n\t}\n}\n"
+	takes = server.other_branch_targets("/p/b.odin", nested, base, targets)
+	testing.expect(t, !takes[0] && !takes[1], "a branch inside one that wasm32 skips")
+	unknown := "package b\n\nf :: proc() {\n\twhen ODIN_OS == .JS || FAST {\n\t}\n}\n"
+	takes = server.other_branch_targets("/p/b.odin", unknown, base, targets)
+	testing.expect(t, takes[0] && takes[1] && takes[2], "an unknown condition")
 }
 
 @(test)

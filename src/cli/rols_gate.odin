@@ -62,14 +62,15 @@ on_edited_line :: proc(edited: Edited_Lines, e: Check_Error) -> bool {
 // The checks of the gate without checker_variants: dirs, every package directory, on the current target
 // first, then one check per other target. A target that checker_targets names checks dirs. Another target
 // is one that a file the current target does not build needs: a touched file, a file next to one, or a
-// file of an importer directory. Its check covers the directories of those files and their importers.
-// Before and after the write use the same checks. A touched file that no target builds gets a warning.
-// files stands in for the workspace walk of importer_dirs, for the tests.
+// file of an importer directory. Its check covers the directories of those files, the directory of a
+// touched file that can take another `when` branch on it than on the current target, and their importers
+// in graph. Before and after the write use the same checks. A touched file that no target builds gets a
+// warning.
 gate_targets :: proc(
 	changed: []File_State,
 	dirs, importers: []string,
 	reasons: ^[dynamic]string,
-	files: []server.Package_File = {},
+	graph: server.Import_Graph,
 ) -> []Gate_Check {
 	config := &common.config
 	base := server.base_target(config.checker_args)
@@ -82,8 +83,11 @@ gate_targets :: proc(
 			warn(reasons, fmt.tprintf("checker_targets: %q is not an odin target; skipped", entry))
 		}
 	}
-	// Each other target to the directories of the files that need it.
-	needs := make(map[string][dynamic]string, context.temp_allocator)
+	// Every text that decides the targets: the old and the new text of a touched file, since the edit can add
+	// or drop a tag, each other file of a touched directory, such as lib_windows.odin beside an edited
+	// lib.odin, which builds with it on its own target, and each file of an importer directory, which builds
+	// the touched package on its own target.
+	sources := make([dynamic]Gate_Source, context.temp_allocator)
 	touched := make([dynamic]string, context.temp_allocator)
 	for file in changed {
 		if filepath.ext(file.path) != ".odin" {
@@ -93,21 +97,39 @@ gate_targets :: proc(
 		if !slice.contains(touched[:], dir) {
 			append(&touched, dir)
 		}
-		// The edit can add or drop a tag, so the old and the new text both count.
 		if file.existed && (!file.exists || file.original != file.text) {
-			note_target(&needs, reasons, dir, file.path, file.original, base)
+			append(&sources, Gate_Source{dir, file.path, file.original, true})
 		}
 		if file.exists {
-			note_target(&needs, reasons, dir, file.path, file.text, base)
+			append(&sources, Gate_Source{dir, file.path, file.text, true})
 		}
 	}
-	// A file next to a touched one, such as lib_windows.odin beside an edited lib.odin, builds with it on its
-	// own target. An importer directory builds the touched package on the target of each of its files.
 	for dir in touched {
-		note_dir_targets(&needs, dir, changed, base)
+		add_dir_sources(&sources, dir, changed)
 	}
 	for dir in importers {
-		note_dir_targets(&needs, dir, changed, base)
+		add_dir_sources(&sources, dir, changed)
+	}
+	// Each other target to the directories of the files that need it.
+	needs := make(map[string][dynamic]string, context.temp_allocator)
+	for source in sources {
+		note_target(&needs, reasons if source.touched else nil, source.dir, source.path, source.text, base)
+	}
+	// A `when ODIN_OS == .X` branch builds on X only, even in a package that no file of X needs.
+	others := make([dynamic]string, context.temp_allocator)
+	parsed := make([dynamic]parser.Build_Target, context.temp_allocator)
+	for target in needs {
+		append(&others, target)
+		append(&parsed, server.parse_target(target) or_else parser.Build_Target{})
+	}
+	for source in sources {
+		for takes, i in server.other_branch_targets(source.path, source.text, base, parsed[:]) {
+			list := needs[others[i]]
+			if takes && !slice.contains(list[:], source.dir) {
+				append(&list, source.dir)
+				needs[others[i]] = list
+			}
+		}
 	}
 
 	targets := make([dynamic]string, context.temp_allocator)
@@ -132,7 +154,7 @@ gate_targets :: proc(
 		}
 		// The importers of these directories import the touched packages too, so the result lies within dirs.
 		seeds := needs[target][:]
-		importing := server.importer_dirs(seeds, config, files)
+		importing := server.graph_importers(graph, seeds)
 		append(
 			&checks,
 			Gate_Check {
@@ -171,21 +193,23 @@ note_target :: proc(
 	}
 }
 
-// note_target, without warnings, for each .odin file of dir on disk that changed does not name.
+// A text that decides the targets of the gate: a file in dir, and whether the edit touches it.
 @(private = "file")
-note_dir_targets :: proc(
-	needs: ^map[string][dynamic]string,
-	dir: string,
-	changed: []File_State,
-	base: parser.Build_Target,
-) {
+Gate_Source :: struct {
+	dir, path, text: string,
+	touched:         bool,
+}
+
+// Appends each .odin file of dir on disk that changed does not name to sources.
+@(private = "file")
+add_dir_sources :: proc(sources: ^[dynamic]Gate_Source, dir: string, changed: []File_State) {
 	matches, _ := filepath.glob(strings.concatenate({dir, "/*.odin"}, context.temp_allocator), context.temp_allocator)
 	next: for match in matches {
 		for file in changed {
 			if file.path == match do continue next
 		}
 		if data, err := os.read_entire_file(match, context.temp_allocator); err == nil {
-			note_target(needs, nil, dir, match, string(data), base)
+			append(sources, Gate_Source{dir, match, string(data), false})
 		}
 	}
 }
@@ -198,8 +222,8 @@ Gate_Check :: struct {
 	args:   string,
 }
 
-// checks followed by one check of dirs on the current target for each checker_variants entry. An entry of
-// only whitespace adds no check.
+// checks followed by one check of dirs for each checker_variants entry, with its args. An entry of only
+// whitespace adds no check.
 with_variants :: proc(checks: []Gate_Check, dirs: []string, variants: []string) -> []Gate_Check {
 	all := make([dynamic]Gate_Check, 0, len(checks) + len(variants), context.temp_allocator)
 	append(&all, ..checks)
@@ -211,8 +235,7 @@ with_variants :: proc(checks: []Gate_Check, dirs: []string, variants: []string) 
 	return all[:]
 }
 
-// How the summary and the failures name c: its variant args, or its target, empty for the current one. A
-// variant always checks the current target.
+// How the summary and the failures name c: its variant args, or its target, empty for the current one.
 gate_label :: proc(c: Gate_Check) -> string {
 	return c.args if c.args != "" else c.target
 }
@@ -225,8 +248,8 @@ gate_failure :: proc(failure: string, c: Gate_Check) -> string {
 	return fmt.tprintf("%s (%s %s)", failure, "with" if c.args != "" else "target", gate_label(c))
 }
 
-// The `odin check` errors of checks before the write. On an extra target, a package whose check names an
-// error in a file outside the workspace does not build there: the edit cannot change that file, and odin
+// The `odin check` errors of checks before the write. On an extra target or a variant, a package whose check
+// names an error in a file outside the workspace does not build there: the edit cannot change that file, and odin
 // can report a different error set on each run, such as core:os panicking on js_wasm32. The package leaves
 // the dirs of that check with a warning, and the check runs again without it, so the after-check compares
 // the same packages. Errors in workspace files alone keep the gate, as on the current target.
@@ -246,7 +269,7 @@ gate_baseline :: proc(
 		if !ran {
 			return {}, failure, false
 		}
-		if c.target != "" {
+		if c.target != "" || c.args != "" {
 			kept := make([dynamic]string, context.temp_allocator)
 			for dir in c.dirs {
 				files := server.check_run.error_files[dir]
@@ -254,10 +277,12 @@ gate_baseline :: proc(
 					warn(
 						reasons,
 						fmt.tprintf(
-							"%s does not build on target %s: odin check there reports errors in %s, outside the workspace, so the gate does not check it on that target",
+							"%s does not build %s %s: odin check there reports errors in %s, outside the workspace, so the gate does not check it %s",
 							workspace_relative(dir),
-							c.target,
+							"with" if c.args != "" else "on target",
+							gate_label(c),
 							outside,
+							"with those args" if c.args != "" else "on that target",
 						),
 					)
 				} else {

@@ -428,3 +428,69 @@ target_for_file :: proc(name, text: string, base: parser.Build_Target) -> (targe
 	}
 	return "", .Nowhere
 }
+
+// For each of targets, whether it builds the file called name with the source text and can take a `when` branch
+// of it that base does not take. Only a condition that names ODIN_OS or ODIN_ARCH counts. It differs when
+// condition_on reads it differently on the target and on base, or cannot read it, at a place that
+// branch_possible_on allows on the target. A constant that holds such a condition, as in `when IS_WASM`, does
+// not count. The text is parsed once for every target.
+other_branch_targets :: proc(name, text: string, base: parser.Build_Target, targets: []parser.Build_Target) -> []bool {
+	Data :: struct {
+		file:    ^ast.File,
+		base:    parser.Build_Target,
+		targets: []parser.Build_Target,
+		takes:   []bool,
+		// A target that does not build the file takes none of its branches.
+		skip:    []bool,
+		left:    int,
+	}
+	data := Data {
+		base    = base,
+		targets = targets,
+		takes   = make([]bool, len(targets), context.temp_allocator),
+		skip    = make([]bool, len(targets), context.temp_allocator),
+	}
+	if !strings.contains(text, "ODIN_OS") && !strings.contains(text, "ODIN_ARCH") do return data.takes
+	facts := build_facts(name, text)
+	for target, i in targets {
+		data.skip[i] = !facts_build_on(facts, target)
+		if !data.skip[i] do data.left += 1
+	}
+	if data.left == 0 do return data.takes
+	file := ast.File {
+		src      = text,
+		fullpath = name,
+	}
+	p := parser.Parser {
+		flags = {.Optional_Semicolons},
+	}
+	context.allocator = context.temp_allocator
+	parser.parse_file(&p, &file)
+	data.file = &file
+	visitor := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			data := (^Data)(visitor.data)
+			if node == nil || data.left == 0 do return nil
+			s, ok := node.derived.(^ast.When_Stmt)
+			if !ok || s.cond == nil do return visitor
+			cond := data.file.src[s.cond.pos.offset:s.cond.end.offset]
+			if !strings.contains(cond, "ODIN_OS") && !strings.contains(cond, "ODIN_ARCH") do return visitor
+			on_base := condition_on(s.cond, data.base)
+			for target, i in data.targets {
+				if data.skip[i] || data.takes[i] do continue
+				on_target := condition_on(s.cond, target)
+				if (on_target == .Unknown || on_target != on_base) &&
+				   branch_possible_on(data.file^, s.pos.offset, target) {
+					data.takes[i] = true
+					data.left -= 1
+				}
+			}
+			return visitor
+		},
+	}
+	for decl in file.decls {
+		ast.walk(&visitor, decl)
+	}
+	return data.takes
+}

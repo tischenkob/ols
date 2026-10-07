@@ -367,16 +367,17 @@ scan_import_dirs :: proc(config: ^common.Config, file, text: string, skip_librar
 	return dirs[:]
 }
 
-// The directories of the workspace files outside dirs that import a package in dirs, directly or through
-// other importers. An edit of dirs can break these importers without touching them: a type that b
-// re-exports from c reaches a, which imports b. One scan reads each file once; the walk applies the
-// workspace filter. files, when given, replaces the walk, and a file with empty text is read from disk.
-importer_dirs :: proc(dirs: []string, config: ^common.Config, files: []Package_File = {}) -> []string {
-	targets := make(map[string]bool, context.temp_allocator)
-	for dir in dirs {
-		targets[canonical_dir(dir)] = true
-	}
+// The imports of the workspace files, read once for any number of graph_importers walks.
+Import_Graph :: struct {
 	// Canonical imported directory to the directories of the files that import it.
+	importers_of: map[string][dynamic]string,
+	// Directory of a file to its canonical form.
+	canonical:    map[string]string,
+}
+
+// The imports of every workspace file. One scan reads each file once; the walk applies the workspace filter.
+// files, when given, replaces the walk, and a file with empty text is read from disk.
+import_graph :: proc(config: ^common.Config, files: []Package_File = {}) -> Import_Graph {
 	importers_of := make(map[string][dynamic]string, context.temp_allocator)
 	canonical := make(map[string]string, context.temp_allocator)
 	for file in workspace_odin_files("", files) {
@@ -403,6 +404,17 @@ importer_dirs :: proc(dirs: []string, config: ^common.Config, files: []Package_F
 			importers_of[imported] = list
 		}
 	}
+	return {importers_of, canonical}
+}
+
+// The directories of the workspace files in graph outside dirs that import a package in dirs, directly or
+// through other importers. An edit of dirs can break these importers without touching them: a type that b
+// re-exports from c reaches a, which imports b.
+graph_importers :: proc(graph: Import_Graph, dirs: []string) -> []string {
+	targets := make(map[string]bool, context.temp_allocator)
+	for dir in dirs {
+		targets[canonical_dir(dir)] = true
+	}
 	// Walk from the targets to their importers, then to theirs. visited makes a cycle end.
 	importers := make([dynamic]string, context.temp_allocator)
 	visited := make(map[string]bool, context.temp_allocator)
@@ -414,9 +426,9 @@ importer_dirs :: proc(dirs: []string, config: ^common.Config, files: []Package_F
 	for len(pending) > 0 {
 		current := pop(&pending)
 		// A range over the map index itself loops forever for a key that is missing, so the lookup comes first.
-		importing := importers_of[current]
+		importing := graph.importers_of[current]
 		for dir in importing {
-			real := canonical[dir]
+			real := graph.canonical[dir]
 			if !visited[real] {
 				visited[real] = true
 				append(&importers, dir)
