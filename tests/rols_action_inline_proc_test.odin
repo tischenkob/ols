@@ -1636,6 +1636,44 @@ import "core:time"
 `)
 }
 
+// A block comment that starts on the package line and spans several lines ends before the import.
+@(test)
+action_inline_proc_import_after_package_line_block_comment :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import "core:time"
+
+wait :: proc(d: time.Duration) -> time.Duration {
+	return d
+}
+`, "package test /* note\nmore */\nmain :: proc() {_ = wa{*}it(5)}")
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test /* note
+more */
+
+import "core:time"
+
+main :: proc() {_ = time.Duration(5)}`)
+}
+
+// A block comment that starts on the package line and runs to the end of the file has no line
+// after it, so the import ends the file.
+@(test)
+action_inline_proc_import_after_block_comment_to_end_of_file :: proc(t: ^testing.T) {
+	source := inline_across_files(`package test
+
+import "core:time"
+
+wait :: proc(d: time.Duration) -> time.Duration {
+	return d
+}
+`, "package test; main :: proc() {_ = wa{*}it(5)} /* note\nmore */")
+	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test; main :: proc() {_ = time.Duration(5)} /* note
+more */
+
+import "core:time"
+`)
+}
+
 // With imports at the bottom, the last line of a file without a final line break is the last
 // declaration, so the import goes at the end of the file.
 @(test)
