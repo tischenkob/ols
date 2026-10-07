@@ -1,6 +1,7 @@
 package tests
 
 import "base:runtime"
+import "core:fmt"
 import "core:odin/ast"
 import "core:odin/parser"
 import "core:os"
@@ -627,6 +628,19 @@ apply_gate_targets_read_when_constants :: proc(t: ^testing.T) {
 	cycle := "package b\n\nA :: B\nB :: A\n\nwhen A || ODIN_OS == .JS {\n\tx :: 1\n}\n"
 	takes = server.other_branch_targets("/p/b.odin", cycle, base, targets)
 	testing.expect(t, takes[0] && takes[1] && takes[2], "a cycle of constants")
+	// condition_on follows at most CONDITION_CONST_DEPTH links: the eighth constant of a chain is read, the ninth is
+	// not.
+	chain :: proc(n: int) -> string {
+		b := strings.builder_make(context.temp_allocator)
+		strings.write_string(&b, "package b\n\n")
+		for i in 1 ..< n do fmt.sbprintf(&b, "C%d :: C%d\n", i, i + 1)
+		fmt.sbprintf(&b, "C%d :: ODIN_OS == .JS\n\nwhen ODIN_OS == .Orca || C1 {{\n\tx :: 1\n}}\n", n)
+		return strings.to_string(b)
+	}
+	takes = server.other_branch_targets("/p/b.odin", chain(8), base, targets)
+	testing.expect(t, takes[0] && takes[1] && !takes[2], "a chain of 8 constants")
+	takes = server.other_branch_targets("/p/b.odin", chain(9), base, targets)
+	testing.expect(t, takes[0] && takes[1] && takes[2], "a chain of 9 constants")
 	// A builtin that starts with ODIN_OS cannot be read, so it counts everywhere.
 	text := "package b\n\nwhen ODIN_OS_STRING == \"js\" {\n\tx :: 1\n}\n"
 	takes = server.other_branch_targets("/p/b.odin", text, base, targets)
