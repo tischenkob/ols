@@ -128,19 +128,12 @@ lint_target_builds :: proc(ctx: ^LintContext, symbol: Symbol) -> bool {
 	return built
 }
 
-// symbols without the nodes whose declaration the target of the file does not build, a copy when any is dropped.
+// symbols without the nodes whose declaration the target of the file does not build, as a copy.
 @(private = "file")
 drop_unbuilt :: proc(ctx: ^LintContext, symbols: SymbolAndNodeMap) -> SymbolAndNodeMap {
-	kept := symbols
-	copied := false
+	kept := make(SymbolAndNodeMap, len(symbols), context.temp_allocator)
 	for node, entry in symbols {
-		if entry.symbol == nil || lint_target_builds(ctx, entry.symbol^) do continue
-		if !copied {
-			kept = make(SymbolAndNodeMap, len(symbols), context.temp_allocator)
-			for key, value in symbols do kept[key] = value
-			copied = true
-		}
-		delete_key(&kept, node)
+		if entry.symbol == nil || lint_target_builds(ctx, entry.symbol^) do kept[node] = entry
 	}
 	return kept
 }
@@ -386,14 +379,10 @@ walk_lints :: proc(document: ^Document, config: ^common.Config, files: []Package
 	// target, the file is treated like an inactive branch (see `document_build`).
 	ignored, excluded := document_build(document)
 	if ignored do return w
-	target: parser.Build_Target
-	has_target := false
-	if excluded do target, has_target = excluded_file_target(document.fullpath)
+	target, has_target := file_target(document.fullpath)
 	if excluded && !has_target do w.inactive = 1
 	saved_target := when_eval_target
 	if has_target {
-		// The whole-file resolve is cached on the document, so it evaluates `when` as every other request does.
-		resolve_entire_file(document)
 		w.ctx.target = target
 		when_eval_target = target
 	}

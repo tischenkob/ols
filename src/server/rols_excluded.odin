@@ -88,11 +88,6 @@ file_build_target :: proc(current_file: string) -> parser.Build_Target {
 	return file_target(current_file) or_else host_target()
 }
 
-// The target that builds fullpath when the host does not. ok is false when the host builds it or no target does.
-excluded_file_target :: proc(fullpath: string) -> (target: parser.Build_Target, ok: bool) {
-	return file_target(fullpath)
-}
-
 // Whether target builds the file of uri, read as a lookup reads it: an open document, an unsaved file, else the
 // disk. A uri without a file, such as that of a keyword, counts as built, and a file that cannot be read does not.
 target_builds_uri :: proc(uri: string, target: parser.Build_Target) -> bool {
@@ -298,7 +293,6 @@ set_file_target :: proc(
 
 // The target that builds fullpath when the host does not. A lookup asks once per identifier, so the answer is kept
 // until a reindex or removal of the file, a parse of its document, or a change of the host.
-@(private = "file")
 file_target :: proc(fullpath: string) -> (parser.Build_Target, bool) {
 	if fullpath == "" {
 		return {}, false
@@ -347,6 +341,10 @@ build_target_package :: proc(index: ^Target_Index, target: parser.Build_Target, 
 	saved := when_target
 	when_target = target
 	defer when_target = saved
+	// The target is when_target here, also when a lint evaluates `when` for another one.
+	saved_eval := when_eval_target
+	when_eval_target = nil
+	defer when_eval_target = saved_eval
 
 	arena: runtime.Arena
 	_ = runtime.arena_init(&arena, mem.Megabyte, runtime.heap_allocator())
