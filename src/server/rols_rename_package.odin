@@ -609,15 +609,15 @@ import_qualifiers :: proc(
 }
 
 // A use of the package name: the `name` of `name.x`, with the field x, or the value of an alias
-// declaration `alias :: name`, with an empty field.
+// declaration `alias :: name` or the argument of `#defined(name)`, with an empty field.
 @(private = "package")
 Qualifier :: struct {
 	ident: ^ast.Ident,
 	field: string,
 }
 
-// Every qualifier of document whose identifier is name. Only a selector's left side and the value of
-// a declaration count: any other identifier named like the package could be a field or a local.
+// Every qualifier of document whose identifier is name: a selector's left side, the value of a
+// declaration and the argument of `#defined`. Odin rejects an import name anywhere else.
 @(private = "package")
 qualifier_uses :: proc(document: ^Document, name: string) -> []Qualifier {
 	Found :: struct {
@@ -636,6 +636,14 @@ qualifier_uses :: proc(document: ^Document, name: string) -> []Qualifier {
 				if n.expr != nil {
 					if ident, is_ident := n.expr.derived.(^ast.Ident); is_ident && ident.name == found.name {
 						append(&found.qualifiers, Qualifier{ident, n.field.name if n.field != nil else ""})
+					}
+				}
+			case ^ast.Call_Expr:
+				// `#defined(old)`, which compiles inside a procedure, is true while the import binds old.
+				directive, is_directive := n.expr.derived.(^ast.Basic_Directive)
+				if is_directive && directive.name == "defined" && len(n.args) == 1 {
+					if ident, is_ident := n.args[0].derived.(^ast.Ident); is_ident && ident.name == found.name {
+						append(&found.qualifiers, Qualifier{ident, ""})
 					}
 				}
 			case ^ast.Value_Decl:

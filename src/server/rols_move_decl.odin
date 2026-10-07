@@ -288,21 +288,23 @@ append_to_package_file :: proc(
 	ungrouped := make([dynamic]Package, context.temp_allocator)
 	outer: for pkg in sorted {
 		pkg_path := unquoted_path(pkg.original)
+		// Both names come from the import path, as pattern_import_name reads it, so `import ".."` matches itself.
+		name := pattern_import_name(pkg.import_decl) if pkg.import_decl != nil else pkg.base
 		for existing in target.ast.imports {
 			existing_path := unquoted_path(existing.fullpath)
 			existing_name := pattern_import_name(existing)
-			if existing_path == pkg_path && existing_name == pkg.base {
+			if existing_path == pkg_path && existing_name == name {
 				continue outer
 			}
-			if existing_path == pkg_path || existing_name == pkg.base {
+			if existing_path == pkg_path || existing_name == name {
 				return {},
 					fmt.tprintf(
 						"%s imports %s as %s, and the declaration needs %s as %s",
-						target_path,
+						path.base(target_path),
 						existing_path,
 						existing_name,
 						pkg_path,
-						pkg.base,
+						name,
 					),
 					false
 			}
@@ -314,20 +316,11 @@ append_to_package_file :: proc(
 		}
 	}
 	if len(ungrouped) > 0 {
-		// The line after the last top-level import, else after the package clause. An import grouped at the
-		// same offset was appended first, so it stays in the group above.
-		at := target.ast.pkg_decl.end.offset
-		for decl in target.ast.decls {
-			if imp, is_import := decl.derived.(^ast.Import_Decl); is_import {
-				at = max(at, imp.end.offset)
-			}
-		}
-		// import_groups starts each group with a newline, so a blank line precedes the new group.
+		// An import grouped at the same offset was appended first, so it stays in the group above. import_groups
+		// starts each group with a newline, so a blank line precedes the new group.
+		at, _ := imports_end_offset(target)
 		groups := import_groups(ungrouped[:])
-		if nl := strings.index_byte(target_text[at:], '\n'); nl >= 0 {
-			at += nl + 1
-		} else {
-			at = len(target_text)
+		if at == len(target_text) && !strings.has_suffix(target_text, "\n") {
 			groups = strings.concatenate({"\n", strings.trim_right(groups, "\n")}, context.temp_allocator)
 		}
 		append_edit(changes, target, at, at, groups)
@@ -341,6 +334,29 @@ append_to_package_file :: proc(
 		strings.concatenate({separator, text}, context.temp_allocator),
 	)
 	return workspace_edit(changes^), "", true
+}
+
+// The start of the line after the last top-level import of document, or after its package clause when it has
+// no import. The end of the text when that line ends the file without a newline.
+imports_end_offset :: proc(document: ^Document) -> (offset: int, has_import: bool) {
+	src := document.ast.src
+	after := -1
+	for decl in document.ast.decls {
+		if imp, is_import := decl.derived.(^ast.Import_Decl); is_import {
+			after = max(after, imp.end.offset)
+			has_import = true
+		}
+	}
+	if !has_import && document.ast.pkg_decl != nil {
+		after = document.ast.pkg_decl.end.offset
+	}
+	offset = len(src)
+	if after >= 0 {
+		if newline := strings.index_byte(src[after:], '\n'); newline >= 0 {
+			offset = after + newline + 1
+		}
+	}
+	return
 }
 
 // The import lines of packages, sorted by path, each collection a group that a blank line starts.

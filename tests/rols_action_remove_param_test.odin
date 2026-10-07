@@ -1,5 +1,6 @@
 package tests
 
+import "core:strings"
 import "core:testing"
 
 import test "src:testing"
@@ -516,6 +517,7 @@ reorder_params_keeps_multi_line_list :: proc(t: ^testing.T) {
 
 pl{*}ace :: proc(
 	x: int, // across
+	// the second
 	y: int,
 	name: string,
 ) {
@@ -529,14 +531,39 @@ main :: proc() {
 	test.expect_reorder_params(t, &source, {2, 0, 1}, {{"main.odin", `package test
 
 place :: proc(
-	name: string, // across
-	x: int,
+	name: string,
+	x: int, // across
+	// the second
 	y: int,
 ) {
 }
 
 main :: proc() {
 	place("a", 1, 2)
+}
+`}})
+}
+
+@(test)
+reorder_params_moves_a_block_comment_with_its_field :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+pl{*}ace :: proc(x: int /* first */, y: int) {
+}
+
+main :: proc() {
+	place(1, 2)
+}
+`,
+	}
+	test.expect_reorder_params(t, &source, {1, 0}, {{"main.odin", `package test
+
+place :: proc(y: int, x: int /* first */) {
+}
+
+main :: proc() {
+	place(2, 1)
 }
 `}})
 }
@@ -566,6 +593,46 @@ main :: proc() {
 	place(2, "a", 1)
 }
 `}})
+}
+
+// The comments of a split field stay with its names, and a CRLF file keeps its line endings.
+@(test)
+reorder_params_splits_shared_type_with_comments :: proc(t: ^testing.T) {
+	before := `package test
+
+pl{*}ace :: proc(
+	// pair
+	x, y: int, // coords
+	name: string, // label
+) {
+}
+
+main :: proc() {
+	place(1, 2, "a")
+}
+`
+	after := `package test
+
+place :: proc(
+	y: int, // coords
+	name: string, // label
+	// pair
+	x: int,
+) {
+}
+
+main :: proc() {
+	place(2, "a", 1)
+}
+`
+	for newline in ([]string{"\n", "\r\n"}) {
+		main, _ := strings.replace_all(before, "\n", newline, context.temp_allocator)
+		expected, _ := strings.replace_all(after, "\n", newline, context.temp_allocator)
+		source := test.Source {
+			main = main,
+		}
+		test.expect_reorder_params(t, &source, {1, 2, 0}, {{"main.odin", expected}})
+	}
 }
 
 @(test)

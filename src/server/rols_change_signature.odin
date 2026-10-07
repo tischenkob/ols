@@ -333,43 +333,101 @@ reorder_params :: proc(
 	return workspace_edit(changes), "", true
 }
 
-// Rewrites the parameter list of lit in document in the new order. With one name per field, each field
-// takes the text of the field moving to its place, so separators, line breaks and comments stay. A field
-// that groups names, such as `x, y: int`, is split, and the list is joined on one line, or one parameter
-// per line when it spans lines.
+// Rewrites the parameter list of lit in document in the new order. A field's doc comment and line comment
+// move with it. With one name per field, each field takes the text of the field moving to its place, so
+// separators and line breaks stay. A field that groups names, such as `x, y: int`, is split, and the list
+// is joined on one line, or one parameter per line when it spans lines.
 @(private = "file")
 reorder_param_list :: proc(changes: ^Changes, document: ^Document, lit: ^ast.Proc_Lit, order: []int) {
 	src := document.ast.src
 	params := param_names(lit)
 	fields := lit.type.params.list
+	newline := "\r\n" if strings.contains(src, "\r\n") else "\n"
 	if len(fields) == len(params) {
 		for i, k in order {
-			append_edit(changes, document, fields[k].pos.offset, fields[k].end.offset, node_text(src, fields[i]))
+			slot, moved := fields[k], fields[i]
+			append_edit(
+				changes,
+				document,
+				field_start(slot),
+				slot.end.offset,
+				src[field_start(moved):moved.end.offset],
+			)
+			move_line_comment(changes, document, slot, moved, newline)
 		}
 		return
 	}
-	texts := make([]string, len(params), context.temp_allocator)
-	for i, k in order {
-		texts[k] = strings.concatenate(
-			{params[i].name.name, ": ", node_text(src, params[i].field.type)},
-			context.temp_allocator,
-		)
-	}
+
 	first, last := fields[0], fields[len(fields) - 1]
-	separator := ", "
+	// The edit spans the last field's line comment, with the comma that may precede it.
+	end := last.end.offset
+	trailing_comma := false
+	if last.comment != nil {
+		trailing_comma = strings.contains(src[end:last.comment.pos.offset], ",")
+		end = last.comment.end.offset
+	}
+	separator := " "
 	if first.pos.line != last.end.line {
 		// The indent of the last field's line, since the first field may follow `proc(`.
-		line := src[strings.last_index_byte(src[:last.pos.offset], '\n') + 1:last.pos.offset]
-		indent := line[:len(line) - len(strings.trim_left(line, " \t"))]
-		separator = strings.concatenate({",\n", indent}, context.temp_allocator)
+		separator = strings.concatenate({newline, get_line_indentation(src, last.pos.offset)}, context.temp_allocator)
 	}
-	append_edit(
-		changes,
-		document,
-		first.pos.offset,
-		last.end.offset,
-		strings.join(texts, separator, context.temp_allocator),
-	)
+	sb := strings.builder_make(context.temp_allocator)
+	for i, k in order {
+		param := params[i]
+		field := param.field
+		if k > 0 do strings.write_string(&sb, separator)
+		if field.docs != nil && param.name.pos.offset == field.names[0].pos.offset {
+			strings.write_string(&sb, src[field.docs.pos.offset:field.pos.offset])
+		}
+		fmt.sbprintf(&sb, "%s: %s", param.name.name, node_text(src, field.type))
+		if k < len(order) - 1 || trailing_comma {
+			strings.write_byte(&sb, ',')
+		}
+		if field.comment != nil && param.name.pos.offset == field.names[len(field.names) - 1].pos.offset {
+			fmt.sbprintf(&sb, " %s", node_text(src, field.comment))
+		}
+	}
+	append_edit(changes, document, field_start(first), end, strings.to_string(sb))
+}
+
+// Where field starts with its doc comment.
+@(private = "file")
+field_start :: proc(field: ^ast.Field) -> int {
+	return field.docs.pos.offset if field.docs != nil else field.pos.offset
+}
+
+// Gives slot the line comment of moved, the field that takes its place. A `//` comment put before more
+// text on its line breaks the line after it.
+@(private = "file")
+move_line_comment :: proc(changes: ^Changes, document: ^Document, slot, moved: ^ast.Field, newline: string) {
+	src := document.ast.src
+	if slot.comment == nil && moved.comment == nil {
+		return
+	}
+	if moved.comment == nil {
+		start := slot.comment.pos.offset
+		for start > slot.end.offset && (src[start - 1] == ' ' || src[start - 1] == '\t') do start -= 1
+		append_edit(changes, document, start, slot.comment.end.offset, "")
+		return
+	}
+	start, end: int
+	text := node_text(src, moved.comment)
+	if slot.comment != nil {
+		start, end = slot.comment.pos.offset, slot.comment.end.offset
+	} else {
+		start = slot.end.offset
+		if start < len(src) && src[start] == ',' do start += 1
+		end = start
+		text = strings.concatenate({" ", text}, context.temp_allocator)
+	}
+	line_end := strings.index_any(src[end:], "\r\n")
+	rest := src[end:] if line_end < 0 else src[end:end + line_end]
+	if strings.trim_space(rest) != "" &&
+	   strings.has_prefix(moved.comment.list[len(moved.comment.list) - 1].text, "//") {
+		text = strings.concatenate({text, newline, get_line_indentation(src, slot.pos.offset)}, context.temp_allocator)
+		end += len(rest) - len(strings.trim_left(rest, " \t"))
+	}
+	append_edit(changes, document, start, end, text)
 }
 
 // Why the variant cannot take the signature change of a procedure with params, declared in src, or "" when it
