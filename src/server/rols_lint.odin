@@ -234,6 +234,7 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_recursion,
 	lint_imports,
 	lint_invisible,
+	lint_triple_quote,
 	lint_result_order,
 	lint_switch,
 	lint_redundant_type_assertion,

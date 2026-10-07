@@ -541,6 +541,7 @@ OlsConfig :: struct {
 	enable_lint_unused_declaration:          Maybe(bool),
 	enable_lint_imports:                     Maybe(bool),
 	enable_lint_invisible_characters:        Maybe(bool),
+	enable_lint_triple_quote:                Maybe(bool),
 	enable_lint_result_order:                Maybe(bool),
 	enable_lint_switch:                      Maybe(bool),
 	enable_lint_redundant_type_assertion:    Maybe(bool),

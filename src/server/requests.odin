@@ -533,6 +533,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 	config.enable_lint_imports = ols_config.enable_lint_imports.(bool) or_else config.enable_lint_imports
 	config.enable_lint_invisible_characters =
 		ols_config.enable_lint_invisible_characters.(bool) or_else config.enable_lint_invisible_characters
+	config.enable_lint_triple_quote =
+		ols_config.enable_lint_triple_quote.(bool) or_else config.enable_lint_triple_quote
 	config.enable_lint_result_order = ols_config.enable_lint_result_order.(bool) or_else config.enable_lint_result_order
 	config.enable_lint_switch = ols_config.enable_lint_switch.(bool) or_else config.enable_lint_switch
 	config.enable_lint_redundant_type_assertion =
@@ -1150,6 +1152,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_lint_unused_declaration = true
 	config.enable_lint_imports = true
 	config.enable_lint_invisible_characters = true
+	config.enable_lint_triple_quote = true
 	config.enable_lint_result_order = true
 	config.enable_lint_switch = true
 	config.enable_lint_redundant_type_assertion = true

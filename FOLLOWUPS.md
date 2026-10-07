@@ -173,3 +173,7 @@ main :: proc() {
 
 - **The "add import" quick fix misses nested packages.** `add_missing_imports` (`src/server/action.odin:375`) compares the collection-relative path with the identifier (`pkg == name.name`), so `virtual.arena_init(...)` never offers `import "core:mem/virtual"`. Compare `path.base(pkg)` as `find_used_not_imported` and the selector auto-import do.
 - **The import edit is built three times.** `append_non_imported_packages`, `add_missing_imports` and `import_edit` in the fork file place the same `import "c:p"` edit. Sharing one helper needs edits to the two upstream procs beyond hook points.
+
+## Triple-quote lint (2026-10-07)
+
+- **`tools/cli_smoke.sh` fails two cases on Odin dev-2026-10, with a binary built from unmodified `master` too.** `other-target-rolled-back` exits 1 where 4 is expected, and the script stops there. With that block removed, `style-syntax-error-is-a-warning` expects `s.odin:9:7` while the checker now reports `s.odin:9:8`. The other 191 cases pass. Both look like compiler-version drift; check the cross-target `odin check` call in `rols_apply.odin` and the expected column.

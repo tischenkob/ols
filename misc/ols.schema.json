@@ -585,6 +585,11 @@
 			"description": "Report a string literal containing a literal zero-width, bidirectional or control character.",
 			"default": true
 		},
+		"enable_lint_triple_quote": {
+			"type": "boolean",
+			"description": "Report a multiline raw string that can use triple quotes, with a quick fix that keeps its value.",
+			"default": true
+		},
 		"enable_lint_result_order": {
 			"type": "boolean",
 			"description": "Report a procedure whose error-like result is followed by another result, so 'or_return' cannot be used.",

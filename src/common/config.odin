@@ -121,6 +121,7 @@ Config :: struct {
 	enable_lint_unused_declaration:          bool,
 	enable_lint_imports:                     bool,
 	enable_lint_invisible_characters:        bool,
+	enable_lint_triple_quote:                bool,
 	enable_lint_result_order:                bool,
 	enable_lint_switch:                      bool,
 	enable_lint_redundant_type_assertion:    bool,

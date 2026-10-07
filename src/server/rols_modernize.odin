@@ -80,6 +80,7 @@ lint_rules := [?]Modernize_Rule {
 	{"redundant-partial", "idiom", true},
 	{"unnecessary-break", "idiom", true},
 	{"replace-count", "idiom", true},
+	{"triple-quote", "idiom", true},
 	{"unused-variable/remove", "review", false},
 	{"unused-variable/discard", "review", false},
 	{"unused-parameter", "review", false},
