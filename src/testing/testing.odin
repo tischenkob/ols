@@ -1401,8 +1401,8 @@ expect_lint_diagnostics :: proc(t: ^testing.T, src: ^Source, expected: []LintExp
 	setup(src)
 	defer teardown(src)
 
-	// rols: the other files of the package stand in for the disk
-	diagnostics := server.lint_document(src.document, &src.config, package_files(src))
+	// rols: the files of the test package and of every package of src stand in for the disk
+	diagnostics := server.lint_document(src.document, &src.config, source_files(src))
 
 	testing.expectf(
 		t,

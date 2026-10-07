@@ -43,6 +43,8 @@ LintContext :: struct {
 	files:          []Package_File,
 	// The other files of the package, read on first use (see `used_as_value_elsewhere`).
 	siblings:       ^Sibling_Values,
+	// The files of the workspace packages that import the package, read on first use (see `used_by_importers`).
+	importers:      ^Sibling_Values,
 	// For each declaration that a name in inactive code resolved to, whether it has platform variants (see
 	// `ambiguous_in_inactive`), and the documents read to find them.
 	variants:       map[string]bool,
@@ -996,15 +998,20 @@ is_signature_fixed_by_use :: proc(ctx: ^LintContext, decl: ^ast.Value_Decl) -> b
 	// Other files see neither a local procedure nor a file-private one.
 	if !is_top_level(ctx, decl) do return false
 	if global, found := ctx.ast_context.globals[name.name]; found && global.private == .File do return false
-	used := used_as_value_elsewhere(ctx, name.name)
+	used := used_as_value_elsewhere(ctx, name.name) || used_by_importers(ctx, name.name)
 	// A change to another file can turn this verdict (see `relint_package_siblings`).
 	record_lint_verdict(ctx, name.name, used)
 	return used
 }
 
-// The other files of the package, and the names that the ones parsed so far use as values.
+// The other files of the package, and the names that the ones parsed so far use as values. For the files of an
+// importing package, the names are the members of the package that they use as values through an import alias.
 Sibling_Values :: struct {
 	files:  []Package_File,
+	// For importer files: the directory of the package, canonical, and its name. Empty for the other files of it.
+	dir:    string,
+	pkg:    string,
+	config: ^common.Config,
 	// For each identifier word, the indices into files of the files whose text holds it, ascending. Built after
 	// WORD_SCANS names (see `used_as_value_elsewhere`).
 	words:  Maybe(map[string][dynamic]int),
@@ -1028,7 +1035,54 @@ WORD_SCANS :: 3
 // A file that does not parse, or that the parse limit leaves out, counts when it holds the name.
 @(private = "file")
 used_as_value_elsewhere :: proc(ctx: ^LintContext, name: string) -> bool {
-	siblings := sibling_values(ctx)
+	return used_as_value_in(sibling_values(ctx), name)
+}
+
+// rols: whether a workspace package that imports the package of the linted file uses name as a value through an
+// import alias (`register(a.handler)`). Only direct importers are read, as files of the package, with the same
+// word index and parse limit. A package outside the workspace stays unseen.
+@(private = "file")
+used_by_importers :: proc(ctx: ^LintContext, name: string) -> bool {
+	if ctx.importers == nil {
+		context.allocator = context.temp_allocator
+		dir := filepath.dir(ctx.document.fullpath)
+		real := canonical_dir(dir)
+		graph := import_graph(ctx.config, ctx.files)
+		files := make([dynamic]Package_File, context.temp_allocator)
+		seen := make(map[string]struct{}, context.temp_allocator)
+		// A copy: ranging over the map element dereferences it, and a missing key has none.
+		importing := graph.importers_of[real]
+		for importer in importing {
+			if importer in seen || graph.canonical[importer] == real do continue
+			seen[importer] = {}
+			if len(ctx.files) == 0 {
+				if read, ok := read_package_files(importer); ok do append(&files, ..read)
+				continue
+			}
+			for file in ctx.files do if filepath.dir(file.fullpath) == importer do append(&files, file)
+		}
+		ctx.importers = new_values(files[:])
+		ctx.importers.dir = real
+		ctx.importers.pkg = ctx.document.package_name
+		ctx.importers.config = ctx.config
+	}
+	return used_as_value_in(ctx.importers, name)
+}
+
+@(private = "file")
+new_values :: proc(files: []Package_File) -> ^Sibling_Values {
+	return new_clone(
+		Sibling_Values {
+			files = files,
+			parsed = make([]bool, len(files), context.temp_allocator),
+			names = make(map[string]struct{}, context.temp_allocator),
+		},
+		context.temp_allocator,
+	)
+}
+
+@(private = "file")
+used_as_value_in :: proc(siblings: ^Sibling_Values, name: string) -> bool {
 	if name in siblings.names do return true
 	if siblings.scans < WORD_SCANS {
 		siblings.scans += 1
@@ -1053,17 +1107,7 @@ used_as_value_elsewhere :: proc(ctx: ^LintContext, name: string) -> bool {
 // The other files of the package, read on the first call of a lint run.
 @(private = "package")
 sibling_values :: proc(ctx: ^LintContext) -> ^Sibling_Values {
-	if ctx.siblings == nil {
-		files := package_siblings(ctx.document, ctx.files)
-		ctx.siblings = new_clone(
-			Sibling_Values {
-				files = files,
-				parsed = make([]bool, len(files), context.temp_allocator),
-				names = make(map[string]struct{}, context.temp_allocator),
-			},
-			context.temp_allocator,
-		)
-	}
+	if ctx.siblings == nil do ctx.siblings = new_values(package_siblings(ctx.document, ctx.files))
 	return ctx.siblings
 }
 
@@ -1079,12 +1123,47 @@ parse_sibling :: proc(siblings: ^Sibling_Values, i: int, name: string) -> bool {
 	context.allocator = context.temp_allocator
 	parsed, ok := parse_syntax(file.fullpath, file.text)
 	if !ok do return true
+	if siblings.dir != "" {
+		collect_alias_values(siblings, file.fullpath, &parsed)
+		return name in siblings.names
+	}
 	for stmt in parsed.decls {
 		for use in collect_ident_uses(stmt) {
 			if is_value_use(use) do siblings.names[use.ident.name] = {}
 		}
 	}
 	return name in siblings.names
+}
+
+// rols: adds to siblings.names each member of the package that file, an importer, uses as a value through an alias
+// of an import of the package: `a.handler` in `register(a.handler)`, but not in `a.handler(1)`. An import without a
+// name is matched by both the last segment of its path and the package name.
+@(private = "file")
+collect_alias_values :: proc(siblings: ^Sibling_Values, fullpath: string, parsed: ^ast.File) {
+	aliases := make([dynamic]string, context.temp_allocator)
+	for imp in parsed.imports {
+		body := strings.trim(imp.relpath.text, "\"`")
+		_, rel, start, known := split_import_path(siblings.config, fullpath, body)
+		if !known do continue
+		joined, _ := filepath.join({start, rel}, context.temp_allocator)
+		if canonical_dir(joined) != siblings.dir do continue
+		if imp.name.text != "" {
+			append(&aliases, imp.name.text)
+		} else {
+			append(&aliases, filepath.base(rel), siblings.pkg)
+		}
+	}
+	if len(aliases) == 0 do return
+	for stmt in parsed.decls {
+		for use in collect_ident_uses(stmt) {
+			if len(use.parents) == 0 do continue
+			selector := use.parents[len(use.parents) - 1].derived.(^ast.Selector_Expr) or_continue
+			if selector.field != use.ident do continue
+			base := selector.expr.derived.(^ast.Ident) or_continue
+			if !slice.contains(aliases[:], base.name) do continue
+			if is_value_expr(selector, use.parents[:len(use.parents) - 1]) do siblings.names[use.ident.name] = {}
+		}
+	}
 }
 
 // For each identifier word in the text of files, the indices of the files that hold it, in one scan of each file.
@@ -1233,18 +1312,23 @@ named_arguments :: proc(file: ^ast.File) -> map[string]struct{} {
 
 // A mention that neither declares a name, calls it, nor names a field, parameter or group member.
 is_value_use :: proc(use: IdentUse) -> bool {
-	if len(use.parents) == 0 do return false
-	#partial switch parent in use.parents[len(use.parents) - 1].derived {
+	return is_value_expr(use.ident, use.parents)
+}
+
+// is_value_use for any expression, with parents its ancestors outermost first.
+is_value_expr :: proc(expr: ^ast.Expr, parents: []^ast.Node) -> bool {
+	if len(parents) == 0 do return false
+	#partial switch parent in parents[len(parents) - 1].derived {
 	case ^ast.Call_Expr:
-		return parent.expr != use.ident
+		return parent.expr != expr
 	case ^ast.Selector_Expr:
-		return parent.field != use.ident
+		return parent.field != expr
 	case ^ast.Field_Value:
-		return parent.field != use.ident
+		return parent.field != expr
 	case ^ast.Value_Decl:
-		return !slice.contains(parent.names, (^ast.Expr)(use.ident))
+		return !slice.contains(parent.names, expr)
 	case ^ast.Field:
-		return parent.default_value == (^ast.Expr)(use.ident)
+		return parent.default_value == expr
 	case ^ast.Proc_Group, ^ast.Implicit_Selector_Expr:
 		return false
 	}

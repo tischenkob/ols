@@ -263,7 +263,7 @@ Options:
 
 - `enable_lint_ignored_result`: Warn when a call statement discards the result of a procedure marked `@(require_results)`, the calls the compiler rejects. Defaults to true.
 
-- `enable_lint_unused_parameter`: Mark procedure parameters that are never used in the body as unnecessary. A procedure that its package uses as a value (an argument, an assignment, a composite literal element or a parameter default) is skipped, and so is a procedure literal passed to a call, stored in a composite literal, assigned, or declared with an explicit type. Other files of the package are matched by name. Defaults to true.
+- `enable_lint_unused_parameter`: Mark procedure parameters that are never used in the body as unnecessary. A procedure that its package uses as a value (an argument, an assignment, a composite literal element or a parameter default) is skipped, and so is a procedure literal passed to a call, stored in a composite literal, assigned, or declared with an explicit type. Other files of the package are matched by name, and a workspace package that imports the package counts a value use through its import alias (`register(a.handler)`). A package outside the workspace is not read. Defaults to true.
 
 - `enable_lint_unused_variable`: Mark local variables and constants that are declared but never used as unnecessary. Defaults to true.
 
