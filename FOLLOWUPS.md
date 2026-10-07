@@ -2,6 +2,36 @@
 
 Known gaps and out-of-scope issues found during fork work. Each entry names where the issue is and a case that shows it. Remove an entry when its fix lands.
 
+## Hand-off of the follow-up rounds (2026-10-07)
+
+`docs/followups-plan.md` inventories every open entry at b69893ef with a fix design, the test that fails today and six proposed stages (s1-edits-imports, s2-resolver, s3-lints, s4-when-targets, s5-rename-variants, s6-test-infra). Its section E lists Known limits whose reason looks doubtful under the rule below. Remove this section when the plan is done.
+
+- **Rule for closing an entry.** An entry closes with a fix and a test that fails without it, or becomes "Known limit: …" only when a fix needs a change outside rols or breaks a documented trade-off. Decided Known limits: Odin compiler bugs (the `for x in m[k]` hang, the chan.odin:382 flake), the sandbox fault handler, upstream OLS compatibility (invert-if's empty branch, the organize-imports anchor), deliberate trade-offs (unused imports in both `when` branches) and unreduced crashes. The section "Rename, imports and lints from the mirage gaps (2026-10-07)" belongs to another session and is out of this plan.
+- **The final step has not run.** Relabel the docs-only entries (plan items A1, A2, A11, A12, B1, B2, B4) as Known limits, move every "Known limit:" entry into a new FORK.md "Known limitations" section grouped by area and remove it from this file and `docs/corpus-validation.md`, then run the full checks and `tools/corpus_smoke.sh` (the only allowed FAIL is `pt_rescale`).
+- **Doubtful Known limits (plan section E).** Eight entries cite a fix inside rols: the unused-parameter refresh (`didChangeWatchedFiles`, open and dirty close can relint), the fill rewrite through `&items[...]`, the `any`/`#by_ptr` clause of "Inline variable", dead-store on a local `using` value, the two tri-state `when` entries, the same-file rename collision scan, the workspace word-index notes, and the `range-off-by-one` base-of-collection miss. Also check the FORK.md note that only a trailing comma on the line of `)` keeps the longer group members while typing.
+- **`index_updates_preserve_and_invalidate_resolution_caches` failed once in four full runs.** "Malformed index updates must retain valid resolution caches". `document_storage` and `indexer` are thread-local, so the cause is unknown; loop the prebuilt test binary and log `invalidate_document_symbol_cache` calls (plan C1).
+- **A 3-allocation leak in `move_decl_actions_list_targets` showed once in a full run.** Likely cause: `tests/rols_lint_refresh_test.odin` and `tests/imports_test.odin` set the global `common.config.enable_diagnostics` while other tests run, so `add_diagnostics` (`src/server/diagnostics.odin`) allocates into shared maps with another test's allocator. Fix: pass the caller's config to `add_diagnostics` and reset the maps under the diagnostic mutex (plan C4, C5).
+- **The Windows path normalization in `check_carrier_variants` never ran on Windows.** A drive-letter case mismatch between `scan.texts` paths and `symbol.uri` may still drop sibling files in `declaration_variants` or `package_documents`; normalize both with `common.get_case_sensitive_path` and test the comparison helper with mixed-case inputs (plan C3).
+- **The relint on save and the word-index branch of `used_as_value_elsewhere` have no tests.** Add a `notification_did_save` test in `tests/rols_lint_refresh_test.odin` and a five-procedure test past `WORD_SCANS` (plan C6, C7).
+- **Draft upstream Odin issue for the map-index loop, not filed.**
+
+```
+Title: `for x in m[k]` loops forever when k is not in the map
+
+Context: odin version <paste `odin report`; seen with dev-2026-09>, OS/arch <paste>.
+Expected: ranging over a map index whose key is missing iterates the zero value (empty [dynamic]string), so the body never runs, as when the value is first copied to a local.
+Current: the first loop never terminates; the second ends immediately.
+Repro:
+package main
+main :: proc() {
+	m := make(map[string][dynamic]string)
+	for d in m["x"] { _ = d } // never ends
+	l := m["x"]
+	for d in l {} // ends
+}
+`odin run repro.odin -file` hangs; removing the first loop exits. Note whether -o:none or -debug changes it.
+```
+
 ## Corpus validation (`docs/corpus-validation.md`)
 
 - **Known limit: `fits` measures a later group in the rest up to its first possible break, as upstream does.** A construct that needs the whole line measured opts in with `rest_flat`. Changing it globally rewrites upstream's `calls.odin` snapshot and breaks output compatibility with OLS.
