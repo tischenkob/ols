@@ -20,7 +20,7 @@ Lint_Verdicts :: struct {
 @(private = "file", thread_local)
 lint_verdicts: map[string]Lint_Verdicts
 
-// The full path of the document whose `run_lints` is in progress, empty otherwise, which no document has. Only `run_lints` records, so a
+// The full path of the document whose `run_lints` is in progress, else empty. Only `run_lints` records, so a
 // code action or a test that lints a document leaves the verdicts alone.
 @(private = "file", thread_local)
 recording: string
