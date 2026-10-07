@@ -468,6 +468,75 @@ g :: proc(s: S) -> int { return s.b }
 `}})
 }
 
+// A field rename through a variant that aliases or embeds the member's type, directly or through another alias,
+// renames the member in the other variants too.
+@(test)
+rename_field_through_alias_or_embedding_variant :: proc(t: ^testing.T) {
+	text :: "package test\n\nwhen ODIN_DEBUG {{\n\tS :: struct {{ %s: int }}\n}} else {{\n\t%s\n}}\n\nS_Other :: struct {{ %s: int }}\n\nT :: S_Other\n\ng :: proc(s: S) -> int {{ return s.%s }}\n"
+	for variant in ([?]string{"S :: S_Other", "S :: struct { using base: S_Other }", "S :: distinct T"}) {
+		source := test.Source {
+			main = fmt.tprintf(text, "a", variant, "a", "a{*}"),
+		}
+		test.expect_rename(t, &source, "b", {{"main.odin", fmt.tprintf(text, "b", variant, "b", "b")}})
+	}
+}
+
+// The references of a field reached through an alias variant include the member of the other variant.
+@(test)
+references_of_field_through_alias_variant :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+when ODIN_DEBUG {
+	S :: struct { a: int }
+} else {
+	S :: S_Other
+}
+
+S_Other :: struct { a: int }
+
+g :: proc(s: S) -> int { return s.a{*} }
+`,
+	}
+	test.expect_reference_locations(
+		t,
+		&source,
+		{
+			{range = {start = {line = 3, character = 15}, end = {line = 3, character = 16}}},
+			{range = {start = {line = 8, character = 20}, end = {line = 8, character = 21}}},
+			{range = {start = {line = 10, character = 34}, end = {line = 10, character = 35}}},
+		},
+	)
+}
+
+// A variant of an alias of the member's type that aliases another type refuses the field rename.
+@(test)
+rename_field_refused_for_alias_variant_of_other_type :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+when ODIN_DEBUG {
+	S :: S_Third
+} else {
+	S :: S_Other
+}
+
+S_Other :: struct { a: int }
+S_Third :: struct { a: int }
+
+g :: proc(s: S) -> int { return s.a{*} }
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"b",
+		{
+			"the platform variant `S` at test/main.odin:4 is no struct, enum or bit_field type, so its member `a` cannot be renamed",
+		},
+	)
+}
+
 // A member of the new name in another variant of the struct is a collision.
 @(test)
 rename_field_collision_in_struct_variant :: proc(t: ^testing.T) {

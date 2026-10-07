@@ -114,10 +114,12 @@ top_level_variants :: proc(h: ^Call_Hierarchy, document: ^Document, decl: ^ast.V
 
 // The members named like the member that symbol names in the platform variants of its type, as references to them
 // resolve. The member must belong directly to the struct, enum or bit_field type of a package-level declaration,
-// else there are none. A variant without such a member is left out. problem names a variant whose member the
-// rename cannot reach, "" when there is none: a variant that is no struct, enum or bit_field type, such as an
-// alias `S :: S_Windows`, or a struct without the member that may reach it through a `using` field. fields then
-// holds the members found.
+// else there are none. The types that reach the member are that type and the package-level declarations that alias
+// it or embed it with `using`, directly or through another of them, so their variants count too. A variant without
+// such a member is left out. problem names a variant whose member the rename cannot reach, "" when there is none: a
+// variant that is no struct, enum or bit_field type, such as an alias `S :: S_Windows`, or a struct without the
+// member that may reach it through a `using` field. An alias or `using` of a type that reaches the member is no
+// problem. fields then holds the members found.
 field_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> (fields: []Symbol, problem: string) {
 	home := hierarchy_document(h, symbol.uri)
 	if home == nil {
@@ -130,44 +132,36 @@ field_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> (fields: []Symbol,
 			members := type_members(value) or_continue
 			for member in members {
 				if common.get_token_range(member^, home_src) != symbol.range do continue
-				type_symbol := Symbol {
+				types := make([dynamic]Decl_Variant, context.temp_allocator)
+				covered := make(map[string]struct{}, context.temp_allocator)
+				owner := Symbol {
 					uri   = home.uri.uri,
 					range = common.get_token_range(decl.names[i], home_src),
 					pkg   = home.package_name,
 					name  = final_name(decl.names[i]),
 				}
+				append(&types, Decl_Variant{home, decl, owner})
+				covered[owner.name] = {}
+				// types grows while it is walked, so aliases of aliases are found too.
+				for k := 0; k < len(types); k += 1 {
+					for user in type_users(h, types[k]) {
+						if user.symbol.name in covered do continue
+						covered[user.symbol.name] = {}
+						append(&types, user)
+					}
+				}
 				found := make([dynamic]Symbol, context.temp_allocator)
-				for variant in declaration_variants(h, type_symbol) {
-					src := string(variant.document.text[:variant.document.used_text])
-					for name, j in variant.decl.names {
-						if common.get_token_range(name, src) != variant.symbol.range do continue
-						at := fmt.tprintf("`%s` at %s", type_symbol.name, declared_at(variant.symbol))
-						variant_value := variant.decl.values[j] if j < len(variant.decl.values) else nil
-						others, is_type := type_members(variant_value)
-						if !is_type {
-							problem = fmt.tprintf(
-								"the platform variant %s is no struct, enum or bit_field type, so its member `%s` cannot be renamed",
-								at,
-								member.name,
-							)
-							continue
-						}
-						own := false
-						for other in others {
-							if other.name != member.name do continue
-							own = true
-							field := symbol
-							field.uri = variant.symbol.uri
-							field.range = common.get_token_range(other^, src)
-							append(&found, field)
-						}
-						if !own && has_using_field(variant_value) {
-							problem = fmt.tprintf(
-								"the platform variant %s may reach `%s` through a `using` field, which the rename cannot change",
-								at,
-								member.name,
-							)
-						}
+				for reaching in types {
+					for variant in declaration_variants(h, reaching.symbol) {
+						add_member_variant(
+							variant,
+							reaching.symbol.name,
+							member.name,
+							symbol,
+							covered,
+							&found,
+							&problem,
+						)
 					}
 				}
 				return found[:], problem
@@ -177,19 +171,146 @@ field_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> (fields: []Symbol,
 	return
 }
 
-// Whether type_expr, a struct type or a distinct one, has a `using` field.
+// Adds the member named member_name of variant, a platform variant of the type named type_name, to found, unless
+// found holds it. Sets problem when the rename cannot reach the member there. covered holds the names of the types
+// that reach the member.
 @(private = "file")
-has_using_field :: proc(type_expr: ^ast.Expr) -> bool {
-	#partial switch t in type_expr.derived {
-	case ^ast.Distinct_Type:
-		return has_using_field(t.type)
-	case ^ast.Struct_Type:
-		if t.fields == nil do return false
-		for field in t.fields.list {
-			if .Using in field.flags do return true
+add_member_variant :: proc(
+	variant: Decl_Variant,
+	type_name, member_name: string,
+	symbol: Symbol,
+	covered: map[string]struct{},
+	found: ^[dynamic]Symbol,
+	problem: ^string,
+) {
+	src := string(variant.document.text[:variant.document.used_text])
+	for name, j in variant.decl.names {
+		if common.get_token_range(name, src) != variant.symbol.range do continue
+		at := fmt.tprintf("`%s` at %s", type_name, declared_at(variant.symbol))
+		variant_value := variant.decl.values[j] if j < len(variant.decl.values) else nil
+		others, is_type := type_members(variant_value)
+		if !is_type {
+			if named := named_type(variant_value); named == nil || named.name not_in covered {
+				problem^ = fmt.tprintf(
+					"the platform variant %s is no struct, enum or bit_field type, so its member `%s` cannot be renamed",
+					at,
+					member_name,
+				)
+			}
+			continue
+		}
+		own := false
+		next: for other in others {
+			if other.name != member_name do continue
+			own = true
+			field := symbol
+			field.uri = variant.symbol.uri
+			field.range = common.get_token_range(other^, src)
+			for known in found {
+				if known.uri == field.uri && known.range == field.range do continue next
+			}
+			append(found, field)
+		}
+		if !own && has_using_field(variant_value, covered) {
+			problem^ = fmt.tprintf(
+				"the platform variant %s may reach `%s` through a `using` field, which the rename cannot change",
+				at,
+				member_name,
+			)
 		}
 	}
+}
+
+// The package-level declarations that alias the type that reaching names or embed it with `using`, read in its file
+// and, unless it is private to its file, in the other files of its package that mention its name.
+@(private = "file")
+type_users :: proc(h: ^Call_Hierarchy, reaching: Decl_Variant) -> []Decl_Variant {
+	home := reaching.document
+	paths := make([dynamic]string, context.temp_allocator)
+	append(&paths, home.fullpath)
+	if !file_private(home, reaching.decl) {
+		for sibling in package_siblings(home, h.files) {
+			slashed, _ := filepath.replace_separators(sibling, '/', context.temp_allocator)
+			if file_mentions(h, slashed, reaching.symbol.name) do append(&paths, slashed)
+		}
+	}
+	users := make([dynamic]Decl_Variant, context.temp_allocator)
+	for fullpath in paths {
+		document := hierarchy_document(h, common.create_uri(fullpath, context.temp_allocator).uri)
+		if document == nil || document.ast.pkg_name != home.ast.pkg_name {
+			continue
+		}
+		if parser.parse_file_tags(document.ast, context.temp_allocator).ignore {
+			continue
+		}
+		src := string(document.text[:document.used_text])
+		for decl in top_level_value_decls(document.ast) {
+			for value, i in decl.values {
+				if i >= len(decl.names) do break
+				named := named_type(value)
+				if (named == nil || named.name != reaching.symbol.name) && !embeds(value, reaching.symbol.name) {
+					continue
+				}
+				user := reaching.symbol
+				user.uri = document.uri.uri
+				user.range = common.get_token_range(decl.names[i], src)
+				user.name = final_name(decl.names[i])
+				append(&users, Decl_Variant{document, decl, user})
+			}
+		}
+	}
+	return users[:]
+}
+
+// The identifier that type_expr names after its `distinct`, parentheses and pointers, nil when there is none.
+@(private = "file")
+named_type :: proc(type_expr: ^ast.Expr) -> ^ast.Ident {
+	expr := strip_parens_and_pointers(type_expr)
+	for expr != nil {
+		distinct_type := expr.derived.(^ast.Distinct_Type) or_break
+		expr = strip_parens_and_pointers(distinct_type.type)
+	}
+	if expr == nil do return nil
+	ident, _ := expr.derived.(^ast.Ident)
+	return ident
+}
+
+// Whether type_expr, a struct type or a distinct one, has a `using` field of the type named name.
+@(private = "file")
+embeds :: proc(type_expr: ^ast.Expr, name: string) -> bool {
+	struct_type := struct_of(type_expr)
+	if struct_type == nil || struct_type.fields == nil do return false
+	for field in struct_type.fields.list {
+		if .Using not_in field.flags do continue
+		if named := named_type(field.type); named != nil && named.name == name do return true
+	}
 	return false
+}
+
+// Whether type_expr, a struct type or a distinct one, has a `using` field whose type is none of the types that
+// covered names.
+@(private = "file")
+has_using_field :: proc(type_expr: ^ast.Expr, covered: map[string]struct{}) -> bool {
+	struct_type := struct_of(type_expr)
+	if struct_type == nil || struct_type.fields == nil do return false
+	for field in struct_type.fields.list {
+		if .Using not_in field.flags do continue
+		if named := named_type(field.type); named == nil || named.name not_in covered do return true
+	}
+	return false
+}
+
+// The struct type of type_expr, a struct type or a distinct one, nil for any other type.
+@(private = "file")
+struct_of :: proc(type_expr: ^ast.Expr) -> ^ast.Struct_Type {
+	if type_expr == nil do return nil
+	#partial switch t in type_expr.derived {
+	case ^ast.Distinct_Type:
+		return struct_of(t.type)
+	case ^ast.Struct_Type:
+		return t
+	}
+	return nil
 }
 
 // The symbols of variants, for find_symbol_references.
