@@ -2,6 +2,7 @@ package server
 
 import "core:fmt"
 import "core:odin/ast"
+import "core:odin/tokenizer"
 import "core:strings"
 
 import "src:common"
@@ -125,16 +126,12 @@ decl_kind :: proc(ctx: ^LintContext, value: ^ast.Expr) -> Decl_Kind {
 	case ^ast.Call_Expr:
 		// `#config(...)`, `#load(...)`: the name follows the call. `Vector(f32)`: a type.
 		if _, is_directive := v.expr.derived.(^ast.Basic_Directive); is_directive do return .Alias
+		callee, resolved := lint_symbols(ctx)[uintptr(v.expr)]
 		// rols: in inactive code the callee may stand for a platform variant of another kind.
-		if resolved, ok := lint_symbols(ctx)[uintptr(v.expr)]; ok && ambiguous_in_inactive(ctx, resolved.symbol) {
-			return .Alias
-		}
+		if resolved && ambiguous_in_inactive(ctx, callee.symbol) do return .Alias
 		// `f32(48)`, `Meters(2)`: a cast of a literal is a constant.
 		if len(v.args) == 1 && !has_poly_params(ctx, v.expr) {
-			if resolved, ok := lint_symbols(ctx)[uintptr(v.expr)];
-			   ok && resolved.symbol != nil && resolved.symbol.type == .Keyword {
-				return .Constant
-			}
+			if resolved && callee.symbol != nil && callee.symbol.type == .Keyword do return .Constant
 			if _, is_lit := unparen(v.args[0]).derived.(^ast.Basic_Lit); is_lit do return .Constant
 		}
 		if decl_kind(ctx, v.expr) == .Type do return .Type
@@ -228,17 +225,43 @@ check_c_name :: proc(
 }
 
 // Whether a file of the package has a `foreign import` or imports `core:dynlib`: a binding package may declare its
-// library in one file and the C types in another. Only another file whose text holds either is parsed.
+// library in one file and the C types in another. Only another file whose text holds either is scanned.
 @(private = "file")
 package_binds_c :: proc(ctx: ^LintContext) -> bool {
 	if binds_c(ctx.document.ast.decls[:]) do return true
 	for file in sibling_values(ctx).files {
-		if !strings.contains(file.text, "foreign") && !strings.contains(file.text, "core:dynlib") do continue
-		context.allocator = context.temp_allocator
-		parsed, ok := parse_syntax(file.fullpath, file.text)
-		if ok && parsed.pkg_name == ctx.document.ast.pkg_name && binds_c(parsed.decls[:]) do return true
+		if !strings.contains(file.text, "foreign import") && !strings.contains(file.text, "core:dynlib") do continue
+		if tokens_bind_c(file.text, ctx.document.ast.pkg_name) do return true
 	}
 	return false
+}
+
+// Whether src, read as a file of package pkg_name, has a `foreign import` or an import of `core:dynlib`. Its tokens
+// tell, without a parse: both can only stand at file scope, and a comment or a string holds neither.
+@(private = "file")
+tokens_bind_c :: proc(src, pkg_name: string) -> bool {
+	silent :: proc(pos: tokenizer.Pos, msg: string, args: ..any) {}
+	t: tokenizer.Tokenizer
+	tokenizer.init(&t, src, "", silent)
+	prev, before: tokenizer.Token_Kind
+	for {
+		token := tokenizer.scan(&t)
+		#partial switch token.kind {
+		case .EOF:
+			return false
+		case .Comment:
+			continue
+		case .Ident:
+			if prev == .Package && token.text != pkg_name do return false
+		case .Import:
+			if prev == .Foreign do return true
+		case .String:
+			// `import "core:dynlib"` or `import name "core:dynlib"`
+			from_import := prev == .Import || (prev == .Ident && before == .Import)
+			if from_import && strings.trim(token.text, "\"`") == "core:dynlib" do return true
+		}
+		prev, before = token.kind, prev
+	}
 }
 
 // A `foreign import` or an import of `core:dynlib` at file scope, also in any branch of a top-level `when`.

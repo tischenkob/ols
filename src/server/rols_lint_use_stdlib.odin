@@ -284,10 +284,10 @@ Stdlib_Walker :: struct {
 	document:  ^Document,
 	src:       string,
 	rules:     []Stdlib_Rule,
-	// rols: the resolved nodes of the file, without the ones that resolve only to an inactive `when` branch's
-	// declaration: the walk visits only code the host builds, where such a declaration does not exist.
-	symbols:   SymbolAndNodeMap,
+	symbols:   SymbolAndNodeMap, // the resolved nodes of the file
+	// rols: decides the `when` statements, built on the first one.
 	when_env:  When_Env,
+	has_env:   bool,
 	rule:      ^Stdlib_Rule, // the rule of the current attempt
 	matcher:   Pattern_Matcher,
 	out:       [dynamic]Stdlib_Match,
@@ -616,9 +616,8 @@ stdlib_matches :: proc(document: ^Document, allocator := context.temp_allocator)
 		rules     = rules,
 		out       = make([dynamic]Stdlib_Match, context.temp_allocator),
 		allocator = allocator,
-		when_env  = make_when_env(document),
+		symbols   = resolve_entire_file(document),
 	}
-	w.symbols, _ = split_fallbacks(resolve_entire_file(document))
 	w.matcher = pattern_matcher_make(w.src)
 	w.matcher.return_as_assign = true
 
@@ -636,6 +635,7 @@ stdlib_matches :: proc(document: ^Document, allocator := context.temp_allocator)
 			// The inner expression is visited on its own.
 			case ^ast.When_Stmt:
 				// rols: a branch the host does not build may name another platform's declarations.
+				if !w.has_env do w.when_env, w.has_env = make_when_env(w.document), true
 				for branch in when_branches(&w.when_env, n) {
 					if branch.cond != nil do ast.walk(visitor, branch.cond)
 					if branch.active do ast.walk(visitor, branch.body)

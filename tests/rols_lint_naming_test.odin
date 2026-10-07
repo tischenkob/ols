@@ -534,6 +534,23 @@ badProc :: proc() {}
 	test.expect_lint_diagnostics(t, &source, {{5, "naming"}})
 }
 
+// A file of another package in the directory, such as a test package, does not make this one a binding.
+@(test)
+naming_ignores_foreign_import_of_other_package :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+udev :: struct {
+	someField: i32,
+}
+`,
+		files = {{"a.odin", "package other\n\nforeign import lib \"system:x\"\n"}},
+		config = {enable_lint_naming = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{2, "naming"}, {3, "naming"}})
+}
+
 // A package that loads its library through `core:dynlib` mirrors C names too.
 @(test)
 naming_skips_c_names_in_dynlib_package :: proc(t: ^testing.T) {
