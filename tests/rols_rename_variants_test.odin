@@ -481,6 +481,16 @@ rename_field_through_alias_or_embedding_variant :: proc(t: ^testing.T) {
 	}
 }
 
+// A variant with several `using` fields, one of which embeds the member's type, does not refuse the field rename.
+@(test)
+rename_field_through_one_of_several_using_fields :: proc(t: ^testing.T) {
+	text :: "package test\n\nCommon :: struct {{ %s: int }}\nP1 :: struct {{ x: int }}\nP2 :: struct {{ y: int }}\n\nwhen ODIN_DEBUG {{\n\tFoo :: struct {{ using c: Common, using p: P1 }}\n}} else {{\n\tFoo :: struct {{ using c: Common, using p: P2 }}\n}}\n\ng :: proc(f: Foo) -> int {{ return f.%s }}\n"
+	source := test.Source {
+		main = fmt.tprintf(text, "a", "a{*}"),
+	}
+	test.expect_rename(t, &source, "b", {{"main.odin", fmt.tprintf(text, "b", "b")}})
+}
+
 // The references of a field reached through an alias variant include the member of the other variant.
 @(test)
 references_of_field_through_alias_variant :: proc(t: ^testing.T) {
