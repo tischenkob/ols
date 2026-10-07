@@ -275,7 +275,8 @@ binds_poly_name :: proc(lits: []^ast.Proc_Lit, name: string) -> bool {
 @(private = "file")
 callee_results :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (int, bool) {
 	symbol, ok := resolve_callee(ctx, expr)
-	if !ok do return 1, false
+	// A declaration that the target building the file does not build counts as unresolved.
+	if !ok || !lint_target_builds(ctx, symbol) do return 1, false
 	if _, is_call := expr.derived.(^ast.Call_Expr); !is_call && names_proc_type(symbol) do return 1, true
 	#partial switch v in symbol.value {
 	case SymbolProcedureValue:
@@ -288,21 +289,12 @@ callee_results :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (int, bool) {
 	return 1, true
 }
 
-// expr resolved with the locals visible at it, or with the package globals when that fails. A declaration that the
-// target building the file does not build counts as unresolved.
-@(private = "file")
-resolve_callee :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (Symbol, bool) {
-	symbol, ok := resolve_callee_any(ctx, expr)
-	if ok && !lint_target_builds(ctx, symbol) do return {}, false
-	return symbol, ok
-}
-
 // expr resolved with the locals visible at it, or with the package globals when that fails. The whole-file resolve
 // records the callees of the arguments of the file. Other callees resolve here with a context that shares the
 // walker's globals, since collecting them walks every declaration of the file, which for each argument made a lint
 // run quadratic.
 @(private = "file")
-resolve_callee_any :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (Symbol, bool) {
+resolve_callee :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (Symbol, bool) {
 	lint_symbols(ctx)
 	if recorded, found := ctx.document.arg_callees[uintptr(expr)]; found {
 		if recorded.symbol == nil do return {}, false
