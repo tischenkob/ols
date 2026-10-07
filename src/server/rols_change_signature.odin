@@ -404,26 +404,40 @@ move_line_comment :: proc(changes: ^Changes, document: ^Document, slot, moved: ^
 	if slot.comment == nil && moved.comment == nil {
 		return
 	}
-	if moved.comment == nil {
+	line_comment :=
+		moved.comment != nil && strings.has_prefix(moved.comment.list[len(moved.comment.list) - 1].text, "//")
+	// A slot comment before the field's comma, as in `x: int /* a */, y: int`.
+	before_comma := false
+	if slot.comment != nil {
+		after := strings.trim_left(src[slot.comment.end.offset:], " \t")
+		before_comma = strings.has_prefix(after, ",")
+	}
+	// A `//` comment cannot take the place of a comment before the comma, so it follows the comma instead.
+	replace := slot.comment != nil && moved.comment != nil && !(line_comment && before_comma)
+	if slot.comment != nil && !replace {
 		start := slot.comment.pos.offset
 		for start > slot.end.offset && (src[start - 1] == ' ' || src[start - 1] == '\t') do start -= 1
 		append_edit(changes, document, start, slot.comment.end.offset, "")
+	}
+	if moved.comment == nil {
 		return
 	}
 	start, end: int
 	text := node_text(src, moved.comment)
-	if slot.comment != nil {
+	if replace {
 		start, end = slot.comment.pos.offset, slot.comment.end.offset
 	} else {
-		start = slot.end.offset
-		if start < len(src) && src[start] == ',' do start += 1
+		start = slot.comment.end.offset if before_comma else slot.end.offset
+		if comma := len(src[start:]) - len(strings.trim_left(src[start:], " \t"));
+		   start + comma < len(src) && src[start + comma] == ',' {
+			start += comma + 1
+		}
 		end = start
 		text = strings.concatenate({" ", text}, context.temp_allocator)
 	}
 	line_end := strings.index_any(src[end:], "\r\n")
 	rest := src[end:] if line_end < 0 else src[end:end + line_end]
-	if strings.trim_space(rest) != "" &&
-	   strings.has_prefix(moved.comment.list[len(moved.comment.list) - 1].text, "//") {
+	if strings.trim_space(rest) != "" && line_comment {
 		text = strings.concatenate({text, newline, get_line_indentation(src, slot.pos.offset)}, context.temp_allocator)
 		end += len(rest) - len(strings.trim_left(rest, " \t"))
 	}

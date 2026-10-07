@@ -127,10 +127,9 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 	// and `#+vet` tags of its source.
 	tags := make([dynamic]tokenizer.Token, context.temp_allocator)
 	if !test_exists {
-		for excluded in NO_TESTING_OS_NAMES {
-			if excluded.os in source_oses {
-				append(&tags, tokenizer.Token{text = fmt.tprintf("#+build !%s", excluded.name)})
-			}
+		for os in NO_TESTING_OSES & source_oses {
+			name := strings.to_lower(fmt.tprint(os), context.temp_allocator)
+			append(&tags, tokenizer.Token{text = fmt.tprintf("#+build !%s", name)})
 		}
 	}
 	append(&tags, ..document.ast.tags[:])
@@ -155,13 +154,6 @@ add_generate_test_action :: proc(ctx: ^ActionContext) {
 		CodeAction{title = fmt.tprintf("Generate test for %s", proc_name), kind = "refactor", edit = edit},
 	)
 }
-
-// NO_TESTING_OSES with their build tag names, sorted by name.
-@(rodata)
-NO_TESTING_OS_NAMES := [?]struct {
-	name: string,
-	os:   runtime.Odin_OS_Type,
-}{{"freestanding", .Freestanding}, {"js", .JS}, {"orca", .Orca}, {"wasi", .WASI}}
 
 // Zero values for the parameters without a default value and not variadic. A parameter after a
 // skipped one is passed by name, since its position no longer matches.
