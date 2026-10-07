@@ -25,17 +25,21 @@ When_Package :: struct {
 	plain:     map[string]^ast.Expr,
 	// The tables of the packages that the files import, by directory, built on first use in allocator.
 	imported:  map[string]^When_Package,
+	// For an imported package, its plain constants folded, in the temp allocator.
+	consts:    map[string]When_Expr,
 }
 
 // The value declarations of file in a `when` branch that the editor's target does not build. The conditions
 // evaluate as the editor evaluates them: ODIN_OS and ODIN_ARCH for the target of set_when_target, else the profile
-// os and arch, else the host, the builtins that set_when_target seeds, the profile defines, and the constants of
-// the file, or of every file of pkg when given, and a selector alias.NAME to a constant outside any `when` of the
+// os and arch, else the host, the builtins that set_when_target seeds, `#config(NAME, default)` from the `-define:`
+// values of set_when_target, then the profile defines, then the default, the constants of the file, or of every
+// file of pkg when given, and a selector alias.NAME to a constant outside any `when` of the
 // package that the file imports as alias, found through the collections of set_when_target or relative to the
 // file. Only `!`, comparisons, `&&` and `||` fold; other operators count as unknown. The evaluator reads a name it
 // does not know as false, so a chain counts only up to its first condition with such a name, such as an unseeded
 // ODIN_DEBUG or ODIN_TEST or a name that the other package does not declare: that branch and the ones after it are
-// not reported. Allocates in context.allocator.
+// not reported. A define reaches only `#config`, as odin passes it, not a bare name as the editor's profile defines
+// do. Allocates in context.allocator.
 inactive_when_decls :: proc(file: ^ast.File, pkg: ^When_Package = nil) -> map[^ast.Value_Decl]struct{} {
 	inactive := make(map[^ast.Value_Decl]struct{})
 	// The walk below reaches `when` statements at file scope and in foreign blocks.
@@ -80,14 +84,11 @@ inactive_when_decls :: proc(file: ^ast.File, pkg: ^When_Package = nil) -> map[^a
 	return inactive
 }
 
-// The names that each `when` evaluation of this thread starts from: the profile defines, the `-define:` values
-// that set_when_target seeds, which win over them, and the builtins that it seeds, which win over both.
+// The names that each `when` evaluation of this thread starts from: the builtins that set_when_target seeds. A
+// define is not among them: odin reads it only through `#config`, which resolve_config_directive evaluates.
 @(private = "file")
 seeded_when_consts :: proc() -> map[string]When_Expr {
-	consts := make_when_expr_map()
-	for name, value in when_defines {
-		consts[name] = resolve_when_ident(consts, value) or_continue
-	}
+	consts := make(map[string]When_Expr, context.temp_allocator)
 	for value, builtin in when_builtins {
 		if b, seeded := value.?; seeded do consts[fmt.tprint(builtin)] = b
 	}
@@ -107,8 +108,7 @@ add_selector_consts :: proc(
 ) {
 	if len(file.imports) == 0 do return
 	selectors := make([dynamic]^ast.Selector_Expr, context.temp_allocator)
-	collect_cond_selectors(file.decls[:], &selectors)
-	for _, value in plain do collect_when_selectors(value, &selectors)
+	collect_cond_selectors(file.decls[:], plain^, &selectors)
 	local: map[string]^When_Package
 	cache := &pkg.imported if pkg != nil else &local
 	allocator := pkg.allocator if pkg != nil else context.allocator
@@ -122,14 +122,14 @@ add_selector_consts :: proc(
 			files, _ := filepath.glob(fmt.tprintf("%s/*.odin", dir), context.temp_allocator)
 			imported = new_clone(When_Package{files = files, allocator = allocator}, allocator)
 			build_when_package(imported, "")
+			imported.consts = seeded_when_consts()
+			fold_when_consts(&imported.consts, imported.plain)
 			context.allocator = allocator
 			cache[dir] = imported
 		}
 		value := imported.plain[selector.field.name] or_continue
 		if when_kind(value, imported.plain, 0) == .Unknown do continue
-		imported_consts := seeded_when_consts()
-		fold_when_consts(&imported_consts, imported.plain)
-		folded := resolve_when_expr(imported_consts, value) or_continue
+		folded := resolve_when_expr(imported.consts, value) or_continue
 		consts[key] = folded
 		plain[key] = when_literal(folded, selector)
 	}
@@ -177,47 +177,61 @@ when_literal :: proc(value: When_Expr, at: ^ast.Node) -> ^ast.Expr {
 	return ast.new(ast.Bad_Expr, at.pos, at.end)
 }
 
-// Appends the selectors that the `when` conditions among stmts read, nested ones included.
+// Appends the selectors that the `when` conditions among stmts read, nested ones included, directly or through
+// the constants of plain.
 @(private = "file")
-collect_cond_selectors :: proc(stmts: []^ast.Stmt, selectors: ^[dynamic]^ast.Selector_Expr) {
+collect_cond_selectors :: proc(
+	stmts: []^ast.Stmt,
+	plain: map[string]^ast.Expr,
+	selectors: ^[dynamic]^ast.Selector_Expr,
+) {
 	for stmt in stmts {
 		if stmt == nil do continue
 		#partial switch s in stmt.derived {
 		case ^ast.Block_Stmt:
-			collect_cond_selectors(s.stmts[:], selectors)
+			collect_cond_selectors(s.stmts[:], plain, selectors)
 		case ^ast.Foreign_Block_Decl:
-			collect_cond_selectors({s.body}, selectors)
+			collect_cond_selectors({s.body}, plain, selectors)
 		case ^ast.When_Stmt:
-			collect_when_selectors(s.cond, selectors)
-			collect_cond_selectors({s.body, s.else_stmt}, selectors)
+			collect_when_selectors(s.cond, plain, selectors, 0)
+			collect_cond_selectors({s.body, s.else_stmt}, plain, selectors)
 		}
 	}
 }
 
-// Appends the selectors pkg.NAME, with an identifier pkg, among the operands of expr that when_kind reads.
+// Appends the selectors pkg.NAME, with an identifier pkg, among the operands of expr that when_kind reads, and
+// among those of the constants of plain that expr names, so that only a selector that a condition can reach builds
+// a package.
 @(private = "file")
-collect_when_selectors :: proc(expr: ^ast.Expr, selectors: ^[dynamic]^ast.Selector_Expr) {
-	if expr == nil do return
+collect_when_selectors :: proc(
+	expr: ^ast.Expr,
+	plain: map[string]^ast.Expr,
+	selectors: ^[dynamic]^ast.Selector_Expr,
+	depth: int,
+) {
+	if expr == nil || depth > 8 do return
 	#partial switch e in expr.derived {
 	case ^ast.Paren_Expr:
-		collect_when_selectors(e.expr, selectors)
+		collect_when_selectors(e.expr, plain, selectors, depth)
+	case ^ast.Ident:
+		collect_when_selectors(plain[e.name] or_else nil, plain, selectors, depth + 1)
 	case ^ast.Unary_Expr:
-		collect_when_selectors(e.expr, selectors)
+		collect_when_selectors(e.expr, plain, selectors, depth)
 	case ^ast.Binary_Expr:
-		collect_when_selectors(e.left, selectors)
-		collect_when_selectors(e.right, selectors)
+		collect_when_selectors(e.left, plain, selectors, depth)
+		collect_when_selectors(e.right, plain, selectors, depth)
 	case ^ast.Call_Expr:
-		if len(e.args) == 2 do collect_when_selectors(e.args[1], selectors)
+		if len(e.args) == 2 do collect_when_selectors(e.args[1], plain, selectors, depth)
 	case ^ast.Selector_Expr:
 		if _, is_ident := e.expr.derived.(^ast.Ident); is_ident do append(selectors, e)
 	}
 }
 
-// Whether expr reads a selector among the operands that when_kind reads.
+// Whether expr reads a selector among its own operands that when_kind reads.
 @(private = "file")
 has_when_selector :: proc(expr: ^ast.Expr) -> bool {
 	selectors := make([dynamic]^ast.Selector_Expr, context.temp_allocator)
-	collect_when_selectors(expr, &selectors)
+	collect_when_selectors(expr, nil, &selectors, 0)
 	return len(selectors) > 0
 }
 
@@ -341,7 +355,7 @@ needs_package :: proc(stmts: []^ast.Stmt, plain: map[string]^ast.Expr) -> bool {
 }
 
 // Whether expr, or a constant of plain that it names, names a bare identifier that is neither in plain nor an
-// ODIN_* builtin or define. A selector such as pkg.FLAG reads another package, so it does not count.
+// ODIN_* builtin. A selector such as pkg.FLAG reads another package, so it does not count.
 @(private = "file")
 names_missing_const :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth: int) -> bool {
 	if expr == nil || depth > 8 do return false
@@ -350,7 +364,6 @@ names_missing_const :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth:
 		return names_missing_const(e.expr, plain, depth)
 	case ^ast.Ident:
 		if strings.has_prefix(e.name, "ODIN_") || e.name == "true" || e.name == "false" do return false
-		if _, defined := when_define(e.name); defined do return false
 		value, is_plain := plain[e.name]
 		return !is_plain || names_missing_const(value, plain, depth + 1)
 	case ^ast.Call_Expr:
@@ -446,8 +459,8 @@ When_Kind :: enum {
 
 // The kind of value that the when evaluator folds expr to, Unknown when it cannot fold it. A condition is known
 // when its kind is Bool. The names it knows are ODIN_OS, ODIN_ARCH, the builtins that set_when_target seeds, the
-// `-define:` values and profile defines, the constants of plain whose kinds it knows in turn, and a selector that
-// add_selector_consts added to plain. Only `!` of a bool, `&&` and `||` of bools, `==` and `!=` of the same kind and
+// constants of plain whose kinds it knows in turn, and a selector that add_selector_consts added to plain. A
+// `#config` call takes the kind of its `-define:` value, else its profile define, else its default. Only `!` of a bool, `&&` and `||` of bools, `==` and `!=` of the same kind and
 // integer orderings fold, as in resolve_when_expr.
 @(private = "file")
 when_kind :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth: int) -> When_Kind {
@@ -465,7 +478,6 @@ when_kind :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth: int) -> W
 		if builtin, is_builtin := reflect.enum_from_name(When_Builtin, e.name); is_builtin {
 			if when_builtins[builtin] != nil do return .Bool
 		}
-		if value, defined := when_define(e.name); defined do return define_kind(value)
 		value, is_plain := plain[e.name]
 		return when_kind(value, plain, depth + 1) if is_plain else .Unknown
 	case ^ast.Selector_Expr:
@@ -488,7 +500,9 @@ when_kind :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth: int) -> W
 		directive, is_directive := e.expr.derived.(^ast.Basic_Directive)
 		if !is_directive || directive.name != "config" || len(e.args) != 2 do return .Unknown
 		if name, is_ident := e.args[0].derived.(^ast.Ident); is_ident {
-			if value, defined := when_define(name.name); defined do return define_kind(value)
+			value, defined := when_defines[name.name]
+			if !defined do value, defined = common.config.profile.defines[name.name]
+			if defined do return define_kind(value)
 		}
 		return when_kind(e.args[1], plain, depth)
 	case ^ast.Unary_Expr:
@@ -508,13 +522,6 @@ when_kind :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth: int) -> W
 		}
 	}
 	return .Unknown
-}
-
-// The value of the define name: a `-define:` of set_when_target, else a profile define.
-@(private = "file")
-when_define :: proc(name: string) -> (value: string, ok: bool) {
-	if value, ok = when_defines[name]; ok do return
-	return common.config.profile.defines[name]
 }
 
 // Whether the integer text, a literal or a define with an optional sign, fits an int. strconv.parse_int, which the
@@ -558,7 +565,7 @@ int_literal_fits :: proc(text: string) -> bool {
 	return true
 }
 
-// The kind of a profile define's value as make_when_expr_map folds it: an integer that fits an int, else a bool
+// The kind of a define's value as resolve_config_directive folds it: an integer that fits an int, else a bool
 // spelled as strconv.parse_bool reads it. Odin reads t, true, f and false in any case as bools, and other text as
 // a string or a float, which the evaluator reads as false. A bool spelling that parse_bool rejects, such as `tRuE`,
 // is unknown too, which leaves its branches unmarked.
