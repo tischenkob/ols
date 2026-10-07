@@ -5,6 +5,7 @@ import "core:odin/ast"
 import "core:odin/tokenizer"
 import "core:slice"
 import "core:strconv"
+import "core:strings"
 
 import "src:common"
 
@@ -502,7 +503,8 @@ guards_in_condition :: proc(guard: Len_Guard, cond: ^ast.Expr, offset: int) -> b
 // Whether ident names a local `ident := len(collection)` (or `::`), the declaration of the name
 // visible at ident in the same top-level declaration, while the length is still current: nothing in
 // the top-level declaration assigns to the name, and nothing after the declaration assigns to the
-// collection. A change through a pointer, such as `pop(&s)`, is not seen.
+// collection or a base of it, such as `s = t` for `s.items`. A change through a pointer, such as
+// `pop(&s)`, is not seen.
 @(private = "file")
 names_len_local :: proc(ctx: ^LintContext, ident: ^ast.Ident, collection: string) -> bool {
 	top := top_level_stmt_at(ctx.document.ast.decls[:], ident.pos.offset)
@@ -534,13 +536,25 @@ names_len_local :: proc(ctx: ^LintContext, ident: ^ast.Ident, collection: string
 			if !is_assign do return visitor
 			for lhs in assign.lhs {
 				if target, ok := lhs.derived.(^ast.Ident); ok && target.name == data.name do data.stale = true
-				if node.pos.offset > data.from && node_text(data.ctx.src, lhs) == data.collection do data.stale = true
+				if node.pos.offset > data.from && is_collection_base(node_text(data.ctx.src, lhs), data.collection) {
+					data.stale = true
+				}
 			}
 			return visitor
 		},
 	}
 	ast.walk(&visitor, top)
 	return !data.stale
+}
+
+// Whether target is the collection or a base of it: `s` is a base of `s.items`, `s^.items` and `s[0]`,
+// but `s.it` is not a base of `s.items`.
+@(private = "file")
+is_collection_base :: proc(target, collection: string) -> bool {
+	if !strings.has_prefix(collection, target) do return false
+	if len(collection) == len(target) do return true
+	next := collection[len(target)]
+	return next == '.' || next == '[' || next == '^'
 }
 
 // Evaluating the expression twice cannot change anything: no calls, no `or_return`, no dereference.
