@@ -15,7 +15,6 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **Doubtful Known limits (plan section E).** Six entries cite a fix inside rols: the unused-parameter refresh (`didChangeWatchedFiles`, open and dirty close can relint), the fill rewrite through `&items[...]`, dead-store on a local `using` value, the two tri-state `when` entries, the workspace word-index notes, and the `range-off-by-one` base-of-collection miss. Also check the FORK.md note that only a trailing comma on the line of `)` keeps the longer group members while typing.
 - **`index_updates_preserve_and_invalidate_resolution_caches` failed once in four full runs.** "Malformed index updates must retain valid resolution caches". `document_storage` and `indexer` are thread-local, so the cause is unknown; loop the prebuilt test binary and log `invalidate_document_symbol_cache` calls (plan C1).
 - **A 3-allocation leak in `move_decl_actions_list_targets` showed once in a full run.** Likely cause: `tests/rols_lint_refresh_test.odin` and `tests/imports_test.odin` set the global `common.config.enable_diagnostics` while other tests run, so `add_diagnostics` (`src/server/diagnostics.odin`) allocates into shared maps with another test's allocator. Fix: pass the caller's config to `add_diagnostics` and reset the maps under the diagnostic mutex (plan C4, C5).
-- **The Windows path normalization in `check_carrier_variants` never ran on Windows.** A drive-letter case mismatch between `scan.texts` paths and `symbol.uri` may still drop sibling files in `declaration_variants` or `package_documents`; normalize both with `common.get_case_sensitive_path` and test the comparison helper with mixed-case inputs (plan C3).
 - **Draft upstream Odin issue for the map-index loop, not filed.**
 
 ```
@@ -34,6 +33,7 @@ main :: proc() {
 }
 `odin run repro.odin -file` hangs; removing the first loop exits. Note whether -o:none or -debug changes it.
 ```
+- The repository's Odin sources are not odinfmt-clean under the current odinfmt build (for example running odinfmt on master's `src/server/rols_rename_check.odin` rewraps several unrelated lines), so per-stage "format with odinfmt" produces unrelated churn; a one-time formatting commit would fix it.
 
 ## Corpus validation (`docs/corpus-validation.md`)
 
@@ -64,6 +64,7 @@ main :: proc() {
 
 - **Known limit: the nested-if merge refuses a named callee that does not resolve.** `callee_deferred` in `src/server/rols_action_split_merge_if.odin` falls back from the whole-file resolve map to a resolve with the locals at the callee, which finds a procedure group declared inside a procedure. A group call whose overload does not resolve counts as deferred when any member has a `deferred_*` attribute. A callee that neither finds still counts as deferred, so the merge is refused although the call may be harmless. This is the safe direction, because Odin rejects a call to a deferred procedure inside `&&`.
 - **The empty-body lint flags a `for` loop whose post statement does the work.** `no_op_empty_body` in `src/server/rols_lint_no_op.odin` reports `for entry := posix.environ[0]; entry != nil; n, entry = n+1, posix.environ[n] {}` in `core/os/env_linux.odin:341` as `this body is empty`, a warning on a loop that only counts. It does so in host-built code too (`for i := 0; i < len(xs); n, i = n+1, i+1 {}`); the excluded-file lints only made the core case visible on darwin. A loop with a post statement may need an exemption.
+- `src/server/rols_lint.odin` has its own file-private `package_siblings` that compares `filepath.dir(file.fullpath) != filepath.dir(document.fullpath)` exactly, so on Windows a drive-letter case mismatch between the workspace walk and the document path drops siblings from the lints that use it (rols_lint.odin:967); switch it to `same_dir`/`same_path`.
 
 ## Safe-rename check (`src/server/rols_rename_check.odin`)
 
