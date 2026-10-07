@@ -264,21 +264,21 @@ site_possible_on :: proc(site: When_Site, target: parser.Build_Target) -> bool {
 
 // Whether target can take every `when` branch around offset in file: no condition on the way is known to rule
 // it out. Only comparisons of ODIN_OS or ODIN_ARCH with an implicit selector such as `.Linux`, the literals
-// true and false, `!`, `&&`, `||`, parentheses and the constants of plain are known. Any other condition can go
+// true and false, `!`, `&&`, `||`, parentheses and the constants of consts are known. Any other condition can go
 // either way.
 branch_possible_on :: proc(
 	file: ast.File,
 	offset: int,
 	target: parser.Build_Target,
-	plain: Gate_Consts = nil,
+	consts: Gate_Consts = nil,
 ) -> bool {
 	Data :: struct {
 		offset:   int,
 		target:   parser.Build_Target,
-		plain:    Gate_Consts,
+		consts:   Gate_Consts,
 		possible: bool,
 	}
-	data := Data{offset, target, plain, true}
+	data := Data{offset, target, consts, true}
 	visitor := ast.Visitor {
 		data = &data,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
@@ -287,7 +287,7 @@ branch_possible_on :: proc(
 				return nil
 			}
 			if s, ok := node.derived.(^ast.When_Stmt); ok {
-				value := condition_on(s.cond, data.target, data.plain)
+				value := condition_on(s.cond, data.target, data.consts)
 				if s.body != nil && s.body.pos.offset <= data.offset && data.offset < s.body.end.offset {
 					if value == .False do data.possible = false
 				} else if s.else_stmt != nil &&
@@ -309,7 +309,7 @@ branch_possible_on :: proc(
 // cannot take one of them. A candidate of base's OS comes first, so an ODIN_ARCH branch keeps the OS. ok is false
 // when base can take them all or no candidate can. A condition reads the file-scope constants of file. A branch whose
 // condition branch_possible_on cannot read, such as `when FLAG` with `FLAG :: #config(FLAG, false)`, is possible on
-// base, so it has no target here. consts caches file_constants of file: the first call fills it.
+// base, so it has no target here. consts caches file_consts of file: the first call fills it.
 branch_target :: proc(
 	file: ast.File,
 	offset: int,
@@ -319,7 +319,10 @@ branch_target :: proc(
 	target: parser.Build_Target,
 	ok: bool,
 ) {
-	if consts^ == nil do consts^ = file_constants(file)
+	if consts^ == nil {
+		parsed := file
+		consts^ = file_consts(&parsed, nil)
+	}
 	consts := consts.?
 	if branch_possible_on(file, offset, base, consts) do return {}, false
 	facts := facts_of(file.fullpath, build_tags(file))
@@ -345,37 +348,24 @@ Condition :: enum {
 // differ between builds.
 Gate_Consts :: map[string]^ast.Expr
 
-// How deep condition_on and its helpers follow one constant to the next, so a cycle such as `A :: B`, `B :: A`
-// ends.
+// The longest chain of constants that condition_on and its helpers follow, so a cycle such as `X :: !X` or `A :: B`,
+// `B :: A` ends as Unknown. It is short because a name that occurs twice in a value, as in `X :: X && X`, doubles
+// the work at each step.
 @(private = "file")
-CONST_DEPTH :: 8
+CONDITION_CONST_DEPTH :: 8
 
-// The constants of a file that branch_target reads, from file_constants.
+// The constants of a file that branch_target reads, from file_consts.
 Branch_Constants :: Maybe(Gate_Consts)
 
-// The value expression of each constant that file declares at file scope, by name. A constant of a `when` branch
-// is left out: its value can differ between targets.
-@(private = "file")
-file_constants :: proc(file: ast.File) -> Gate_Consts {
-	consts := make(Gate_Consts, context.temp_allocator)
-	for decl in file.decls {
-		value_decl, ok := decl.derived.(^ast.Value_Decl)
-		if !ok || value_decl.is_mutable || len(value_decl.names) != len(value_decl.values) do continue
-		for name, i in value_decl.names {
-			if ident, is_ident := name.derived.(^ast.Ident); is_ident do consts[ident.name] = value_decl.values[i]
-		}
-	}
-	return consts
-}
-
-// The value of a `when` condition on target, as far as branch_possible_on knows it. A name of plain reads its
-// value. A name of free, a boolean that no constant of plain fixes, reads its bit of mask, and any other name is
-// unknown. free comes before plain, since a `#config` constant of plain is free.
+// The value of a `when` condition on target, as far as branch_possible_on knows it. A name of consts reads its
+// value. A name of free, a boolean that no constant of consts fixes, reads its bit of mask, and any other name is
+// unknown. free comes before consts, since a `#config` constant of consts is free. Without free, a `#config` value
+// reads as unknown.
 @(private = "file")
 condition_on :: proc(
 	expr: ^ast.Expr,
 	target: parser.Build_Target,
-	plain: Gate_Consts = nil,
+	consts: Gate_Consts = nil,
 	free: []string = nil,
 	mask: u32 = 0,
 	depth := 0,
@@ -383,7 +373,7 @@ condition_on :: proc(
 	if expr == nil do return .Unknown
 	#partial switch e in expr.derived {
 	case ^ast.Paren_Expr:
-		return condition_on(e.expr, target, plain, free, mask, depth)
+		return condition_on(e.expr, target, consts, free, mask, depth)
 	case ^ast.Ident:
 		switch e.name {
 		case "true":
@@ -394,9 +384,9 @@ condition_on :: proc(
 		for name, i in free {
 			if name == e.name do return .True if mask & (1 << u32(i)) != 0 else .False
 		}
-		if value, is_plain := plain[e.name]; is_plain {
-			if value == nil || depth > CONST_DEPTH do return .Unknown
-			return condition_on(value, target, plain, free, mask, depth + 1)
+		if value, is_plain := consts[e.name]; is_plain {
+			if value == nil || depth > CONDITION_CONST_DEPTH do return .Unknown
+			return condition_on(value, target, consts, free, mask, depth + 1)
 		}
 	case ^ast.Unary_Expr:
 		if e.op.kind == .Not {
@@ -405,18 +395,18 @@ condition_on :: proc(
 				.False   = .True,
 				.True    = .False,
 			}
-			return negated[condition_on(e.expr, target, plain, free, mask, depth)]
+			return negated[condition_on(e.expr, target, consts, free, mask, depth)]
 		}
 	case ^ast.Binary_Expr:
 		#partial switch e.op.kind {
 		case .Cmp_And:
-			left := condition_on(e.left, target, plain, free, mask, depth)
-			right := condition_on(e.right, target, plain, free, mask, depth)
+			left := condition_on(e.left, target, consts, free, mask, depth)
+			right := condition_on(e.right, target, consts, free, mask, depth)
 			if left == .False || right == .False do return .False
 			if left == .True && right == .True do return .True
 		case .Cmp_Or:
-			left := condition_on(e.left, target, plain, free, mask, depth)
-			right := condition_on(e.right, target, plain, free, mask, depth)
+			left := condition_on(e.left, target, consts, free, mask, depth)
+			right := condition_on(e.right, target, consts, free, mask, depth)
 			if left == .True || right == .True do return .True
 			if left == .False && right == .False do return .False
 		case .Cmp_Eq, .Not_Eq:
@@ -442,7 +432,7 @@ MAX_FREE_NAMES :: 6
 // neither ODIN_OS nor ODIN_ARCH.
 @(private = "file")
 collect_free_names :: proc(expr: ^ast.Expr, plain: Gate_Consts, free: ^[dynamic]string, depth := 0) {
-	if expr == nil || depth > CONST_DEPTH do return
+	if expr == nil || depth > CONDITION_CONST_DEPTH do return
 	#partial switch e in expr.derived {
 	case ^ast.Paren_Expr:
 		collect_free_names(e.expr, plain, free, depth)
@@ -496,7 +486,7 @@ config_default :: proc(expr: ^ast.Expr) -> (fallback: ^ast.Expr, ok: bool) {
 // as ODIN_OS_STRING, in any kind of expression.
 @(private = "file")
 names_target :: proc(expr: ^ast.Expr, plain: Gate_Consts, depth := 0) -> bool {
-	if expr == nil || depth > CONST_DEPTH do return false
+	if expr == nil || depth > CONDITION_CONST_DEPTH do return false
 	Data :: struct {
 		plain: Gate_Consts,
 		depth: int,
@@ -805,7 +795,7 @@ collect_named_targets :: proc(
 	names: ^[dynamic]string,
 	depth := 0,
 ) {
-	if expr == nil || depth > CONST_DEPTH do return
+	if expr == nil || depth > CONDITION_CONST_DEPTH do return
 	#partial switch e in expr.derived {
 	case ^ast.Paren_Expr:
 		collect_named_targets(e.expr, plain, base, names, depth)
