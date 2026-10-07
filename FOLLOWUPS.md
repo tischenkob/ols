@@ -16,7 +16,6 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **`index_updates_preserve_and_invalidate_resolution_caches` failed once in four full runs.** "Malformed index updates must retain valid resolution caches". `document_storage` and `indexer` are thread-local, so the cause is unknown; loop the prebuilt test binary and log `invalidate_document_symbol_cache` calls (plan C1).
 - **A 3-allocation leak in `move_decl_actions_list_targets` showed once in a full run.** Likely cause: `tests/rols_lint_refresh_test.odin` and `tests/imports_test.odin` set the global `common.config.enable_diagnostics` while other tests run, so `add_diagnostics` (`src/server/diagnostics.odin`) allocates into shared maps with another test's allocator. Fix: pass the caller's config to `add_diagnostics` and reset the maps under the diagnostic mutex (plan C4, C5).
 - **The Windows path normalization in `check_carrier_variants` never ran on Windows.** A drive-letter case mismatch between `scan.texts` paths and `symbol.uri` may still drop sibling files in `declaration_variants` or `package_documents`; normalize both with `common.get_case_sensitive_path` and test the comparison helper with mixed-case inputs (plan C3).
-- **The word-index branch of `used_as_value_elsewhere` has no test.** Add a five-procedure test past `WORD_SCANS` (plan C7).
 - **Draft upstream Odin issue for the map-index loop, not filed.**
 
 ```
