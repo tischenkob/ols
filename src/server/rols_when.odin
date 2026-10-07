@@ -1,6 +1,7 @@
 package server
 
 import "core:odin/ast"
+import "core:odin/parser"
 import "core:strings"
 
 import "src:common"
@@ -40,19 +41,47 @@ lookup_active :: proc(name, pkg, current_file: string, fallback: ^Maybe(Symbol))
 
 // rols: the `fallback` that lookup_active set aside, or the declaration of a target that takes the `when` branches
 // around node when the target that builds the file does not, as for code under `when ODIN_OS == .Linux` on darwin.
-// The index keeps one fallback of a name, which can belong to another branch. Only a node of the open file is
-// placed, since that needs its AST.
+// The index keeps one fallback of a name, which can belong to another branch. A node of another file than the open
+// one, such as a field type of an indexed struct, is placed in that file as node_file parses it.
 branch_fallback :: proc(ast_context: ^AstContext, node: ast.Ident, fallback: Maybe(Symbol)) -> (Symbol, bool) {
 	symbol, ok := fallback.?
 	if !ok do return {}, false
-	if is_builtin_pkg(symbol.pkg) || node.pos.file != ast_context.file.fullpath do return symbol, true
-	target, has_target := branch_target(ast_context.file, node.pos.offset, file_build_target(node.pos.file))
+	if is_builtin_pkg(symbol.pkg) do return symbol, true
+	file, placed := node_file(ast_context, node)
+	if !placed do return symbol, true
+	target, has_target := branch_target(file^, node.pos.offset, file_build_target(node.pos.file))
 	if !has_target do return symbol, true
 	if built, found := lookup_on_target(node.name, symbol.pkg, node.pos.file, target);
 	   found && .Fallback not_in built.flags {
 		return built, true
 	}
 	return symbol, true
+}
+
+// The parsed file that holds node: the open file, else node's file, parsed once per ast_context from the text that
+// file_text reads. ok is false when that text does not hold node's name at node's offset, as after an edit that the
+// index has not read yet.
+@(private = "file")
+node_file :: proc(ast_context: ^AstContext, node: ast.Ident) -> (^ast.File, bool) {
+	if node.pos.file == ast_context.file.fullpath do return &ast_context.file, true
+	if node.pos.file == "" do return nil, false
+	if ast_context.branch_files == nil {
+		ast_context.branch_files = make(map[string]^ast.File, context.temp_allocator)
+	}
+	file, cached := ast_context.branch_files[node.pos.file]
+	if !cached {
+		if text, read := file_text(node.pos.file); read {
+			file = new_clone(ast.File{src = text, fullpath = node.pos.file}, context.temp_allocator)
+			p := parser.Parser {
+				flags = {.Optional_Semicolons},
+			}
+			if !parse_file(&p, file, context.temp_allocator) do file = nil
+		}
+		ast_context.branch_files[node.pos.file] = file
+	}
+	if file == nil do return nil, false
+	end := node.pos.offset + len(node.name)
+	return file, end <= len(file.src) && file.src[node.pos.offset:end] == node.name
 }
 
 // rols: drops the hidden fallbacks that `uri` declared, before a reindex or removal of that file.

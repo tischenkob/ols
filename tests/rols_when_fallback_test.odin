@@ -771,3 +771,74 @@ hover_in_inactive_arch_branch_of_excluded_file :: proc(t: ^testing.T) {
 	}
 	test.expect_hover(t, &source, "T.b: int")
 }
+
+// Code under `when IS_B`, where the open file declares `IS_B :: ODIN_OS == .B` through another constant, reaches
+// the declaration that B builds, in either order of the files that declare the fallbacks.
+@(test)
+hover_in_constant_branch_reaches_its_targets_fallback :: proc(t: ^testing.T) {
+	a, b := other_oses()
+	file_a := test.File {
+		"a.odin",
+		fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ a: int }}\n}}\n", a),
+	}
+	file_b := test.File {
+		"b.odin",
+		fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ b: int }}\n}}\n", b),
+	}
+	orders := [2][2]test.File{{file_a, file_b}, {file_b, file_a}}
+	for files in orders {
+		files := files
+		source := test.Source {
+			main  = fmt.tprintf(
+				"package test\n\nIS_B :: (IS_OTHER)\nIS_OTHER :: ODIN_OS == .%s\n\nwhen IS_B {{\n\tf :: proc(t: T) -> int {{\n\t\treturn t.b{{*}}\n\t}}\n}}\n",
+				b,
+			),
+			files = files[:],
+		}
+		test.expect_hover(t, &source, "T.b: int")
+	}
+}
+
+// A cycle of constants in a `when` condition leaves the branch unknown, so the first fallback stays.
+@(test)
+hover_in_cyclic_constant_branch_keeps_first_fallback :: proc(t: ^testing.T) {
+	a, _ := other_oses()
+	source := test.Source {
+		main  = "package test\n\nX :: Y || X\nY :: !X && X\n\nwhen X {\n\tf :: proc(t: T) -> int {\n\t\treturn t.a{*}\n\t}\n}\n",
+		files = {
+			{"a.odin", fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ a: int }}\n}}\n", a)},
+		},
+	}
+	test.expect_hover(t, &source, "T.a: int")
+}
+
+// A field type of a struct that another file declares under `when ODIN_OS == .B` reaches the declaration that B
+// builds, in either order of the files that declare the fallbacks.
+@(test)
+hover_field_type_of_other_files_branch_reaches_its_targets_fallback :: proc(t: ^testing.T) {
+	a, b := other_oses()
+	file_a := test.File {
+		"a.odin",
+		fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ a: int }}\n}}\n", a),
+	}
+	file_b := test.File {
+		"b.odin",
+		fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ b: int }}\n}}\n", b),
+	}
+	file_c := test.File {
+		"c.odin",
+		fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tS :: struct {{ t: T }}\n}}\n", b),
+	}
+	orders := [2][3]test.File{{file_a, file_b, file_c}, {file_b, file_a, file_c}}
+	for files in orders {
+		files := files
+		source := test.Source {
+			main  = fmt.tprintf(
+				"package test\n\nwhen ODIN_OS == .%s {{\n\tf :: proc(s: S) -> int {{\n\t\treturn s.t.b{{*}}\n\t}}\n}}\n",
+				b,
+			),
+			files = files[:],
+		}
+		test.expect_hover(t, &source, "T.b: int")
+	}
+}

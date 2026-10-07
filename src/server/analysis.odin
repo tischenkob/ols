@@ -64,6 +64,8 @@ AstContext :: struct {
 	// A caller that sets them must handle a SymbolAggregateValue callee: the tied members that differ there.
 	overload_arg_call:         ^ast.Call_Expr,
 	overload_arg_index:        int,
+	// rols: the files that branch_fallback parsed to place a name of another file, by full path, in the temp allocator
+	branch_files:              map[string]^ast.File,
 }
 
 SymbolResult :: struct {

@@ -299,7 +299,6 @@ file_target :: proc(fullpath: string) -> (parser.Build_Target, bool) {
 }
 
 // The text of an open document, else of an unsaved file, else of the file on disk, in temp memory.
-@(private = "file")
 file_text :: proc(fullpath: string) -> (string, bool) {
 	if document, ok := document_storage.documents[fullpath]; ok && document.text != nil {
 		return string(document.text[:document.used_text]), true
