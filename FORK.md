@@ -107,7 +107,7 @@ Small fixes:
 - `src/server/writer.odin`: framed write of one message.
 - `src/server/diagnostics.odin`: fork producers, a file-private mutex, and the merge that runs under the lock.
 - `src/server/document_symbols.odin`: a value declaration, a compound literal or `#config` included, is a Variable when mutable and a Constant otherwise; the literal's field map lives in temp memory.
-- `src/server/hover.odin`: struct layout and field offsets.
+- `src/server/hover.odin`: a variable of an imported package keeps its package, the `offset_of` member hovers as the field of T, and a group call that picks no member shows the group.
 - `src/server/inlay_hints.odin`: fork hint kinds, enclosing procedure tracking, and a resolve context built only when a kind needs it.
 - `src/server/check.odin`: never block the request thread, drain the pipe incrementally, reap killed processes, vet findings as warnings, and a `Syntax Error` that `-json-errors` types as a warning, such as a missing import path, as an error.
 - `src/server/documents.odin`: reject a change before touching the document, refresh lint diagnostics. `document_apply_changes` also relints each open file of the package whose `unused-parameter` verdict on another file the new text may turn (`relint_package_siblings` in `src/server/rols_lint_refresh.odin`), before the refresh pushes the diagnostics. `document_close` and `document_storage_shutdown` drop the recorded verdicts.
@@ -257,7 +257,6 @@ diff <(git show upstream/master:misc/ols.schema.json | grep -o '"enable_[a-z_]*"
 ### Other (6)
 
 - `enable_code_lens_references`
-- `enable_hover_struct_size`
 - `enable_organize_imports_on_save`
 - `enable_range_format`
 - `enable_selection_range`

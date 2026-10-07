@@ -207,9 +207,9 @@ Base :: struct { magic: int }
 Derived :: struct { using base: Base, extra: int }
 use :: proc(d: ^Derived) { d.mag{*}ic = 1 }
 `,
-		config = {enable_hover_struct_size = true},
+		config = {enable_hover_layout = true},
 	}
-	test.expect_hover(t, &source, "Derived.magic: int\n---\noffset: 0, size: 8")
+	test.expect_hover(t, &source, "Derived.magic: int // size=8, align=8")
 }
 
 // Corpus: reduced, see docs/corpus-validation.md.
