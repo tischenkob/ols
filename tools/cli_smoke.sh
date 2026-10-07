@@ -666,8 +666,9 @@ rm -rf "$dir/tr" "$dir/tr.orig"
 # W breaks the discarded call in the same file of another OS. An importer that has no file for the host is
 # checked on the host without a refusal, and for the other OS through its own file. odin dev-2026-10 refuses
 # a Windows target on another host, `odin check` included, without -windows-sdk-root, which only
-# `odin build` takes. There the gate refuses an edit that needs a Windows check and quotes odin, and the
-# cross-target cases use another OS that the host does not build.
+# `odin build` takes. There the gate skips the Windows check with a warning and writes the edit, `ols query
+# check` with a Windows target in checker_args fails with a hint, and the cross-target cases use another OS that
+# the host does not build.
 if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
 	mkdir -p "$dir/probe"
 	printf 'package probe\n' > "$dir/probe/p.odin"
@@ -676,11 +677,12 @@ if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
 	else
 		mkdir -p "$dir/wr"
 		printf 'package wr\n\nW :: proc() -> int {\n\treturn 1\n}\n\nuse_w :: proc() {\n\tW()\n}\n' > "$dir/wr/wr_windows.odin"
-		cp "$dir/wr/wr_windows.odin" "$dir/wr.orig"
-		expect_exit 1 windows-target-refused "$OLS" query attr add "$dir/wr/wr_windows.odin:3:1" require_results --apply
-		cmp -s "$dir/wr/wr_windows.odin" "$dir/wr.orig" || { echo "FAIL windows-target-refused wrote the file"; exit 1; }
-		expect windows-target-refusal-quotes-odin "^error: \`odin check\` printed output that is not its JSON error list: -windows-sdk-root:<path> must be used to target Windows (target windows_amd64)$" sh -c "\"$OLS\" query attr add \"$dir/wr/wr_windows.odin:3:1\" require_results --apply 2>&1 || true"
-		rm -rf "$dir/wr" "$dir/wr.orig"
+		expect windows-target-skipped "^warning: odin check cannot target Windows on this host: odin asks for -windows-sdk-root, which only odin build takes, so the gate does not check on target windows_amd64$" sh -c "\"$OLS\" query attr add \"$dir/wr/wr_windows.odin:3:1\" require_results --apply 2>&1"
+		grep -q '@(require_results)' "$dir/wr/wr_windows.odin" || { echo "FAIL windows-target-skipped did not write the edit"; exit 1; }
+		echo '{"checker_args": "-target:windows_amd64"}' > "$dir/ols.json"
+		expect windows-checker-args-hint "^error: .*-windows-sdk-root:<path> must be used to target Windows; odin check cannot target Windows on this host, so drop the Windows -target: from checker_args$" sh -c "\"$OLS\" query check \"$dir/wr\" 2>&1 || true"
+		echo '{}' > "$dir/ols.json"
+		rm -rf "$dir/wr"
 		if [[ "$(uname -s)" == Linux ]]; then
 			other_os=darwin other_enum=Darwin other_target=darwin_arm64
 		else
@@ -801,6 +803,17 @@ expect_exit 1 gate-refuses-a-check-that-crashes-twice "$OLS" query attr add "$di
 expect gate-crash-twice-message "^error: \`odin check\` did not run: it exited with an error and printed nothing" sh -c "\"$OLS\" query attr add \"$dir/sg.f\" private --apply 2>&1 || true"
 echo '{}' > "$dir/ols.json"
 rm -rf "$dir/sg" "$dir/sg.crashed" "$dir/sg-odin"
+# A fake odin refuses every Windows target as odin dev-2026-10 does on another host: the gate skips the Windows
+# check of checker_targets with a warning and keeps checking the other targets.
+mkdir "$dir/ws"
+printf 'package ws\n\nf :: proc() -> int {\n\treturn 1\n}\n' > "$dir/ws/ws.odin"
+printf '#!/usr/bin/env bash\nif [[ "$1" == check && " $* " == *" -target:windows_"* ]]; then echo "-windows-sdk-root:<path> must be used to target Windows"; exit 1; fi\nexec odin "$@"\n' > "$dir/ws-odin"
+chmod +x "$dir/ws-odin"
+echo '{"odin_command": "'"$dir/ws-odin"'", "checker_targets": ["windows_amd64", "linux_amd64"]}' > "$dir/ols.json"
+expect gate-skips-a-refused-windows-target "^attr add: 1 edit in 1 file written, 1 package checked, also on linux_amd64$" "$OLS" query attr add "$dir/ws.f" cold --apply
+expect gate-warns-of-a-refused-windows-target "^warning: odin check cannot target Windows on this host: .* does not check on target windows_amd64$" sh -c "\"$OLS\" query attr add \"$dir/ws.f\" private --apply 2>&1"
+echo '{}' > "$dir/ols.json"
+rm -rf "$dir/ws" "$dir/ws-odin"
 # odin can report a different error set on each run. A fake odin reports one error on the checks that its
 # argument counts: 1 is the check before the write, 2 the check after it, 3 the check of the original code
 # again, and 4 the second check after writing again. An error is new only when 3 misses it and 4 has it.

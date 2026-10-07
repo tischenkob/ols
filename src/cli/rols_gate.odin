@@ -308,6 +308,7 @@ gate_baseline :: proc(
 		server.check_run = {}
 		found, failure, ran := check_errors(checks[i:i + 1])
 		if !ran {
+			if skip_refused_windows_check(&c, reasons) do continue
 			return {}, failure, false
 		}
 		if c.target != "" || c.args != "" {
@@ -340,6 +341,26 @@ gate_baseline :: proc(
 		append(&all, ..found)
 	}
 	return all[:], "", true
+}
+
+// Whether gate_baseline skips c after its check failed because odin refused a Windows target: since odin
+// dev-2026-10, odin asks for -windows-sdk-root to target Windows on another host, and `odin check` rejects that
+// flag. A warning names c, and c keeps no directory, so the check after the write skips it too. The check on the
+// current target, whose Windows target comes from checker_args, is not skipped and refuses the edit.
+skip_refused_windows_check :: proc(c: ^Gate_Check, reasons: ^[dynamic]string) -> bool {
+	if !server.check_run.windows_sdk || (c.target == "" && c.args == "") {
+		return false
+	}
+	warn(
+		reasons,
+		fmt.tprintf(
+			"odin check cannot target Windows on this host: odin asks for -windows-sdk-root, which only odin build takes, so the gate does not check %s %s",
+			"with" if c.args != "" else "on target",
+			gate_label(c^),
+		),
+	)
+	c.dirs = {}
+	return true
 }
 
 // The first of files that lies outside the workspace.
