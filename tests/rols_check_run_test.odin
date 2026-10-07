@@ -104,7 +104,19 @@ editor_check_shows_a_failure_once :: proc(t: ^testing.T) {
 	testing.expectf(t, strings.contains(text, "-windows-sdk-root:<path> must be used"), "no odin text in %q", text)
 	testing.expectf(t, strings.contains(text, `"type": 1`), "not an error message: %q", text)
 
+	// A report consumes the run, so a later check that returns before it records a run, such as a save in
+	// a skipped package, does not report the failure again from freed temp memory.
+	testing.expect(t, !server.check_run.ran, "the report consumes the run")
+	testing.expect_value(t, server.check_run.failure, "")
 	clear(&captured)
+	server.report_check_failure(&writer, &shown)
+	testing.expect_value(t, len(captured), 0)
+
+	delete(shown, runtime.heap_allocator())
+	shown = ""
+	server.check_run = {
+		failure = failure,
+	}
 	server.report_check_failure(&writer, &shown)
 	testing.expect_value(t, len(captured), 0)
 
@@ -114,11 +126,17 @@ editor_check_shows_a_failure_once :: proc(t: ^testing.T) {
 	server.report_check_failure(&writer, &shown)
 	testing.expect_value(t, len(captured), 0)
 
-	server.check_run.failure = server.CHECK_TIMED_OUT
+	server.check_run = {
+		ran     = true,
+		failure = server.CHECK_TIMED_OUT,
+	}
 	server.report_check_failure(&writer, &shown)
 	testing.expect_value(t, len(captured), 0)
 
-	server.check_run.failure = failure
+	server.check_run = {
+		ran     = true,
+		failure = failure,
+	}
 	server.report_check_failure(&writer, &shown)
 	testing.expect(t, len(captured) > 0, "a failure after a clean check shows again")
 }
