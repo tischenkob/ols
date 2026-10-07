@@ -1135,6 +1135,29 @@ f :: proc() {
 			{},
 		},
 		{
+			"field read through a pointer to a field of an element",
+			`package test
+
+Inner :: struct {
+	x: int,
+}
+
+Item :: struct {
+	inner: Inner,
+	y:     int,
+}
+
+f :: proc() {
+	items: [4]Item
+	q := &items[0].inner
+	for &e in items {
+		e = Item{y = q.x * 2}
+	}
+}
+`,
+			{},
+		},
+		{
 			"call that reads a package-level array",
 			`package test
 
