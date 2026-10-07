@@ -300,7 +300,7 @@ list_fits: [dynamic]Tuple
 
 // rols: `rest` is the caller's pending stack, read from its top without a copy, so a fit check costs its width.
 // `modes` holds the modes that format already decided, so a paired `else` block follows its broken then-block.
-fits :: proc(width: int, list: ^[dynamic]Tuple, rest: []Tuple, modes: ^map[string]Document_Group_Mode = nil) -> bool {
+fits :: proc(width: int, list: ^[dynamic]Tuple, rest: []Tuple, modes: map[string]Document_Group_Mode) -> bool {
 	assert(list != nil)
 
 	rest_index := len(rest)
@@ -672,7 +672,7 @@ format :: proc(width: int, list: ^[dynamic]Tuple, builder: ^strings.Builder, p: 
 						alignment = data.alignment,
 					},
 				)
-			} else if fits(width - consumed, &list_fits, list[:], &p.group_modes) &&
+			} else if fits(width - consumed, &list_fits, list[:], p.group_modes) &&
 			   v.mode != .Break &&
 			   v.mode != .Fit {
 				append(
