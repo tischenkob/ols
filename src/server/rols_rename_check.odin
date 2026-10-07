@@ -379,7 +379,7 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 			for type_name in type_names {
 				check_embedders(&scan, target, type_name.document, type_name.ident)
 			}
-			check_carrier_variants(&scan, target, members_at[:], type_names[:])
+			check_carrier_variants(&scan, target, decl_document.package_name)
 			// A `using` of a value whose type the file never names, such as a call result. Odin accepts a `using`
 			// statement only in a file with `#+feature using-stmt`, and a `using v := value` declaration anywhere.
 			for file in scan.texts {
@@ -497,35 +497,27 @@ Rename_Site_Type :: struct {
 	ident:    ^ast.Ident,
 }
 
-// Appends a cause for each declaration in scan.decls, a type or alias that carries the renamed field, with a
-// platform variant that the rename leaves unchanged: one that neither declares a renamed member of members_at
-// nor carries the field itself. Such a declaration can live in another package than the field's type. The
-// variants of the types that declare the field, named by owners, are those that field_variants judged.
+// Appends a cause for each declaration in scan.decls of another package than the renamed field, a type or alias
+// that carries the field, with a platform variant that does not carry it itself and so keeps the old name.
+// field_variants judges the variants in field_pkg, the package that declares the field.
 @(private = "file")
-check_carrier_variants :: proc(
-	scan: ^Embed_Scan,
-	target: ^Rename_Target,
-	members_at: []Rename_Site,
-	owners: []Rename_Site_Type,
-) {
-	decls: for decl in scan.decls {
-		for owner in owners {
-			if strings.equal_fold(decl.uri, owner.document.uri.uri) &&
-			   decl.range == common.get_token_range(owner.ident^, owner.document.ast.src) {
-				continue decls
-			}
-		}
+check_carrier_variants :: proc(scan: ^Embed_Scan, target: ^Rename_Target, field_pkg: string) {
+	// scan.texts holds every workspace text, so the variant search reads no file again. target.h keeps its
+	// documents map, which a copy of it could leave stale on growth.
+	files := target.h.files
+	target.h.files = scan.texts
+	defer target.h.files = files
+	reported := make([dynamic]Symbol, context.temp_allocator)
+	for decl in scan.decls {
+		if decl.pkg == field_pkg do continue
 		next: for variant in declaration_variants(&target.h, decl) {
 			for other in scan.decls {
 				if same_symbol(other, variant.symbol) do continue next
 			}
-			for site in members_at {
-				if site.document == variant.document &&
-				   variant.decl.pos.offset <= site.offset &&
-				   site.offset < variant.decl.end.offset {
-					continue next
-				}
+			for other in reported {
+				if same_symbol(other, variant.symbol) do continue next
 			}
+			append(&reported, variant.symbol)
 			append(
 				scan.out,
 				fmt.tprintf(
@@ -587,14 +579,17 @@ Embed_Scan :: struct {
 // other structs, and each procedure with a `using` parameter of such a type, where scan.new_name already
 // names another member or declaration, or a name in the scope that the field would then capture. Only the
 // files of scan.texts that name a type and contain the text `using` anywhere, or declare an alias of it, are
-// searched.
+// searched. type_name is the name in the declaration of the type or alias.
 @(private = "file")
 check_embedders :: proc(scan: ^Embed_Scan, target: ^Rename_Target, document: ^Document, type_name: ^ast.Ident) {
 	out, new_name := scan.out, scan.new_name
 	at := common.get_token_range(type_name^, document.ast.src)
-	type_symbol, resolved := resolve_name_at(document, at.start, type_name.pos.offset, type_name.name)
-	if !resolved {
-		return
+	// The declaration itself: resolving its name in an inactive `when` branch would yield the active variant.
+	type_symbol := Symbol {
+		uri   = document.uri.uri,
+		range = at,
+		pkg   = document.package_name,
+		name  = type_name.name,
 	}
 	// The type itself, as the type of a value resolves, not the identifier that declares it.
 	ast_context_value: AstContext
@@ -829,7 +824,8 @@ check_using_statements :: proc(scan: ^Embed_Scan) {
 @(private = "file")
 check_using_in_block :: proc(scan: ^Embed_Scan, block_stmts: []^ast.Stmt, block: [2]int) {
 	stmts := make([dynamic]^ast.Stmt, context.temp_allocator)
-	flatten_when_bodies(scan, &stmts, block_stmts)
+	whens := make([dynamic]^ast.When_Stmt, context.temp_allocator)
+	flatten_when_bodies(scan, &stmts, &whens, block_stmts)
 	for stmt, i in stmts {
 		if stmt == nil do continue
 		#partial switch s in stmt.derived {
@@ -837,22 +833,27 @@ check_using_in_block :: proc(scan: ^Embed_Scan, block_stmts: []^ast.Stmt, block:
 			for expr in s.list {
 				via, _ := expr.derived.(^ast.Ident)
 				text := scan.site.ast.src[expr.pos.offset:expr.end.offset]
-				check_using_value(scan, stmts[:], i, expr, text, via, block)
+				check_using_value(scan, stmts[:], whens[:], i, expr, text, via, block)
 			}
 		case ^ast.Value_Decl:
 			// `using v: T` brings in the fields of T, and `using v := value` those of the value's type.
 			if !s.is_using || len(s.names) == 0 do continue
 			via := s.names[0].derived.(^ast.Ident) or_continue
 			expr := strip_parens_and_pointers(s.type) if s.type != nil else (s.values[0] if len(s.values) > 0 else nil)
-			check_using_value(scan, stmts[:], i, expr, via.name, via, block)
+			check_using_value(scan, stmts[:], whens[:], i, expr, via.name, via, block)
 		}
 	}
 }
 
-// Appends stmts to flat with the statements of each `when` branch in place of the `when`, and records each
-// branch body in scan.when_bodies. The else of a `when` is a block or another `when`.
+// Appends stmts to flat with the statements of each `when` branch in place of the `when`, records each branch
+// body in scan.when_bodies and each `when` in whens. The else of a `when` is a block or another `when`.
 @(private = "file")
-flatten_when_bodies :: proc(scan: ^Embed_Scan, flat: ^[dynamic]^ast.Stmt, stmts: []^ast.Stmt) {
+flatten_when_bodies :: proc(
+	scan: ^Embed_Scan,
+	flat: ^[dynamic]^ast.Stmt,
+	whens: ^[dynamic]^ast.When_Stmt,
+	stmts: []^ast.Stmt,
+) {
 	for stmt in stmts {
 		when_stmt: ^ast.When_Stmt
 		if stmt != nil {
@@ -862,26 +863,43 @@ flatten_when_bodies :: proc(scan: ^Embed_Scan, flat: ^[dynamic]^ast.Stmt, stmts:
 			append(flat, stmt)
 			continue
 		}
+		append(whens, when_stmt)
 		for branch in ([]^ast.Stmt{when_stmt.body, when_stmt.else_stmt}) {
 			if branch == nil {
 				continue
 			}
 			if body, is_block := branch.derived.(^ast.Block_Stmt); is_block {
 				scan.when_bodies[body] = {}
-				flatten_when_bodies(scan, flat, body.stmts)
+				flatten_when_bodies(scan, flat, whens, body.stmts)
 			} else {
-				flatten_when_bodies(scan, flat, {branch})
+				flatten_when_bodies(scan, flat, whens, {branch})
 			}
 		}
 	}
 }
 
+// Whether offsets a and b lie in different branches of one of whens. No target builds both branches of a `when`.
+@(private = "file")
+in_other_branch :: proc(whens: []^ast.When_Stmt, a, b: int) -> bool {
+	inside :: proc(stmt: ^ast.Stmt, offset: int) -> bool {
+		return stmt != nil && stmt.pos.offset <= offset && offset < stmt.end.offset
+	}
+	for w in whens {
+		if (inside(w.body, a) && inside(w.else_stmt, b)) || (inside(w.body, b) && inside(w.else_stmt, a)) {
+			return true
+		}
+	}
+	return false
+}
+
 // Appends the causes for stmts[i], a `using` of expr, spelled text, in a block that spans the offsets of block,
 // when the type of expr carries the renamed field. via is the name that the `using` declares or names, or nil.
+// whens are the `when` statements whose branches stmts holds; a name in another branch than the `using` is apart.
 @(private = "file")
 check_using_value :: proc(
 	scan: ^Embed_Scan,
 	stmts: []^ast.Stmt,
+	whens: []^ast.When_Stmt,
 	i: int,
 	expr: ^ast.Expr,
 	text: string,
@@ -901,7 +919,9 @@ check_using_value :: proc(
 	for name in later {
 		if name.through_using do append(&names, name)
 	}
+	using_at := stmts[i].pos.offset
 	for declared in names {
+		if in_other_branch(whens, using_at, declared.ident.pos.offset) do continue
 		// The members that this `using` brings in are the old ones, which the member check covers.
 		if declared.name == scan.new_name && !(declared.through_using && declared.ident == via) {
 			append(
@@ -915,7 +935,7 @@ check_using_value :: proc(
 			)
 		}
 	}
-	field_captures(scan, scan.site, text, {stmts[i].end.offset, block[1]}, block, block[0])
+	field_captures(scan, scan.site, text, {stmts[i].end.offset, block[1]}, block, block[0], whens, using_at)
 }
 
 // Whether the value of expr has a type that carries the renamed field.
@@ -943,9 +963,18 @@ carries_field :: proc(scan: ^Embed_Scan, expr: ^ast.Expr) -> bool {
 
 // Appends a cause for each use of new_name in the offsets of uses that means a declaration outside the
 // offsets of scope, since the field that `using via` brings in would capture it after the rename. block is
-// the offset of the block whose scope `using via` enters; a procedure's parameters share its body's scope.
+// the offset of the block whose scope `using via` enters; a procedure's parameters share its body's scope. A use
+// in another branch of one of whens than the `using` at offset using_at is skipped.
 @(private = "file")
-field_captures :: proc(scan: ^Embed_Scan, site: ^Document, via: string, uses, scope: [2]int, block: int) {
+field_captures :: proc(
+	scan: ^Embed_Scan,
+	site: ^Document,
+	via: string,
+	uses, scope: [2]int,
+	block: int,
+	whens: []^ast.When_Stmt = {},
+	using_at := 0,
+) {
 	out, new_name := scan.out, scan.new_name
 	hits, cached := scan.resolved[site]
 	if !cached {
@@ -960,6 +989,9 @@ field_captures :: proc(scan: ^Embed_Scan, site: ^Document, via: string, uses, sc
 		}
 		ident := hit.node.derived.(^ast.Ident) or_continue
 		if ident.name != new_name || ident.pos.offset < uses[0] || ident.pos.offset >= uses[1] {
+			continue
+		}
+		if in_other_branch(whens, using_at, ident.pos.offset) {
 			continue
 		}
 		// A procedure literal inside the scope cannot see the `using` value.
