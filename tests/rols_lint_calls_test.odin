@@ -647,7 +647,7 @@ f :: proc($U: typeid, x: int) {
 one :: proc(a: int) {}
 
 f :: proc(v: $T, x: int) {
-	g := proc(w: $W, y: int) {
+	g :: proc(w: $W, y: int) {
 		one(W(y), 1)
 	}
 }

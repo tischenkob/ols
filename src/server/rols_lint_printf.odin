@@ -289,7 +289,7 @@ callee_results :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (int, bool) {
 }
 
 // expr resolved with the locals visible at it, or with the package globals when that fails. The whole-file resolve
-// records the callees of the arguments of active code. Other callees resolve here with a context that shares the
+// records the callees of the arguments of the file. Other callees resolve here with a context that shares the
 // walker's globals, since collecting them walks every declaration of the file, which for each argument made a lint
 // run quadratic.
 @(private = "file")
