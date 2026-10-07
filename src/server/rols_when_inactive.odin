@@ -33,13 +33,13 @@ When_Package :: struct {
 // evaluate as the editor evaluates them: ODIN_OS and ODIN_ARCH for the target of set_when_target, else the profile
 // os and arch, else the host, the builtins that set_when_target seeds, `#config(NAME, default)` from the `-define:`
 // values of set_when_target, then the profile defines, then the default, the constants of the file, or of every
-// file of pkg when given, and a selector alias.NAME to a constant outside any `when` of the
-// package that the file imports as alias, found through the collections of set_when_target or relative to the
-// file. Only `!`, comparisons, `&&` and `||` fold; other operators count as unknown. The evaluator reads a name it
-// does not know as false, so a chain counts only up to its first condition with such a name, such as an unseeded
-// ODIN_DEBUG or ODIN_TEST or a name that the other package does not declare: that branch and the ones after it are
-// not reported. A define reaches only `#config`, as odin passes it, not a bare name as the editor's profile defines
-// do. Allocates in context.allocator.
+// file of pkg when given, and a selector alias.NAME to a constant outside any `when` of the package that the file
+// imports as alias, found through the collections of set_when_target or relative to the file. Only `!`,
+// comparisons, `&&` and `||` fold; other operators count as unknown. The evaluator reads a name it does not know as
+// false, so a chain counts only up to its first condition with such a name, such as an unseeded ODIN_DEBUG or
+// ODIN_TEST or a name that the other package does not declare: that branch and the ones after it are not reported.
+// A define reaches only `#config`, as odin passes it, not a bare name as the editor's profile defines do. Allocates
+// in context.allocator.
 inactive_when_decls :: proc(file: ^ast.File, pkg: ^When_Package = nil) -> map[^ast.Value_Decl]struct{} {
 	inactive := make(map[^ast.Value_Decl]struct{})
 	// The walk below reaches `when` statements at file scope and in foreign blocks.
@@ -460,8 +460,9 @@ When_Kind :: enum {
 // The kind of value that the when evaluator folds expr to, Unknown when it cannot fold it. A condition is known
 // when its kind is Bool. The names it knows are ODIN_OS, ODIN_ARCH, the builtins that set_when_target seeds, the
 // constants of plain whose kinds it knows in turn, and a selector that add_selector_consts added to plain. A
-// `#config` call takes the kind of its `-define:` value, else its profile define, else its default. Only `!` of a bool, `&&` and `||` of bools, `==` and `!=` of the same kind and
-// integer orderings fold, as in resolve_when_expr.
+// `#config` call takes the kind of its `-define:` value, else its profile define, else its default.
+// Only `!` of a bool, `&&` and `||` of bools, `==` and `!=` of the same kind and integer orderings fold, as in
+// resolve_when_expr.
 @(private = "file")
 when_kind :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth: int) -> When_Kind {
 	if expr == nil || depth > 8 do return .Unknown
