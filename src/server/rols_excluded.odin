@@ -140,6 +140,30 @@ fuzzy_search_other_target :: proc(
 @(private = "file")
 other_target_package :: proc(pkg, current_file: string) -> (symbols: SymbolPackage, ok: bool) {
 	target := file_target(current_file) or_return
+	return target_package(pkg, target)
+}
+
+// The symbol `name` of `pkg` that target declares, for a lookup from code of current_file under a `when` branch
+// that target takes and the host does not. found is false for a file that the host does not build, whose lookups
+// already reach its own target.
+lookup_on_target :: proc(
+	name, pkg, current_file: string,
+	target: parser.Build_Target,
+) -> (
+	symbol: Symbol,
+	found: bool,
+) {
+	if _, excluded := file_target(current_file); excluded do return {}, false
+	symbols := target_package(pkg, target) or_return
+	symbol, found = symbols.symbols[name]
+	current_pkg, current_file_uri := lookup_file_info(current_file)
+	if found && should_skip_private_symbol(symbol, current_pkg, current_file_uri) do return {}, false
+	return
+}
+
+// The package pkg of target. ok is false when target builds no file of pkg that declares something.
+@(private = "file")
+target_package :: proc(pkg: string, target: parser.Build_Target) -> (symbols: SymbolPackage, ok: bool) {
 	index := target_index(target)
 	if pkg not_in index.built do build_target_package(index, target, pkg)
 	symbols, ok = index.collection.packages[pkg]

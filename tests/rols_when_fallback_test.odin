@@ -4,6 +4,7 @@ package tests
 import "core:fmt"
 import "core:testing"
 
+import "src:common"
 import test "src:testing"
 
 // Code in an inactive `when` block resolves names that another file declares only in an inactive block.
@@ -529,4 +530,111 @@ hover_from_excluded_file_into_package_its_target_does_not_build :: proc(t: ^test
 		collections = {"core" = "test"},
 	}
 	test.expect_hover(t, &source, "errs.err :: proc() -> int")
+}
+
+// Two OS names other than the host's, as `when ODIN_OS == .Name` spells them.
+@(private = "file")
+other_oses :: proc() -> (a, b: string) {
+	when ODIN_OS == .Windows {
+		return "Darwin", "Linux"
+	} else when ODIN_OS == .Linux {
+		return "Windows", "Darwin"
+	} else {
+		return "Windows", "Linux"
+	}
+}
+
+// Code under `when ODIN_OS == .B` reaches the declaration that B builds, though the index keeps the fallback of
+// another OS from the file that it read first.
+@(test)
+hover_in_inactive_branch_reaches_its_targets_fallback :: proc(t: ^testing.T) {
+	a, b := other_oses()
+	file_a := test.File {
+		"a.odin",
+		fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ a: int }}\n}}\n", a),
+	}
+	file_b := test.File {
+		"b.odin",
+		fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ b: int }}\n}}\n", b),
+	}
+	orders := [2][2]test.File{{file_a, file_b}, {file_b, file_a}}
+	for files in orders {
+		files := files
+		source := test.Source {
+			main  = fmt.tprintf(
+				"package test\n\nwhen ODIN_OS == .%s {{\n\tf :: proc(t: T) -> int {{\n\t\treturn t.b{{*}}\n\t}}\n}}\n",
+				b,
+			),
+			files = files[:],
+		}
+		test.expect_hover(t, &source, "T.b: int")
+	}
+}
+
+// Go to definition from code under `when ODIN_OS == .B` lands on the declaration that B builds.
+@(test)
+definition_in_inactive_branch_reaches_its_targets_fallback :: proc(t: ^testing.T) {
+	a, b := other_oses()
+	source := test.Source {
+		main  = fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tf :: proc(t: T{{*}}) {{}}\n}}\n", b),
+		files = {
+			{"a.odin", fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ a: int }}\n}}\n", a)},
+			{
+				"b.odin",
+				fmt.tprintf("package test\n\n// b\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ b: int }}\n}}\n", b),
+			},
+		},
+	}
+	location := common.Location {
+		range = {start = {line = 4, character = 1}, end = {line = 4, character = 2}},
+	}
+	test.expect_definition_locations(t, &source, {location})
+}
+
+// Of two fallbacks of one name in one file, code under `when ODIN_OS == .B` reaches the one of B's branch.
+@(test)
+hover_in_inactive_branch_reaches_same_file_fallback :: proc(t: ^testing.T) {
+	a, b := other_oses()
+	source := test.Source {
+		main  = fmt.tprintf(
+			"package test\n\nwhen ODIN_OS == .%s {{\n\tf :: proc(t: T) -> int {{\n\t\treturn t.b{{*}}\n\t}}\n}}\n",
+			b,
+		),
+		files = {
+			{
+				"c.odin",
+				fmt.tprintf(
+					"package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ a: int }}\n}} else when ODIN_OS == .%s {{\n\tT :: struct {{ b: int }}\n}}\n",
+					a,
+					b,
+				),
+			},
+		},
+	}
+	test.expect_hover(t, &source, "T.b: int")
+}
+
+// Code under a branch that the host takes keeps the host's declaration over the fallbacks of other OSes.
+@(test)
+hover_in_host_branch_keeps_host_declaration :: proc(t: ^testing.T) {
+	a, b := other_oses()
+	host := fmt.tprint(ODIN_OS)
+	source := test.Source {
+		main  = fmt.tprintf(
+			"package test\n\nwhen ODIN_OS == .%s {{\n\tf :: proc(t: T) -> int {{\n\t\treturn t.h{{*}}\n\t}}\n}}\n",
+			host,
+		),
+		files = {
+			{"a.odin", fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ a: int }}\n}}\n", a)},
+			{
+				"b.odin",
+				fmt.tprintf(
+					"package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ b: int }}\n}} else when ODIN_OS == .%s {{\n\tT :: struct {{ h: int }}\n}}\n",
+					b,
+					host,
+				),
+			},
+		},
+	}
+	test.expect_hover(t, &source, "T.h: int")
 }

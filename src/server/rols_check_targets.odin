@@ -281,6 +281,26 @@ branch_possible_on :: proc(file: ast.File, offset: int, target: parser.Build_Tar
 	return true
 }
 
+// The first of GATE_TARGET_CANDIDATES that builds file and can take every `when` branch around offset, when base
+// cannot take one of them. ok is false when base can take them all or no candidate can. A branch whose condition
+// branch_possible_on cannot read, such as `when FLAG`, is possible on base, so it has no target here.
+branch_target :: proc(
+	file: ast.File,
+	offset: int,
+	base: parser.Build_Target,
+) -> (
+	target: parser.Build_Target,
+	ok: bool,
+) {
+	if branch_possible_on(file, offset, base) do return {}, false
+	facts := facts_of(file.fullpath, build_tags(file))
+	for candidate in GATE_TARGET_CANDIDATES {
+		parsed, _ := parse_target(candidate)
+		if facts_build_on(facts, parsed) && branch_possible_on(file, offset, parsed) do return parsed, true
+	}
+	return {}, false
+}
+
 @(private = "file")
 stmt_possible_on :: proc(stmt: ^ast.Stmt, offset: int, target: parser.Build_Target) -> bool {
 	if stmt == nil || offset < stmt.pos.offset || offset >= stmt.end.offset do return true
