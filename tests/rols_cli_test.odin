@@ -374,6 +374,31 @@ when #config(LEVEL, 0) > 1 {
 	testing.expect_value(t, len(server.when_defines), 0)
 }
 
+// A `-define:` reaches only `#config`, as in odin, so a package constant of the same name keeps its own value.
+@(test)
+cli_tests_read_a_define_only_through_config :: proc(t: ^testing.T) {
+	text := `package p
+
+import "core:testing"
+
+DEBUG :: #config(DEBUG, false) || ODIN_DEBUG
+
+when DEBUG {
+	@(test)
+	t_debug :: proc(t: ^testing.T) {}
+}
+`
+	dir, ok := fixture(t, {{"a.odin", text}})
+	defer os.remove_all(dir)
+	if !ok do return
+
+	config: common.Config
+	config.checker_args = "-define:DEBUG=false -debug"
+	names := make([dynamic]string, context.temp_allocator)
+	for test in server.find_tests(dir, &config) do append(&names, test.name)
+	testing.expectf(t, slice.equal(names[:], []string{"t_debug"}), "got %v", names)
+}
+
 // A directory named on the command line that the filter skips keeps its subdirectories.
 @(test)
 cli_package_dirs_below_a_filtered_start_keep_their_subdirectories :: proc(t: ^testing.T) {

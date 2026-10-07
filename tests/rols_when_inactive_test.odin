@@ -2,6 +2,7 @@ package tests
 
 import "core:odin/ast"
 import "core:os"
+import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:testing"
@@ -189,4 +190,21 @@ when_inactive_reads_constants_of_sibling_files :: proc(t: ^testing.T) {
 	}
 	got := names(server.inactive_when_decls(&parsed, &pkg))
 	testing.expectf(t, slice.equal(got, []string{"off_b", "on_c"}), "got %v, expected [off_b, on_c]", got)
+}
+
+// Only a selector that a `when` condition reaches, directly or through a constant, reads the imported package, so
+// a constant such as `HANDLE :: win.HANDLE` costs no parse of its package.
+@(test)
+when_inactive_reads_only_the_packages_a_condition_reaches :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	text := "package app\n\nimport cfg \"../cfg\"\nimport win \"../win\"\n\nHANDLE :: win.HANDLE\nON :: cfg.ON\n\nwhen ON {\n\ta :: 1\n}\n"
+	parsed, ok := server.parse_syntax("/rols_no_such_dir/app/a.odin", text)
+	if !testing.expect(t, ok) do return
+	pkg := server.When_Package {
+		allocator = context.temp_allocator,
+	}
+	server.inactive_when_decls(&parsed, &pkg)
+	dirs := make([dynamic]string)
+	for dir in pkg.imported do append(&dirs, filepath.base(dir))
+	testing.expectf(t, slice.equal(dirs[:], []string{"cfg"}), "got %v", dirs)
 }
