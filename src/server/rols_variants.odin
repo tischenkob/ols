@@ -55,25 +55,8 @@ declaration_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> []Decl_Varia
 	target_branch := when_branch_of(home.ast, target.pos.offset)
 	target_always := target_branch == nil && builds_on_host(home)
 
-	paths := make([dynamic]string, context.temp_allocator)
-	append(&paths, home.fullpath)
-	if !target_private {
-		for sibling in package_siblings(home, h.files) {
-			slashed, _ := filepath.replace_separators(sibling, '/', context.temp_allocator)
-			// Most siblings never mention the name, so they are not parsed.
-			if file_mentions(h, slashed, target.name) do append(&paths, slashed)
-		}
-	}
-
 	variants := make([dynamic]Decl_Variant, context.temp_allocator)
-	for fullpath in paths {
-		document := hierarchy_document(h, common.create_uri(fullpath, context.temp_allocator).uri)
-		if document == nil || document.ast.pkg_name != home.ast.pkg_name {
-			continue
-		}
-		if parser.parse_file_tags(document.ast, context.temp_allocator).ignore {
-			continue
-		}
+	for document in package_documents(h, home, target.name, target_private) {
 		same_file := document.fullpath == home.fullpath
 		always := builds_on_host(document)
 		src := string(document.text[:document.used_text])
@@ -100,6 +83,33 @@ declaration_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> []Decl_Varia
 	return variants[:]
 }
 
+// home and, unless private, the other files of its package that mention name, read through h. A file of another
+// package or with `#+build ignore` is left out.
+@(private = "file")
+package_documents :: proc(h: ^Call_Hierarchy, home: ^Document, name: string, private: bool) -> []^Document {
+	paths := make([dynamic]string, context.temp_allocator)
+	append(&paths, home.fullpath)
+	if !private {
+		for sibling in package_siblings(home, h.files) {
+			slashed, _ := filepath.replace_separators(sibling, '/', context.temp_allocator)
+			// Most siblings never mention the name, so they are not parsed.
+			if file_mentions(h, slashed, name) do append(&paths, slashed)
+		}
+	}
+	documents := make([dynamic]^Document, context.temp_allocator)
+	for fullpath in paths {
+		document := hierarchy_document(h, common.create_uri(fullpath, context.temp_allocator).uri)
+		if document == nil || document.ast.pkg_name != home.ast.pkg_name {
+			continue
+		}
+		if parser.parse_file_tags(document.ast, context.temp_allocator).ignore {
+			continue
+		}
+		append(&documents, document)
+	}
+	return documents[:]
+}
+
 // The variants of decl, a top-level declaration of document, read through h, which then holds document.
 top_level_variants :: proc(h: ^Call_Hierarchy, document: ^Document, decl: ^ast.Value_Decl) -> []Decl_Variant {
 	h.documents[document.uri.uri] = document
@@ -120,11 +130,19 @@ top_level_variants :: proc(h: ^Call_Hierarchy, document: ^Document, decl: ^ast.V
 // variant that is no struct, enum or bit_field type, such as an alias `S :: S_Windows`, or a struct without the
 // member that may reach it through a `using` field. An alias or `using` of a type that reaches the member is no
 // problem. fields then holds the members found.
-field_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> (fields: []Symbol, problem: string) {
-	home := hierarchy_document(h, symbol.uri)
+field_variants :: proc(caller: ^Call_Hierarchy, symbol: Symbol) -> (fields: []Symbol, problem: string) {
+	home := hierarchy_document(caller, symbol.uri)
 	if home == nil {
 		return
 	}
+	// Without files, every lookup below would read the package directory again, so it is read once here. caller
+	// keeps its files, and gets back the documents parsed meanwhile.
+	local := caller^
+	defer caller.documents = local.documents
+	if len(local.files) == 0 {
+		local.files, _ = read_package_files(filepath.dir(home.fullpath))
+	}
+	h := &local
 	home_src := string(home.text[:home.used_text])
 	for decl in top_level_value_decls(home.ast) {
 		for value, i in decl.values {
@@ -171,8 +189,7 @@ field_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> (fields: []Symbol,
 	return
 }
 
-// Adds the member named member_name of variant, a platform variant of the type named type_name, to found, unless
-// found holds it. Sets problem when the rename cannot reach the member there. covered holds the names of the types
+// Adds the member named member_name of variant, a platform variant of the type named type_name, to found. Sets problem when the rename cannot reach the member there. covered holds the names of the types
 // that reach the member.
 @(private = "file")
 add_member_variant :: proc(
@@ -200,18 +217,15 @@ add_member_variant :: proc(
 			continue
 		}
 		own := false
-		next: for other in others {
+		for other in others {
 			if other.name != member_name do continue
 			own = true
 			field := symbol
 			field.uri = variant.symbol.uri
 			field.range = common.get_token_range(other^, src)
-			for known in found {
-				if known.uri == field.uri && known.range == field.range do continue next
-			}
 			append(found, field)
 		}
-		if !own && has_using_field(variant_value, covered) {
+		if !own && may_reach_by_using(variant_value, covered) {
 			problem^ = fmt.tprintf(
 				"the platform variant %s may reach `%s` through a `using` field, which the rename cannot change",
 				at,
@@ -226,23 +240,8 @@ add_member_variant :: proc(
 @(private = "file")
 type_users :: proc(h: ^Call_Hierarchy, reaching: Decl_Variant) -> []Decl_Variant {
 	home := reaching.document
-	paths := make([dynamic]string, context.temp_allocator)
-	append(&paths, home.fullpath)
-	if !file_private(home, reaching.decl) {
-		for sibling in package_siblings(home, h.files) {
-			slashed, _ := filepath.replace_separators(sibling, '/', context.temp_allocator)
-			if file_mentions(h, slashed, reaching.symbol.name) do append(&paths, slashed)
-		}
-	}
 	users := make([dynamic]Decl_Variant, context.temp_allocator)
-	for fullpath in paths {
-		document := hierarchy_document(h, common.create_uri(fullpath, context.temp_allocator).uri)
-		if document == nil || document.ast.pkg_name != home.ast.pkg_name {
-			continue
-		}
-		if parser.parse_file_tags(document.ast, context.temp_allocator).ignore {
-			continue
-		}
+	for document in package_documents(h, home, reaching.symbol.name, file_private(home, reaching.decl)) {
 		src := string(document.text[:document.used_text])
 		for decl in top_level_value_decls(document.ast) {
 			for value, i in decl.values {
@@ -263,7 +262,7 @@ type_users :: proc(h: ^Call_Hierarchy, reaching: Decl_Variant) -> []Decl_Variant
 }
 
 // The identifier that type_expr names after its `distinct`, parentheses and pointers, nil when there is none.
-@(private = "file")
+@(private = "package")
 named_type :: proc(type_expr: ^ast.Expr) -> ^ast.Ident {
 	expr := strip_parens_and_pointers(type_expr)
 	for expr != nil {
@@ -276,7 +275,7 @@ named_type :: proc(type_expr: ^ast.Expr) -> ^ast.Ident {
 }
 
 // Whether type_expr, a struct type or a distinct one, has a `using` field of the type named name.
-@(private = "file")
+@(private = "package")
 embeds :: proc(type_expr: ^ast.Expr, name: string) -> bool {
 	struct_type := struct_of(type_expr)
 	if struct_type == nil || struct_type.fields == nil do return false
@@ -287,17 +286,19 @@ embeds :: proc(type_expr: ^ast.Expr, name: string) -> bool {
 	return false
 }
 
-// Whether type_expr, a struct type or a distinct one, has a `using` field whose type is none of the types that
-// covered names.
+// Whether type_expr, a struct type or a distinct one, has a `using` field and none of its `using` fields has a type
+// that covered names. Such a field brings in the member, and the rename reaches it there.
 @(private = "file")
-has_using_field :: proc(type_expr: ^ast.Expr, covered: map[string]struct{}) -> bool {
+may_reach_by_using :: proc(type_expr: ^ast.Expr, covered: map[string]struct{}) -> bool {
 	struct_type := struct_of(type_expr)
 	if struct_type == nil || struct_type.fields == nil do return false
+	has_using := false
 	for field in struct_type.fields.list {
 		if .Using not_in field.flags do continue
-		if named := named_type(field.type); named == nil || named.name not_in covered do return true
+		if named := named_type(field.type); named != nil && named.name in covered do return false
+		has_using = true
 	}
-	return false
+	return has_using
 }
 
 // The struct type of type_expr, a struct type or a distinct one, nil for any other type.
