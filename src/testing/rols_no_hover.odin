@@ -11,7 +11,7 @@ expect_no_hover :: proc(t: ^testing.T, src: ^Source) {
 	setup(src)
 	defer teardown(src)
 
-	hover, valid, _ := server.get_hover_information(src.document, cursor)
+	hover, valid, _ := server.get_hover_information(src.document, cursor, &src.config)
 	testing.expectf(
 		t,
 		!valid || hover.contents.value == "",

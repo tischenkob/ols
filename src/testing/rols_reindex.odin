@@ -24,7 +24,7 @@ expect_hover_after_reindex :: proc(
 	defer teardown(src)
 
 	if hover_first {
-		server.get_hover_information(src.document, cursor)
+		server.get_hover_information(src.document, cursor, &src.config)
 	}
 
 	for file in reindexed {
@@ -39,7 +39,7 @@ expect_hover_after_reindex :: proc(
 		testing.expectf(t, server.remove_index_file(uri) == .None, "Expected %s to be removed", name)
 	}
 
-	hover, valid, ok := server.get_hover_information(src.document, cursor)
+	hover, valid, ok := server.get_hover_information(src.document, cursor, &src.config)
 	if expect_hover_string == "" {
 		testing.expectf(
 			t,
