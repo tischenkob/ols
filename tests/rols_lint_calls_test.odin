@@ -611,3 +611,176 @@ main :: proc() {
 
 	expect_lint_cases(t, cases, {enable_lint_call_arity = true})
 }
+
+@(test)
+argument_count_counts_conversion_to_poly_type :: proc(t: ^testing.T) {
+	// A call of a name that `$` binds in an enclosing procedure's parameters converts to that type and passes one value.
+	cases := []Lint_Case {
+		{
+			"a conversion to a poly parameter's type",
+			`package test
+
+one :: proc(a: int) {}
+
+f :: proc(v: $T, x: int) {
+	one(T(x), 1)
+}
+`,
+			{{5, "argument-count"}},
+		},
+		{
+			"a conversion to a typeid parameter",
+			`package test
+
+one :: proc(a: int) {}
+
+f :: proc($U: typeid, x: int) {
+	one(U(x), 1)
+}
+`,
+			{{5, "argument-count"}},
+		},
+		{
+			"a conversion to a poly type in a nested procedure literal",
+			`package test
+
+one :: proc(a: int) {}
+
+f :: proc(v: $T, x: int) {
+	g := proc(w: $W, y: int) {
+		one(W(y), 1)
+	}
+}
+`,
+			{{6, "argument-count"}},
+		},
+	}
+
+	expect_lint_cases(t, cases, {enable_lint_call_arity = true})
+}
+
+@(test)
+argument_count_expands_call_of_procedure_constant_in_another_file :: proc(t: ^testing.T) {
+	// A constant of a procedure type in another file is a value of that type, so its call passes every result.
+	source := test.Source {
+		main = `package test
+
+one :: proc(a: int) {}
+take :: proc(a, b: int) {}
+
+main :: proc() {
+	take(handler())
+	one(handler())
+	one(Cb(f))
+}
+`,
+		files = {
+			{
+				name = "b.odin",
+				source = "package test\n\nCb :: proc() -> (int, int)\nf :: proc() -> (int, int) { return 1, 2 }\nhandler : Cb : f\n",
+			},
+		},
+		config = {enable_lint_call_arity = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{7, "argument-count"}})
+}
+
+@(test)
+argument_count_expands_call_of_procedure_constant :: proc(t: ^testing.T) {
+	// A typed constant of a procedure type is a value of that type.
+	source := test.Source {
+		main = `package test
+
+Cb :: proc() -> (int, int)
+f :: proc() -> (int, int) { return 1, 2 }
+handler : Cb : f
+one :: proc(a: int) {}
+take :: proc(a, b: int) {}
+
+main :: proc() {
+	take(handler())
+	one(handler())
+}
+`,
+		config = {enable_lint_call_arity = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{10, "argument-count"}})
+}
+
+@(test)
+argument_count_resolves_argument_callee_with_locals_at_the_call :: proc(t: ^testing.T) {
+	// The whole-file resolve records the procedure of each argument call whose callee it does not resolve by name.
+	cases := []Lint_Case {
+		{
+			"an element call uses the local visible at the call",
+			`package test
+
+one :: proc(a: int) {}
+two :: proc(a, b: int) {}
+
+main :: proc() {
+	{
+		arr: [2]proc() -> int
+		one(arr[0]())
+	}
+	arr: [2]proc() -> (int, int)
+	two(arr[0]())
+	one(arr[1]())
+}
+`,
+			{{12, "argument-count"}},
+		},
+		{
+			"a parameter of a nested procedure literal",
+			`package test
+
+one :: proc(a: int) {}
+
+main :: proc() {
+	f := proc(get: [1]proc() -> (int, int)) {
+		one(get[0]())
+	}
+}
+`,
+			{{6, "argument-count"}},
+		},
+		{
+			"an argument call nested in another argument",
+			`package test
+
+pair :: proc() -> (int, int) { return 1, 2 }
+two :: proc(a, b: int) -> int { return a }
+one :: proc(a: int) {}
+
+main :: proc() {
+	h := [1]proc() -> (int, int){pair}
+	one(two(h[0]()))
+	one(two(h[0]()), 1)
+}
+`,
+			{{9, "argument-count"}},
+		},
+		{
+			"a group of agreeing members called with a poly argument",
+			`package test
+
+g1 :: proc(a: int) -> (int, int) { return a, a }
+g2 :: proc(a: f32) -> (int, int) { return 0, 0 }
+g :: proc { g1, g2 }
+one :: proc(a: int) {}
+two :: proc(a, b: int) {}
+
+f :: proc(v: $T) {
+	two(g(v))
+	one(g(v))
+	one(missing())
+}
+`,
+			{{10, "argument-count"}},
+		},
+	}
+
+	expect_lint_cases(t, cases, {enable_lint_call_arity = true})
+}

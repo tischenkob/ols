@@ -50,6 +50,8 @@ Document :: struct {
 	version:            Maybe(int),
 	session:            u64, // used to identify stale documents after re-opening.
 	symbols:            Maybe(SymbolAndNodeMap), // Cache resolved symbols for open documents, cleared on change
+	// rols: the procedure each argument call calls, filled and cleared with symbols (see `record_arg_callee`)
+	arg_callees:        map[uintptr]Arg_Callee,
 }
 
 
@@ -76,6 +78,8 @@ invalidate_document_symbol_cache :: proc(document: ^Document) {
 		virtual.arena_free_all(document.symbol_cache_arena)
 	}
 	document.symbols = nil
+	// rols: the argument callees live in the freed arena too
+	document.arg_callees = nil
 	// rols: the index may still hold a package name from the freed arena
 	clear_index_cache()
 }
@@ -94,6 +98,8 @@ destroy_document_symbol_cache :: proc(document: ^Document) {
 		document.symbol_cache_arena = nil
 	}
 	document.symbols = nil
+	// rols: the argument callees lived in the destroyed arena
+	document.arg_callees = nil
 }
 
 document_storage_shutdown :: proc() {

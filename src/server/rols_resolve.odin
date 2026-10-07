@@ -134,9 +134,10 @@ is_proc_type_conversion :: proc(ast_context: ^AstContext, expr: ^ast.Expr, symbo
 }
 
 // Whether symbol names a procedure type rather than a value of one. The index gives a global of a procedure type
-// declared in another file the symbol type of a procedure type too, but flags it .Mutable.
+// declared in another file the symbol type of a procedure type too, but flags a variable .Mutable and a typed
+// constant such as `handler : Cb : f` .Variable.
 names_proc_type :: proc(symbol: Symbol) -> bool {
-	return symbol.type == .Type_Function && .Mutable not_in symbol.flags
+	return symbol.type == .Type_Function && symbol.flags & {.Mutable, .Variable} == {}
 }
 
 // Whether `expand_call_args` knows how many values each argument passes. A bad expression or an unresolved argument
