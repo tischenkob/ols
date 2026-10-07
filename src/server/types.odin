@@ -551,7 +551,6 @@ OlsConfig :: struct {
 	enable_code_lens_references:             Maybe(bool),
 	enable_selection_range:                  Maybe(bool),
 	enable_checker_vet_shadowing:            Maybe(bool),
-	enable_hover_struct_size:                Maybe(bool),
 	enable_checker_vet_unused_variables:     Maybe(bool),
 	enable_checker_vet_cast:                 Maybe(bool),
 	enable_checker_vet_style:                Maybe(bool),

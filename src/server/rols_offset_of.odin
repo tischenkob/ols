@@ -110,7 +110,7 @@ hover_offset_of_member :: proc(
 		symbol := resolve_type_expression(ast_context, v.types[i]) or_return
 		construct_struct_field_symbol(&symbol, owner.name, v, i)
 		build_documentation(ast_context, &symbol, true)
-		content = write_hover_content(ast_context, symbol, layout = struct_field_layout_hover(ast_context, v, i))
+		content = write_field_hover_content(ast_context, symbol, v, i)
 		return content, true, true
 	}
 	return

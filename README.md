@@ -214,8 +214,6 @@ Options:
 
 - `enable_checker_vet_shadowing`: Pass `-vet-shadowing` to `odin check` and report shadowed declarations as warnings. Defaults to true.
 
-- `enable_hover_struct_size`: Show the byte size and alignment of a struct, and the offset and size of a struct field, on hover. Defaults to true.
-
 - `enable_checker_vet_unused_variables`: Pass `-vet-unused-variables` to `odin check`. Report variables that are declared but never used, as warnings. Odin rejects a variable without this flag when it is the only statement of an `if`, `else` or `for` body, for example `if c { x := 1 }`; that one stays an error. Defaults to true.
 
 - `enable_checker_vet_cast`: Pass `-vet-cast` to `odin check`. Report casts and transmutes to a type the value already has. Defaults to true.
