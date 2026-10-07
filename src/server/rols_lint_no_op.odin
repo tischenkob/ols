@@ -23,19 +23,38 @@ lint_no_op :: proc(ctx: ^LintContext, node: ^ast.Node, diags: ^[dynamic]Diagnost
 		no_op_empty_body(ctx, n.body, diags)
 		no_op_empty_body(ctx, n.else_stmt, diags)
 	case ^ast.For_Stmt:
-		// `for {}` is a spin loop, and `for step() {}` does its work in the condition. A loop with a
-		// post statement whose init declares nothing, such as `for ; path[i] != '/'; i += 1 {}`,
-		// scans a variable that outlives the loop.
+		// `for {}` is a spin loop, and `for step() {}` does its work in the condition. A post statement
+		// that assigns to anything the init does not declare, such as `for ; path[i] != '/'; i += 1 {}`
+		// or `for i := 0; i < len(xs); n, i = n + 1, i + 1 {}`, changes state that outlives the loop.
 		spins := n.init == nil && n.cond == nil && n.post == nil
-		declares := false
-		if n.init != nil do _, declares = n.init.derived.(^ast.Value_Decl)
-		scans := n.post != nil && !declares
+		scans := n.post != nil && post_outlives_loop(n)
 		if !spins && !scans && (n.cond == nil || !calls_procedure(ctx, n.cond)) {
 			no_op_empty_body(ctx, n.body, diags)
 		}
 	case ^ast.Range_Stmt:
 		no_op_empty_body(ctx, n.body, diags)
 	}
+}
+
+// Reports whether the post statement of `loop` writes to something other than a name its init
+// declares. A non-identifier target, such as `p^` or `xs[i]`, writes memory and counts as outliving.
+// A post statement other than an assignment counts only when the init declares nothing.
+@(private = "file")
+post_outlives_loop :: proc(loop: ^ast.For_Stmt) -> bool {
+	if loop.init == nil do return true
+	decl, declares := loop.init.derived.(^ast.Value_Decl)
+	if !declares do return true
+	assign, assigns := loop.post.derived.(^ast.Assign_Stmt)
+	if !assigns do return false
+	outer: for lhs in assign.lhs {
+		ident, is_ident := lhs.derived.(^ast.Ident)
+		if !is_ident do return true
+		for name in decl.names {
+			if declared, named := name.derived.(^ast.Ident); named && declared.name == ident.name do continue outer
+		}
+		return true
+	}
+	return false
 }
 
 // The literal operand that leaves the other side unchanged: `x + 0`, `x * 1`, `x << 0`.
