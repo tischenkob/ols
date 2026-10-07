@@ -611,6 +611,14 @@ resolve_generic_function_symbol :: proc(
 			symbol := call_args[i].symbol
 			file := common.uri_to_path(symbol.uri, context.temp_allocator)
 
+			// rols: a poly-type argument leaves an unspecialized poly parameter unbound.
+			// The other arguments then pick the member of a group call.
+			if _, is_poly_arg := symbol.value.(SymbolPolyTypeValue); is_poly_arg {
+				if poly, ok := param.type.derived.(^ast.Poly_Type); ok && poly.specialization == nil {
+					continue
+				}
+			}
+
 			symbol_expr := symbol_to_expr(symbol, file, context.temp_allocator)
 
 			if symbol_expr == nil {
