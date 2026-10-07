@@ -311,24 +311,30 @@ excluded_siblings :: proc(other_os: string) -> [2]test.File {
 	}
 }
 
-// A call in a file that the host does not build, by tag or by name, reaches the declaration of its own target.
+// A call in a file that the host does not build, by tag or by name, reaches the declaration of its own target. A
+// file that the host builds reaches the host's.
 @(test)
 hover_from_excluded_file_reaches_its_target :: proc(t: ^testing.T) {
 	other_os := "linux" when ODIN_OS != .Linux else "windows"
 	call := "package test\n\nf :: proc() {\n\ty := e{*}rr()\n}\n"
-	mains := [2]test.File {
-		{"main.odin", fmt.tprintf("#+build %s\n%s", other_os, call)},
-		{fmt.tprintf("main_%s.odin", other_os), call},
+	Case :: struct {
+		main:     test.File,
+		expected: string,
 	}
-	for main in mains {
+	cases := [3]Case {
+		{{"main.odin", fmt.tprintf("#+build %s\n%s", other_os, call)}, "test.err :: proc() -> string"},
+		{{fmt.tprintf("main_%s.odin", other_os), call}, "test.err :: proc() -> string"},
+		{{"main.odin", call}, "test.err :: proc() -> int"},
+	}
+	for c in cases {
 		files := make([dynamic]test.File, context.temp_allocator)
-		append(&files, main)
+		append(&files, c.main)
 		siblings := excluded_siblings(other_os)
 		append(&files, ..siblings[:])
 		source := test.Source {
 			files = files[:],
 		}
-		test.expect_hover(t, &source, "test.err :: proc() -> string")
+		test.expect_hover(t, &source, c.expected)
 	}
 }
 
@@ -395,4 +401,91 @@ hover_from_excluded_file_into_host_package :: proc(t: ^testing.T) {
 		collections = {"core" = "test"},
 	}
 	test.expect_hover(t, &source, "plain.run :: proc()")
+}
+
+// The `when` of a file that both build is evaluated for the target of the file that the host does not build.
+@(test)
+hover_from_excluded_file_through_shared_when :: proc(t: ^testing.T) {
+	other_os := "linux" when ODIN_OS != .Linux else "windows"
+	other_enum := "Linux" when ODIN_OS != .Linux else "Windows"
+	source := test.Source {
+		files = {
+			{
+				"main.odin",
+				fmt.tprintf("#+build %s\npackage test\n\nf :: proc() {{\n\ty := e{{*}}rr()\n}}\n", other_os),
+			},
+			{
+				"errors.odin",
+				fmt.tprintf(
+					"package test\n\nwhen ODIN_OS == .%s {{\n\terr :: proc() -> string {{ return \"\" }}\n}} else {{\n\terr :: proc() -> int {{ return 0 }}\n}}\n",
+					other_enum,
+				),
+			},
+		},
+	}
+	test.expect_hover(t, &source, "test.err :: proc() -> string")
+}
+
+// A file that the host does not build sees no declaration of a sibling that its target does not build, and none
+// that another file keeps private.
+@(test)
+hover_from_excluded_file_misses_other_targets_and_private :: proc(t: ^testing.T) {
+	other_os := "linux" when ODIN_OS != .Linux else "windows"
+	main := test.File {
+		"main.odin",
+		fmt.tprintf("#+build %s\npackage test\n\nf :: proc() {{\n\ty := e{{*}}rr()\n}}\n", other_os),
+	}
+	siblings := [2]test.File {
+		{
+			"errors_host.odin",
+			fmt.tprintf("#+build !%s\npackage test\n\nerr :: proc() -> int {{ return 0 }}\n", other_os),
+		},
+		{
+			fmt.tprintf("errors_%s.odin", other_os),
+			"package test\n\n@(private = \"file\")\nerr :: proc() -> string { return \"\" }\n",
+		},
+	}
+	files := [3]test.File{main, siblings[0], siblings[1]}
+	source := test.Source {
+		files = files[:],
+	}
+	test.expect_hover_after_reindex(t, &source, {}, "")
+}
+
+// The removal of a sibling that the host does not build reaches lookups from a file of the same target.
+@(test)
+hover_from_excluded_file_after_sibling_removal :: proc(t: ^testing.T) {
+	other_os := "linux" when ODIN_OS != .Linux else "windows"
+	files := make([dynamic]test.File, context.temp_allocator)
+	append(
+		&files,
+		test.File {
+			"main.odin",
+			fmt.tprintf("#+build %s\npackage test\n\nf :: proc() {{\n\ty := e{{*}}rr()\n}}\n", other_os),
+		},
+	)
+	siblings := excluded_siblings(other_os)
+	append(&files, ..siblings[:])
+	source := test.Source {
+		files = files[:],
+	}
+	removed := []string{fmt.tprintf("errors_%s.odin", other_os)}
+	test.expect_hover_after_reindex(t, &source, {}, "", hover_first = true, removed = removed)
+}
+
+// Completion in a file that the host does not build lists the declarations of its own target.
+@(test)
+completion_in_excluded_file_lists_its_target :: proc(t: ^testing.T) {
+	other_os := "linux" when ODIN_OS != .Linux else "windows"
+	files := make([dynamic]test.File, context.temp_allocator)
+	append(
+		&files,
+		test.File{"main.odin", fmt.tprintf("#+build %s\npackage test\n\nf :: proc() {{\n\ter{{*}}\n}}\n", other_os)},
+	)
+	siblings := excluded_siblings(other_os)
+	append(&files, ..siblings[:])
+	source := test.Source {
+		files = files[:],
+	}
+	test.expect_completion_docs(t, &source, "", {"test.err :: proc() -> string"}, {"test.err :: proc() -> int"})
 }

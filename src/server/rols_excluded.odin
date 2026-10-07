@@ -12,15 +12,15 @@ import "core:strings"
 
 import "src:common"
 
-// A file that the host does not build looks names up in the files of the target that builds it first, so that
+// A file that the host does not build looks names up in the files of the target that builds it, so that
 // `socket_linux.odin` on darwin reaches `errors_linux.odin` and not the host's `errors_posix.odin`. The index holds
-// only the files that the host builds. Each other target gets its own symbol collection of the files that the host
-// does not build, filled per package on the first lookup that needs that package.
+// the files that the host builds. Each other target gets its own symbol collection of every file that it builds,
+// with `when` evaluated for it, filled per package on the first lookup into that package.
 
-// A file that the host does not build and that is not on disk, such as a test source, with its text.
+// A file of the index that is not on disk, such as a test source, with its text.
 @(private = "file")
 Unsaved_File :: struct {
-	fullpath, uri, text: string,
+	fullpath, text: string,
 }
 
 @(private = "file")
@@ -29,7 +29,7 @@ Target_Key :: struct {
 	arch: runtime.Odin_Arch_Type,
 }
 
-// The declarations that one target builds and the host does not. The keys of built are strings of the collection.
+// The declarations that one target builds. The keys of built are strings of the collection.
 @(private = "file")
 Target_Index :: struct {
 	collection: SymbolCollection,
@@ -68,27 +68,64 @@ excluded_allocator :: proc() -> mem.Allocator {
 	return excluded.allocator
 }
 
-// The symbol `name` of `pkg` that a lookup from current_file finds first, when the host does not build current_file:
-// the declaration of the target that builds it. A declaration of an inactive `when` branch of that target yields to
-// a declaration in the index.
+// The symbol `name` of `pkg` for a lookup from current_file, when the host does not build current_file: the
+// declaration of the target that builds it. handled is false when the index answers instead: the host builds
+// current_file, or that target builds no file of pkg.
 lookup_other_target :: proc(
 	name, pkg, current_file, current_pkg, current_file_uri: string,
 ) -> (
 	symbol: Symbol,
 	found: bool,
+	handled: bool,
+) {
+	symbols := other_target_package(pkg, current_file) or_return
+	symbol, found = symbols.symbols[name]
+	if found && should_skip_private_symbol(symbol, current_pkg, current_file_uri) {
+		return {}, false, true
+	}
+	return symbol, found, true
+}
+
+// The package pkg of the index for a lookup from current_file: that of the target that builds current_file when
+// the host does not and a lookup has collected pkg for that target, else that of the index. Fake methods ask this
+// for every indexed package, so it collects nothing itself.
+package_for_file :: proc(pkg, current_file: string) -> (SymbolPackage, bool) {
+	if target, ok := file_target(current_file); ok {
+		if symbols, built := target_index(target).collection.packages[pkg]; built {
+			return symbols, true
+		}
+	}
+	return indexer.index.collection.packages[pkg]
+}
+
+// fuzzy_search over the declarations of the target that builds current_file, when the host does not.
+fuzzy_search_other_target :: proc(
+	name: string,
+	pkgs: []string,
+	current_file: string,
+	resolve_fields: bool,
+	limit: int,
+) -> (
+	results: []FuzzyResult,
+	ok: bool,
+	handled: bool,
 ) {
 	target := file_target(current_file) or_return
 	index := target_index(target)
-	if pkg not_in index.built do build_target_package(index, target, pkg)
-	symbol = index.collection.packages[pkg].symbols[name] or_return
-	if should_skip_private_symbol(symbol, current_pkg, current_file_uri) do return {}, false
-	if .Fallback in symbol.flags {
-		if host, ok := memory_index_lookup(&indexer.index, name, pkg);
-		   ok && !should_skip_private_symbol(host, current_pkg, current_file_uri) {
-			return {}, false
-		}
+	for pkg in pkgs {
+		if pkg not_in index.built do build_target_package(index, target, pkg)
 	}
-	return symbol, true
+	memory_index := make_memory_index(index.collection)
+	results, ok = memory_index_fuzzy_search(&memory_index, name, pkgs, current_file, resolve_fields, limit = limit)
+	return results, ok, true
+}
+
+@(private = "file")
+other_target_package :: proc(pkg, current_file: string) -> (symbols: SymbolPackage, ok: bool) {
+	target := file_target(current_file) or_return
+	index := target_index(target)
+	if pkg not_in index.built do build_target_package(index, target, pkg)
+	return index.collection.packages[pkg]
 }
 
 // Records the target of a parsed document, so lookups need not parse it again.
@@ -98,14 +135,10 @@ note_document_target :: proc(document: ^Document) {
 	set_file_target(document.fullpath, host, name, need)
 }
 
-// Keeps a file that the host does not build and that is not on disk, for the targets that build it. A file on disk
-// is found again from its directory.
-note_excluded_file :: proc(collection: ^SymbolCollection, file: ast.File, uri: string) {
-	if collection != &indexer.index.collection {
-		return
-	}
-	tags := parser.parse_file_tags(file, context.temp_allocator)
-	if (!skip_file(filepath.base(file.fullpath)) && should_collect_file(tags)) || os.exists(file.fullpath) {
+// Keeps a file of the index that is not on disk, for the collections of the other targets. A file on disk is found
+// again from its directory.
+note_unsaved_file :: proc(collection: ^SymbolCollection, file: ast.File) {
+	if collection != &indexer.index.collection || os.exists(file.fullpath) {
 		return
 	}
 	allocator := excluded_allocator()
@@ -118,11 +151,7 @@ note_excluded_file :: proc(collection: ^SymbolCollection, file: ast.File, uri: s
 	forget_unsaved(files, forward)
 	append(
 		files,
-		Unsaved_File {
-			fullpath = strings.clone(forward, allocator),
-			uri = strings.clone(uri, allocator),
-			text = strings.clone(file.src, allocator),
-		},
+		Unsaved_File{fullpath = strings.clone(forward, allocator), text = strings.clone(file.src, allocator)},
 	)
 }
 
@@ -181,7 +210,6 @@ forget_unsaved :: proc(files: ^[dynamic]Unsaved_File, fullpath: string) {
 @(private = "file")
 free_unsaved :: proc(file: Unsaved_File) {
 	delete(file.fullpath, excluded.allocator)
-	delete(file.uri, excluded.allocator)
 	delete(file.text, excluded.allocator)
 }
 
@@ -199,16 +227,14 @@ set_file_target :: proc(
 	if need == .Other {
 		entry.target, _ = parse_target(name)
 	}
-	if fullpath in excluded.targets {
-		excluded.targets[fullpath] = entry
-	} else {
-		excluded.targets[strings.clone(fullpath, allocator)] = entry
-	}
+	key, value, just_inserted, _ := map_entry(&excluded.targets, fullpath)
+	if just_inserted do key^ = strings.clone(fullpath, allocator)
+	value^ = entry
 	return
 }
 
 // The target that builds fullpath when the host does not. A lookup asks once per identifier, so the answer is kept
-// until the file changes or the host does.
+// until a reindex or removal of the file, a parse of its document, or a change of the host.
 @(private = "file")
 file_target :: proc(fullpath: string) -> (parser.Build_Target, bool) {
 	if fullpath == "" {
@@ -252,11 +278,10 @@ target_index :: proc(target: parser.Build_Target) -> ^Target_Index {
 	return index
 }
 
-// Collects the files of pkg that target builds and the host does not, as try_build_package collects the others.
+// Collects the files of pkg that target builds, as try_build_package collects those of the host.
 @(private = "file")
 build_target_package :: proc(index: ^Target_Index, target: parser.Build_Target, pkg: string) {
 	index.built[get_index_unique_string(&index.collection, pkg)] = true
-	host := host_target()
 	saved := when_target
 	when_target = target
 	defer when_target = saved
@@ -269,32 +294,22 @@ build_target_package :: proc(index: ^Target_Index, target: parser.Build_Target, 
 	// A range over a missing map element dereferences nil, so the element is copied first.
 	unsaved := excluded.unsaved[pkg]
 	for file in unsaved {
-		collect_target_file(index, file.fullpath, file.uri, file.text, host)
+		collect_target_file(index, file.fullpath, file.text)
 		runtime.arena_free_all(&arena)
 	}
 	matches, _ := filepath.glob(fmt.tprintf("%v/*.odin", pkg), context.temp_allocator)
 	for fullpath in matches {
-		// host_target is target here, so this skips the names of a third platform.
+		// host_target is target here, so this skips the names of other platforms.
 		if skip_file(filepath.base(fullpath)) do continue
-		data, err := os.read_entire_file(fullpath, context.allocator)
-		if err == nil {
-			collect_target_file(
-				index,
-				fullpath,
-				common.create_uri(fullpath, context.allocator).uri,
-				string(data),
-				host,
-			)
+		if data, err := os.read_entire_file(fullpath, context.allocator); err == nil {
+			collect_target_file(index, fullpath, string(data))
 		}
 		runtime.arena_free_all(&arena)
 	}
 }
 
 @(private = "file")
-collect_target_file :: proc(index: ^Target_Index, fullpath, uri, text: string, host: parser.Build_Target) {
-	if builds_on(fullpath, text, host) {
-		return
-	}
+collect_target_file :: proc(index: ^Target_Index, fullpath, text: string) {
 	p := parser.Parser {
 		flags = {.Optional_Semicolons},
 	}
@@ -310,6 +325,6 @@ collect_target_file :: proc(index: ^Target_Index, fullpath, uri, text: string, h
 	}
 	if parse_file(&p, &file) && file.syntax_error_count == 0 {
 		// collect_globals keeps only the files that target builds.
-		collect_symbols(&index.collection, file, uri)
+		collect_symbols(&index.collection, file, common.create_uri(fullpath, context.allocator).uri)
 	}
 }

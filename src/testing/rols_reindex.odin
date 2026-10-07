@@ -7,14 +7,16 @@ import "core:testing"
 import "src:common"
 import "src:server"
 
-// Like expect_hover, after `index_file` reindexes each of `reindexed` in order, as a save does. With
-// `hover_first`, a hover before the saves fills the caches that the saves must invalidate.
+// Like expect_hover, after `index_file` reindexes each of `reindexed` in order, as a save does, and
+// `remove_index_file` removes each of `removed`. With `hover_first`, a hover before the saves fills the caches that
+// the saves must invalidate. An empty expect_hover_string expects no hover.
 expect_hover_after_reindex :: proc(
 	t: ^testing.T,
 	src: ^Source,
 	reindexed: []File,
 	expect_hover_string: string,
 	hover_first := false,
+	removed: []string = nil,
 ) {
 	cursor := source_remove_cursor(src)
 
@@ -30,8 +32,22 @@ expect_hover_after_reindex :: proc(
 		uri := common.create_uri(fullpath, context.temp_allocator)
 		testing.expectf(t, server.index_file(uri, file.source) == .None, "Expected %s to reindex", file.name)
 	}
+	for name in removed {
+		fullpath := strings.join({"test", name}, "/", context.temp_allocator)
+		uri := common.create_uri(fullpath, context.temp_allocator)
+		testing.expectf(t, server.remove_index_file(uri) == .None, "Expected %s to be removed", name)
+	}
 
 	hover, valid, ok := server.get_hover_information(src.document, cursor)
+	if expect_hover_string == "" {
+		testing.expectf(
+			t,
+			!ok || !valid || hover.contents.value == "",
+			"Expected no hover, got %q",
+			hover.contents.value,
+		)
+		return
+	}
 	if !ok || !valid {
 		log.error("Failed get_hover_information")
 		return
