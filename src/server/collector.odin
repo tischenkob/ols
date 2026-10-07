@@ -910,8 +910,6 @@ collect_symbols :: proc(collection: ^SymbolCollection, file: ast.File, uri: stri
 	directory := path.dir(forward, context.temp_allocator)
 	package_map := get_package_mapping(file, collection.config, directory)
 	exprs := collect_globals(file)
-	// rols: a file that is not on disk is kept for the collections of the other targets
-	note_unsaved_file(collection, file)
 
 	file_pkg_name := get_symbol_package_name(collection, directory, uri)
 	file_pkg := get_or_create_package(collection, file_pkg_name)

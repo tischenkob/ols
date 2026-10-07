@@ -31,6 +31,7 @@ expect_hover_after_reindex :: proc(
 		fullpath := strings.join({"test", file.name}, "/", context.temp_allocator)
 		uri := common.create_uri(fullpath, context.temp_allocator)
 		testing.expectf(t, server.index_file(uri, file.source) == .None, "Expected %s to reindex", file.name)
+		server.note_unsaved_file(fullpath, file.source)
 	}
 	for name in removed {
 		fullpath := strings.join({"test", name}, "/", context.temp_allocator)

@@ -158,6 +158,8 @@ setup :: proc(src: ^Source) {
 		uri := common.create_uri(fullpath, context.temp_allocator)
 
 		err := server.collect_symbols(&server.indexer.index.collection, file, uri.uri)
+		// rols: the collections of other targets read test sources from memory
+		server.note_unsaved_file(fullpath, source)
 		if err != .None {
 			log.errorf("Error (%v) while collecting symbols in file (%s) \"%s\"", err, fullpath, source)
 		}

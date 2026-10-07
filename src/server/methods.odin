@@ -152,9 +152,11 @@ collect_methods :: proc(
 	remove_edit: []TextEdit,
 	results: ^[dynamic]CompletionResult,
 ) {
+	// rols: a file that the host does not build sees the methods of the target that builds it
+	other := other_target_collection(ast_context.fullpath)
 	for k, v in indexer.index.collection.packages {
-		// rols: a file that the host does not build sees the methods of the target that builds it
-		v := package_for_file(k, ast_context.fullpath) or_else v
+		// rols: see `other`
+		v := package_in(other, k) or_else v
 		symbols, ok := &v.methods[method]
 		if !ok {
 			continue
