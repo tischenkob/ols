@@ -45,6 +45,9 @@ setup :: proc(src: ^Source) {
 
 	spall.trace(#procedure)
 
+	// rols: share the test's collections with code that reads the global config
+	lock_global_collections(src)
+
 	src.document = new(server.Document)
 
 	src.document.client_owned = true
@@ -171,6 +174,9 @@ teardown :: proc(src: ^Source) {
 
 	defer spall.thread_end()
 	spall.trace(#procedure)
+
+	// rols: take the test's collections out of the global config
+	unlock_global_collections(src)
 
 	// rols: release the lock a seeded checker diagnostic took
 	if seed_locked {
@@ -973,6 +979,52 @@ expect_action_with_edit :: proc(t: ^testing.T, src: ^Source, action_name: string
 	}
 
 	log.errorf("Action '%s' not found in actions: %v", action_name, actions)
+}
+
+// rols: the test's collections in the global config
+/*
+	The reference search parses the imports of other files with `common.config`, so `setup` copies the test's
+	collections there. The config is a process global: a test with collections holds `collections_mutex` alone,
+	and every other test holds it shared, so no test reads the map while another one changes it.
+*/
+@(private)
+collections_mutex: sync.RW_Mutex
+@(private, thread_local)
+collections_exclusive: bool
+@(private, thread_local)
+collections_made_map: bool
+
+@(private)
+lock_global_collections :: proc(src: ^Source) {
+	if len(src.collections) == 0 {
+		sync.shared_lock(&collections_mutex)
+		return
+	}
+
+	sync.lock(&collections_mutex)
+	collections_exclusive = true
+	collections_made_map = common.config.collections == nil
+	for name, path in src.collections {
+		common.config.collections[name] = path
+	}
+}
+
+@(private)
+unlock_global_collections :: proc(src: ^Source) {
+	if !collections_exclusive {
+		sync.shared_unlock(&collections_mutex)
+		return
+	}
+
+	for name in src.collections {
+		delete_key(&common.config.collections, name)
+	}
+	if collections_made_map {
+		delete(common.config.collections)
+		common.config.collections = nil
+	}
+	collections_exclusive = false
+	sync.unlock(&collections_mutex)
 }
 
 // rols: lets a test stand in for the checker
