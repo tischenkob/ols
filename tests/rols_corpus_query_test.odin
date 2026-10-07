@@ -209,6 +209,71 @@ use :: proc(d: ^Derived) { d.mag{*}ic = 1 }
 `,
 		config = {enable_hover_layout = true},
 	}
+	test.expect_hover(t, &source, "Derived.magic: int // size=8, offset=0")
+}
+
+// A field promoted through two `using` levels adds the offsets of each level.
+@(test)
+hover_nested_promoted_field_layout :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Inner :: struct { a: u8, b: u32 }
+Base :: struct { x: u64, using inner: Inner }
+Derived :: struct { tag: u8, using base: Base }
+use :: proc(d: ^Derived) { d.{*}b = 1 }
+`,
+		config = {enable_hover_layout = true},
+	}
+	test.expect_hover(t, &source, "Derived.b: u32 // size=4, offset=20")
+}
+
+// The offset of a promoted field lays out the `using` type in the package that declares it, not in the
+// hover's package, which declares a `Local` of another size.
+@(test)
+hover_promoted_field_layout_from_another_package :: proc(t: ^testing.T) {
+	packages := make([dynamic]test.Package, context.temp_allocator)
+	append(
+		&packages,
+		test.Package {
+			pkg = "b",
+			source = `package b
+
+Local :: struct { x, y: int }
+Inner :: struct { pad: Local, val: int }
+`,
+		},
+	)
+	source := test.Source {
+		main = `package test
+
+import "b"
+
+Local :: u8
+Outer :: struct { tag: u8, using inner: b.Inner }
+main :: proc() {
+	o: Outer
+	o.va{*}l
+}
+`,
+		packages = packages[:],
+		config = {enable_hover_layout = true},
+	}
+	test.expect_hover(t, &source, "Outer.val: int // size=8, offset=24")
+}
+
+// A field promoted through a pointer has no offset inside the struct, so the hover keeps size and align.
+@(test)
+hover_pointer_promoted_field_layout :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+Base :: struct { magic: int }
+Derived :: struct { extra: int, using base: ^Base }
+use :: proc(d: ^Derived) { d.mag{*}ic = 1 }
+`,
+		config = {enable_hover_layout = true},
+	}
 	test.expect_hover(t, &source, "Derived.magic: int // size=8, align=8")
 }
 
