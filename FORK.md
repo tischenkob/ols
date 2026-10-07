@@ -110,7 +110,7 @@ Small fixes:
 - `src/server/hover.odin`: struct layout and field offsets.
 - `src/server/inlay_hints.odin`: fork hint kinds, enclosing procedure tracking, and a resolve context built only when a kind needs it.
 - `src/server/check.odin`: never block the request thread, drain the pipe incrementally, reap killed processes, vet findings as warnings, and a `Syntax Error` that `-json-errors` types as a warning, such as a missing import path, as an error.
-- `src/server/documents.odin`: reject a change before touching the document, refresh lint diagnostics. The refresh also relints each open file of the package whose `unused-parameter` verdict on another file the new text may turn (`relint_package_siblings` in `src/server/rols_lint_refresh.odin`), and `document_close` and `document_storage_shutdown` drop the recorded verdicts.
+- `src/server/documents.odin`: reject a change before touching the document, refresh lint diagnostics. `document_apply_changes` also relints each open file of the package whose `unused-parameter` verdict on another file the new text may turn (`relint_package_siblings` in `src/server/rols_lint_refresh.odin`), before the refresh pushes the diagnostics. `document_close` and `document_storage_shutdown` drop the recorded verdicts.
 - `src/server/requests.odin`: `notification_did_save` runs the lints, and relints the open files of the package as a change does.
 - `src/server/position_context.odin`, `src/server/file_resolve.odin`: a call argument drops the enclosing comp literal, so a comp literal in the argument resolves against the parameter type.
 - `src/server/signature.odin`: inside a comp literal passed to a call, the comp literal signature comes before the procedure signature.

@@ -328,6 +328,9 @@ document_apply_changes :: proc(
 		}
 	}
 
+	// rols: relint the open package files whose verdicts the change may turn; the refresh pushes their diagnostics
+	relint_package_siblings(document, config)
+
 	return document_refresh(document, config, writer)
 }
 
@@ -392,9 +395,8 @@ document_refresh :: proc(document: ^Document, config: ^common.Config, writer: ^W
 
 	remove_diagnostics(.Syntax, uri.uri)
 	remove_diagnostics(.Unused, uri.uri)
-	// rols: refresh the lint diagnostics, and those of the open package files whose verdicts the change may turn
+	// rols: refresh the lint diagnostics
 	run_lints(document, config)
-	relint_package_siblings(document, config)
 
 	if writer != nil && config.enable_parser_errors {
 		document.diagnosed_errors = true
