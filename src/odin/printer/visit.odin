@@ -857,7 +857,7 @@ visit_comp_lit_exprs :: proc(
 	p: ^Printer,
 	comp_lit: ast.Comp_Lit,
 	options := List_Options{},
-	first_leading_width := 0,
+	first_leading_width: int,
 ) -> ^Document {
 	if len(comp_lit.elems) == 0 {
 		return empty()
@@ -2934,7 +2934,7 @@ get_max_struct_field_name_width :: proc(p: ^Printer, fields: []^ast.Field) -> in
 
 @(private)
 // rols: the printer and first_leading_width, which the caller visited, give the alignment each element's leading block comments
-get_possible_comp_lit_alignment :: proc(p: ^Printer, exprs: []^ast.Expr, first_leading_width := 0) -> int {
+get_possible_comp_lit_alignment :: proc(p: ^Printer, exprs: []^ast.Expr, first_leading_width: int) -> int {
 	longest_name := 0
 	comment_index := p.latest_comment_index
 

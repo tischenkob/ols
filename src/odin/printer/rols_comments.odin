@@ -189,7 +189,7 @@ peek_leading_width :: proc(p: ^Printer, pos: tokenizer.Pos, index: int) -> (widt
 // Returns the position of the `;` before the post statement of a `for` header.
 // The AST keeps no position for it, so this scans the source after the condition,
 // or else after the init statement or the `for` keyword. An automatic semicolon does not count.
-// Returns the post statement's position when that source holds no `;`.
+// Returns `start` when that source holds no `;`.
 @(private)
 for_post_semicolon :: proc(p: ^Printer, stmt: ^ast.For_Stmt) -> tokenizer.Pos {
 	start := stmt.for_pos
@@ -208,7 +208,7 @@ for_post_semicolon :: proc(p: ^Printer, stmt: ^ast.For_Stmt) -> tokenizer.Pos {
 
 	t: tokenizer.Tokenizer
 	tokenizer.init(&t, p.src[start.offset:end], "", nil)
-	semicolon := stmt.post.pos
+	semicolon := start
 	for token := tokenizer.scan(&t); token.kind != .EOF; token = tokenizer.scan(&t) {
 		if token.kind != .Semicolon || token.text != ";" {
 			continue
