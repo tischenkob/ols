@@ -168,3 +168,22 @@ lint_refresh_unused_parameter_returns_when_sibling_drops_use :: proc(t: ^testing
 		},
 	)
 }
+
+@(test)
+lint_refresh_open_does_not_relint_siblings :: proc(t: ^testing.T) {
+	with_package(
+		t,
+		B_CALLS,
+		proc(t: ^testing.T, pkg: ^Refresh_Package) {
+			testing.expect_value(t, unused_parameters_of_a(pkg), 1)
+
+			// An open reads the same text from disk that the verdict of a.odin came from, so a.odin keeps the
+			// diagnostics it has, here none.
+			server.remove_diagnostics(.Lint, file_uri(pkg, "a.odin"))
+			server.document_close(file_uri(pkg, "b.odin"))
+			open_err := server.document_open(file_uri(pkg, "b.odin"), strings.clone(B_CALLS), &pkg.config, nil)
+			testing.expectf(t, open_err == .None, "failed to reopen b.odin: %v", open_err)
+			testing.expect_value(t, unused_parameters_of_a(pkg), 0)
+		},
+	)
+}

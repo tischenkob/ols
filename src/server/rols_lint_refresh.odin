@@ -20,7 +20,7 @@ Lint_Verdicts :: struct {
 @(private = "file", thread_local)
 lint_verdicts: map[string]Lint_Verdicts
 
-// The full path of the document whose `run_lints` is in progress, empty otherwise. Only `run_lints` records, so a
+// The full path of the document whose `run_lints` is in progress, empty otherwise, which no document has. Only `run_lints` records, so a
 // code action or a test that lints a document leaves the verdicts alone.
 @(private = "file", thread_local)
 recording: string
@@ -40,21 +40,27 @@ end_lint_verdicts :: proc() {
 // Records whether another file of the package uses name as a value, for the document whose lints are running.
 @(private = "package")
 record_lint_verdict :: proc(ctx: ^LintContext, name: string, used: bool) {
-	if recording == "" || recording != ctx.document.fullpath do return
-	verdicts := &lint_verdicts[recording]
-	if verdicts == nil {
-		// The key is a copy: the document frees its path on close.
-		lint_verdicts[strings.clone(recording)] = {}
-		verdicts = &lint_verdicts[recording]
-	}
+	if recording != ctx.document.fullpath do return
+	key, verdicts, inserted, _ := map_entry(&lint_verdicts, recording)
+	// The key is a copy: the document frees its path on close.
+	if inserted do key^ = strings.clone(recording)
 	if !used {
 		append(&verdicts.unused, strings.clone(name))
 		return
 	}
-	for file in sibling_values(ctx).files {
-		if !contains_word(file.text, name) || slice.contains(verdicts.used_in[:], file.fullpath) do continue
-		append(&verdicts.used_in, strings.clone(file.fullpath))
+	siblings := sibling_values(ctx)
+	if words, indexed := siblings.words.?; indexed {
+		// A copy: ranging over the map element dereferences it, and a missing key has none.
+		holders := words[name]
+		for i in holders do add_used_in(verdicts, siblings.files[i].fullpath)
+		return
 	}
+	for file in siblings.files do if contains_word(file.text, name) do add_used_in(verdicts, file.fullpath)
+}
+
+@(private = "file")
+add_used_in :: proc(verdicts: ^Lint_Verdicts, fullpath: string) {
+	if !slice.contains(verdicts.used_in[:], fullpath) do append(&verdicts.used_in, strings.clone(fullpath))
 }
 
 // Relints the open documents of the package of document whose verdicts its new text could change.
@@ -71,12 +77,10 @@ relint_package_siblings :: proc(document: ^Document, config: ^common.Config) {
 	}
 }
 
-// Frees the verdicts of the document at fullpath, and the map once it is empty, so no allocation outlives the
-// documents that own it.
+// Frees the verdicts of the document at fullpath.
 @(private = "package")
 drop_lint_verdicts :: proc(fullpath: string) {
 	if fullpath in lint_verdicts do free_verdicts(delete_key(&lint_verdicts, fullpath))
-	if len(lint_verdicts) == 0 do drop_all_lint_verdicts()
 }
 
 @(private = "package")
