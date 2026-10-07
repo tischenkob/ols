@@ -337,3 +337,22 @@ f :: proc(path: string) -> int {
 
 	test.expect_lint_diagnostics(t, &source, {})
 }
+
+@(test)
+empty_body_ignores_post_statement_on_outer_variable :: proc(t: ^testing.T) {
+	// Corpus: core/os/env_linux.odin:341. The post statement counts in `n`, which outlives the loop.
+	source := test.Source {
+		main = `package test
+
+f :: proc(xs: []int) -> int {
+	n := 0
+	for i := 0; i < len(xs); n, i = n + 1, i + 1 {}
+	for i := 0; i < 3; i += 1 {}
+	return n
+}
+`,
+		config = {enable_lint_no_op = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{5, "empty-body"}})
+}
