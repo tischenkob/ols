@@ -4,6 +4,7 @@ package tests
 import "core:odin/ast"
 import "core:testing"
 
+import "src:common"
 import "src:server"
 import test "src:testing"
 
@@ -207,26 +208,32 @@ sh{*}ow :: proc() {
 // gets the import directly.
 @(test)
 move_decl_append_matches_a_relative_import_by_its_path :: proc(t: ^testing.T) {
-	decl := ast.Import_Decl {
-		fullpath = `".."`,
+	// The append indexes the imported package, so it runs inside the index of a harness document.
+	source := test.Source {
+		main = "package test\n{*}",
 	}
-	pkg := server.Package {
-		original    = `".."`,
-		base        = "b",
-		import_decl = &decl,
-	}
-	files := []server.Package_File{{fullpath = "/w/a/b/c/x.odin", text = "package c\n\nimport \"..\"\n"}}
-	changes := make(server.Changes, context.temp_allocator)
-	_, reason, ok := server.append_to_package_file(
-		&changes,
-		"c",
-		"file:///w/a/b/c/x.odin",
-		nil,
-		{pkg},
-		"show :: proc() {}\n",
-		files,
-	)
-	testing.expectf(t, ok, "Expected the append to pass, but received %q", reason)
+	test.with_document(t, &source, proc(t: ^testing.T, _: ^test.Source, _: common.Range) {
+		decl := ast.Import_Decl {
+			fullpath = `".."`,
+		}
+		pkg := server.Package {
+			original    = `".."`,
+			base        = "b",
+			import_decl = &decl,
+		}
+		files := []server.Package_File{{fullpath = "/w/a/b/c/x.odin", text = "package c\n\nimport \"..\"\n"}}
+		changes := make(server.Changes, context.temp_allocator)
+		_, reason, ok := server.append_to_package_file(
+			&changes,
+			"c",
+			"file:///w/a/b/c/x.odin",
+			nil,
+			{pkg},
+			"show :: proc() {}\n",
+			files,
+		)
+		testing.expectf(t, ok, "Expected the append to pass, but received %q", reason)
+	})
 }
 
 @(test)

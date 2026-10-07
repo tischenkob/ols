@@ -381,6 +381,9 @@ free_index :: proc() {
 	free_excluded()
 	memory_index_clear_cache(&indexer.index)
 	build_cache.pkg_aliases = {}
+	// rols: drop the freed maps and their allocator, so a later use cannot write into memory the thread gave back
+	build_cache.loaded_pkgs = nil
+	indexer.index = {}
 }
 
 log_error_handler :: proc(pos: tokenizer.Pos, msg: string, args: ..any) {
