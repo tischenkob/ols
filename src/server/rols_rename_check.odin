@@ -370,6 +370,10 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 			}
 			// Each file is read once here, not once per type that check_embedders searches.
 			for &file in scan.texts {
+				// package_siblings matches these paths against the forward-slash package_name of a document.
+				when ODIN_OS == .Windows {
+					file.fullpath, _ = filepath.replace_separators(file.fullpath, '/', context.temp_allocator)
+				}
 				if file.text == "" {
 					data, err := os.read_entire_file(file.fullpath, context.temp_allocator)
 					file.text = string(data) if err == nil else ""
