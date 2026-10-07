@@ -154,7 +154,7 @@ arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: 
 	resolved, ok := lint_symbols(ctx)[uintptr(callee)]
 	if !ok || resolved.is_unresolved || resolved.symbol == nil do return callee_results(ctx, callee)
 
-	if resolved.symbol.type == .Type_Function do return 1, true
+	if names_proc_type(resolved.symbol^) do return 1, true
 	#partial switch v in resolved.symbol.value {
 	case SymbolProcedureValue:
 		return proc_results(v), true
@@ -180,7 +180,7 @@ arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: 
 callee_results :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (int, bool) {
 	symbol, ok := resolve_callee(ctx, expr)
 	if !ok do return 1, false
-	if _, is_call := expr.derived.(^ast.Call_Expr); !is_call && symbol.type == .Type_Function do return 1, true
+	if _, is_call := expr.derived.(^ast.Call_Expr); !is_call && names_proc_type(symbol) do return 1, true
 	#partial switch v in symbol.value {
 	case SymbolProcedureValue:
 		return proc_results(v), true

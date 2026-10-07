@@ -168,6 +168,29 @@ f :: proc() { h(1) }
 }
 
 @(test)
+argument_count_expands_call_of_procedure_variable_in_another_file :: proc(t: ^testing.T) {
+	// A global of a procedure type in another file is indexed with the symbol type of a procedure type.
+	source := test.Source {
+		main = `package test
+
+one :: proc(a: int) {}
+two :: proc(a, b: int) {}
+g :: proc { one, two }
+take :: proc(a, b: int) {}
+
+main :: proc() {
+	take(cb())
+	g(cb())
+}
+`,
+		files = {{name = "b.odin", source = "package test\n\ncb: proc() -> (int, int)\n"}},
+		config = {enable_lint_call_arity = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {})
+}
+
+@(test)
 argument_count_expands_multi_value_call_argument :: proc(t: ^testing.T) {
 	// Corpus: core io/multi.odin:16 and os/file_util.odin:66 on the S17 rerun, see docs/corpus-validation.md.
 	// Odin expands a call that returns several values into that many arguments. The cases at the end keep real arity errors and an #optional_ok result as one argument.
