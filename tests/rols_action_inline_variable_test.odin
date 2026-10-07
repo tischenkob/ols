@@ -1013,3 +1013,132 @@ outer :: proc() {
 }
 `)
 }
+
+// An `any` argument points at the local itself, so a later call can write it through that pointer.
+INLINE_ANY_PRELUDE :: `package test
+
+p: ^int
+
+stash :: proc(a: any) {
+	p = (^int)(a.data)
+}
+
+stash_all :: proc(args: ..any) {
+	p = (^int)(args[0].data)
+}
+
+bump :: proc() -> int {
+	p^ += 1
+	return 0
+}
+
+take :: proc(a: int) {}
+`
+
+@(test)
+action_inline_variable_refused_call_after_any_argument_local_read :: proc(t: ^testing.T) {
+	expect_no_inline_variable(
+		t,
+		INLINE_ANY_PRELUDE + `
+f :: proc() -> int {
+	n := 1
+	stash(n)
+	v{*} := bump()
+	x := n + v
+	return x
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_call_after_variadic_any_argument_local_read :: proc(t: ^testing.T) {
+	expect_no_inline_variable(
+		t,
+		INLINE_ANY_PRELUDE + `
+f :: proc() -> int {
+	n := 1
+	stash_all(n)
+	v{*} := bump()
+	x := n + v
+	return x
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_call_after_named_any_argument_local_read :: proc(t: ^testing.T) {
+	expect_no_inline_variable(
+		t,
+		INLINE_ANY_PRELUDE + `
+f :: proc() -> int {
+	n := 1
+	stash(a = (n))
+	v{*} := bump()
+	x := n + v
+	return x
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_call_after_by_ptr_argument_local_read :: proc(t: ^testing.T) {
+	expect_no_inline_variable(
+		t,
+		INLINE_ANY_PRELUDE +
+		`
+keep :: proc(#by_ptr a: int) {}
+
+f :: proc() -> int {
+	n := 1
+	keep(n)
+	v{*} := bump()
+	x := n + v
+	return x
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_input_passed_as_any_past_use :: proc(t: ^testing.T) {
+	expect_no_inline_variable(
+		t,
+		INLINE_ANY_PRELUDE + `
+f :: proc() -> int {
+	n := 1
+	stash(n)
+	v{*} := n + 1
+	bump()
+	return v
+}
+`,
+	)
+}
+
+// A plain value parameter gets a copy, so the local still cannot change in the call.
+@(test)
+action_inline_variable_call_after_value_argument_local_read :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		INLINE_ANY_PRELUDE + `
+f :: proc() -> int {
+	n := 1
+	take(n)
+	v{*} := bump()
+	x := n + v
+	return x
+}
+`,
+		INLINE_ANY_PRELUDE + `
+f :: proc() -> int {
+	n := 1
+	take(n)
+	x := n + bump()
+	return x
+}
+`,
+	)
+}

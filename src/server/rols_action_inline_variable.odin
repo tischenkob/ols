@@ -72,7 +72,7 @@ add_inline_variable_action :: proc(ctx: ^ActionContext) {
 			top = decl
 		}
 	}
-	stable := stable_locals(ctx, symbols, top, all_uses)
+	stable := stable_locals(ctx, symbols, typed, top, all_uses)
 	if !evaluated_in_place(typed, stable, function.body, decl, uses[:]) &&
 	   reads_state(typed, stable, value, max(int), true) {
 		return
@@ -123,7 +123,7 @@ add_inline_variable_action :: proc(ctx: ^ActionContext) {
 				continue
 			}
 			between := decl.end.offset <= use.ident.pos.offset && use.ident.pos.offset <= check_end
-			if is_write(use) && (between || address_taken(use)) || aliases(use) {
+			if is_write(use) && (between || address_taken(use)) || aliases(use) || passes_address(typed, use) {
 				return
 			}
 		}
@@ -183,13 +183,13 @@ has_side_effect :: proc(value: ^ast.Expr) -> bool {
 	return found
 }
 
-// Uses of locals mapped to true when the address of the local is never taken, aliased or passed to
-// a `->` call, so no call can change it. Uses of a `@(static)` local map to false: a recursive call
-// writes the same variable, so it counts as a global. An `any` or `#by_ptr` argument also passes an
-// address, which this does not see.
+// Uses of locals mapped to true when the address of the local is never taken, aliased, passed to
+// a `->` call or passed as an `any` or `#by_ptr` argument, so no call can change it. Uses of a
+// `@(static)` local map to false: a recursive call writes the same variable, so it counts as a global.
 stable_locals :: proc(
 	ctx: ^ActionContext,
 	symbols: SymbolAndNodeMap,
+	typed: SymbolAndNodeMap,
 	scope: ^ast.Node,
 	uses: []IdentUse,
 ) -> map[^ast.Ident]bool {
@@ -205,7 +205,7 @@ stable_locals :: proc(
 			selector, is_selector := use.parents[len(use.parents) - 1].derived.(^ast.Selector_Expr)
 			method = is_selector && selector.expr == use.ident && selector.op.kind == .Arrow_Right
 		}
-		if method || address_taken(use) || aliases(use) {
+		if method || address_taken(use) || aliases(use) || passes_address(typed, use) {
 			unstable[offset] = {}
 		}
 	}
@@ -490,6 +490,59 @@ aliases :: proc(use: IdentUse) -> bool {
 		target = parent
 	}
 	return false
+}
+
+// The use, or a field or element of it, is a call argument that the callee receives by address: an
+// `any` points at an addressable value, a `#by_ptr` parameter is passed by pointer. A callee the
+// resolver misses, a procedure group or a parameter it cannot find counts as one.
+passes_address :: proc(typed: SymbolAndNodeMap, use: IdentUse) -> bool {
+	child: ^ast.Node = use.ident
+	#reverse for parent in use.parents {
+		#partial switch p in parent.derived {
+		case ^ast.Selector_Expr:
+			if p.expr != child do return false
+		case ^ast.Index_Expr:
+			if p.expr != child do return false
+		case ^ast.Paren_Expr:
+		case ^ast.Field_Value:
+			if p.value != child do return false
+		case ^ast.Call_Expr:
+			index, is_arg := slice.linear_search(p.args, cast(^ast.Expr)child)
+			if !is_arg do return false
+			resolved, found := typed[uintptr(p.expr)]
+			if !found || resolved.is_unresolved {
+				return true
+			}
+			#partial switch v in resolved.symbol.value {
+			case SymbolProcedureValue:
+				field, has_field := get_call_arg_field(v, p^, index)
+				if !has_field || .By_Ptr in field.flags do return true
+				return names_any(field.type)
+			case SymbolProcedureGroupValue:
+				return true
+			case SymbolBasicValue:
+				// The conversion `any(x)`.
+				return v.ident != nil && v.ident.name == "any"
+			}
+			return false
+		case:
+			return false
+		}
+		child = parent
+	}
+	return false
+}
+
+// `any` or `..any`.
+names_any :: proc(type: ^ast.Expr) -> bool {
+	if type == nil {
+		return false
+	}
+	if ellipsis, is_ellipsis := type.derived.(^ast.Ellipsis); is_ellipsis {
+		return names_any(ellipsis.expr)
+	}
+	ident, is_ident := unparen(type).derived.(^ast.Ident)
+	return is_ident && ident.name == "any"
 }
 
 is_address_of :: proc(expr: ^ast.Expr) -> bool {
