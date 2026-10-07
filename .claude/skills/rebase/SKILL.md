@@ -1,6 +1,6 @@
 ---
 name: rebase
-description: Rebase the rols branch onto upstream/master and settle every upstream change that overlaps a fork feature. Use when the user says rebase, sync with upstream, pull upstream, or merge upstream.
+description: Rebase the fork's master branch onto upstream/master and settle every upstream change that overlaps a fork feature. Use when the user says rebase, sync with upstream, pull upstream, or merge upstream.
 ---
 
 # rebase
@@ -9,14 +9,14 @@ description: Rebase the rols branch onto upstream/master and settle every upstre
 
 ```bash
 git status --porcelain          # must be empty
-git branch --show-current       # must print rols
+git branch --show-current       # must print master
 git fetch upstream
 OLD=$(git merge-base upstream/master HEAD)
 git log --oneline $OLD..upstream/master
 git diff --stat $OLD upstream/master
 ```
 
-Stop if the tree is dirty or the branch is not `rols`. If the log is empty, report "already up to date" and stop. Keep the log and diffstat as the range summary.
+Stop if the tree is dirty or the branch is not `master`. If the log is empty, report "already up to date" and stop. Keep the log and diffstat as the range summary.
 
 ## 2. Rebase
 

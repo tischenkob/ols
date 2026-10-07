@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`rols`: a fork of the Odin language server [DanielGavin/ols](https://github.com/DanielGavin/ols). Branch `rols`, remote `upstream`. Sync with the `rebase` skill in `.claude/skills/rebase`, never a bare `git rebase upstream/master`. Keep it drop-in compatible with OLS: clients that must keep working are Zed, Helix and the Claude Code LSP plugin.
+`rols`: a fork of the Odin language server [DanielGavin/ols](https://github.com/DanielGavin/ols). Branch `master`, remote `upstream`. Sync with the `rebase` skill in `.claude/skills/rebase`, never a bare `git rebase upstream/master`. Keep it drop-in compatible with OLS: clients that must keep working are Zed, Helix and the Claude Code LSP plugin.
 
 Fork rules:
 - Fork-only `.odin` files carry the `rols_` prefix.
