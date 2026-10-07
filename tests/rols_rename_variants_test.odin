@@ -519,32 +519,26 @@ g :: proc(s: S) -> int { return s.a{*} }
 	)
 }
 
-// A variant of an alias of the member's type that aliases another type refuses the field rename.
+// A variant of an alias of the member's type that aliases another type carrying the member renames the member of
+// that type too.
 @(test)
-rename_field_refused_for_alias_variant_of_other_type :: proc(t: ^testing.T) {
+rename_field_through_alias_variant_of_other_type :: proc(t: ^testing.T) {
+	text :: "package test\n\nwhen ODIN_DEBUG {{\n\tS :: S_Third\n}} else {{\n\tS :: S_Other\n}}\n\nS_Other :: struct {{ %s: int }}\nS_Third :: struct {{ %s: int }}\n\ng :: proc(s: S) -> int {{ return s.%s }}\n"
 	source := test.Source {
-		main = `package test
-
-when ODIN_DEBUG {
-	S :: S_Third
-} else {
-	S :: S_Other
+		main = fmt.tprintf(text, "a", "a", "a{*}"),
+	}
+	test.expect_rename(t, &source, "b", {{"main.odin", fmt.tprintf(text, "b", "b", "b")}})
 }
 
-S_Other :: struct { a: int }
-S_Third :: struct { a: int }
-
-g :: proc(s: S) -> int { return s.a{*} }
-`,
+// A field rename from a struct variant whose sibling variant aliases another type carrying the member renames the
+// member of that type too, as the rename from the alias side does.
+@(test)
+rename_field_from_struct_variant_with_alias_sibling :: proc(t: ^testing.T) {
+	text :: "package test\n\nwhen ODIN_DEBUG {{\n\tS :: S_Other\n}} else {{\n\tS :: struct {{ %s: int }}\n}}\n\nS_Other :: struct {{ %s: int }}\n\nT :: struct {{ using o: S_Other }}\n\ng :: proc(s: S, t: T) -> int {{ return s.%s + t.%s }}\n"
+	source := test.Source {
+		main = fmt.tprintf(text, "a", "a", "a{*}", "a"),
 	}
-	test.expect_rename_refused(
-		t,
-		&source,
-		"b",
-		{
-			"the platform variant `S` at test/main.odin:4 is no struct, enum or bit_field type, so its member `a` cannot be renamed",
-		},
-	)
+	test.expect_rename(t, &source, "b", {{"main.odin", fmt.tprintf(text, "b", "b", "b", "b")}})
 }
 
 // A member of the new name in another variant of the struct is a collision.
@@ -639,8 +633,9 @@ g :: proc() -> E { return .Z }
 `}})
 }
 
-// A variant that is an alias, or that may reach the member through `using`, refuses the field rename, since the
-// rename cannot change the member there. The cursor resolves through the plain struct of the `else` branch.
+// A variant that aliases a type without the member, or that may reach the member through `using`, refuses the field
+// rename, since the rename cannot change the member there. The cursor resolves through the plain struct of the `else`
+// branch.
 @(test)
 rename_field_refused_for_unreachable_variant :: proc(t: ^testing.T) {
 	cases := [?]struct {
@@ -648,7 +643,11 @@ rename_field_refused_for_unreachable_variant :: proc(t: ^testing.T) {
 		cause:   string,
 	} {
 		{
-			"S :: S_Other",
+			"S :: S_Missing",
+			"the platform variant `S` at test/main.odin:4 is no struct, enum or bit_field type, so its member `a` cannot be renamed",
+		},
+		{
+			"S :: S_Without",
 			"the platform variant `S` at test/main.odin:4 is no struct, enum or bit_field type, so its member `a` cannot be renamed",
 		},
 		{
@@ -663,7 +662,7 @@ rename_field_refused_for_unreachable_variant :: proc(t: ^testing.T) {
 	for c in cases {
 		source := test.Source {
 			main = fmt.tprintf(
-				"package test\n\nwhen ODIN_DEBUG {{\n\t%s\n}} else {{\n\tS :: struct {{ a: int }}\n}}\n\nS_Other :: struct {{ a: int }}\n\ng :: proc(s: S) -> int {{ return s.a{{*}} }}\n",
+				"package test\n\nwhen ODIN_DEBUG {{\n\t%s\n}} else {{\n\tS :: struct {{ a: int }}\n}}\n\nS_Other :: struct {{ a: int }}\nS_Without :: struct {{ x: int }}\n\ng :: proc(s: S) -> int {{ return s.a{{*}} }}\n",
 				c.variant,
 			),
 		}
