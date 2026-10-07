@@ -347,6 +347,87 @@ main :: proc() {
 			{},
 		},
 		{
+			"a call of a value of a poly type hides the count",
+			`package test
+
+take :: proc(a, b: int) {}
+
+f :: proc(fp: $F) {
+	take(fp())
+}
+`,
+			{},
+		},
+		{
+			"a conversion to a procedure type passes one value",
+			`package test
+
+Cb :: proc() -> (int, int)
+f :: proc() -> (int, int) { return 1, 2 }
+one :: proc(a: int) {}
+take :: proc(a, b: int) {}
+
+main :: proc(p: Cb) {
+	v: Cb = f
+	one(Cb(f))
+	take(v())
+	take(p())
+	take(Cb(f))
+	one(v())
+}
+`,
+			{{12, "argument-count"}, {13, "argument-count"}},
+		},
+		{
+			"a result field with several names passes one value per name",
+			`package test
+
+pair :: proc() -> (a, b: int) { return 1, 2 }
+one :: proc(a: int) {}
+two :: proc(a, b: int) {}
+g :: proc { one, two }
+
+main :: proc() {
+	g(pair())
+}
+`,
+			{},
+		},
+		{
+			"an optional-ok call passes one value to a group",
+			`package test
+
+maybe :: proc() -> (n: int, ok: bool) #optional_ok { return 1, true }
+one :: proc(a: int) {}
+two :: proc(a: int, b: bool) {}
+g :: proc { one, two }
+
+main :: proc() {
+	g(maybe())
+}
+`,
+			{},
+		},
+		{
+			"an arrow call argument passes every result to a group",
+			`package test
+
+one :: proc(a: int) {}
+two :: proc(a, b: int) {}
+g :: proc { one, two }
+
+Obj :: struct {
+	pair: proc(o: ^Obj) -> (int, int),
+}
+
+main :: proc() {
+	x: ^Obj
+	g(x->pair())
+}
+`,
+			{},
+		},
+		{
 			"an arrow call passes every result",
 			`package test
 

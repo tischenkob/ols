@@ -101,14 +101,22 @@ proc_required_arg_count :: proc(procedure: SymbolProcedureValue) -> int {
 	return required
 }
 
-// Whether `expand_call_args` knows how many values each argument passes. A bad expression and `x->f()`, which
-// counts as one value whatever `f` returns, leave the count unknown.
+// The values a call of procedure passes as arguments: one per result name, and one for an #optional_ok procedure.
+proc_result_value_count :: proc(procedure: SymbolProcedureValue) -> int {
+	if procedure.tags & {.Optional_Ok, .Optional_Allocator_Error} != {} {
+		return min(1, len(procedure.return_types))
+	}
+	count := 0
+	for field in procedure.return_types {
+		count += max(1, len(field.names))
+	}
+	return count
+}
+
+// Whether `expand_call_args` knows how many values each argument passes. A bad expression leaves the count unknown.
 call_arg_counts_known :: proc(call_args: []CallArg) -> bool {
 	for arg in call_args {
 		if arg.bad_expr {
-			return false
-		}
-		if _, is_selector_call := arg.value_expr.derived.(^ast.Selector_Call_Expr); is_selector_call {
 			return false
 		}
 	}

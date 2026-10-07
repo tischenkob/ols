@@ -872,7 +872,23 @@ expand_call_args :: proc(ast_context: ^AstContext, call: ^ast.Call_Expr) -> ([]C
 			return true
 		}
 
-		if symbol, ok := resolve_call_arg_type_expression(ast_context, call_arg.value_expr); ok {
+		// rols: `x->f()` passes every result of its inner call, which resolves to the procedure it calls. With one
+		// result, `x->f()` resolves as itself, which knows the Objective-C instancetype.
+		resolve_expr := call_arg.value_expr
+		symbol: Symbol
+		resolved := false
+		if selector_call, ok := resolve_expr.derived.(^ast.Selector_Call_Expr); ok && selector_call.call != nil {
+			symbol, resolved = resolve_call_arg_type_expression(ast_context, selector_call.call)
+			procedure, is_proc := symbol.value.(SymbolProcedureValue)
+			resolved = resolved && is_proc && proc_result_value_count(procedure) > 1
+			if resolved {
+				resolve_expr = selector_call.call
+			}
+		}
+		if !resolved {
+			symbol, resolved = resolve_call_arg_type_expression(ast_context, resolve_expr)
+		}
+		if resolved {
 			call_arg.symbol = symbol
 			call_arg.has_symbol = true
 			// rols: a constant of a type, like `T :: Tag(0x40)`, is flagged .Variable and keeps the type's symbol type
@@ -882,26 +898,33 @@ expand_call_args :: proc(ast_context: ^AstContext, call: ^ast.Call_Expr) -> ([]C
 				append(results, call_arg)
 				return true
 			} else if v, ok := symbol.value.(SymbolProcedureValue); ok {
-				if _, ok := call_arg.value_expr.derived.(^ast.Call_Expr); ok {
+				if _, ok := resolve_expr.derived.(^ast.Call_Expr); ok {
 					if len(v.return_types) == 0 {
 						return false
 					}
-					for arg in v.return_types {
+					// rols: a result field passes one value per name, and an #optional_ok procedure passes one value.
+					one_value := v.tags & {.Optional_Ok, .Optional_Allocator_Error} != {}
+					results_loop: for arg in v.return_types {
 						expr := arg.type
 						if expr == nil {
 							expr = arg.default_value
 						}
 
-						// rols: the results are not source arguments, so the named phase does not apply.
-						// A named argument is one value and keeps its name on the first result.
-						results_named := false
-						first := len(results)
-						if !append_arg(ast_context, expr, results, &results_named) {
-							return false
-						}
-						if call_arg.named {
-							results[first].named, results[first].name = true, call_arg.name
-							break
+						for _ in 0 ..< max(1, len(arg.names)) {
+							// The results are not source arguments, so the named phase does not apply.
+							// A named argument is one value and keeps its name on the first result.
+							results_named := false
+							first := len(results)
+							if !append_arg(ast_context, expr, results, &results_named) {
+								return false
+							}
+							if call_arg.named {
+								results[first].named, results[first].name = true, call_arg.name
+								break results_loop
+							}
+							if one_value {
+								break results_loop
+							}
 						}
 					}
 					return true

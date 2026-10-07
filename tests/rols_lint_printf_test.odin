@@ -578,17 +578,23 @@ Obj :: struct {
 	pair: proc(o: ^Obj) -> (int, int),
 }
 
+one :: proc(a: int) -> int { return a }
+two :: proc(a, b: int) -> (int, int) { return a, b }
+g :: proc { one, two }
+
 main :: proc() {
 	x: ^Obj
 	fmt.printf("%d %d", x->pair())
 	fmt.printf("%d", x->pair())
+	fmt.printf("%d %d", g(x->pair()))
+	fmt.printf("%d", g(x->pair()))
 }
 `,
 		packages = packages,
 		config = {enable_lint_printf = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{11, "printf-arity"}})
+	test.expect_lint_diagnostics(t, &source, {{15, "printf-arity"}, {17, "printf-arity"}})
 }
 
 @(test)
@@ -606,6 +612,31 @@ main :: proc() {
 	v: Vec(int)
 	fmt.printf("%v", Vec(int)(v))
 	fmt.printf("%v %v", Vec(int)(v))
+}
+`,
+		packages = packages,
+		config = {enable_lint_printf = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{11, "printf-arity"}})
+}
+
+@(test)
+printf_counts_group_call_over_named_results :: proc(t: ^testing.T) {
+	// pair passes two values, so g(pair()) calls two.
+	source := test.Source {
+		main = `package test
+
+import "fmt"
+
+pair :: proc() -> (a, b: int) { return 1, 2 }
+one :: proc(a: int) -> int { return a }
+two :: proc(a, b: int) -> (int, int, int) { return a, b, 0 }
+g :: proc { one, two }
+
+main :: proc() {
+	fmt.printf("%d %d %d", g(pair()))
+	fmt.printf("%d", g(pair()))
 }
 `,
 		packages = packages,

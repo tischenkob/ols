@@ -154,6 +154,7 @@ arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: 
 	resolved, ok := lint_symbols(ctx)[uintptr(callee)]
 	if !ok || resolved.is_unresolved || resolved.symbol == nil do return callee_results(ctx, callee)
 
+	if resolved.symbol.type == .Type_Function do return 1, true
 	#partial switch v in resolved.symbol.value {
 	case SymbolProcedureValue:
 		return proc_results(v), true
@@ -162,6 +163,9 @@ arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: 
 		return members_results(v.symbols)
 	case SymbolProcedureGroupValue:
 		return callee_results(ctx, callee)
+	case SymbolPolyTypeValue, SymbolGenericValue:
+		// A value of a poly type, such as `fp: $F`, may be a procedure with any number of results.
+		if resolved.symbol.type == .Variable do return 1, false
 	}
 	return 1, true
 }
@@ -169,11 +173,14 @@ arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: 
 // The values passed by the procedure that expr resolves to with the locals visible at it. A group
 // call whose overload does not resolve, as with an argument of a poly type, resolves without the
 // call to every member of the group, and passes a known number of values when they all agree.
-// A callee that resolves to a type, as in `Vec(int)(v)`, is a conversion and passes one value.
+// A callee that resolves to a type, as in `Vec(int)(v)`, or a name of a procedure type, as in `Callback(f)`,
+// is a conversion and passes one value. The call of an unnamed callee such as `arr[i]()` resolves to the
+// procedure type of `arr`'s elements, so only a name counts as a procedure type.
 @(private = "file")
 callee_results :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (int, bool) {
 	symbol, ok := resolve_callee(ctx, expr)
 	if !ok do return 1, false
+	if _, is_call := expr.derived.(^ast.Call_Expr); !is_call && symbol.type == .Type_Function do return 1, true
 	#partial switch v in symbol.value {
 	case SymbolProcedureValue:
 		return proc_results(v), true
@@ -195,8 +202,7 @@ resolve_callee :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (Symbol, bool) {
 		get_locals(&ast_context, &position_context)
 		if symbol, ok := resolve_type_expression(&ast_context, expr); ok do return symbol, true
 	}
-	package_context := lint_globals_context(ctx)
-	return resolve_type_expression(&package_context, expr)
+	return resolve_type_with(ctx.ast_context, ctx.document.package_name, expr)
 }
 
 // A context with the package globals of the file and no locals. It shares the walker's globals, since
@@ -204,7 +210,6 @@ resolve_callee :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (Symbol, bool) {
 @(private = "file")
 lint_globals_context :: proc(ctx: ^LintContext) -> AstContext {
 	document := ctx.document
-	if ctx.ast_context == nil do return globals_context(document)
 	ast_context := make_ast_context(
 		document.ast,
 		document.imports,
