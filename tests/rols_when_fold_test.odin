@@ -64,3 +64,59 @@ main :: proc() {
 	}
 	test.expect_hover(t, &source, "test.v: string")
 }
+
+// A constant that reads a name declared in a file-level `when` branch folds after that branch.
+@(test)
+when_fold_reads_name_of_when_branch :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+when true {
+	IS_ON :: true
+} else {
+	IS_ON :: false
+}
+
+FLAG :: IS_ON
+
+when FLAG {
+	X :: 1
+} else {
+	X :: "s"
+}
+
+main :: proc() {
+	y := X{*}
+}
+`,
+	}
+	test.expect_hover(t, &source, "test.X :: 1")
+}
+
+// A cycle of constants reads as unknown, at file level and in a procedure, and the fold ends.
+@(test)
+when_fold_cycle_ends :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+C1 :: C2
+C2 :: C1
+
+when C1 {
+	X :: 1
+} else {
+	X :: "s"
+}
+
+main :: proc() {
+	when C1 {
+		v := 1
+	} else {
+		v := X
+	}
+	w := v{*}
+}
+`,
+	}
+	test.expect_hover(t, &source, "test.v: string")
+}

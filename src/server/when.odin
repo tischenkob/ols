@@ -95,7 +95,7 @@ register_when_consts_from_value_decl :: proc(
 	}
 }
 
-// Multi-pass fold of package globals (map order is unstable).
+// rols: folds package globals in dependency order (`fold_when_globals` in rols_when_fold.odin).
 register_when_consts_from_globals :: proc(
 	when_expr_map: ^map[string]When_Expr,
 	globals: map[string]GlobalExpr,
