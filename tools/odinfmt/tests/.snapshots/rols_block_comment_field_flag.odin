@@ -7,16 +7,21 @@ p :: proc(
 ) {}
 
 S :: struct {
-	x:       int,
+	x:               int,
 	/* b */ using t: U,
 }
 
 T :: struct {
 	/* a */ using s: T,
-	y:       int,
+	y:               int,
 }
 
 V :: struct {
 	/* c */ #subtype base: Base,
-	z:    int,
+	z:                     int,
+}
+
+W :: struct {
+	#subtype base: Base,
+	z:             int,
 }

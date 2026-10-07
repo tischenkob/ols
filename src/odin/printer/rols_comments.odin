@@ -10,11 +10,13 @@ import "core:strings"
 // `width` is the width that the leading comments and their spaces take on the node's line.
 // `code_between` lets a block comment lead even when code separates it from `pos` on the line.
 // A caller passes it when it prints the comments right before the node, so that code is already behind them.
+// Without `space_after`, the space of a leading comment goes before it, for a node such as `;` that follows it directly.
 @(private)
 visit_comments_split :: proc(
 	p: ^Printer,
 	pos: tokenizer.Pos,
 	code_between := false,
+	space_after := true,
 ) -> (
 	above: ^Document,
 	leading: ^Document,
@@ -26,7 +28,11 @@ visit_comments_split :: proc(
 	for comment_before_position(p, pos) {
 		for comment in p.comments[p.latest_comment_index].list {
 			if is_leading_comment(p, comment, pos, code_between) {
-				leading = cons(leading, text(comment.text), text(" "))
+				if space_after {
+					leading = cons(leading, text(comment.text), text(" "))
+				} else {
+					leading = cons(leading, text(" "), text(comment.text))
+				}
 				width += strings.rune_count(comment.text) + 1
 				p.source_position = comment.pos
 			} else {
@@ -161,4 +167,59 @@ field_start :: proc(p: ^Printer, field: ^ast.Field) -> tokenizer.Pos {
 	pos.column -= pos.offset - start
 	pos.offset = start
 	return pos
+}
+
+// Returns the width that visit_comments_split gives the leading block comments before `pos`, without visiting them.
+// `index` is the comment group to start from, and `next` is the first group at or after `pos`.
+// An alignment pass calls it once per item in source order and passes `next` back as `index`.
+@(private)
+peek_leading_width :: proc(p: ^Printer, pos: tokenizer.Pos, index: int) -> (width: int, next: int) {
+	next = index
+	for next < len(p.comments) && p.comments[next].pos.offset < pos.offset {
+		for comment in p.comments[next].list {
+			if is_leading_comment(p, comment, pos) {
+				width += strings.rune_count(comment.text) + 1
+			}
+		}
+		next += 1
+	}
+	return
+}
+
+// Returns the position of the `;` before the post statement of a `for` header.
+// The AST keeps no position for it, so this scans the source after the condition,
+// or else after the init statement or the `for` keyword. An automatic semicolon does not count.
+// Returns the post statement's position when that source holds no `;`.
+@(private)
+for_post_semicolon :: proc(p: ^Printer, stmt: ^ast.For_Stmt) -> tokenizer.Pos {
+	start := stmt.for_pos
+	start.offset += len("for")
+	start.column += len("for")
+	if stmt.cond != nil {
+		start = stmt.cond.end
+	} else if stmt.init != nil {
+		start = stmt.init.end
+	}
+
+	end := stmt.post.pos.offset
+	if start.offset < 0 || start.offset > end || end > len(p.src) {
+		return stmt.post.pos
+	}
+
+	t: tokenizer.Tokenizer
+	tokenizer.init(&t, p.src[start.offset:end], "", nil)
+	semicolon := stmt.post.pos
+	for token := tokenizer.scan(&t); token.kind != .EOF; token = tokenizer.scan(&t) {
+		if token.kind != .Semicolon || token.text != ";" {
+			continue
+		}
+		semicolon = token.pos
+		semicolon.file = start.file
+		semicolon.offset += start.offset
+		if token.pos.line == 1 {
+			semicolon.column += start.column - 1
+		}
+		semicolon.line += start.line - 1
+	}
+	return semicolon
 }

@@ -6,3 +6,8 @@ S :: struct {
 	longer_than_the_comment : int,
 	/* b */ y               : string,
 }
+
+T :: struct {
+	/* a long comment */ x : int,
+	longer                 : int,
+}

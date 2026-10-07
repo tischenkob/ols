@@ -2,7 +2,7 @@
 package odinfmt_test
 
 S :: struct {
-	x: int,
+	x:         int,
 	/* b */ y: int,
 }
 

@@ -633,7 +633,7 @@ visit_enum_exprs :: proc(p: ^Printer, enum_type: ast.Enum_Type, options := List_
 	// rols: compute the alignment once instead of once per field
 	alignment := 0
 	if .Enforce_Newline in options {
-		alignment = get_possible_enum_alignment(enum_type.fields)
+		alignment = get_possible_enum_alignment(p, enum_type.fields)
 	}
 
 	// rols: the width of the block comments that lead the current item, which its alignment takes away
@@ -704,7 +704,8 @@ visit_bit_field_fields :: proc(
 
 	document := empty()
 
-	name_alignment, type_alignment := get_possible_bit_field_alignment(bit_field_type.fields)
+	// rols: pass the printer so that the alignment counts leading block comments
+	name_alignment, type_alignment := get_possible_bit_field_alignment(p, bit_field_type.fields)
 
 	// rols: the width of the block comments that lead the current item, which its alignment takes away
 	leading_width := 0
@@ -791,7 +792,7 @@ visit_union_exprs :: proc(p: ^Printer, union_type: ast.Union_Type, options := Li
 	// rols: compute the alignment once instead of once per variant
 	alignment := 0
 	if .Enforce_Newline in options {
-		alignment = get_possible_enum_alignment(union_type.variants)
+		alignment = get_possible_enum_alignment(p, union_type.variants)
 	}
 
 	// rols: the width of the block comments that lead the current item, which its alignment takes away
@@ -868,7 +869,7 @@ visit_comp_lit_exprs :: proc(
 	alignment := 0
 	align_values := false
 	if .Enforce_Newline in options {
-		alignment = get_possible_comp_lit_alignment(comp_lit.elems)
+		alignment = get_possible_comp_lit_alignment(p, comp_lit.elems, first_leading_width)
 		align_values = alignment > 0 && should_align_comp_lit(p, comp_lit) && p.config.align_struct_values
 	}
 
@@ -1312,6 +1313,14 @@ visit_stmt :: proc(
 		}
 
 		if v.post != nil {
+			// rols: a block comment before the `;` that ends the condition stays before that `;`, with one space before it
+			semicolon_above, semicolon_leading, _ := visit_comments_split(
+				p,
+				for_post_semicolon(p, v),
+				code_between = true,
+				space_after = false,
+			)
+			for_document = cons(for_document, semicolon_above, semicolon_leading)
 			set_source_position(p, v.post.pos)
 			for_document = cons(for_document, text(";"))
 			// rols: a block comment before the post statement on its line leads it, since the `;` before it is already printed
@@ -2349,7 +2358,7 @@ visit_struct_field_list :: proc(p: ^Printer, list: ^ast.Field_List, options := L
 		// Initialize alignment for the first section and update it at each section boundary.
 		if multiline_alignment_enabled && i == section_end {
 			section_end = get_struct_field_alignment_section_end(p, list.list, i)
-			section_name_width = get_max_struct_field_name_width(list.list[i:section_end])
+			section_name_width = get_max_struct_field_name_width(p, list.list[i:section_end])
 		}
 
 		// A field is neither a Decl nor a Stmt, so it reaches neither place that consults
@@ -2909,21 +2918,27 @@ get_struct_field_name_width :: proc(field: ^ast.Field) -> int {
 }
 
 @(private)
-get_max_struct_field_name_width :: proc(fields: []^ast.Field) -> int {
+// rols: the printer gives the alignment the width of the block comments that lead each field
+get_max_struct_field_name_width :: proc(p: ^Printer, fields: []^ast.Field) -> int {
 	longest_name := 0
+	comment_index := p.latest_comment_index
 
 	for field in fields {
-		longest_name = max(longest_name, get_struct_field_name_width(field))
+		leading_width: int
+		leading_width, comment_index = peek_leading_width(p, field_start(p, field), comment_index)
+		longest_name = max(longest_name, get_struct_field_name_width(field) + leading_width)
 	}
 
 	return longest_name
 }
 
 @(private)
-get_possible_comp_lit_alignment :: proc(exprs: []^ast.Expr) -> int {
+// rols: the printer and first_leading_width, which the caller visited, give the alignment each element's leading block comments
+get_possible_comp_lit_alignment :: proc(p: ^Printer, exprs: []^ast.Expr, first_leading_width := 0) -> int {
 	longest_name := 0
+	comment_index := p.latest_comment_index
 
-	for expr in exprs {
+	for expr, i in exprs {
 		value, is_field_value := expr.derived.(^ast.Field_Value)
 
 		if !is_field_value {
@@ -2936,15 +2951,23 @@ get_possible_comp_lit_alignment :: proc(exprs: []^ast.Expr) -> int {
 			}
 		}
 
-		longest_name = max(longest_name, get_node_length(value.field))
+		// rols: a leading block comment counts toward the name's width, as in the element loop
+		leading_width: int
+		leading_width, comment_index = peek_leading_width(p, expr.pos, comment_index)
+		if i == 0 {
+			leading_width += first_leading_width
+		}
+		longest_name = max(longest_name, get_node_length(value.field) + leading_width)
 	}
 
 	return longest_name
 }
 
 @(private)
-get_possible_enum_alignment :: proc(exprs: []^ast.Expr) -> int {
+// rols: the printer gives the alignment the width of the block comments that lead each item
+get_possible_enum_alignment :: proc(p: ^Printer, exprs: []^ast.Expr) -> int {
 	longest_name := 0
+	comment_index := p.latest_comment_index
 
 	for expr in exprs {
 		value, ok := expr.derived.(^ast.Field_Value)
@@ -2953,16 +2976,30 @@ get_possible_enum_alignment :: proc(exprs: []^ast.Expr) -> int {
 			return 0
 		}
 
-		longest_name = max(longest_name, get_node_length(value.field))
+		// rols: a leading block comment counts toward the name's width, as in the item loop
+		leading_width: int
+		leading_width, comment_index = peek_leading_width(p, expr.pos, comment_index)
+		longest_name = max(longest_name, get_node_length(value.field) + leading_width)
 	}
 
 	return longest_name
 }
 
 @(private)
-get_possible_bit_field_alignment :: proc(fields: []^ast.Bit_Field_Field) -> (longest_name: int, longest_type: int) {
+// rols: the printer gives the name alignment the width of the block comments that lead each field
+get_possible_bit_field_alignment :: proc(
+	p: ^Printer,
+	fields: []^ast.Bit_Field_Field,
+) -> (
+	longest_name: int,
+	longest_type: int,
+) {
+	comment_index := p.latest_comment_index
 	for field in fields {
-		longest_name = max(longest_name, get_node_length(field.name))
+		// rols: a leading block comment counts toward the name's width, as in the field loop
+		leading_width: int
+		leading_width, comment_index = peek_leading_width(p, field.pos, comment_index)
+		longest_name = max(longest_name, get_node_length(field.name) + leading_width)
 		longest_type = max(longest_type, get_node_length(field.type))
 	}
 
