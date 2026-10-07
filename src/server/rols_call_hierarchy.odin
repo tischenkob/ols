@@ -196,7 +196,7 @@ hierarchy_document :: proc(h: ^Call_Hierarchy, uri: string) -> ^Document {
 	fullpath := common.uri_to_path(uri, context.temp_allocator)
 	text: string
 	for file in h.files {
-		if file.fullpath == fullpath {
+		if same_path(file.fullpath, fullpath) {
 			text = file.text
 		}
 	}

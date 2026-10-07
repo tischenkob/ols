@@ -548,7 +548,7 @@ package_siblings :: proc(document: ^Document, files: []Package_File) -> []string
 	paths := make([dynamic]string, context.temp_allocator)
 	if len(files) > 0 {
 		for file in files {
-			if path.dir(file.fullpath, context.temp_allocator) == dir {
+			if same_dir(file.fullpath, dir) {
 				append(&paths, file.fullpath)
 			}
 		}
@@ -560,7 +560,7 @@ package_siblings :: proc(document: ^Document, files: []Package_File) -> []string
 	}
 	siblings := make([dynamic]string, context.temp_allocator)
 	for p in paths {
-		if p != document.fullpath {
+		if !same_path(p, document.fullpath) {
 			append(&siblings, p)
 		}
 	}

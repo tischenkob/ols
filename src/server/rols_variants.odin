@@ -5,6 +5,7 @@ import "core:odin/ast"
 import "core:odin/parser"
 import "core:os"
 import "core:path/filepath"
+import path "core:path/slashpath"
 import "core:strings"
 
 import "src:common"
@@ -57,7 +58,7 @@ declaration_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> []Decl_Varia
 
 	variants := make([dynamic]Decl_Variant, context.temp_allocator)
 	for document in package_documents(h, home, target.name, target_private) {
-		same_file := document.fullpath == home.fullpath
+		same_file := same_path(document.fullpath, home.fullpath)
 		always := builds_on_host(document)
 		src := string(document.text[:document.used_text])
 		for decl in top_level_value_decls(document.ast) {
@@ -81,6 +82,45 @@ declaration_variants :: proc(h: ^Call_Hierarchy, symbol: Symbol) -> []Decl_Varia
 		}
 	}
 	return variants[:]
+}
+
+// Whether paths a and b name the same file or directory. A path with a drive letter, as on Windows, matches with
+// either separator and in any ASCII letter case: clients, the workspace walk and get_case_sensitive_path each spell
+// it their own way, and the Windows file system ignores case. Any other path matches exactly.
+same_path :: proc(a, b: string) -> bool {
+	if !has_drive_letter(a) && !has_drive_letter(b) {
+		return a == b
+	}
+	if len(a) != len(b) {
+		return false
+	}
+	for i in 0 ..< len(a) {
+		x, y := a[i], b[i]
+		if x == '\\' do x = '/'
+		if y == '\\' do y = '/'
+		if 'A' <= x && x <= 'Z' do x += 'a' - 'A'
+		if 'A' <= y && y <= 'Z' do y += 'a' - 'A'
+		if x != y do return false
+	}
+	return true
+}
+
+// Whether file lies directly in dir, compared as same_path compares. A file with a drive letter may use either
+// separator.
+same_dir :: proc(file, dir: string) -> bool {
+	if !has_drive_letter(file) {
+		return same_path(path.dir(file, context.temp_allocator), dir)
+	}
+	i := strings.last_index_any(file, `/\`)
+	return i >= 0 && same_path(file[:i], dir)
+}
+
+// Whether path starts with a Windows drive letter, as in `C:/` or `c:\`.
+@(private = "file")
+has_drive_letter :: proc(s: string) -> bool {
+	if len(s) < 2 || s[1] != ':' do return false
+	c := s[0] | 0x20
+	return 'a' <= c && c <= 'z'
 }
 
 // home and, unless private, the other files of its package that mention name, read through h. A file of another
@@ -447,7 +487,7 @@ file_mentions :: proc(h: ^Call_Hierarchy, fullpath, name: string) -> bool {
 		return strings.contains(string(open.text[:open.used_text]), name)
 	}
 	for file in h.files {
-		if file.fullpath == fullpath do return strings.contains(file.text, name)
+		if same_path(file.fullpath, fullpath) do return strings.contains(file.text, name)
 	}
 	data, err := os.read_entire_file(fullpath, context.temp_allocator)
 	return err == nil && strings.contains(string(data), name)

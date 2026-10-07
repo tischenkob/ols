@@ -3,6 +3,7 @@ package tests
 import "core:fmt"
 import "core:testing"
 
+import "src:server"
 import test "src:testing"
 
 // Renaming one branch of a `when` renames the declaration of the other branch, whichever branch holds the cursor.
@@ -768,4 +769,37 @@ rename_collision_skips_index_hit_in_when_of_other_os :: proc(t: ^testing.T) {
 		},
 	}
 	test.expect_rename_refused(t, &source, "h", {})
+}
+
+// A path with a drive letter matches in any letter case and with either separator, as clients, the workspace walk
+// and get_case_sensitive_path spell it differently on Windows. Any other path matches exactly.
+@(test)
+same_path_folds_drive_letter_paths :: proc(t: ^testing.T) {
+	testing.expect(t, server.same_path(`c:/Proj/pkg/a.odin`, `C:\proj\PKG\a.odin`))
+	testing.expect(t, server.same_path(`C:\proj\pkg`, `c:/proj/pkg`))
+	testing.expect(t, !server.same_path(`C:/proj/pkg/a.odin`, `C:/proj/pkg/b.odin`))
+	testing.expect(t, !server.same_path(`C:/proj/pkg`, `C:/proj/pkg2`))
+	testing.expect(t, server.same_path(`/proj/pkg/a.odin`, `/proj/pkg/a.odin`))
+	testing.expect(t, !server.same_path(`/proj/Pkg/a.odin`, `/proj/pkg/a.odin`))
+}
+
+// The siblings that the variant search reads keep the files of the workspace walk, with backslashes and another drive
+// letter case, when the document directory went through get_case_sensitive_path.
+@(test)
+package_siblings_match_drive_letter_case :: proc(t: ^testing.T) {
+	document := server.Document {
+		fullpath     = `C:/Proj/pkg/a.odin`,
+		package_name = `C:/Proj/pkg`,
+	}
+	files := []server.Package_File {
+		{fullpath = `c:\proj\pkg\a.odin`},
+		{fullpath = `c:\proj\pkg\b.odin`},
+		{fullpath = `c:\proj\pkg\sub\c.odin`},
+		{fullpath = `c:\proj\other\d.odin`},
+	}
+	siblings := server.package_siblings(&document, files)
+	testing.expect_value(t, len(siblings), 1)
+	if len(siblings) == 1 {
+		testing.expect_value(t, siblings[0], `c:\proj\pkg\b.odin`)
+	}
 }
