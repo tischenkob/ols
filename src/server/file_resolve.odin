@@ -879,9 +879,10 @@ add_label :: proc(label: ^ast.Expr, data: ^FileResolveData) {
 
 	if ident, ok := label.derived.(^ast.Ident); ok {
 		if symbol, ok := resolve_label(data.ast_context, ident.name); ok {
+			// rols: the map holds a clone, as for every other node
 			data.symbols[cast(uintptr)label] = SymbolAndNode {
-				node = label,
-				symbol = symbol,
+				node   = label,
+				symbol = new_clone(symbol, data.ast_context.allocator),
 			}
 		}
 	}

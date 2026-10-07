@@ -138,6 +138,8 @@ arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: 
 		return callee_results(ctx, callee)
 	}
 
+	// A name that `$` binds, as T in `v: $T`, resolves to the poly type, and `T(x)` converts one value.
+	if .PolyType in resolved.symbol.flags do return 1, true
 	if names_proc_type(resolved.symbol^) do return 1, true
 	#partial switch v in resolved.symbol.value {
 	case SymbolProcedureValue:

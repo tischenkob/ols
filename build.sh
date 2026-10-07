@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-
 # rols: ROLS_TEST_TIMEOUT=SECONDS bounds odin test for test and single_test; unset means no limit.
 # odin test runs in its own process group, and on timeout the whole group gets SIGKILL, so the tests binary that
 # odin test starts dies too. INT, TERM, HUP and QUIT are passed on to the group. The exit status is 124 on timeout.

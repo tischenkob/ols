@@ -290,7 +290,7 @@ run :: proc(args: []string) -> int {
 		}
 		return 0 if len(calls) > 0 else 1
 	case "hover":
-		hover, valid, _ := server.get_hover_information(document, position)
+		hover, valid, _ := server.get_hover_information(document, position, &common.config)
 		if !valid {
 			return 1
 		}
