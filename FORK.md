@@ -1,6 +1,6 @@
 # rols on top of ols
 
-`rols` is a fork of [DanielGavin/ols](https://github.com/DanielGavin/ols) on branch `rols`, based on `upstream/master`.
+`rols` is a fork of [DanielGavin/ols](https://github.com/DanielGavin/ols) on branch `master`, based on `upstream/master`.
 `git log upstream/master..HEAD` is the authoritative diff; this file records only what the code cannot mark itself.
 
 ## Conventions
