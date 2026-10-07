@@ -460,8 +460,8 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 				}
 				for name in decl.names {
 					if ident, ok := name.derived.(^ast.Ident); ok && ident.name == new_name {
-						// A sibling's declaration under a `when` that no target takes together with a renamed one.
-						if i >= renamed && !builds_with_sites(sites[:], scan, ident.pos.offset) {
+						// A declaration under a `when` that no target takes together with a renamed one.
+						if !builds_with_sites(sites[:], scan, ident.pos.offset) {
 							continue
 						}
 						// The index's declaration is reported here.
@@ -546,11 +546,14 @@ Rename_Site :: struct {
 }
 
 // Whether some target builds document with one of sites, and takes both the `when` branch around offset and the
-// one around that site.
+// one around that site. A site in another arm of a `when` of document than offset never builds with it.
 @(private = "file")
 builds_with_sites :: proc(sites: []Rename_Site, document: ^Document, offset: int) -> bool {
 	tags := build_tags(document.ast)
 	for site in sites {
+		if site.document.fullpath == document.fullpath && in_other_when_arms(document.ast, site.offset, offset) {
+			continue
+		}
 		if builds_together(
 			site.document.fullpath,
 			site.tags,
@@ -563,6 +566,36 @@ builds_with_sites :: proc(sites: []Rename_Site, document: ^Document, offset: int
 		}
 	}
 	return false
+}
+
+// Whether offsets a and b of file lie in different arms of one `when` statement, so that no build takes both.
+@(private = "file")
+in_other_when_arms :: proc(file: ast.File, a, b: int) -> bool {
+	for stmt in file.decls {
+		if visit(stmt, a, b) do return true
+	}
+	return false
+
+	holds :: proc(node: ^ast.Stmt, offset: int) -> bool {
+		return node != nil && node.pos.offset <= offset && offset < node.end.offset
+	}
+	visit :: proc(stmt: ^ast.Stmt, a, b: int) -> bool {
+		if !holds(stmt, a) || !holds(stmt, b) do return false
+		#partial switch s in stmt.derived {
+		case ^ast.When_Stmt:
+			for arm in ([2]^ast.Stmt{s.body, s.else_stmt}) {
+				if holds(arm, a) != holds(arm, b) do return true
+				if holds(arm, a) do return visit(arm, a, b)
+			}
+		case ^ast.Block_Stmt:
+			for inner in s.stmts {
+				if visit(inner, a, b) do return true
+			}
+		case ^ast.Foreign_Block_Decl:
+			return visit(s.body, a, b)
+		}
+		return false
+	}
 }
 
 // What the check of a field rename learns about the types that carry the field through `using`.

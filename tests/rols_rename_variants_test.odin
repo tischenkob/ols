@@ -583,6 +583,39 @@ rename_collision_skips_when_branch_of_other_os :: proc(t: ^testing.T) {
 	}
 }
 
+// A declaration of the new name in the renamed declaration's own file collides only when some target takes its
+// `when` branch together with the renamed declaration or a variant. Two arms of one `when` never build together,
+// whatever the condition.
+@(test)
+rename_collision_skips_when_branch_of_other_os_in_same_file :: proc(t: ^testing.T) {
+	cases := [?]struct {
+		text:   string,
+		causes: []string,
+	} {
+		{"#+build windows\npackage test\n\nf{*} :: proc() {}\n\nwhen ODIN_OS == .Linux {\n\th :: 1\n}\n", {}},
+		{
+			"#+build windows\npackage test\n\nf{*} :: proc() {}\n\nwhen ODIN_OS == .Windows {\n\th :: 1\n}\n",
+			{"`h` is already declared in the package at test/f.odin:7:2 (in a when branch)"},
+		},
+		{"package test\n\nwhen ODIN_DEBUG {\n\tf{*} :: proc() {}\n} else {\n\th :: 1\n}\n", {}},
+		{"package test\n\nwhen ODIN_DEBUG {\n\tf{*} :: proc() {}\n} else when ODIN_OS == .Linux {\n\th :: 1\n}\n", {}},
+		{
+			"package test\n\nwhen ODIN_DEBUG {\n\tf{*} :: proc() {}\n\th :: 1\n}\n",
+			{"`h` is already declared in the package at test/f.odin:5:2 (in a when branch)"},
+		},
+		{
+			"package test\n\nwhen ODIN_DEBUG {\n\tf{*} :: proc() {}\n} else {\n\tf :: proc() {}\n\th :: 1\n}\n",
+			{"`h` is already declared in the package at test/f.odin:7:2 (in a when branch)"},
+		},
+	}
+	for c in cases {
+		source := test.Source {
+			files = {{"f.odin", c.text}},
+		}
+		test.expect_rename_refused(t, &source, "h", c.causes)
+	}
+}
+
 // A field rename from a third file, where the type resolves through the index, renames the member in a variant of
 // another file.
 @(test)
