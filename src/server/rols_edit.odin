@@ -680,9 +680,16 @@ import_edit :: proc(ctx: ^ActionContext, import_path: string, alias := "") -> Te
 
 	// pkg_decl lines are 1-based, so this is the 0-based line right after the package clause.
 	// A blank line goes on each side of the import, unless that line is blank or past the end.
-	line := ctx.ast_context.file.pkg_decl.end.line
+	end := ctx.ast_context.file.pkg_decl.end
+	// A comment that starts on the package line may span several lines, so the import goes after it.
+	for group in ctx.ast_context.file.comments {
+		if group.pos.line == end.line && group.end.offset > end.offset {
+			end = group.end
+		}
+	}
+	line := end.line
 	src := ctx.document.ast.src
-	rest := src[ctx.ast_context.file.pkg_decl.end.offset:]
+	rest := src[end.offset:]
 	// A file without a line break after the package clause has no next line, so the import ends the file.
 	if !strings.contains(rest, "\n") {
 		return {range = range_of(ctx, len(src), len(src)), newText = fmt.tprintf("\n\n%s\n", decl)}
