@@ -381,12 +381,7 @@ builds_on :: proc(name, text: string, target: parser.Build_Target) -> bool {
 // The operating systems where a package that imports core:testing does not compile (odin dev-2026-09).
 NO_TESTING_OSES :: bit_set[runtime.Odin_OS_Type]{.JS, .WASI, .Orca, .Freestanding}
 
-// The operating systems that odin builds the file called name with the source text for, on some architecture.
-build_oses :: proc(name, text: string) -> bit_set[runtime.Odin_OS_Type] {
-	return facts_oses(build_facts(name, text))
-}
-
-// build_oses for a file whose tags are already parsed.
+// The operating systems that odin builds the file called name with tags for, on some architecture.
 tags_oses :: proc(name: string, tags: parser.File_Tags) -> bit_set[runtime.Odin_OS_Type] {
 	return facts_oses(facts_of(name, tags))
 }

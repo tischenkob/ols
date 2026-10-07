@@ -568,6 +568,37 @@ main :: proc() {
 `}})
 }
 
+// A line comment moved into a slot whose block comment precedes its comma follows the comma.
+@(test)
+reorder_params_puts_a_line_comment_after_the_comma :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+pl{*}ace :: proc(
+	x: int /* a */,
+	name: string, // label
+) {
+}
+
+main :: proc() {
+	place(1, "a")
+}
+`,
+	}
+	test.expect_reorder_params(t, &source, {1, 0}, {{"main.odin", `package test
+
+place :: proc(
+	name: string, // label
+	x: int, /* a */
+) {
+}
+
+main :: proc() {
+	place("a", 1)
+}
+`}})
+}
+
 @(test)
 reorder_params_splits_shared_type_on_lines :: proc(t: ^testing.T) {
 	source := test.Source {
