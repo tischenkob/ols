@@ -126,7 +126,14 @@ note_error_files :: proc(check_path: string, output: Json_Errors) {
 // logs. shown holds the failure last shown, in the heap allocator: a failure shows once until a check succeeds
 // or fails otherwise. A timeout is left to the log, since the next check can finish in time.
 report_check_failure :: proc(writer: ^Writer, shown: ^string) {
+	// `check` returns before it records a run when no path needs a check, so a run that this report has
+	// consumed must not show again: its failure lives in temp memory that the consumer has freed.
+	if !check_run.ran {
+		return
+	}
 	failure := check_run.failure
+	check_run.ran = false
+	check_run.failure = ""
 	if failure == CHECK_TIMED_OUT || failure == shown^ {
 		return
 	}
