@@ -113,7 +113,7 @@ find_symbols :: proc(query: string, config: ^common.Config, limit := 100) -> []F
 		append(&matchers, common.make_fuzzy_matcher(field))
 	}
 	base := base_target(config.checker_args)
-	saved_when := set_when_target(config.checker_args)
+	saved_when := set_when_target(config)
 	defer restore_when_target(saved_when)
 
 	// One arena holds a parsed file, the other the `when` tables of the package directory.

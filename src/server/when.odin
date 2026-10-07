@@ -296,7 +296,8 @@ active_when_block :: proc(
 	return get_when_block_stmt(stmt, consts)
 }
 
-// rols: `#config(NAME, default)` reads the define NAME, then the default.
+// rols: `#config(NAME, default)` reads the define NAME, then the default. A `-define:` of checker_args in a CLI
+// query (set_when_target) wins over `defines`.
 resolve_config_directive :: proc(
 	when_expr_map: map[string]When_Expr,
 	call: ^ast.Call_Expr,
@@ -308,7 +309,9 @@ resolve_config_directive :: proc(
 	directive, is_directive := call.expr.derived.(^ast.Basic_Directive)
 	if !is_directive || directive.name != "config" || len(call.args) != 2 do return {}, false
 	if name, is_ident := call.args[0].derived.(^ast.Ident); is_ident {
-		if value, defined := defines[name.name]; defined {
+		value, defined := when_defines[name.name]
+		if !defined do value, defined = defines[name.name]
+		if defined {
 			return resolve_when_ident(when_expr_map, value)
 		}
 	}
