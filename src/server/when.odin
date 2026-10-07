@@ -277,12 +277,15 @@ resolve_when_condition :: proc(condition: ^ast.Expr, when_expr_map: map[string]W
 
 // rols: collects a document's globals with imported-package constants visible to `when` conditions.
 collect_document_globals :: proc(ast_context: ^AstContext, file: ast.File) -> []GlobalExpr {
+	saved_eval_target := use_file_when_target(ast_context)
+	defer when_eval_target = saved_eval_target
 	when_ast_context = ast_context
 	defer when_ast_context = nil
 	return collect_globals(file, open_file = true)
 }
 
-// rols: the block of a `when` statement that the host builds, with imported constants visible to the condition.
+// rols: the block of a `when` statement that the target building the file takes, with imported constants visible to
+// the condition.
 active_when_block :: proc(
 	ast_context: ^AstContext,
 	stmt: ^ast.When_Stmt,
@@ -291,6 +294,8 @@ active_when_block :: proc(
 	^ast.Block_Stmt,
 	bool,
 ) {
+	saved_eval_target := use_file_when_target(ast_context)
+	defer when_eval_target = saved_eval_target
 	when_ast_context = ast_context
 	defer when_ast_context = nil
 	return get_when_block_stmt(stmt, consts)

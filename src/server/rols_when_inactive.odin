@@ -304,11 +304,22 @@ restore_when_target :: proc(saved: When_Setting) {
 	when_collections = saved.collections
 }
 
-// The target whose ODIN_OS and ODIN_ARCH the `when` conditions of this thread read before when_target, set while
-// the lints walk a file that the host does not build, for the target that builds it. Unlike when_target, it leaves
+// The target whose ODIN_OS and ODIN_ARCH the `when` conditions of this thread read before when_target. It is set
+// while the lints walk a file that the host does not build, and while a document's globals or locals evaluate their
+// `when` statements (use_file_when_target), for the target that builds that file. Unlike when_target, it leaves
 // host_target alone, so the lookups of that file still find the declarations of its target (see rols_excluded.odin).
 @(thread_local)
 when_eval_target: Maybe(parser.Build_Target)
+
+// Sets when_eval_target to the target that builds the file of ast_context when the host does not build it and no
+// caller set a target, so hover, references, lints and semantic tokens take the same `when` branch there. Returns
+// the value to restore.
+use_file_when_target :: proc(ast_context: ^AstContext) -> (saved: Maybe(parser.Build_Target)) {
+	saved = when_eval_target
+	if saved != nil do return
+	if target, has_target := file_target(ast_context.fullpath); has_target do when_eval_target = target
+	return
+}
 
 // The value of ODIN_OS or ODIN_ARCH under when_eval_target, else the target of set_when_target, spelled as
 // resolve_when_ident spells it.

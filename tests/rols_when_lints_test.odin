@@ -245,3 +245,68 @@ when ODIN_OS == .%v {{
 	}
 	test.expect_lint_diagnostics(t, &source, {})
 }
+
+// In a file the host does not build, a constant that a `when` branch declares names the choice of the target that
+// builds the file. With `f :: k` there, `f()` may ignore its result. With `f :: g` there, the lint reports it.
+@(test)
+ignored_result_follows_when_local_of_excluded_file_target :: proc(t: ^testing.T) {
+	Row :: struct {
+		target_callee, host_callee: string,
+		expected:                   []test.LintExpect,
+	}
+	rows := []Row{{"k", "g", {}}, {"g", "k", {{9, "ignored-result"}}}}
+	for row in rows {
+		source := test.Source {
+			main = excluded_when_source(row.target_callee, row.host_callee, "f()"),
+			files = {{"b.odin", B_REQUIRED}},
+			config = {enable_lint_ignored_result = true},
+		}
+		test.expect_lint_diagnostics(t, &source, row.expected)
+	}
+}
+
+// Hover in such a file shows the branch of the target that builds it, as its lints and semantic tokens do.
+@(test)
+hover_follows_when_local_of_excluded_file_target :: proc(t: ^testing.T) {
+	source := test.Source {
+		main  = excluded_when_source("k", "g", "f{*}()"),
+		files = {{"b.odin", B_REQUIRED}},
+	}
+	test.expect_hover(t, &source, "test.f :: proc() -> int")
+}
+
+// References from the call find the declaration in the branch of the target that builds the file, and the call too.
+@(test)
+references_follow_when_local_of_excluded_file_target :: proc(t: ^testing.T) {
+	source := test.Source {
+		main  = excluded_when_source("k", "g", "f{*}()"),
+		files = {{"b.odin", B_REQUIRED}},
+	}
+	test.expect_reference_locations(
+		t,
+		&source,
+		{
+			{range = {start = {line = 5, character = 2}, end = {line = 5, character = 3}}},
+			{range = {start = {line = 9, character = 1}, end = {line = 9, character = 2}}},
+		},
+	)
+}
+
+// A file built only by another OS than the host, whose `when` declares `f` as target_callee on that OS and as
+// host_callee elsewhere, and calls `f` on line 9 through `call`.
+@(private = "file")
+excluded_when_source :: proc(target_callee, host_callee, call: string) -> string {
+	other_os, other_enum := "windows", "Windows"
+	when ODIN_OS == .Windows do other_os, other_enum = "linux", "Linux"
+	return fmt.tprintf(
+		"#+build %s\npackage test\n\nh :: proc() {{\n\twhen ODIN_OS == .%s {{\n\t\tf :: %s\n\t}} else {{\n\t\tf :: %s\n\t}}\n\t%s\n}}\n",
+		other_os,
+		other_enum,
+		target_callee,
+		host_callee,
+		call,
+	)
+}
+
+@(private = "file")
+B_REQUIRED :: "package test\n\n@(require_results)\ng :: proc() -> int { return 1 }\n\nk :: proc() -> int { return 1 }\n"
