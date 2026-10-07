@@ -304,9 +304,17 @@ restore_when_target :: proc(saved: When_Setting) {
 	when_collections = saved.collections
 }
 
-// The value of ODIN_OS or ODIN_ARCH under the target of set_when_target, spelled as resolve_when_ident spells it.
+// The target whose ODIN_OS and ODIN_ARCH the `when` conditions of this thread read before when_target, set while
+// the lints walk a file that the host does not build, for the target that builds it. Unlike when_target, it leaves
+// host_target alone, so the lookups of that file still find the declarations of its target (see rols_excluded.odin).
+@(thread_local)
+when_eval_target: Maybe(parser.Build_Target)
+
+// The value of ODIN_OS or ODIN_ARCH under when_eval_target, else the target of set_when_target, spelled as
+// resolve_when_ident spells it.
 when_target_ident :: proc(ident: string) -> (value: When_Expr, ok: bool) {
-	target := when_target.? or_return
+	target, evaluated := when_eval_target.?
+	if !evaluated do target = when_target.? or_return
 	switch ident {
 	case "ODIN_OS":
 		return fmt.tprint(target.os), true
