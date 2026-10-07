@@ -362,7 +362,7 @@ check_collisions :: proc(out: ^[dynamic]string, target: ^Rename_Target, new_name
 				out         = out,
 				new_name    = new_name,
 				texts       = workspace_odin_files("", target.h.files),
-				types       = make([dynamic]Symbol, context.temp_allocator),
+				types       = make([dynamic]Embed_Type, context.temp_allocator),
 				decls       = make([dynamic]Symbol, context.temp_allocator),
 				sites       = make([dynamic]^Document, context.temp_allocator),
 				resolved    = make(map[^Document]SymbolAndNodeMap, context.temp_allocator),
@@ -572,11 +572,35 @@ Embed_Scan :: struct {
 	new_name:    string,
 	site:        ^Document, // the document under walk by check_using_statements
 	texts:       []Package_File, // every workspace file with its text, read once for the whole scan
-	types:       [dynamic]Symbol, // the owner type and every type that embeds it, directly or not
+	types:       [dynamic]Embed_Type, // the owner type and every type that embeds it, directly or not
 	decls:       [dynamic]Symbol, // the declarations searched so far: those types and the aliases of them
 	sites:       [dynamic]^Document, // the documents searched for `using` statements and declarations
 	resolved:    map[^Document]SymbolAndNodeMap, // the new name resolved in each site
 	when_bodies: map[^ast.Block_Stmt]struct{}, // the `when` bodies checked with the statements of their block
+}
+
+// A type that carries the renamed field. A type that the name of an inactive declaration resolves to, the active
+// variant, carries it only for a `using` that a target builds with that declaration: one outside other branches of
+// whens than the declaration's, at offset of document.
+@(private = "file")
+Embed_Type :: struct {
+	symbol:   Symbol,
+	document: ^Document,
+	offset:   int,
+	whens:    []^ast.When_Stmt,
+}
+
+// Appends type to scan.types unless an entry has its symbol. An entry without a document, which counts for every
+// `using`, wins over one with a document.
+@(private = "file")
+add_embed_type :: proc(scan: ^Embed_Scan, type: Embed_Type) {
+	for &seen in scan.types {
+		if same_symbol(seen.symbol, type.symbol) {
+			if type.document == nil do seen = type
+			return
+		}
+	}
+	append(&scan.types, type)
 }
 
 // Appends a cause for each struct that embeds the type named type_name through `using`, directly or through
@@ -612,13 +636,41 @@ check_embedders :: proc(scan: ^Embed_Scan, target: ^Rename_Target, document: ^Do
 		}
 	}
 	append(&scan.decls, type_symbol)
-	known := false
-	for seen in scan.types {
-		known ||= same_symbol(seen, value)
+	embed_type := Embed_Type {
+		symbol = value,
 	}
-	if !known {
-		append(&scan.types, value)
+	// In an inactive `when` branch the name resolves to the active variant, which need not carry the field, and so
+	// does a `using` of the name in that branch. The declaration's own type carries the field, and the active
+	// variant counts only for a `using` that a target can build together with the declaration.
+	if value.name == type_name.name && value.pkg == document.package_name {
+		chain := nodes_at(document.ast.decls[:], type_name.pos.offset)
+		for node_at in chain {
+			decl := node_at.node.derived.(^ast.Value_Decl) or_continue
+			if len(decl.names) != 1 || decl.names[0] != type_name || len(decl.values) != 1 {
+				continue
+			}
+			resolved_at := -1
+			if value.uri == document.uri.uri {
+				resolved_at =
+					common.get_absolute_position(value.range.start, document.text[:document.used_text]) or_else -1
+			}
+			if resolved_at >= decl.pos.offset && resolved_at < decl.end.offset {
+				break
+			}
+			whens := make([dynamic]^ast.When_Stmt, context.temp_allocator)
+			for outer in chain {
+				if when_stmt, is_when := outer.node.derived.(^ast.When_Stmt); is_when {
+					append(&whens, when_stmt)
+				}
+			}
+			embed_type = {value, document, type_name.pos.offset, whens[:]}
+			if own, own_ok := resolve_type_expression(&ast_context_value, decl.values[0]); own_ok {
+				add_embed_type(scan, {symbol = own})
+			}
+			break
+		}
 	}
+	add_embed_type(scan, embed_type)
 	candidates := make([dynamic]Package_File, context.temp_allocator)
 	for file in scan.texts {
 		if !strings.contains(file.text, type_name.name) {
@@ -953,7 +1005,8 @@ carries_field :: proc(scan: ^Embed_Scan, expr: ^ast.Expr) -> bool {
 	symbol, _ := unwrap_procedure_until_struct_bit_field_or_package(&ast_context, expr) or_return
 	// A type resolved from a call result is the declaration, which spans the type's name, not its body.
 	for type in scan.types {
-		if same_symbol(type, symbol) {
+		if !same_symbol(type.symbol, symbol) do continue
+		if type.document != scan.site || !in_other_branch(type.whens, type.offset, expr.pos.offset) {
 			return true
 		}
 	}

@@ -2302,3 +2302,86 @@ g :: proc(s: S) -> int { return s.a{*} }
 	}
 	test.expect_rename_refused(t, &source, "b", {})
 }
+
+// An embedder in an inactive branch carries the field only in its own branch: the active variant of its name does
+// not, so a `using` of the active variant cannot collide.
+@(test)
+rename_safe_allows_using_of_active_variant_of_inactive_embedder :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+B :: struct { x{*}: int }
+
+when ODIN_OS == .Windows {
+	S :: struct { using b: B }
+} else {
+	S :: struct { c: int }
+
+	f :: proc() -> int {
+		y := 1
+		using s: S
+		return y + c
+	}
+}
+`,
+	}
+	test.expect_rename_refused(t, &source, "y", {})
+}
+
+// A `using` of the inactive embedder in its own branch collides with a name in its scope.
+@(test)
+rename_safe_refuses_using_of_inactive_embedder :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+B :: struct { x{*}: int }
+
+when ODIN_OS == .Windows {
+	S :: struct { using b: B }
+
+	f :: proc() -> int {
+		y := 1
+		using s: S
+		return y
+	}
+} else {
+	S :: struct { c: int }
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"y",
+		{"`y` is already declared in the scope of `using s` at test/main.odin:9:3"},
+	)
+}
+
+// A `using` outside the `when` names the inactive embedder on the target that builds it.
+@(test)
+rename_safe_refuses_using_outside_when_of_inactive_embedder :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+B :: struct { x{*}: int }
+
+when ODIN_OS == .Windows {
+	S :: struct { using b: B }
+} else {
+	S :: struct { c: int }
+}
+
+f :: proc() -> int {
+	y := 1
+	using s: S
+	return y
+}
+`,
+	}
+	test.expect_rename_refused(
+		t,
+		&source,
+		"y",
+		{"`y` is already declared in the scope of `using s` at test/main.odin:12:2"},
+	)
+}
