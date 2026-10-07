@@ -114,9 +114,9 @@ lint_fallback :: proc(ctx: ^LintContext, node: ^ast.Node) -> (^Symbol, bool) {
 }
 
 // Whether a name in inactive code that resolves to symbol may name another declaration on a target that builds
-// that code. The resolver gives the host's declaration unless only an inactive branch declares the name (.Fallback),
-// and a target that builds the inactive code may build a platform variant of it instead (see `declaration_variants`),
-// with another kind or attribute.
+// that code. The resolver gives the declaration of the host, or of the target that builds an excluded file, unless
+// only an inactive branch declares the name (.Fallback), and a target that builds the inactive code may build a
+// platform variant of it instead (see `declaration_variants`), with another kind or attribute.
 @(private = "package")
 ambiguous_in_inactive :: proc(ctx: ^LintContext, symbol: ^Symbol) -> bool {
 	if !ctx.inactive || symbol == nil || .Fallback in symbol.flags do return false
@@ -327,7 +327,8 @@ walk_lints :: proc(document: ^Document, config: ^common.Config, files: []Package
 		diags = make([dynamic]Diagnostic, context.temp_allocator),
 	}
 	// rols: nothing in a `#+build ignore` file is built, so nothing in it is linted. A file the host does not build
-	// is treated like an inactive branch, since its calls resolve to the host's declarations.
+	// is treated like an inactive branch (see `document_build`): a name there can still resolve to a declaration that
+	// the target building it does not have.
 	ignored, excluded := document_build(document)
 	if ignored do return w
 	if excluded do w.inactive = 1
