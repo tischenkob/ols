@@ -663,22 +663,48 @@ cmp -s "$dir/tr/c/c.odin" "$dir/tr.orig" || { echo "FAIL transitive rollback is 
 expect transitive-importer-error "^error: .*a.odin:6:2: 'b.f' requires that its results must be handled" sh -c "\"$OLS\" query attr add \"$dir/tr/c.f\" require_results --apply 2>&1 || true"
 rm -rf "$dir/tr" "$dir/tr.orig"
 # A touched file that the host does not build is checked for a target it builds on: require_results on
-# W breaks the discarded call in the same windows-only file. An importer that has no file for the host is
-# checked on the host without a refusal, and for windows through its own file.
+# W breaks the discarded call in the same file of another OS. An importer that has no file for the host is
+# checked on the host without a refusal, and for the other OS through its own file. odin dev-2026-10 refuses
+# a Windows target on another host, `odin check` included, without -windows-sdk-root, which only
+# `odin build` takes. There the gate refuses an edit that needs a Windows check and quotes odin, and the
+# cross-target cases use another OS that the host does not build.
 if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
+	mkdir -p "$dir/probe"
+	printf 'package probe\n' > "$dir/probe/p.odin"
+	if odin check "$dir/probe" -no-entry-point -target:windows_amd64 >/dev/null 2>&1; then
+		other_os=windows other_enum=Windows other_target=windows_amd64 other_import=sys/windows other_call=windows.GetLastError
+	else
+		mkdir -p "$dir/wr"
+		printf 'package wr\n\nW :: proc() -> int {\n\treturn 1\n}\n\nuse_w :: proc() {\n\tW()\n}\n' > "$dir/wr/wr_windows.odin"
+		cp "$dir/wr/wr_windows.odin" "$dir/wr.orig"
+		expect_exit 1 windows-target-refused "$OLS" query attr add "$dir/wr/wr_windows.odin:3:1" require_results --apply
+		cmp -s "$dir/wr/wr_windows.odin" "$dir/wr.orig" || { echo "FAIL windows-target-refused wrote the file"; exit 1; }
+		expect windows-target-refusal-quotes-odin "^error: \`odin check\` printed output that is not its JSON error list: -windows-sdk-root:<path> must be used to target Windows (target windows_amd64)$" sh -c "\"$OLS\" query attr add \"$dir/wr/wr_windows.odin:3:1\" require_results --apply 2>&1 || true"
+		rm -rf "$dir/wr" "$dir/wr.orig"
+		if [[ "$(uname -s)" == Linux ]]; then
+			other_os=darwin other_enum=Darwin other_target=darwin_arm64
+		else
+			other_os=linux other_enum=Linux other_target=linux_amd64
+		fi
+		other_import=sys/posix other_call=posix.getpid
+	fi
+	rm -rf "$dir/probe"
+	# A target that checker_targets names and that the plat package has no file for.
+	explicit_target=freebsd_amd64
 	mkdir -p "$dir/tg/plat" "$dir/tg/use"
-	printf 'package plat\n\nimport "core:sys/windows"\n\nW :: proc() -> int {\n\treturn 1\n}\n\nuse_w :: proc() {\n\t_ = windows.GetLastError()\n\tW()\n}\n' > "$dir/tg/plat/plat_windows.odin"
-	cp "$dir/tg/plat/plat_windows.odin" "$dir/tg.orig"
-	expect_exit 4 other-target-rolled-back "$OLS" query attr add "$dir/tg/plat/plat_windows.odin:5:1" require_results --apply
-	cmp -s "$dir/tg/plat/plat_windows.odin" "$dir/tg.orig" || { echo "FAIL target rollback is not byte for byte"; exit 1; }
-	echo '{"checker_targets": ["linux_amd64"]}' > "$dir/ols.json"
-	expect_exit 4 explicit-target-adds-to-the-needed-ones "$OLS" query attr add "$dir/tg/plat/plat_windows.odin:5:1" require_results --apply
+	plat="$dir/tg/plat/plat_$other_os.odin"
+	printf 'package plat\n\nimport "core:%s"\n\nW :: proc() -> int {\n\treturn 1\n}\n\nuse_w :: proc() {\n\t_ = %s()\n\tW()\n}\n' "$other_import" "$other_call" > "$plat"
+	cp "$plat" "$dir/tg.orig"
+	expect_exit 4 other-target-rolled-back "$OLS" query attr add "$plat:5:1" require_results --apply
+	cmp -s "$plat" "$dir/tg.orig" || { echo "FAIL target rollback is not byte for byte"; exit 1; }
+	echo '{"checker_targets": ["'"$explicit_target"'"]}' > "$dir/ols.json"
+	expect_exit 4 explicit-target-adds-to-the-needed-ones "$OLS" query attr add "$plat:5:1" require_results --apply
 	echo '{}' > "$dir/ols.json"
 	rm -rf "$dir/tg" "$dir/tg.orig"
 	mkdir -p "$dir/ig/lib" "$dir/ig/use"
 	printf 'package lib\n\nL :: proc() -> int {\n\treturn 1\n}\n' > "$dir/ig/lib/lib.odin"
-	printf '#+build windows\npackage use\n\nimport "../lib"\n\nmain :: proc() {\n\t_ = lib.L()\n}\n' > "$dir/ig/use/use_win.odin"
-	expect importer-without-a-host-file-is-checked "^attr add: 1 edit in 1 file written, 2 packages checked, also on windows_amd64$" "$OLS" query attr add "$dir/ig/lib.L" cold --apply
+	printf '#+build %s\npackage use\n\nimport "../lib"\n\nmain :: proc() {\n\t_ = lib.L()\n}\n' "$other_os" > "$dir/ig/use/use_other.odin"
+	expect importer-without-a-host-file-is-checked "^attr add: 1 edit in 1 file written, 2 packages checked, also on $other_target$" "$OLS" query attr add "$dir/ig/lib.L" cold --apply
 	expect_exit 4 importer-without-a-host-file-rolled-back "$OLS" query attr add "$dir/ig/lib.L" private --apply
 	rm -rf "$dir/ig"
 	# An importer whose js_wasm32 check fails in core (core:os panics there) does not build on that target,
@@ -691,11 +717,11 @@ if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
 	expect native-importer-skipped-on-js "^warning: jw/nat does not build on target js_wasm32: odin check there reports errors in .*, outside the workspace" sh -c "\"$OLS\" query attr add \"$dir/jw/wl/wl_js.odin:3:1\" cold --apply 2>&1"
 	expect_exit 4 js-importer-keeps-its-gate "$OLS" query attr add "$dir/jw/wl/wl_js.odin:4:1" private --apply
 	rm -rf "$dir/jw"
-	# A `when ODIN_OS == .Windows` branch alone adds windows_amd64: require_results on f breaks the discarded call
+	# A `when ODIN_OS == .X` branch alone adds the target of X: require_results on f breaks the discarded call
 	# in it, though no file of the package needs that target.
 	mkdir -p "$dir/wb"
-	printf 'package wb\n\nf :: proc() -> int {\n\treturn 1\n}\n\nwhen ODIN_OS == .Windows {\n\tg :: proc() {\n\t\tf()\n\t}\n}\n' > "$dir/wb/wb.odin"
-	expect when-branch-names-its-target "^attr add: 1 edit in 1 file written, 1 package checked, also on windows_amd64$" "$OLS" query attr add "$dir/wb.f" cold --apply
+	printf 'package wb\n\nf :: proc() -> int {\n\treturn 1\n}\n\nwhen ODIN_OS == .%s {\n\tg :: proc() {\n\t\tf()\n\t}\n}\n' "$other_enum" > "$dir/wb/wb.odin"
+	expect when-branch-names-its-target "^attr add: 1 edit in 1 file written, 1 package checked, also on $other_target$" "$OLS" query attr add "$dir/wb.f" cold --apply
 	expect_exit 4 when-branch-rolled-back "$OLS" query attr add "$dir/wb.f" require_results --apply
 	rm -rf "$dir/wb"
 fi
@@ -750,7 +776,7 @@ rm -rf "$dir/many" "$dir/many.orig"
 # so the check reruns without the style flags and keeps the comma as a warning.
 mkdir "$dir/sty"
 printf 'package sty\n\nS :: struct {\n\ta: int,\n}\n\nf :: proc() {\n\ts := S{\n\t\ta = 1\n\t}\n\tx: int = "s"\n\t_, _ = s, x\n}\n' > "$dir/sty/s.odin"
-expect_exit1 style-syntax-error-is-a-warning "s.odin:9:7: warning: Syntax Error: Expected a comma" "$OLS" query check "$dir/sty"
+expect_exit1 style-syntax-error-is-a-warning "s.odin:9:8: warning: Syntax Error: Expected a comma" "$OLS" query check "$dir/sty"
 expect_exit1 style-rerun-reports-the-type-error "s.odin:11:11: error: Cannot convert" "$OLS" query check "$dir/sty"
 # The rerun without the style flags crashes once and runs again.
 printf '#!/usr/bin/env bash\nif [[ "$1" == check && " $* " != *" -vet-style "* && ! -e "%s" ]]; then touch "%s"; kill -SEGV $$; fi\nexec odin "$@"\n' "$dir/sty.crashed" "$dir/sty.crashed" > "$dir/sty-odin"

@@ -70,6 +70,20 @@ record_check_run :: proc(path_count: int, processes: []CheckProcess, parsed: int
 		check_run.failure = "`odin check` could not start; is odin on PATH or odin_command set?"
 	} else if parsed < with_output {
 		check_run.failure = "`odin check` printed output that is not its JSON error list"
+		// odin prints a plain message instead of JSON when it refuses the command line, such as a Windows
+		// target on another host, so the failure quotes its first line.
+		for p in processes {
+			text := strings.trim_space(string(p.buffer[:]))
+			if p.crashed || text == "" || strings.has_prefix(text, "{") {
+				continue
+			}
+			line, _, _ := strings.partition(text, "\n")
+			check_run.failure = strings.concatenate(
+				{check_run.failure, ": ", strings.trim_space(line)},
+				context.temp_allocator,
+			)
+			break
+		}
 	}
 }
 
