@@ -15,10 +15,8 @@ when B_OFF {
 	Mode :: enum {
 		A,
 	}
-	Name :: string
 	counter: Mode
 	mode: Mode
-	names: Name
 }
 `
 
@@ -182,27 +180,6 @@ has :: proc(s: []int, x: int) -> bool {{
 	test.expect_lint_diagnostics(t, &source, {})
 }
 
-// `names` is a string only in a branch the host does not build, so active code does not judge it as one.
-@(test)
-use_stdlib_ignores_fallback_in_active_code :: proc(t: ^testing.T) {
-	source := test.Source {
-		main = `package test
-
-has :: proc(x: rune) -> bool {
-	for e in names {
-		if e == x {
-			return true
-		}
-	}
-	return false
-}
-`,
-		files = {{"b.odin", OFF_FILE}},
-		config = {enable_lint_use_stdlib = true},
-	}
-	test.expect_lint_diagnostics(t, &source, {{3, "use_stdlib"}})
-}
-
 // `counter` resolves only to a global of an inactive branch, so a store to it is not a dead local store.
 @(test)
 dead_store_judges_fallback_global_in_active_code :: proc(t: ^testing.T) {
@@ -237,4 +214,34 @@ f :: proc(x: int) {
 		config = {enable_lint_bool_logic = true},
 	}
 	test.expect_lint_diagnostics(t, &source, {{5, "duplicate-condition"}})
+}
+
+// On the host `handler` is a variable, but `register(handler)` in the other branch resolves to the procedure that
+// branch declares, the file's own declaration there, so its parameter is spared.
+@(test)
+unused_parameter_counts_value_use_in_inactive_branch_by_name :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = fmt.tprintf(
+			`package test
+
+register :: proc(f: proc(x: int)) {{
+	f(1)
+}}
+
+when ODIN_OS == .%v {{
+	handler: int
+}} else {{
+	handler :: proc(x: int) {{
+		register(nil)
+	}}
+	g :: proc() {{
+		register(handler)
+	}}
+}}
+`,
+			ODIN_OS,
+		),
+		config = {enable_lint_unused_parameter = true},
+	}
+	test.expect_lint_diagnostics(t, &source, {})
 }

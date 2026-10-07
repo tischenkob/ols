@@ -39,6 +39,8 @@ LintContext :: struct {
 	// `ambiguous_in_inactive`), and the documents read to find them.
 	variants:       map[string]bool,
 	hierarchy:      ^Call_Hierarchy,
+	variant_dirs:   map[string]struct{}, // the package directories read into variant_files
+	variant_files:  [dynamic]Package_File,
 	// The member names of each `using` expression that `visible_declaration` resolved, in temp memory.
 	using_members:  map[^ast.Expr][]string,
 }
@@ -124,6 +126,18 @@ ambiguous_in_inactive :: proc(ctx: ^LintContext, symbol: ^Symbol) -> bool {
 			context.temp_allocator,
 		)
 		ctx.variants = make(map[string]bool, context.temp_allocator)
+		ctx.variant_dirs = make(map[string]struct{}, context.temp_allocator)
+		ctx.variant_files = make([dynamic]Package_File, context.temp_allocator)
+	}
+	// Without files that stand in for the disk, each package directory is read once per run, not once per
+	// sibling and declaration.
+	if len(ctx.files) == 0 {
+		dir := filepath.dir(common.uri_to_path(symbol.uri, context.temp_allocator))
+		if dir not_in ctx.variant_dirs {
+			ctx.variant_dirs[dir] = {}
+			if files, ok := read_package_files(dir); ok do append(&ctx.variant_files, ..files)
+			ctx.hierarchy.files = ctx.variant_files[:]
+		}
 	}
 	ambiguous := len(declaration_variants(ctx.hierarchy, symbol^)) > 0
 	ctx.variants[key] = ambiguous
@@ -191,8 +205,9 @@ lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 // The lints that judge code by resolved symbols. They skip code that the host does not build, where a name can
 // resolve to the active branch's declaration. The other lints run everywhere: most read only the syntax. The naming
 // and deprecated lints resolve a name only for its kind or attribute, and stay silent on a name whose declaration
-// has platform variants there (see `ambiguous_in_inactive`). The unused-parameter lint resolves only to spare a
-// procedure that the file passes as a value, so a wrong resolution can only spare a parameter.
+// has platform variants there (see `ambiguous_in_inactive`). The unused-parameter lint resolves a mention only to
+// spare a procedure that the file passes as a value, and a mention resolves to the file's own declaration of the
+// name, in any `when` branch, before another file's, so it finds the procedure that the lint judges.
 @(private = "file")
 resolving_lints := [?]proc(_: ^LintContext, _: ^ast.Node, _: ^[dynamic]Diagnostic) {
 	lint_float_equality,
