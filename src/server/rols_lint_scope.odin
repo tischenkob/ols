@@ -14,14 +14,24 @@ Visible_Decl :: struct {
 	ident:         ^ast.Ident,
 	// The value written for the name in a value declaration, or nil.
 	value:         ^ast.Expr,
-	// The name is a field of a struct or bit_field that `using` brings into scope.
+	// The name is a field of a struct or bit_field, a member of an enum or a declaration of a package
+	// that `using` brings into scope.
 	through_using: bool,
+}
+
+// What a `using` expression brings into scope: the member names of a struct, bit_field or enum, or
+// the declarations of an imported package.
+@(private = "package")
+Using_Scope :: struct {
+	names: []string,
+	pkg:   string, // the package path when the expression is an imported package, else ""
 }
 
 // The last declaration of name in root at or before offset whose scope is still open at offset: a
 // value declaration, a range value, a type-switch variable, a parameter or named result of an
-// enclosing procedure, or a field that a `using` declaration, statement or parameter brings into
-// scope. Only a `using` in an open scope resolves its type, once per lint run.
+// enclosing procedure, or a field, enum member or package declaration that a `using` declaration,
+// statement or parameter brings into scope. Only a `using` in an open scope resolves its type, once
+// per lint run.
 // A `when` body opens no scope, so its declarations count while the `when` encloses the declaration.
 visible_declaration :: proc(ctx: ^LintContext, root: ^ast.Node, name: string, offset: int) -> Visible_Decl {
 	Data :: struct {
@@ -47,18 +57,23 @@ visible_declaration :: proc(ctx: ^LintContext, root: ^ast.Node, name: string, of
 					data.found = {ident, values[i] if len(values) == len(names) else nil, false}
 				}
 			}
-			// `using expr` declares name when the type of expr has a member of that name.
+			// `using expr` declares name when the type of expr has a member of that name, or when expr is
+			// an imported package that declares the name.
 			using_declares :: proc(data: ^Data, expr: ^ast.Expr, names: []^ast.Expr = nil) {
 				if expr == nil do return
 				if data.ctx.using_members == nil {
-					data.ctx.using_members = make(map[^ast.Expr][]string, context.temp_allocator)
+					data.ctx.using_members = make(map[^ast.Expr]Using_Scope, context.temp_allocator)
 				}
-				members, cached := data.ctx.using_members[expr]
+				scope, cached := data.ctx.using_members[expr]
 				if !cached {
-					members = using_member_names_of(data.ctx.document, expr)
-					data.ctx.using_members[expr] = members
+					scope = using_scope_of(data.ctx.document, expr)
+					data.ctx.using_members[expr] = scope
 				}
-				if !slice.contains(members, data.name) do return
+				declared := slice.contains(scope.names, data.name)
+				if !declared && scope.pkg != "" {
+					_, declared = lookup(data.name, scope.pkg, data.ctx.document.fullpath)
+				}
+				if !declared do return
 				ident, _ := (names[0] if len(names) > 0 else expr).derived.(^ast.Ident)
 				data.found = {ident, nil, true}
 			}
@@ -123,6 +138,28 @@ using_member_names_of :: proc(document: ^Document, expr: ^ast.Expr) -> []string 
 		return v.names
 	case SymbolBitFieldValue:
 		return v.names
+	}
+	return {}
+}
+
+// What a `using` of expr brings into scope. using_member_names_of covers a struct and a bit_field, as
+// the rename check needs. A `using` statement also accepts an enum type or an imported package.
+@(private = "file")
+using_scope_of :: proc(document: ^Document, expr: ^ast.Expr) -> Using_Scope {
+	if names := using_member_names_of(document, expr); len(names) > 0 do return {names = names}
+	expr := strip_parens_and_pointers(expr)
+	if expr == nil do return {}
+	ast_context: AstContext
+	position_context: DocumentPositionContext
+	at := common.get_token_range(expr^, document.ast.src).start
+	if !ast_context_at(document, at, &ast_context, &position_context) do return {}
+	symbol, ok := resolve_type_expression(&ast_context, expr)
+	if !ok do return {}
+	#partial switch v in symbol.value {
+	case SymbolEnumValue:
+		return {names = v.names}
+	case SymbolPackageValue:
+		return {pkg = symbol.pkg}
 	}
 	return {}
 }

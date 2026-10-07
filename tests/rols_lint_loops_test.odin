@@ -658,3 +658,72 @@ g :: proc(text: string, using s: ^S) {
 
 	test.expect_lint_diagnostics(t, &source, {{10, "range-off-by-one"}, {18, "range-off-by-one"}})
 }
+
+@(test)
+range_off_by_one_using_enum_hides_length_local :: proc(t: ^testing.T) {
+	// A member that `using` an enum brings into scope hides an outer length local of its name. `odin
+	// check` rejects `b < n` in the block only because `n` there is `E.n`, compared with an int.
+	source := test.Source {
+		main = `package test
+
+E :: enum {
+	n,
+}
+
+f :: proc(text: string) {
+	n := len(text)
+	{
+		using E
+		for b in 0 ..= len(text) {
+			if b < n {
+				_ = text[b]
+			}
+		}
+	}
+	for b in 0 ..= len(text) {
+		if b < n {
+			_ = text[b]
+		}
+	}
+}
+`,
+		config = {enable_lint_loops = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{10, "range-off-by-one"}})
+}
+
+@(test)
+range_off_by_one_using_package_hides_length_local :: proc(t: ^testing.T) {
+	// A declaration that `using` a package brings into scope hides an outer length local of its name.
+	source := test.Source {
+		main = `package test
+
+import "p"
+
+f :: proc(text: string) {
+	n := len(text)
+	{
+		using p
+		for b in 0 ..= len(text) {
+			if b < n {
+				_ = text[b]
+			}
+		}
+	}
+	for b in 0 ..= len(text) {
+		if b < n {
+			_ = text[b]
+		}
+	}
+}
+`,
+		packages = {{pkg = "p", source = `package p
+
+n :: 3
+`}},
+		config = {enable_lint_loops = true},
+	}
+
+	test.expect_lint_diagnostics(t, &source, {{8, "range-off-by-one"}})
+}
