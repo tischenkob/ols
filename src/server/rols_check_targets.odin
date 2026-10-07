@@ -316,18 +316,20 @@ branch_possible_on :: proc(
 
 // The first of GATE_TARGET_CANDIDATES that builds file and can take every `when` branch around offset, when base
 // cannot take one of them. A candidate of base's OS comes first, so an ODIN_ARCH branch keeps the OS. ok is false
-// when base can take them all or no candidate can. A condition reads the constants of file_constants. A branch whose
+// when base can take them all or no candidate can. A condition reads the file-scope constants of file. A branch whose
 // condition branch_possible_on cannot read, such as `when FLAG` with `FLAG :: #config(FLAG, false)`, is possible on
-// base, so it has no target here.
+// base, so it has no target here. consts caches file_constants of file: the first call fills it.
 branch_target :: proc(
 	file: ast.File,
 	offset: int,
 	base: parser.Build_Target,
+	consts: ^Branch_Constants,
 ) -> (
 	target: parser.Build_Target,
 	ok: bool,
 ) {
-	consts := file_constants(file)
+	if consts^ == nil do consts^ = file_constants(file)
+	consts := consts.?
 	if branch_possible_on(file, offset, base, consts) do return {}, false
 	facts := facts_of(file.fullpath, build_tags(file))
 	for same_os in ([2]bool{true, false}) {
@@ -352,8 +354,12 @@ Condition :: enum {
 @(private = "file")
 CONDITION_CONST_DEPTH :: 8
 
+// The constants of a file that branch_target reads, from file_constants.
+Branch_Constants :: Maybe(map[string]^ast.Expr)
+
 // The value expression of each constant that file declares at file scope, by name. A constant of a `when` branch
 // is left out: its value can differ between targets.
+@(private = "file")
 file_constants :: proc(file: ast.File) -> map[string]^ast.Expr {
 	consts := make(map[string]^ast.Expr, context.temp_allocator)
 	for decl in file.decls {

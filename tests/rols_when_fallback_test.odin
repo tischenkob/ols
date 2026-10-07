@@ -544,6 +544,14 @@ other_oses :: proc() -> (a, b: string) {
 	}
 }
 
+// Two files that declare T for the OSes a and b, each under a constant of its own file, as in
+// `IS_A :: ODIN_OS == .A` and `when IS_A { T :: struct { a: int } }`.
+@(private = "file")
+fallback_pair :: proc(a, b: string) -> (file_a, file_b: test.File) {
+	decl := "package test\n\nIS_%s :: ODIN_OS == .%s\n\nwhen IS_%s {{\n\tT :: struct {{ %s: int }}\n}}\n"
+	return {"a.odin", fmt.tprintf(decl, "A", a, "A", "a")}, {"b.odin", fmt.tprintf(decl, "B", b, "B", "b")}
+}
+
 // Code under `when ODIN_OS == .B` reaches the declaration that B builds, though the index keeps the fallback of
 // another OS from the file that it read first.
 @(test)
@@ -777,20 +785,13 @@ hover_in_inactive_arch_branch_of_excluded_file :: proc(t: ^testing.T) {
 @(test)
 hover_in_constant_branch_reaches_its_targets_fallback :: proc(t: ^testing.T) {
 	a, b := other_oses()
-	file_a := test.File {
-		"a.odin",
-		fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ a: int }}\n}}\n", a),
-	}
-	file_b := test.File {
-		"b.odin",
-		fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ b: int }}\n}}\n", b),
-	}
+	file_a, file_b := fallback_pair(a, b)
 	orders := [2][2]test.File{{file_a, file_b}, {file_b, file_a}}
 	for files in orders {
 		files := files
 		source := test.Source {
 			main  = fmt.tprintf(
-				"package test\n\nIS_B :: (IS_OTHER)\nIS_OTHER :: ODIN_OS == .%s\n\nwhen IS_B {{\n\tf :: proc(t: T) -> int {{\n\t\treturn t.b{{*}}\n\t}}\n}}\n",
+				"package test\n\nON_B :: (IS_OTHER)\nIS_OTHER :: ODIN_OS == .%s\n\nwhen ON_B {{\n\tf :: proc(t: T) -> int {{\n\t\treturn t.b{{*}}\n\t}}\n}}\n",
 				b,
 			),
 			files = files[:],
@@ -817,14 +818,7 @@ hover_in_cyclic_constant_branch_keeps_first_fallback :: proc(t: ^testing.T) {
 @(test)
 hover_field_type_of_other_files_branch_reaches_its_targets_fallback :: proc(t: ^testing.T) {
 	a, b := other_oses()
-	file_a := test.File {
-		"a.odin",
-		fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ a: int }}\n}}\n", a),
-	}
-	file_b := test.File {
-		"b.odin",
-		fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ b: int }}\n}}\n", b),
-	}
+	file_a, file_b := fallback_pair(a, b)
 	file_c := test.File {
 		"c.odin",
 		fmt.tprintf("package test\n\nwhen ODIN_OS == .%s {{\n\tS :: struct {{ t: T }}\n}}\n", b),
