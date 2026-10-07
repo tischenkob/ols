@@ -43,8 +43,8 @@ LintContext :: struct {
 	hierarchy:      ^Call_Hierarchy,
 	variant_dirs:   map[string]struct{}, // the package directories read into variant_files
 	variant_files:  [dynamic]Package_File,
-	// The member names of each `using` expression that `visible_declaration` resolved, in temp memory.
-	using_members:  map[^ast.Expr][]string,
+	// What each `using` expression that `visible_declaration` resolved brings into scope, in temp memory.
+	using_members:  map[^ast.Expr]Using_Scope,
 }
 
 // A single-edit fix for one diagnostic, offered as a quick fix at the cursor.
