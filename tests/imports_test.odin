@@ -52,6 +52,9 @@ unused_imports_on_change_preserves_previous_behavior :: proc(t: ^testing.T) {
 	}
 	defer delete(config.collections)
 
+	// rols: tests that replace the global diagnostics maps take turns (see rols_lint_refresh_test.odin)
+	lock_global_diagnostics()
+	defer unlock_global_diagnostics()
 	previous_diagnostics := common.config.enable_diagnostics
 	common.config.enable_diagnostics = true
 	defer common.config.enable_diagnostics = previous_diagnostics

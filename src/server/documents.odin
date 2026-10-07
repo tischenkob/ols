@@ -111,6 +111,8 @@ document_storage_shutdown :: proc() {
 
 	delete(document_storage.free_allocators)
 	delete(document_storage.documents)
+	// rols: the lint verdicts belong to the documents
+	drop_all_lint_verdicts()
 }
 
 document_get_new_allocator :: proc() -> ^virtual.Arena {
@@ -349,6 +351,8 @@ document_close :: proc(uri_string: string) -> common.Error {
 	document.allocator = nil
 	destroy_document_symbol_cache(document)
 	document.client_owned = false
+	// rols: forget the lint verdicts of the closed document before its path is freed
+	drop_lint_verdicts(document.fullpath)
 
 	common.delete_uri(document.uri)
 
@@ -388,8 +392,9 @@ document_refresh :: proc(document: ^Document, config: ^common.Config, writer: ^W
 
 	remove_diagnostics(.Syntax, uri.uri)
 	remove_diagnostics(.Unused, uri.uri)
-	// rols: refresh the lint diagnostics
+	// rols: refresh the lint diagnostics, and those of the open package files whose verdicts the change may turn
 	run_lints(document, config)
+	relint_package_siblings(document, config)
 
 	if writer != nil && config.enable_parser_errors {
 		document.diagnosed_errors = true

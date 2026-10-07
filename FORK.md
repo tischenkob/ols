@@ -110,7 +110,8 @@ Small fixes:
 - `src/server/hover.odin`: struct layout and field offsets.
 - `src/server/inlay_hints.odin`: fork hint kinds, enclosing procedure tracking, and a resolve context built only when a kind needs it.
 - `src/server/check.odin`: never block the request thread, drain the pipe incrementally, reap killed processes, vet findings as warnings, and a `Syntax Error` that `-json-errors` types as a warning, such as a missing import path, as an error.
-- `src/server/documents.odin`: reject a change before touching the document, refresh lint diagnostics.
+- `src/server/documents.odin`: reject a change before touching the document, refresh lint diagnostics. The refresh also relints each open file of the package whose `unused-parameter` verdict on another file the new text may turn (`relint_package_siblings` in `src/server/rols_lint_refresh.odin`), and `document_close` and `document_storage_shutdown` drop the recorded verdicts.
+- `src/server/requests.odin`: `notification_did_save` runs the lints, and relints the open files of the package as a change does.
 - `src/server/position_context.odin`, `src/server/file_resolve.odin`: a call argument drops the enclosing comp literal, so a comp literal in the argument resolves against the parameter type.
 - `src/server/signature.odin`: inside a comp literal passed to a call, the comp literal signature comes before the procedure signature.
 - `src/server/analysis.odin`: `resolve_implicit_selector` resolves an implicit selector inside a comp literal on the right of an assignment against the literal, not against the assigned name.
@@ -134,6 +135,7 @@ Tests:
 
 - `tests/action_invert_if_test.odin`: the early-exit variant and the fork behaviour.
 - `tests/inlay_hints_test.odin`: the fork hint kinds.
+- `tests/imports_test.odin`: takes turns on the global diagnostics maps with the other tests that replace them (`lock_global_diagnostics` in `tests/rols_lint_refresh_test.odin`), and resets the document storage after its shutdown.
 - `build.sh`: `single_test` checks the status of `odin test` itself, so it exits 1 when `odin test` fails, as `test` does. The environment variable `ROLS_TEST_TIMEOUT=SECONDS` bounds `test` and `single_test`: `odin test` runs in its own process group, which gets SIGKILL on timeout, and the run exits 1. Unset means no limit. Set it lower than any outer timeout, because an outer kill of the `build.sh` process group does not reach the test group.
 
 ## Changed upstream defaults
