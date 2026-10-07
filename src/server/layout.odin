@@ -600,6 +600,10 @@ construct_field_layout :: proc(
 		if !ok {
 			return ""
 		}
+		// rols: a field promoted through a value `using` shows its offset in the outer struct.
+		if offset, has_offset := promoted_field_offset(ast_context, parent, field_index); has_offset {
+			return fmt.aprintf("size=%v, offset=%v", layout.size, offset, allocator = allocator)
+		}
 		return fmt.aprintf("size=%v, align=%v", layout.size, layout.align, allocator = allocator)
 	}
 
