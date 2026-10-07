@@ -129,9 +129,15 @@ run_edit :: proc(
 	also: []string
 	if check {
 		// An edit can break a package that imports a touched one, directly or not, without touching it.
-		importers := server.importer_dirs(dirs, &common.config)
+		// One read of the workspace imports serves every target.
+		graph := server.import_graph(&common.config)
+		importers := server.graph_importers(graph, dirs)
 		dirs = slice.concatenate([][]string{dirs, importers}, context.temp_allocator)
-		checks = with_variants(gate_targets(changed, dirs, importers, &reasons), dirs, common.config.checker_variants)
+		checks = with_variants(
+			gate_targets(changed, dirs, importers, &reasons, graph),
+			dirs,
+			common.config.checker_variants,
+		)
 	}
 	before: []Check_Error
 	checked := 0

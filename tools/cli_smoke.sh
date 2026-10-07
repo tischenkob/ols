@@ -855,6 +855,20 @@ expect_exit 4 variant-check-rolls-back "$OLS" query attr add "$dir/vr.L" require
 cmp -s "$dir/vr/vr.odin" "$dir/vr.orig" || { echo "FAIL variant-check-rolls-back is not byte for byte"; exit 1; }
 expect variant-named-in-summary "^attr add: 1 edit in 1 file written, 1 package checked, also on -define:SIM=true$" "$OLS" query attr add "$dir/vr.L" cold --apply
 cp "$dir/vr.orig" "$dir/vr/vr.odin"
+# A package whose variant check reports an error outside the workspace does not build with that variant.
+cat > "$dir/vo-odin" <<'SH'
+#!/usr/bin/env bash
+if [[ "$1" == check && " $* " == *" -define:SIM=true "* ]]; then
+	printf '{"error_count":1,"errors":[{"type":"error","pos":{"file":"/vo-outside/os.odin","offset":0,"line":1,"column":1,"end_column":2},"msgs":["Undeclared name: x"]}]}'
+	exit 1
+fi
+exec odin "$@"
+SH
+chmod +x "$dir/vo-odin"
+echo '{"odin_command": "'"$dir/vo-odin"'", "checker_variants": ["-define:SIM=true"]}' > "$dir/ols.json"
+expect variant-drops-a-package-that-does-not-build-with-it "^warning: vr does not build with -define:SIM=true: odin check there reports errors in /vo-outside/os.odin, outside the workspace" sh -c "\"$OLS\" query attr add \"$dir/vr.L\" cold --apply 2>&1"
+cp "$dir/vr.orig" "$dir/vr/vr.odin"
+rm -f "$dir/vo-odin"
 echo '{}' > "$dir/ols.json"
 expect_exit 0 without-variant-applies "$OLS" query attr add "$dir/vr.L" require_results --apply
 rm -rf "$dir/vr" "$dir/vr.orig"
