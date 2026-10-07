@@ -548,12 +548,17 @@ apply_gate_targets_check_a_touched_when_branch_on_a_target_another_directory_nee
 	}
 	dirs := []string{a, b, c, d}
 	checks := cli.gate_targets(changed, dirs, {}, nil, server.import_graph(&common.config, files))
-	if !testing.expect_value(t, len(checks), 2) do return
+	if !testing.expect_value(t, len(checks), 3) do return
 	testing.expect_value(t, checks[1].target, "js_wasm32")
 	if testing.expect_value(t, len(checks[1].dirs), 3) {
 		testing.expect_value(t, checks[1].dirs[0], a)
 		testing.expect_value(t, checks[1].dirs[1], b)
 		testing.expect_value(t, checks[1].dirs[2], d)
+	}
+	// The Orca branch names its own target, which only c needs.
+	testing.expect_value(t, checks[2].target, "orca_wasm32")
+	if testing.expect_value(t, len(checks[2].dirs), 1) {
+		testing.expect_value(t, checks[2].dirs[0], c)
 	}
 
 	// One parse answers for every target.
@@ -570,7 +575,121 @@ apply_gate_targets_check_a_touched_when_branch_on_a_target_another_directory_nee
 	testing.expect(t, !takes[0] && !takes[1], "a branch inside one that wasm32 skips")
 	unknown := "package b\n\nf :: proc() {\n\twhen ODIN_OS == .JS || FAST {\n\t}\n}\n"
 	takes = server.other_branch_targets("/p/b.odin", unknown, base, targets)
-	testing.expect(t, takes[0] && takes[1] && takes[2], "an unknown condition")
+	// FAST is false on both or true on both, so only JS can take another branch.
+	testing.expect(t, takes[0] && !takes[1] && !takes[2], "a condition with a free name")
+}
+
+// A `when` condition reads a constant that names ODIN_OS or ODIN_ARCH, in the file or in another file of the
+// package, and tries both values of a free boolean name.
+@(test)
+apply_gate_targets_read_when_constants :: proc(t: ^testing.T) {
+	base := parser.Build_Target{.Darwin, .arm64, ""}
+	targets := []parser.Build_Target{{.JS, .wasm32, ""}, {.Orca, .wasm32, ""}, {.Linux, .amd64, ""}}
+	is_wasm := "package b\n\nIS_WASM :: ODIN_ARCH == .wasm32\n\nwhen IS_WASM {\n\tx :: 1\n}\n"
+	takes := server.other_branch_targets("/p/b.odin", is_wasm, base, targets)
+	testing.expect(t, takes[0] && takes[1] && !takes[2], "a constant of the file")
+
+	// The constant is in a sibling file, and the edited file names no ODIN_* builtin.
+	plain := make(server.Gate_Consts, context.temp_allocator)
+	server.add_gate_consts(&plain, "/p/c.odin", "package b\n\nIS_WASM :: ODIN_ARCH == .wasm32\n")
+	sibling := "package b\n\nwhen IS_WASM {\n\tx :: 1\n}\n"
+	takes = server.other_branch_targets("/p/b.odin", sibling, base, targets, plain)
+	testing.expect(t, takes[0] && takes[1] && !takes[2], "a constant of a sibling file")
+	takes = server.other_branch_targets("/p/b.odin", sibling, base, targets)
+	testing.expect(t, !takes[0] && !takes[1] && !takes[2], "a name without its constant")
+
+	// A constant declared in a `when` branch can differ between builds, so the condition counts everywhere.
+	in_when := "package b\n\nwhen ODIN_OS == .Windows {\n\tFAST :: true\n} else {\n\tFAST :: false\n}\n\nwhen ODIN_OS == .JS || FAST {\n\tx :: 1\n}\n"
+	takes = server.other_branch_targets("/p/b.odin", in_when, base, targets)
+	testing.expect(t, takes[0] && takes[1] && takes[2], "a constant declared in a when")
+	// So does a constant that two files declare.
+	twice := make(server.Gate_Consts, context.temp_allocator)
+	server.add_gate_consts(&twice, "/p/c_js.odin", "package b\n\nFAST :: true\n")
+	server.add_gate_consts(&twice, "/p/c_linux.odin", "package b\n\nFAST :: false\n")
+	free := "package b\n\nwhen ODIN_OS == .JS || FAST {\n\tx :: 1\n}\n"
+	takes = server.other_branch_targets("/p/b.odin", free, base, targets, twice)
+	testing.expect(t, takes[0] && takes[1] && takes[2], "a constant of two files")
+	// More free names than the gate enumerates read as unknown.
+	many := "package b\n\nwhen ODIN_OS == .JS || A || B || C || D || E || F || G {\n\tx :: 1\n}\n"
+	takes = server.other_branch_targets("/p/b.odin", many, base, targets)
+	testing.expect(t, takes[0] && takes[1] && takes[2], "seven free names")
+	six := "package b\n\nwhen ODIN_OS == .JS && (A || B || C || D || E || F) {\n\tx :: 1\n}\n"
+	takes = server.other_branch_targets("/p/b.odin", six, base, targets)
+	testing.expect(t, takes[0] && !takes[1] && !takes[2], "six free names")
+}
+
+// A `when` condition names a target by itself: the target of its OS, or the architecture on the current OS.
+@(test)
+apply_gate_targets_add_the_targets_a_when_names :: proc(t: ^testing.T) {
+	base := parser.Build_Target{.Darwin, .arm64, ""}
+	named := server.when_named_targets(
+		"/p/a.odin",
+		"package a\n\nwhen ODIN_OS == .Windows {\n} else when ODIN_OS != .Linux && ODIN_ARCH == .amd64 {\n} else when ODIN_OS == .Darwin {\n}\n",
+		base,
+	)
+	if testing.expect_value(t, len(named), 3) {
+		testing.expect_value(t, named[0], "windows_amd64")
+		testing.expect_value(t, named[1], "linux_amd64")
+		testing.expect_value(t, named[2], "darwin_amd64")
+	}
+	// A file that only Linux builds takes no Windows branch.
+	named = server.when_named_targets("/p/a_linux.odin", "package a\n\nwhen ODIN_OS == .Windows {\n}\n", base)
+	testing.expect_value(t, len(named), 0)
+	plain := make(server.Gate_Consts, context.temp_allocator)
+	server.add_gate_consts(&plain, "/p/c.odin", "package a\n\nIS_JS :: ODIN_OS == .JS\n")
+	named = server.when_named_targets("/p/a.odin", "package a\n\nwhen IS_JS {\n}\n", base, plain)
+	if testing.expect_value(t, len(named), 1) {
+		testing.expect_value(t, named[0], "js_wasm32")
+	}
+
+	root, dir_err := os.make_directory_temp("", "rols_gate_named_*", context.temp_allocator)
+	if !testing.expect_value(t, dir_err, nil) do return
+	defer os.remove_all(root)
+	join :: proc(parts: ..string) -> string {
+		joined, _ := filepath.join(parts, context.temp_allocator)
+		return joined
+	}
+	// a has only a Windows branch, and e reads its wasm constant from a file the edit does not touch.
+	when_windows := "package a\n\nwhen ODIN_OS == .Windows {\n\tx: int = \"s\"\n}\n"
+	sources := [][2]string {
+		{"a/a.odin", when_windows},
+		{"e/e.odin", "package e\n\nIS_WASM :: ODIN_ARCH == .wasm32\n"},
+		{"e/e_use.odin", "package e\n\nwhen IS_WASM {\n\tx :: 1\n}\n"},
+	}
+	files := make([]server.Package_File, len(sources), context.temp_allocator)
+	for source, i in sources {
+		file := join(root, source[0])
+		os.make_directory_all(filepath.dir(file))
+		testing.expect_value(t, os.write_entire_file(file, source[1]), nil)
+		files[i] = {file, source[1]}
+	}
+	a, e := join(root, "a"), join(root, "e")
+	changed := []cli.File_State {
+		{
+			path = files[0].fullpath,
+			existed = true,
+			original = when_windows,
+			exists = true,
+			text = strings.concatenate({when_windows, "\nf :: proc() {}\n"}, context.temp_allocator),
+		},
+		{
+			path = files[1].fullpath,
+			existed = true,
+			original = sources[1][1],
+			exists = true,
+			text = strings.concatenate({sources[1][1], "\ny :: 2\n"}, context.temp_allocator),
+		},
+	}
+	checks := cli.gate_targets(changed, {a, e}, {}, nil, server.import_graph(&common.config, files))
+	if !testing.expect_value(t, len(checks), 3) do return
+	testing.expect_value(t, checks[1].target, "js_wasm32")
+	if testing.expect_value(t, len(checks[1].dirs), 1) {
+		testing.expect_value(t, checks[1].dirs[0], e)
+	}
+	testing.expect_value(t, checks[2].target, "windows_amd64")
+	if testing.expect_value(t, len(checks[2].dirs), 1) {
+		testing.expect_value(t, checks[2].dirs[0], a)
+	}
 }
 
 @(test)

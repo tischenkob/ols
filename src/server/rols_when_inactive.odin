@@ -385,7 +385,7 @@ names_missing_const :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr, depth:
 }
 
 // Adds the constants of file outside any `when` to plain, by name.
-@(private = "file")
+@(private = "package")
 add_plain_consts :: proc(plain: ^map[string]^ast.Expr, file: ^ast.File) {
 	for decl in file.decls {
 		value_decl := decl.derived.(^ast.Value_Decl) or_continue

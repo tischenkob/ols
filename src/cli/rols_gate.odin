@@ -61,11 +61,11 @@ on_edited_line :: proc(edited: Edited_Lines, e: Check_Error) -> bool {
 
 // The checks of the gate without checker_variants: dirs, every package directory, on the current target
 // first, then one check per other target. A target that checker_targets names checks dirs. Another target
-// is one that a file the current target does not build needs: a touched file, a file next to one, or a
-// file of an importer directory. Its check covers the directories of those files, the directory of a
-// touched file that can take another `when` branch on it than on the current target, and their importers
-// in graph. Before and after the write use the same checks. A touched file that no target builds gets a
-// warning.
+// is one that a file the current target does not build needs, or that a `when` condition of a file names
+// (when_named_targets): a touched file, a file next to one, or a file of an importer directory. Its check
+// covers the directories of those files, the directory of such a file that can take another `when` branch on
+// it than on the current target, and their importers in graph. Before and after the write use the same
+// checks. A touched file that no target builds gets a warning.
 gate_targets :: proc(
 	changed: []File_State,
 	dirs, importers: []string,
@@ -115,7 +115,15 @@ gate_targets :: proc(
 	for source in sources {
 		note_target(&needs, reasons if source.touched else nil, source.dir, source.path, source.text, base)
 	}
-	// A `when ODIN_OS == .X` branch builds on X only, even in a package that no file of X needs.
+	consts := dir_consts(sources[:])
+	// A `when ODIN_OS == .X` branch builds on X only, so X checks its directory even when no file needs X.
+	for source in sources {
+		for target in server.when_named_targets(source.path, source.text, base, consts[source.dir]) {
+			add_need(&needs, target, source.dir)
+		}
+	}
+	// A branch can also differ on a target that another file needs, such as one under `ODIN_ARCH == .wasm32` on
+	// wasi_wasm32, or one whose condition the gate cannot read.
 	others := make([dynamic]string, context.temp_allocator)
 	parsed := make([dynamic]parser.Build_Target, context.temp_allocator)
 	for target in needs {
@@ -123,12 +131,8 @@ gate_targets :: proc(
 		append(&parsed, server.parse_target(target) or_else parser.Build_Target{})
 	}
 	for source in sources {
-		for takes, i in server.other_branch_targets(source.path, source.text, base, parsed[:]) {
-			list := needs[others[i]]
-			if takes && !slice.contains(list[:], source.dir) {
-				append(&list, source.dir)
-				needs[others[i]] = list
-			}
+		for takes, i in server.other_branch_targets(source.path, source.text, base, parsed[:], consts[source.dir]) {
+			if takes do add_need(&needs, others[i], source.dir)
 		}
 	}
 
@@ -178,19 +182,44 @@ note_target :: proc(
 	switch target, need := server.target_for_file(name, text, base); need {
 	case .None:
 	case .Other:
-		list, found := needs[target]
-		if !found {
-			list = make([dynamic]string, context.temp_allocator)
-		}
-		if !slice.contains(list[:], dir) {
-			append(&list, dir)
-		}
-		needs[target] = list
+		add_need(needs, target, dir)
 	case .Nowhere:
 		if reasons != nil {
 			warn(reasons, fmt.tprintf("%s builds on no target the gate knows, so the gate does not check it", name))
 		}
 	}
+}
+
+// Adds dir to the directories that check target.
+@(private = "file")
+add_need :: proc(needs: ^map[string][dynamic]string, target, dir: string) {
+	list, found := needs[target]
+	if !found {
+		list = make([dynamic]string, context.temp_allocator)
+	}
+	if !slice.contains(list[:], dir) {
+		append(&list, dir)
+	}
+	needs[target] = list
+}
+
+// The constants that the `when` conditions of each directory of sources can read, for a directory with a `when`
+// in some file. A file with two texts gives those of its last one, the text after the edit.
+@(private = "file")
+dir_consts :: proc(sources: []Gate_Source) -> map[string]server.Gate_Consts {
+	consts := make(map[string]server.Gate_Consts, context.temp_allocator)
+	for source in sources {
+		if strings.contains(source.text, "when") && source.dir not_in consts {
+			consts[source.dir] = make(server.Gate_Consts, context.temp_allocator)
+		}
+	}
+	last := make(map[string]int, context.temp_allocator)
+	for source, i in sources do last[source.path] = i
+	for source, i in sources {
+		if last[source.path] != i || source.dir not_in consts do continue
+		server.add_gate_consts(&consts[source.dir], source.path, source.text)
+	}
+	return consts
 }
 
 // A text that decides the targets of the gate: a file in dir, and whether the edit touches it.
