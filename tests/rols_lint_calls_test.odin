@@ -654,6 +654,20 @@ f :: proc(v: $T, x: int) {
 `,
 			{{6, "argument-count"}},
 		},
+		{
+			"a call of a poly procedure parameter passes every result",
+			`package test
+
+two :: proc(a, b: int) {}
+one :: proc(a: int) {}
+
+f :: proc($g: proc() -> (int, int)) {
+	two(g())
+	one(g())
+}
+`,
+			{{7, "argument-count"}},
+		},
 	}
 
 	expect_lint_cases(t, cases, {enable_lint_call_arity = true})

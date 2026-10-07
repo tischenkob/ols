@@ -138,8 +138,6 @@ arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: 
 		return callee_results(ctx, callee)
 	}
 
-	// A name that `$` binds, as T in `v: $T`, resolves to the poly type, and `T(x)` converts one value.
-	if .PolyType in resolved.symbol.flags do return 1, true
 	if names_proc_type(resolved.symbol^) do return 1, true
 	#partial switch v in resolved.symbol.value {
 	case SymbolProcedureValue:
@@ -150,8 +148,9 @@ arg_results :: proc(ctx: ^LintContext, arg: ^ast.Expr) -> (results: int, known: 
 	case SymbolProcedureGroupValue:
 		return callee_results(ctx, callee)
 	case SymbolPolyTypeValue, SymbolGenericValue:
-		// A value of a poly type, such as `fp: $F`, may be a procedure with any number of results.
-		if resolved.symbol.type == .Variable do return 1, false
+		// A value of a poly type, such as `fp: $F`, may be a procedure with any number of results. The name that `$`
+		// binds, as T in `v: $T`, carries PolyType, and `T(x)` converts one value.
+		if resolved.symbol.type == .Variable && .PolyType not_in resolved.symbol.flags do return 1, false
 	}
 	return 1, true
 }
