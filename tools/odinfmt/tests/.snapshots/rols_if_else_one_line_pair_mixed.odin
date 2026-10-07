@@ -44,9 +44,27 @@ f :: proc() {
 	} else {
 		long_call(aaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbbb)
 	}
-	if x {a(); b()} else if g(proc() {if q {r()} else {s(); t()}}) {
+	if x {
+		a()
+		b()
+	} else if g(proc() {if q {r()} else {s(); t()}}) {
 		c()
 		long_call(aaaaaaaaa)
+	}
+	if x {
+		a()
+		b()
+	} else if v == (T{1}) {
+		c()
+		d()
+		long_call(aaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbb)
+	}
+	when X {
+		a()
+		b()
+	} else when g(proc() {s(); t()}) {
+		c()
+		long_call(aaaaaaaaaaaaaaaaaaaaaaaaa)
 	}
 	if x {
 		a()
@@ -69,6 +87,8 @@ f :: proc() {
 		long_call(aaaaaaaaaaaaaa, bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)
 	}
 	if x {a(); b()} else if y {c(); d()}
+	if x {a(); b()} else if g(proc() {s(); t()}) {c(); d()}
+	if x {a(); b()} else if v == (T{1}) {c(); d()}
 	if x {a()} else if y {b()} else {c()}
 	if x {a()} else {b()}
 }

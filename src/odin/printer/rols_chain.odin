@@ -70,11 +70,6 @@ pairs_with_else :: proc(p: ^Printer, body: ^ast.Stmt, else_stmt: ^ast.Stmt, chai
 	if !then_ok || !next_ok || else_stmt.pos.line != body.end.line || target.pos.line != body.end.line {
 		return false
 	}
-	// A block inside an `else if` header, such as a procedure literal, lays out before the pairing is known,
-	// and a fit check inside it measures the paired block flat, so such a chain keeps upstream's layout.
-	if strings.contains_rune(p.src[else_stmt.pos.offset:target.pos.offset], '{') {
-		return false
-	}
 	if chained || len(then_block.stmts) > 1 || len(next_block.stmts) > 1 {
 		return true
 	}
@@ -102,6 +97,23 @@ pair_else_chain :: proc(p: ^Printer, paired: bool, body: ^ast.Stmt, else_stmt: ^
 		}
 	}
 	return saved
+}
+
+// The mode in which a fit check measures an `If_Break_Or` of group `group_id` inside a group of mode `mode`.
+// A paired `else` block follows the then-block group named `chain@<offset>`, which lays out before the `else` header.
+// Once format decides that group's mode, a fit check inside the header measures the paired block in that mode.
+@(private)
+chain_fit_mode :: proc(
+	modes: ^map[string]Document_Group_Mode,
+	group_id: string,
+	mode: Document_Group_Mode,
+) -> Document_Group_Mode {
+	if modes != nil && strings.has_prefix(group_id, "chain@") {
+		if decided, ok := modes[group_id]; ok {
+			return decided
+		}
+	}
+	return mode
 }
 
 // Where a statement's text starts: its first attribute for an attributed declaration.
