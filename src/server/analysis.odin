@@ -67,6 +67,8 @@ AstContext :: struct {
 	// rols: the files that branch_fallback placed names in, by full path, in context.temp_allocator: the document's
 	// cache arena under resolve_entire_file, so a parsed copy lives as long as that document's cached symbols
 	branch_files:              map[string]Branch_File,
+	// rols: the import that a selector completion on an unimported package adds to every item
+	auto_import_edit:          Maybe(TextEdit),
 }
 
 SymbolResult :: struct {

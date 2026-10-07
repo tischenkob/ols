@@ -127,7 +127,7 @@ Options:
 
 - `enable_checker_workspace_diagnostics`: Turns on running all workspace diagnostics using odin check. This is currently experimental and may cause problems. A better option is using the `checker_path` feature to explicity tell `ols` the projects that it should check. (experimental).
 
-- `enable_auto_import`: Automatically import packages that aren't in your import on completion.
+- `enable_auto_import`: Automatically import packages that aren't in your import on completion. Completing after `mem.` also lists the members of an unimported `core:mem`, and accepting one adds the import.
 
 - `enable_auto_import_skip_hidden_paths`: Skip hidden directories when discovering packages for auto-import. _(Enabled by default)_
 
