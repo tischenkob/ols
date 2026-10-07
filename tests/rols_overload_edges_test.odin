@@ -18,11 +18,36 @@ inlay_hints_overload_keeps_member_after_trailing_comma :: proc(t: ^testing.T) {
 			g([[a = ]]1, )
 		}
 		`,
-		packages = {},
 		config = {enable_inlay_hints_params = true},
 	}
 
 	test.expect_inlay_hints(t, &source)
+}
+
+// The comma that ends the last argument of a multi-line call is no argument being typed, so the whole-file resolve
+// still drops `two`, which needs two arguments, and `b_field` is not referenced through it.
+@(test)
+file_resolve_multi_line_call_with_trailing_comma_drops_members_that_need_more_arguments :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+A :: struct { a_field: int }
+B :: struct { b_field{*}: int }
+one :: proc(a: Missing) -> A { return {} }
+two :: proc(a, b: int) -> B { return {} }
+g :: proc { one, two }
+main :: proc() {
+	_ = g(
+		1,
+	).b_field
+}
+`,
+	}
+	test.expect_reference_locations(
+		t,
+		&source,
+		{{range = {start = {line = 3, character = 14}, end = {line = 3, character = 21}}}},
+	)
 }
 
 // A poly-type argument does not make tied completion offer the values of a member outside the tie.

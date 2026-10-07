@@ -150,12 +150,17 @@ call_arg_counts_known :: proc(call_args: []CallArg) -> bool {
 	return true
 }
 
-// Whether a comma follows the last argument of call in file, as in `g(1, )` while the next argument is typed.
+// Whether a comma follows the last argument of call in file on the line of `)`, as in `g(1, )` while the next
+// argument is typed. The comma that odinfmt puts after the last argument of a multi-line call does not count.
 call_has_trailing_comma :: proc(file: ast.File, call: ^ast.Call_Expr) -> bool {
 	if call == nil || len(call.args) == 0 || call.pos.file != file.fullpath {
 		return false
 	}
-	start, end := call.args[len(call.args) - 1].end.offset, call.close.offset
+	last := call.args[len(call.args) - 1]
+	if call.close.line != last.end.line {
+		return false
+	}
+	start, end := last.end.offset, call.close.offset
 	if start < 0 || end > len(file.src) || start >= end {
 		return false
 	}
