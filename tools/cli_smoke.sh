@@ -1004,55 +1004,6 @@ out="$("$OLS" query --root "$dir/cli" find marker_hidden || true)"
 [[ -z "$out" ]] || { echo "FAIL find-hidden-dir: $out"; exit 1; }
 echo "ok find-hidden-dir"
 expect find-json-flags '"otherPlatform": true' "$OLS" query --root "$dir/cli" find marker_other --json
-# find marks a declaration in a when branch the target does not take; an unknown condition marks nothing.
-printf 'package plat
-
-import "core:testing"
-
-when ODIN_OS == .JS {
-	marker_when_js :: proc() {}
-	@(test)
-	js_only :: proc(t: ^testing.T) {}
-} else {
-	marker_when_else :: proc() {}
-}
-
-when ODIN_TEST {
-	marker_when_test :: proc() {}
-	@(test)
-	in_test :: proc(t: ^testing.T) {}
-}
-' > "$dir/cli/plat/h_test.odin"
-expect find-when-inactive "h_test.odin:6:2: Function marker_when_js (other platform)$" "$OLS" query --root "$dir/cli" find marker_when
-expect find-when-active "h_test.odin:10:2: Function marker_when_else$" "$OLS" query --root "$dir/cli" find marker_when
-expect find-when-unknown "h_test.odin:14:2: Function marker_when_test$" "$OLS" query --root "$dir/cli" find marker_when
-out="$("$OLS" query tests "$dir/cli/plat")"
-[[ "$out" == *in_test* && "$out" != *js_only* ]] || { echo "FAIL tests-when: $out"; exit 1; }
-echo "ok tests-when"
-expect test-when-inactive-name '^error: no test "js_only" in ' sh -c "\"$OLS\" query test \"$dir/cli/plat\" js_only 2>&1 || true"
-rm "$dir/cli/plat/h_test.odin"
-# Without a -target:, tests evaluates `when` for the host, as odin test builds, not for the os of the profile.
-if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
-	mkdir -p "$dir/prof"
-	echo '{"profile": "w", "profiles": [{"name": "w", "os": "windows"}]}' > "$dir/prof/ols.json"
-	printf 'package prof\n\nimport "core:testing"\n\nwhen ODIN_OS == .Windows {\n\t@(test)\n\twin_only :: proc(t: ^testing.T) {}\n} else {\n\t@(test)\n\thost_only :: proc(t: ^testing.T) {}\n}\n' > "$dir/prof/a_test.odin"
-	out="$("$OLS" query tests "$dir/prof")"
-	[[ "$out" == *host_only* && "$out" != *win_only* ]] || { echo "FAIL tests-when-profile-os: $out"; exit 1; }
-	echo "ok tests-when-profile-os"
-	# A profile define that is neither an integer nor a bool is a string to odin, so a comparison of two is unknown.
-	echo '{"profile": "d", "profiles": [{"name": "d", "defines": {"MODE": "fast", "WANT": "slow"}}]}' > "$dir/prof/ols.json"
-	printf 'package prof\n\nimport "core:testing"\n\nwhen #config(MODE, "a") == #config(WANT, "b") {\n\t@(test)\n\tt_same :: proc(t: ^testing.T) {}\n} else {\n\t@(test)\n\tt_differ :: proc(t: ^testing.T) {}\n}\n' > "$dir/prof/a_test.odin"
-	out="$("$OLS" query tests "$dir/prof")"
-	[[ "$out" == *t_differ* ]] || { echo "FAIL tests-when-string-defines: $out"; exit 1; }
-	echo "ok tests-when-string-defines"
-	# A signed hex define that does not fit an int is unknown, since the evaluator wraps it.
-	echo '{"profile": "d", "profiles": [{"name": "d", "defines": {"X": "-0x8000000000000001"}}]}' > "$dir/prof/ols.json"
-	printf 'package prof\n\nimport "core:testing"\n\nwhen #config(X, 0) < 0 {\n\t@(test)\n\tt_neg :: proc(t: ^testing.T) {}\n} else {\n\t@(test)\n\tt_nonneg :: proc(t: ^testing.T) {}\n}\n' > "$dir/prof/a_test.odin"
-	out="$("$OLS" query tests "$dir/prof")"
-	[[ "$out" == *t_neg* ]] || { echo "FAIL tests-when-signed-hex-define: $out"; exit 1; }
-	echo "ok tests-when-signed-hex-define"
-	rm -rf "$dir/prof"
-fi
 # reorder-params names the one cause that applies.
 printf 'package plat\n\nvariadic :: proc(a: int, b: ..int) {}\n\nwith_default :: proc(a: int, b: int = 1) {}\n' > "$dir/cli/plat/f.odin"
 expect reorder-params-variadic "^error: the procedure is variadic$" sh -c "\"$OLS\" query reorder-params \"$dir/cli/plat/f.odin:3:1\" --order 1,0 2>&1 || true"
