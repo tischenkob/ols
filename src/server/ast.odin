@@ -92,10 +92,6 @@ GlobalFlags :: enum {
 	Variable, // or type
 	// rols: a declaration in a `when` branch the host does not build, kept so code in such branches resolves.
 	Fallback,
-	// rols: a Fallback whose branch a known condition rules out, see `collect_when_stmt`.
-	Ruled_Out,
-	// rols: declared in a branch that the host picks through a guess, see `collect_when_stmt`.
-	Guessed,
 }
 
 GlobalExpr :: struct {
@@ -534,32 +530,15 @@ collect_when_stmt :: proc(
 	// rols: the inactive branches register their constants in a copy, so they cannot change later conditions.
 	stmt, ok := get_when_block_stmt(when_decl, when_expr_map^)
 	if ok {
-		// rols: a branch picked through a guess stores the constants it declares as guesses (when_branch_guessed).
-		outer_guessed := when_branch_guessed
-		when_branch_guessed ||= when_pick_guessed(when_decl, when_expr_map^)
-		start := len(exprs)
 		collect_when_body(exprs, file, file_tags, stmt, when_expr_map, fallbacks)
-		if when_branch_guessed {
-			for &expr in exprs[start:] do expr.flags += {.Guessed}
-		}
-		when_branch_guessed = outer_guessed
 	}
 	if !fallbacks {
 		return
 	}
-	// A branch is ruled out when a known condition before it holds or its own known condition fails. Any other
-	// branch that the host does not take may still be the one that the build takes (`when_condition_known`).
-	taken_before := false
 	for branch: ^ast.Stmt = when_decl; branch != nil; {
 		when_branch, is_when := branch.derived.(^ast.When_Stmt)
 		body := when_branch.body if is_when else branch
 		branch = when_branch.else_stmt if is_when else nil
-		ruled_out := taken_before
-		if is_when {
-			value, known := when_condition_known(when_branch.cond, when_expr_map^)
-			ruled_out ||= known && !value
-			taken_before ||= known && value
-		}
 		block, is_block := body.derived.(^ast.Block_Stmt)
 		if !is_block || (ok && block == stmt) {
 			continue
@@ -572,7 +551,6 @@ collect_when_stmt :: proc(
 		collect_when_body(exprs, file, file_tags, block, &scratch, fallbacks)
 		for &expr in exprs[start:] {
 			expr.flags += {.Fallback}
-			if ruled_out do expr.flags += {.Ruled_Out}
 		}
 	}
 }
