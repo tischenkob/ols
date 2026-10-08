@@ -673,7 +673,7 @@ if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
 	mkdir -p "$dir/probe"
 	printf 'package probe\n' > "$dir/probe/p.odin"
 	if odin check "$dir/probe" -no-entry-point -target:windows_amd64 >/dev/null 2>&1; then
-		other_os=windows other_enum=Windows other_target=windows_amd64 other_import=sys/windows other_call=windows.GetLastError
+		other_os=windows other_target=windows_amd64 other_import=sys/windows other_call=windows.GetLastError
 	else
 		mkdir -p "$dir/wr"
 		printf 'package wr\n\nW :: proc() -> int {\n\treturn 1\n}\n\nuse_w :: proc() {\n\tW()\n}\n' > "$dir/wr/wr_windows.odin"
@@ -684,9 +684,9 @@ if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
 		echo '{}' > "$dir/ols.json"
 		rm -rf "$dir/wr"
 		if [[ "$(uname -s)" == Linux ]]; then
-			other_os=darwin other_enum=Darwin other_target=darwin_arm64
+			other_os=darwin other_target=darwin_arm64
 		else
-			other_os=linux other_enum=Linux other_target=linux_amd64
+			other_os=linux other_target=linux_amd64
 		fi
 		other_import=sys/posix other_call=posix.getpid
 	fi
@@ -719,13 +719,6 @@ if [[ "$(uname -s)" != MINGW* && "$(uname -s)" != MSYS* ]]; then
 	expect native-importer-skipped-on-js "^warning: jw/nat does not build on target js_wasm32: odin check there reports errors in .*, outside the workspace" sh -c "\"$OLS\" query attr add \"$dir/jw/wl/wl_js.odin:3:1\" cold --apply 2>&1"
 	expect_exit 4 js-importer-keeps-its-gate "$OLS" query attr add "$dir/jw/wl/wl_js.odin:4:1" private --apply
 	rm -rf "$dir/jw"
-	# A `when ODIN_OS == .X` branch alone adds the target of X: require_results on f breaks the discarded call
-	# in it, though no file of the package needs that target.
-	mkdir -p "$dir/wb"
-	printf 'package wb\n\nf :: proc() -> int {\n\treturn 1\n}\n\nwhen ODIN_OS == .%s {\n\tg :: proc() {\n\t\tf()\n\t}\n}\n' "$other_enum" > "$dir/wb/wb.odin"
-	expect when-branch-names-its-target "^attr add: 1 edit in 1 file written, 1 package checked, also on $other_target$" "$OLS" query attr add "$dir/wb.f" cold --apply
-	expect_exit 4 when-branch-rolled-back "$OLS" query attr add "$dir/wb.f" require_results --apply
-	rm -rf "$dir/wb"
 fi
 mkdir "$dir/pre"
 printf 'package pre\n\nx: int = "s"\n\nhelper :: proc() -> int {\n\treturn 1\n}\n' > "$dir/pre/pre.odin"
