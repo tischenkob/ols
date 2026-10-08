@@ -84,15 +84,6 @@ lookup_other_target :: proc(
 	return symbol, found, true
 }
 
-// Whether target builds the file of uri, read as a lookup reads it: an open document, an unsaved file, else the
-// disk. A uri without a file, such as that of a keyword, counts as built, and a file that cannot be read does not.
-target_builds_uri :: proc(uri: string, target: parser.Build_Target) -> bool {
-	if uri == "" do return true
-	fullpath := common.uri_to_path(uri, context.temp_allocator)
-	text, ok := file_text(fullpath)
-	return ok && builds_on(fullpath, text, target)
-}
-
 // The collection of the target that builds current_file when the host does not, for package_in.
 other_target_collection :: proc(current_file: string) -> ^SymbolCollection {
 	target, ok := file_target(current_file)
@@ -267,21 +258,12 @@ set_file_target :: proc(
 	return
 }
 
-// The file that the lints walk for a further target that builds it, and that target, which file_target gives for
-// that file meanwhile (see `walk_lints`).
-@(thread_local)
-lint_target_override: struct {
-	fullpath: string,
-	target:   parser.Build_Target,
-}
-
 // The target that builds fullpath when the host does not. A lookup asks once per identifier, so the answer is kept
 // until a reindex or removal of the file, a parse of its document, or a change of the host.
 file_target :: proc(fullpath: string) -> (parser.Build_Target, bool) {
 	if fullpath == "" {
 		return {}, false
 	}
-	if fullpath == lint_target_override.fullpath do return lint_target_override.target, true
 	host := host_target()
 	if entry, ok := excluded.targets[fullpath]; ok && entry.host == host {
 		return entry.target.?
@@ -289,18 +271,6 @@ file_target :: proc(fullpath: string) -> (parser.Build_Target, bool) {
 	text, _ := file_text(fullpath)
 	name, need := target_for_file(fullpath, text, host)
 	return set_file_target(fullpath, host, name, need).target.?
-}
-
-// Every candidate target that builds the file fullpath with the source text when the host does not, in the order of
-// GATE_TARGET_CANDIDATES, so file_target is the first. In temp memory.
-file_targets :: proc(fullpath, text: string) -> []parser.Build_Target {
-	if _, has_target := file_target(fullpath); !has_target do return nil
-	targets := make([dynamic]parser.Build_Target, context.temp_allocator)
-	for candidate in GATE_TARGET_CANDIDATES {
-		target, _ := parse_target(candidate)
-		if builds_on(fullpath, text, target) do append(&targets, target)
-	}
-	return targets[:]
 }
 
 // The text of an open document, else of an unsaved file, else of the file on disk, in temp memory.
@@ -339,10 +309,6 @@ build_target_package :: proc(index: ^Target_Index, target: parser.Build_Target, 
 	saved := when_target
 	when_target = target
 	defer when_target = saved
-	// The target is when_target here, also when a lint evaluates `when` for another one.
-	saved_eval := when_eval_target
-	when_eval_target = nil
-	defer when_eval_target = saved_eval
 	saved_build := target_build
 	target_build = {
 		dir    = pkg,

@@ -160,10 +160,6 @@ try_build_package :: proc(pkg_name: string) {
 		return
 	}
 	defer clear_index_cache()
-	// rols: the index holds the host's declarations, also when a lint evaluates `when` for another target.
-	saved_eval_target := when_eval_target
-	when_eval_target = nil
-	defer when_eval_target = saved_eval_target
 
 	spall.trace(#procedure, pkg_name)
 
