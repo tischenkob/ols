@@ -2986,7 +2986,7 @@ internal_resolve_type_identifier :: proc(ast_context: ^AstContext, node: ast.Ide
 	}
 
 	// rols: see `fallback`, which a target that takes the `when` branch around node can replace
-	if symbol, ok := branch_fallback(ast_context, node, fallback); ok {
+	if symbol, ok := branch_fallback(ast_context, node, fallback, package_name = true); ok {
 		return resolve_symbol_return(ast_context, symbol)
 	}
 
@@ -4063,7 +4063,7 @@ resolve_location_identifier :: proc(ast_context: ^AstContext, node: ast.Ident) -
 	}
 
 	// rols: see `fallback`, which a target that takes the `when` branch around node can replace
-	if symbol, ok := branch_fallback(ast_context, node, fallback); ok {
+	if symbol, ok := branch_fallback(ast_context, node, fallback, package_name = true); ok {
 		return symbol, true
 	}
 

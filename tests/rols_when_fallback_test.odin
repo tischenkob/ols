@@ -726,6 +726,39 @@ hover_in_inactive_branch_reaches_same_file_fallback :: proc(t: ^testing.T) {
 	test.expect_hover(t, &source, "T.b: int")
 }
 
+// The open file declares both fallbacks of a name, so its own globals hold the first branch.
+@(test)
+hover_in_inactive_branch_reaches_fallback_of_open_file :: proc(t: ^testing.T) {
+	a, b := other_oses()
+	source := test.Source {
+		main = fmt.tprintf(
+			"package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ a: int }}\n}} else when ODIN_OS == .%s {{\n\tT :: struct {{ b: int }}\n}}\n\nwhen ODIN_OS == .%s {{\n\tf :: proc(t: T) -> int {{\n\t\treturn t.b{{*}}\n\t}}\n}}\n",
+			a,
+			b,
+			b,
+		),
+	}
+	test.expect_hover(t, &source, "T.b: int")
+}
+
+// Go to definition lands on the open file's declaration in the branch that the use site's target takes.
+@(test)
+definition_in_inactive_branch_reaches_fallback_of_open_file :: proc(t: ^testing.T) {
+	a, b := other_oses()
+	source := test.Source {
+		main = fmt.tprintf(
+			"package test\n\nwhen ODIN_OS == .%s {{\n\tT :: struct {{ a: int }}\n}} else when ODIN_OS == .%s {{\n\tT :: struct {{ b: int }}\n}}\n\nwhen ODIN_OS == .%s {{\n\tf :: proc(t: T{{*}}) {{}}\n}}\n",
+			a,
+			b,
+			b,
+		),
+	}
+	location := common.Location {
+		range = {start = {line = 5, character = 1}, end = {line = 5, character = 2}},
+	}
+	test.expect_definition_locations(t, &source, {location})
+}
+
 // A branch condition and the fallbacks it picks between read a constant that another file of the package declares.
 @(test)
 hover_in_inactive_branch_reads_constant_of_other_file :: proc(t: ^testing.T) {

@@ -24,7 +24,8 @@ when_block_at :: proc(
 	for branch: ^ast.Stmt = stmt; branch != nil; {
 		when_branch, is_when := branch.derived.(^ast.When_Stmt)
 		body := when_branch.body if is_when else branch
-		if block, ok := body.derived.(^ast.Block_Stmt); ok && block.pos.offset <= offset && offset <= block.end.offset {
+		if block, ok := body.derived.(^ast.Block_Stmt);
+		   ok && block.pos.offset <= offset && offset <= block.end.offset {
 			return block, true
 		}
 		branch = when_branch.else_stmt if is_when else nil
@@ -46,18 +47,46 @@ lookup_active :: proc(name, pkg, current_file: string, fallback: ^Maybe(Symbol))
 // rols: the `fallback` that lookup_active set aside, or the declaration of a target that takes the `when` branches
 // around node when the target that builds the file does not, as for code under `when ODIN_OS == .Linux` on darwin.
 // The index keeps one fallback of a name, which can belong to another branch. A node of another file than the open
-// one, such as a field type of an indexed struct, is placed in that file as node_file parses it.
-branch_fallback :: proc(ast_context: ^AstContext, node: ast.Ident, fallback: Maybe(Symbol)) -> (Symbol, bool) {
+// one, such as a field type of an indexed struct, is placed in that file as node_file parses it. With
+// package_name set, node names a package-level declaration of the document's package, so a declaration of the open
+// file in a branch that the target takes wins: the document's globals hold the host's branches only.
+branch_fallback :: proc(
+	ast_context: ^AstContext,
+	node: ast.Ident,
+	fallback: Maybe(Symbol),
+	package_name := false,
+) -> (
+	Symbol,
+	bool,
+) {
 	symbol, ok := fallback.?
-	if !ok do return {}, false
-	if is_builtin_pkg(symbol.pkg) do return symbol, true
+	if ok && is_builtin_pkg(symbol.pkg) do return symbol, true
+	own :=
+		package_name &&
+		node.pos.file == ast_context.file.fullpath &&
+		ast_context.current_package == ast_context.document_package &&
+		(!ok || symbol.pkg == ast_context.document_package)
+	if !ok && !own do return {}, false
 	file, placed := node_file(ast_context, node)
-	if !placed do return symbol, true
+	if !placed do return symbol, ok
+	candidates: []GlobalExpr
+	if own do candidates = branch_globals(file, node.name)
+	if !ok && len(candidates) == 0 do return {}, false
 	base := file_build_target(node.pos.file)
 	plain: Gate_Consts
 	if file.consts == nil do plain = branch_package_consts(ast_context, file.file^, base)
 	target, has_target := branch_target(file.file^, node.pos.offset, base, &file.consts, plain)
-	if !has_target do return symbol, true
+	if !has_target do return symbol, ok
+	for &global in candidates {
+		if branch_possible_on(file.file^, global.name_expr.pos.offset, target, file.consts.?) {
+			// Like an indexed symbol, it spans the declaration's name, which go to definition reads.
+			own_symbol, resolved := resolve_global_identifier(ast_context, node, &global)
+			own_symbol.range = common.get_token_range(global.name_expr^, file.file.src)
+			own_symbol.uri = common.create_uri(global.name_expr.pos.file, ast_context.allocator).uri
+			return own_symbol, resolved
+		}
+	}
+	if !ok do return {}, false
 	if built, found := lookup_on_target(node.name, symbol.pkg, node.pos.file, target);
 	   found && .Fallback not_in built.flags {
 		return built, true
@@ -80,10 +109,34 @@ branch_package_consts :: proc(ast_context: ^AstContext, file: ast.File, base: pa
 	return consts
 }
 
-// rols: a file that branch_fallback places names in, parsed once per AstContext, with its constants.
+// rols: a file that branch_fallback places names in, parsed once per AstContext, with its constants and, for the
+// open file, its declarations in `when` branches from branch_globals.
 Branch_File :: struct {
-	file:   ^ast.File,
-	consts: Branch_Constants,
+	file:    ^ast.File,
+	consts:  Branch_Constants,
+	globals: Maybe([]GlobalExpr),
+}
+
+// The declarations named name in the `when` branches of file, every branch, in source order. The first call
+// collects them all into file.globals.
+@(private = "file")
+branch_globals :: proc(file: ^Branch_File, name: string) -> []GlobalExpr {
+	if file.globals == nil {
+		tags := parser.parse_file_tags(file.file^, context.temp_allocator)
+		exprs := make([dynamic]GlobalExpr, context.temp_allocator)
+		for decl in file.file.decls {
+			when_decl, is_when := decl.derived.(^ast.When_Stmt)
+			if !is_when do continue
+			consts := make_when_expr_map()
+			collect_when_stmt(&exprs, file.file^, tags, when_decl, &consts, fallbacks = true)
+		}
+		file.globals = exprs[:]
+	}
+	named := make([dynamic]GlobalExpr, context.temp_allocator)
+	for global in file.globals.? {
+		if global.name == name do append(&named, global)
+	}
+	return named[:]
 }
 
 // The file that holds node, from ast_context.branch_files: the open file, else node's file, parsed from its text on
