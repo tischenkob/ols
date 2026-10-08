@@ -1167,6 +1167,7 @@ collect_symbols :: proc(collection: ^SymbolCollection, file: ast.File, uri: stri
 		// so a fallback its own declaration hides comes back with it.
 		if .Fallback in expr.flags do symbol.flags += {.Fallback}
 		if .Ruled_Out in expr.flags do symbol.flags += {.Ruled_Out}
+		if .Guessed in expr.flags do symbol.flags += {.Guessed}
 		if v, ok := pkg.symbols[symbol.name]; ok && .Fallback in v.flags && .Fallback not_in symbol.flags {
 			if v.uri != symbol.uri {
 				append(&pkg.hidden_fallbacks, v)

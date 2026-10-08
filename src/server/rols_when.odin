@@ -291,6 +291,8 @@ when_unknown: ast.Expr
 fold_package_const :: proc(envs: ^map[string]^map[string]When_Expr, symbol: Symbol, pkg: string) -> (When_Expr, bool) {
 	generic, is_generic := symbol.value.(SymbolGenericValue)
 	if !is_generic do return {}, false
+	// A constant of a branch that its file picks through a guess folds as a guess.
+	if .Guessed in symbol.flags do when_guessed = true
 	consts := envs[pkg]
 	if consts == nil {
 		consts = new(map[string]When_Expr, context.temp_allocator)
@@ -375,24 +377,39 @@ when_pick_guessed :: proc(when_decl: ^ast.When_Stmt, when_expr_map: map[string]W
 	return false
 }
 
-// The stored values of a constant whose fold is a guess, which `resolve_when_expr` reads back as one. Nothing
-// writes to them.
-@(private = "file")
-when_guess_false, when_guess_true: ast.Expr
-
-// The value to store for a constant whose fold is the guess `value`. A guess is a bool, since an unknown name reads
-// as false; any other value is stored as unknown.
-when_guess :: proc(value: When_Expr) -> When_Expr {
-	b, is_bool := value.(bool)
-	if !is_bool do return &when_unknown
-	return &when_guess_true if b else &when_guess_false
+// rols: a constant whose fold is a guess. A `when` map holds &node, which has no derived node and the file
+// WHEN_GUESS_FILE, and resolve_when_expr reads it back as value, which keeps the branch that the editor picks.
+When_Guess :: struct {
+	node:  ast.Expr,
+	value: When_Expr,
 }
 
-// The bool that `expr` stores when it is a guess from when_guess, which sets when_guessed.
+@(private = "file")
+WHEN_GUESS_FILE :: "\x00rols when guess"
+
+// The value to store for a constant whose fold is the guess `value`, allocated in the temp allocator like the
+// `when` maps. A value that is not a scalar is stored as unknown.
+when_guess :: proc(value: When_Expr) -> When_Expr {
+	#partial switch _ in value {
+	case bool, int, string:
+		guess := new(When_Guess, context.temp_allocator)
+		guess.node.pos.file = WHEN_GUESS_FILE
+		guess.value = value
+		return &guess.node
+	}
+	return &when_unknown
+}
+
+// Whether expr is a guess that when_guess stored.
+is_when_guess :: proc(expr: ^ast.Expr) -> bool {
+	return expr != nil && expr.derived == nil && expr.pos.file == WHEN_GUESS_FILE
+}
+
+// The value of `expr` when it is a guess from when_guess, which sets when_guessed.
 guessed_when_value :: proc(expr: ^ast.Expr) -> (When_Expr, bool) {
-	if expr != &when_guess_false && expr != &when_guess_true do return nil, false
+	if !is_when_guess(expr) do return nil, false
 	when_guessed = true
-	return expr == &when_guess_true, true
+	return (^When_Guess)(expr).value, true
 }
 
 // `left && right` or `left || right` for resolve_when_expr. An operand that folds to a known bool that decides the
