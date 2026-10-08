@@ -95,13 +95,34 @@ register_when_consts_from_value_decl :: proc(
 	}
 }
 
-// rols: folds package globals in dependency order (`fold_when_globals` in rols_when_fold.odin).
+// Multi-pass fold of package globals (map order is unstable).
 register_when_consts_from_globals :: proc(
 	when_expr_map: ^map[string]When_Expr,
 	globals: map[string]GlobalExpr,
 ) {
-	// rols: fold in dependency order, so a constant never reads one that is not folded yet as false.
-	fold_when_globals(when_expr_map, globals)
+	// Enough passes for short const chains (A :: B, B :: !C).
+	for _ in 0 ..< 8 {
+		added := false
+		for name, global in globals {
+			if .Mutable in global.flags {
+				continue
+			}
+			if global.value_expr == nil {
+				continue
+			}
+			if name in when_expr_map^ {
+				continue
+			}
+			before := len(when_expr_map)
+			register_when_const(when_expr_map, name, global.value_expr)
+			if len(when_expr_map) > before {
+				added = true
+			}
+		}
+		if !added {
+			break
+		}
+	}
 }
 
 resolve_when_ident :: proc(when_expr_map: map[string]When_Expr, ident: string) -> (When_Expr, bool) {

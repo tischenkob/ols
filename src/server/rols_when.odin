@@ -79,7 +79,6 @@ fold_package_when_const :: proc(symbol: Symbol, pkg: string) -> (When_Expr, bool
 // The value of a name whose fold is unknown. It has no derived node, so `resolve_when_expr` reads it as unknown. A
 // name holds it while it folds and keeps it when the fold fails, so a cycle of constants ends instead of recursing
 // forever. Nothing writes to it.
-@(private = "file")
 when_unknown: ast.Expr
 
 // `envs` holds the folded constants of each package, keyed by name, and by `path.NAME` for a selector into the

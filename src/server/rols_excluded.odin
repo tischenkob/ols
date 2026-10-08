@@ -360,7 +360,18 @@ seed_target_package_consts :: proc(consts: ^map[string]When_Expr, file: ast.File
 	folded, cached := target_build.consts[file.pkg_name]
 	if !cached {
 		folded = make_when_expr_map()
-		fold_when_consts(&folded, package_consts(target_build.dir, file.pkg_name, target))
+		// A name that a `when` branch or two files declare reads as unknown, and so does a constant that reads it.
+		globals := make(map[string]GlobalExpr, context.temp_allocator)
+		for name, value in package_consts(target_build.dir, file.pkg_name, target) {
+			if value != nil {
+				globals[name] = GlobalExpr {
+					value_expr = value,
+				}
+			} else if name not_in folded {
+				folded[name] = &when_unknown
+			}
+		}
+		register_when_consts_from_globals(&folded, globals)
 		target_build.consts[file.pkg_name] = folded
 	}
 	mine := make(map[string]^ast.Expr, context.temp_allocator)
@@ -372,11 +383,12 @@ seed_target_package_consts :: proc(consts: ^map[string]When_Expr, file: ast.File
 	}
 }
 
-// The constants of package pkg_name in directory dir that a `when` condition can read, from add_gate_consts over
+// The constants of package pkg_name in directory dir that a `when` condition can read, from add_file_consts over
 // each file of that package that target builds: its open document, else its unsaved text, else the disk. Allocates
 // in the temp allocator.
-package_consts :: proc(dir, pkg_name: string, target: parser.Build_Target) -> Gate_Consts {
-	consts := make(Gate_Consts, context.temp_allocator)
+@(private = "file")
+package_consts :: proc(dir, pkg_name: string, target: parser.Build_Target) -> map[string]^ast.Expr {
+	consts := make(map[string]^ast.Expr, context.temp_allocator)
 	forward, _ := filepath.replace_separators(dir, '/', context.temp_allocator)
 	paths := make([dynamic]string, context.temp_allocator)
 	// A range over a missing map element dereferences nil, so the element is copied first.
@@ -391,7 +403,7 @@ package_consts :: proc(dir, pkg_name: string, target: parser.Build_Target) -> Ga
 		text := file_text(fullpath) or_continue
 		if !strings.contains(text, "::") || !builds_on(fullpath, text, target) do continue
 		file := parse_gate_text(fullpath, text)
-		if file.pkg_name == pkg_name do add_gate_consts(&consts, file)
+		if file.pkg_name == pkg_name do add_file_consts(&consts, file)
 	}
 	return consts
 }
@@ -414,5 +426,39 @@ collect_target_file :: proc(index: ^Target_Index, fullpath, text: string) {
 	if parse_file(&p, &file) && file.syntax_error_count == 0 {
 		// collect_globals keeps only the files that target builds.
 		collect_symbols(&index.collection, file, common.create_uri(fullpath, context.allocator).uri)
+	}
+}
+
+// Adds the constants of file to consts: one outside any `when` with its value, unless another file of consts
+// declares it too, and one in a `when` branch as nil. Allocates in the temp allocator.
+@(private = "file")
+add_file_consts :: proc(consts: ^map[string]^ast.Expr, file: ^ast.File) {
+	mine := make(map[string]^ast.Expr, context.temp_allocator)
+	add_plain_consts(&mine, file)
+	for key, value in mine {
+		consts[key] = nil if key in consts else value
+	}
+	for decl in file.decls {
+		add_when_names(consts, decl, false)
+	}
+}
+
+// Sets each name that stmt declares in a `when` branch to nil in consts. inside tells whether stmt is in one.
+@(private = "file")
+add_when_names :: proc(consts: ^map[string]^ast.Expr, stmt: ^ast.Stmt, inside: bool) {
+	if stmt == nil do return
+	#partial switch s in stmt.derived {
+	case ^ast.When_Stmt:
+		add_when_names(consts, s.body, true)
+		add_when_names(consts, s.else_stmt, true)
+	case ^ast.Block_Stmt:
+		for inner in s.stmts do add_when_names(consts, inner, inside)
+	case ^ast.Foreign_Block_Decl:
+		add_when_names(consts, s.body, inside)
+	case ^ast.Value_Decl:
+		if !inside do return
+		for name in s.names {
+			if ident, ok := name.derived.(^ast.Ident); ok do consts[ident.name] = nil
+		}
 	}
 }
