@@ -38,9 +38,6 @@ when_ast_context: ^AstContext
 make_when_expr_map :: proc() -> map[string]When_Expr {
 	when_expr_map := make(map[string]When_Expr, context.temp_allocator)
 
-	// rols: a define that reads an unknown name must not mark the caller's evaluation as a guess.
-	saved_guessed := when_guessed
-	defer when_guessed = saved_guessed
 	for key, value in common.config.profile.defines {
 		when_expr_map[key] = resolve_when_ident(when_expr_map, value) or_continue
 	}
@@ -63,17 +60,8 @@ register_when_const :: proc(when_expr_map: ^map[string]When_Expr, name: string, 
 		return
 	}
 
-	// rols: a value that reads a name the evaluator does not know is stored as a guess (when_guess).
-	saved_guessed := when_guessed
-	when_guessed = false
 	resolved, ok := resolve_when_expr(when_expr_map^, value)
-	guessed := when_guessed || when_branch_guessed
-	when_guessed = saved_guessed
 	if !ok {
-		return
-	}
-	if guessed {
-		when_expr_map^[name] = when_guess(resolved)
 		return
 	}
 
@@ -155,8 +143,6 @@ resolve_when_ident :: proc(when_expr_map: map[string]When_Expr, ident: string) -
 		return v, true
 	}
 
-	// rols: the name is unknown, so false is a guess that when_condition_known reports as unknown.
-	when_guessed = true
 	//If nothing is found we return it as false boolean
 	return false, true
 }
@@ -177,8 +163,6 @@ resolve_when_expr :: proc(
 	case string:
 		return expr, true
 	case ^ast.Expr:
-		// rols: a value that register_when_const stored as a guess.
-		if value, is_guess := guessed_when_value(expr); is_guess do return value, true
 		#partial switch odin_expr in expr.derived {
 		case ^ast.Paren_Expr:
 			return resolve_when_expr(when_expr_map, odin_expr.expr)
@@ -220,8 +204,6 @@ resolve_when_expr :: proc(
 				return !b, true
 			}
 		case ^ast.Binary_Expr:
-			// rols: one known operand decides `&&` and `||`.
-			if odin_expr.op.kind == .Cmp_And || odin_expr.op.kind == .Cmp_Or do return when_logic(when_expr_map, odin_expr)
 			lhs := resolve_when_expr(when_expr_map, odin_expr.left) or_return
 			rhs := resolve_when_expr(when_expr_map, odin_expr.right) or_return
 
@@ -300,14 +282,6 @@ collect_document_globals :: proc(ast_context: ^AstContext, file: ast.File) -> []
 	when_ast_context = ast_context
 	defer when_ast_context = nil
 	return collect_globals(file, open_file = true)
-}
-
-// rols: points the `when` conditions of this thread at the imports of ast_context, or at none for nil, and returns
-// the previous context for the caller to restore.
-swap_when_ast_context :: proc(ast_context: ^AstContext) -> ^AstContext {
-	saved := when_ast_context
-	when_ast_context = ast_context
-	return saved
 }
 
 // rols: the block of a `when` statement that the target building the file takes, with imported constants visible to

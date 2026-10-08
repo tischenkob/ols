@@ -1166,8 +1166,6 @@ collect_symbols :: proc(collection: ^SymbolCollection, file: ast.File, uri: stri
 		// another file's declaration hides is kept aside for when that declaration goes. A file reindexes as a whole,
 		// so a fallback its own declaration hides comes back with it.
 		if .Fallback in expr.flags do symbol.flags += {.Fallback}
-		if .Ruled_Out in expr.flags do symbol.flags += {.Ruled_Out}
-		if .Guessed in expr.flags do symbol.flags += {.Guessed}
 		if v, ok := pkg.symbols[symbol.name]; ok && .Fallback in v.flags && .Fallback not_in symbol.flags {
 			if v.uri != symbol.uri {
 				append(&pkg.hidden_fallbacks, v)
@@ -1182,10 +1180,6 @@ collect_symbols :: proc(collection: ^SymbolCollection, file: ast.File, uri: stri
 		} else if .Fallback in symbol.flags && v.uri != symbol.uri {
 			append(&pkg.hidden_fallbacks, symbol)
 		} else {
-			// rols: a fallback of the same file that the build may take keeps the stored one of that name reachable.
-			if .Fallback in symbol.flags && .Ruled_Out not_in symbol.flags {
-				if stored, found := &pkg.symbols[symbol.name]; found do stored.flags -= {.Ruled_Out}
-			}
 			free_symbol(symbol, collection.allocator)
 		}
 	}

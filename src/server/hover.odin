@@ -403,11 +403,10 @@ get_hover_information :: proc(
 						}
 					}
 
-					// rols: a fallback takes the declaration of the target that takes the `when` branch around the
-					// field, and none where the host builds the field for certain and rules every declaration out
-					found, found_ok := lookup(ident.name, selector.pkg, ast_context.fullpath)
-					if found_ok && .Fallback in found.flags do found, found_ok = branch_fallback(&ast_context, ident^, found)
-					if resolved, ok := resolve_symbol_return(&ast_context, found, found_ok); ok {
+					if resolved, ok := resolve_symbol_return(
+						&ast_context,
+						lookup(ident.name, selector.pkg, ast_context.fullpath),
+					); ok {
 						// rols: a variable of the imported package keeps that package and shows its type
 						build_documentation(&ast_context, &resolved, false)
 						if resolved.type == .Variable {
