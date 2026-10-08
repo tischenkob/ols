@@ -8,7 +8,7 @@ INLINE_PROC_ACTION :: "Inline procedure call"
 
 expect_inline_proc :: proc(t: ^testing.T, main, expected: string) {
 	source := test.Source {
-		main   = main,
+		main = main,
 		config = {enable_code_action_inline_proc = true},
 	}
 	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, expected)
@@ -16,7 +16,7 @@ expect_inline_proc :: proc(t: ^testing.T, main, expected: string) {
 
 expect_no_inline_proc :: proc(t: ^testing.T, main: string, enabled := true) {
 	source := test.Source {
-		main   = main,
+		main = main,
 		config = {enable_code_action_inline_proc = enabled},
 	}
 	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
@@ -24,7 +24,9 @@ expect_no_inline_proc :: proc(t: ^testing.T, main: string, enabled := true) {
 
 @(test)
 action_inline_proc_expression :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 double :: proc(x: int) -> int {
 	return x * 2
@@ -34,7 +36,8 @@ main :: proc() {
 	a := 1
 	y := dou{*}ble(a + 1)
 }
-`, `package test
+`,
+		`package test
 
 double :: proc(x: int) -> int {
 	return x * 2
@@ -44,12 +47,15 @@ main :: proc() {
 	a := 1
 	y := (a + 1) * 2
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_expression_in_binary :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 double :: proc(x: int) -> int {
 	return x * 2
@@ -59,7 +65,8 @@ main :: proc() {
 	a := 1
 	y := dou{*}ble(a) + 1
 }
-`, `package test
+`,
+		`package test
 
 double :: proc(x: int) -> int {
 	return x * 2
@@ -69,12 +76,15 @@ main :: proc() {
 	a := 1
 	y := a * 2 + 1
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_refused_duplicated_call :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 square :: proc(x: int) -> int {
 	return x * x
@@ -87,12 +97,15 @@ next :: proc() -> int {
 main :: proc() {
 	y := squ{*}are(next())
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_statement :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 log :: proc(level: int, msg: string) {
 	if level > 1 {
@@ -104,7 +117,8 @@ main :: proc() {
 	n := 2
 	lo{*}g(n + 1, "hi")
 }
-`, `package test
+`,
+		`package test
 
 log :: proc(level: int, msg: string) {
 	if level > 1 {
@@ -122,19 +136,23 @@ main :: proc() {
 		}
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_do_body :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 log :: proc(msg: string) do print(msg)
 
 main :: proc() {
 	lo{*}g("hi")
 }
-`, `package test
+`,
+		`package test
 
 log :: proc(msg: string) do print(msg)
 
@@ -144,12 +162,15 @@ main :: proc() {
 		print(msg)
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_statement_same_name :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 bump :: proc(counter: ^int) {
 	counter^ += 1
@@ -159,7 +180,8 @@ main :: proc() {
 	counter := new(int)
 	bu{*}mp(counter)
 }
-`, `package test
+`,
+		`package test
 
 bump :: proc(counter: ^int) {
 	counter^ += 1
@@ -171,12 +193,15 @@ main :: proc() {
 		counter^ += 1
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_refused_return :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 check :: proc(x: int) {
 	if x > 1 {
@@ -188,12 +213,15 @@ check :: proc(x: int) {
 main :: proc() {
 	che{*}ck(1)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_refused_group :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 double_int :: proc(x: int) -> int {
 	return x * 2
@@ -211,12 +239,15 @@ double :: proc {
 main :: proc() {
 	y := dou{*}ble(1)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_refused_variadic :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 first :: proc(xs: ..int) -> int {
 	return xs[0]
@@ -225,18 +256,25 @@ first :: proc(xs: ..int) -> int {
 main :: proc() {
 	y := fir{*}st(1)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_refused_other_package :: proc(t: ^testing.T) {
 	packages := make([dynamic]test.Package, context.temp_allocator)
-	append(&packages, test.Package{pkg = "my_package", source = `package my_package
+	append(
+		&packages,
+		test.Package {
+			pkg = "my_package",
+			source = `package my_package
 
 double :: proc(x: int) -> int {
 	return x * 2
 }
-`})
+`,
+		},
+	)
 	source := test.Source {
 		main = `package test
 
@@ -254,7 +292,9 @@ main :: proc() {
 
 @(test)
 action_inline_proc_disabled :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 double :: proc(x: int) -> int {
 	return x * 2
@@ -263,12 +303,16 @@ double :: proc(x: int) -> int {
 main :: proc() {
 	y := dou{*}ble(1)
 }
-`, enabled = false)
+`,
+		enabled = false,
+	)
 }
 
 @(test)
 action_inline_proc_refused_named_arguments :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 sub :: proc(a: int, b: int) -> int {
 	return a - b
@@ -277,12 +321,15 @@ sub :: proc(a: int, b: int) -> int {
 main :: proc() {
 	y := su{*}b(b = 1, a = 2)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_expression_with_omitted_literal_default :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 add :: proc(a: int, b: int = 2) -> int {
 	return a + b
@@ -291,7 +338,8 @@ add :: proc(a: int, b: int = 2) -> int {
 main :: proc() {
 	y := ad{*}d(1)
 }
-`, `package test
+`,
+		`package test
 
 add :: proc(a: int, b: int = 2) -> int {
 	return a + b
@@ -300,12 +348,15 @@ add :: proc(a: int, b: int = 2) -> int {
 main :: proc() {
 	y := 1 + 2
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_refused_omitted_non_literal_default :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 base :: 2
 
@@ -316,12 +367,15 @@ add :: proc(a: int, b: int = base) -> int {
 main :: proc() {
 	y := ad{*}d(1)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_refused_two_results :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 pair :: proc(x: int) -> (int, int) {
 	return x, x
@@ -330,12 +384,15 @@ pair :: proc(x: int) -> (int, int) {
 main :: proc() {
 	a, b := pa{*}ir(1)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_body_local_shadows_caller_local :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 use :: proc(x: int) {
 }
@@ -349,7 +406,8 @@ main :: proc() {
 	tmp := 1
 	sca{*}le(tmp)
 }
-`, `package test
+`,
+		`package test
 
 use :: proc(x: int) {
 }
@@ -367,12 +425,15 @@ main :: proc() {
 		use(tmp)
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_force_inline_callee :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 double :: #force_inline proc(x: int) -> int {
 	return x * 2
@@ -381,7 +442,8 @@ double :: #force_inline proc(x: int) -> int {
 main :: proc() {
 	y := dou{*}ble(1)
 }
-`, `package test
+`,
+		`package test
 
 double :: #force_inline proc(x: int) -> int {
 	return x * 2
@@ -390,12 +452,15 @@ double :: #force_inline proc(x: int) -> int {
 main :: proc() {
 	y := 1 * 2
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_recursive_one_level :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 countdown :: proc(n: int) -> int {
 	return n <= 0 ? 0 : countdown(n - 1)
@@ -404,7 +469,8 @@ countdown :: proc(n: int) -> int {
 main :: proc() {
 	y := coun{*}tdown(3)
 }
-`, `package test
+`,
+		`package test
 
 countdown :: proc(n: int) -> int {
 	return n <= 0 ? 0 : countdown(n - 1)
@@ -413,12 +479,15 @@ countdown :: proc(n: int) -> int {
 main :: proc() {
 	y := 3 <= 0 ? 0 : countdown(3 - 1)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_parenthesised_right_of_binary :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 inc :: proc(x: int) -> int {
 	return x + 1
@@ -428,7 +497,8 @@ main :: proc() {
 	a := 1
 	y := 1 + in{*}c(a)
 }
-`, `package test
+`,
+		`package test
 
 inc :: proc(x: int) -> int {
 	return x + 1
@@ -438,7 +508,8 @@ main :: proc() {
 	a := 1
 	y := 1 + (a + 1)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -489,7 +560,7 @@ main :: proc() {
 @(test)
 action_inline_proc_offered_on_call_omitting_default_param :: proc(t: ^testing.T) {
 	source := test.Source {
-		main   = `package test
+		main = `package test
 
 f :: proc(got: int, d := 0) {
 	_ = got
@@ -506,7 +577,9 @@ g :: proc() {
 
 @(test)
 action_inline_proc_call_giving_every_arg_of_proc_with_default :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 f :: proc(got: int, d := 0) {
 	_ = got + d
@@ -515,7 +588,8 @@ f :: proc(got: int, d := 0) {
 g :: proc() {
 	{*}f(1, 2)
 }
-`, `package test
+`,
+		`package test
 
 f :: proc(got: int, d := 0) {
 	_ = got + d
@@ -528,12 +602,15 @@ g :: proc() {
 		_ = got + d
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_used_literal_default_becomes_local :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 f :: proc(got: int, d := 0) {
 	_ = got + d
@@ -542,7 +619,8 @@ f :: proc(got: int, d := 0) {
 g :: proc() {
 	{*}f(1)
 }
-`, `package test
+`,
+		`package test
 
 f :: proc(got: int, d := 0) {
 	_ = got + d
@@ -555,12 +633,15 @@ g :: proc() {
 		_ = got + d
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_refused_when_used_default_is_caller_location :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 f :: proc(got: int, loc := #caller_location) {
 	_ = got
@@ -570,12 +651,15 @@ f :: proc(got: int, loc := #caller_location) {
 g :: proc() {
 	{*}f(1)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_offered_when_unused_default_is_caller_location :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 f :: proc(got: int, loc := #caller_location) {
 	_ = got
@@ -584,7 +668,8 @@ f :: proc(got: int, loc := #caller_location) {
 g :: proc() {
 	{*}f(1)
 }
-`, `package test
+`,
+		`package test
 
 f :: proc(got: int, loc := #caller_location) {
 	_ = got
@@ -596,12 +681,15 @@ g :: proc() {
 		_ = got
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_expression_literal_default_keeps_parameter_type :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 half :: proc(d: f32 = 2) -> f32 {
 	return 1 / d
@@ -610,7 +698,8 @@ half :: proc(d: f32 = 2) -> f32 {
 main :: proc() {
 	y := ha{*}lf()
 }
-`, `package test
+`,
+		`package test
 
 half :: proc(d: f32 = 2) -> f32 {
 	return 1 / d
@@ -619,12 +708,15 @@ half :: proc(d: f32 = 2) -> f32 {
 main :: proc() {
 	y := 1 / f32(2)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_expression_literal_argument_keeps_parameter_type :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 next :: proc(d: u8) -> u8 {
 	return d + 1
@@ -633,7 +725,8 @@ next :: proc(d: u8) -> u8 {
 main :: proc() {
 	y := ne{*}xt(255)
 }
-`, `package test
+`,
+		`package test
 
 next :: proc(d: u8) -> u8 {
 	return d + 1
@@ -642,7 +735,8 @@ next :: proc(d: u8) -> u8 {
 main :: proc() {
 	y := u8(255) + 1
 }
-`)
+`,
+	)
 }
 
 inline_across_files :: proc(callee, caller: string) -> test.Source {
@@ -653,18 +747,25 @@ inline_across_files :: proc(callee, caller: string) -> test.Source {
 
 @(test)
 action_inline_proc_callee_in_other_file :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 draw :: proc(x, y: int) {
 	_ = x + y
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	dr{*}aw(1, 2)
 }
-`)
-	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+`,
+	)
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_PROC_ACTION,
+		`package test
 
 main :: proc() {
 	{
@@ -673,12 +774,14 @@ main :: proc() {
 		_ = x + y
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_refused_file_private_callee_of_body :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 @(private = "file")
 norm :: proc(v: int) -> int {
@@ -689,18 +792,21 @@ draw :: proc(x, y: int) {
 	_ = norm(x)
 	_ = y
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	dr{*}aw(1, 2)
 }
-`)
+`,
+	)
 	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
 }
 
 @(test)
 action_inline_proc_refused_declaration_of_private_file :: proc(t: ^testing.T) {
-	source := inline_across_files(`#+private file
+	source := inline_across_files(
+		`#+private file
 package test
 
 LIMIT :: 3
@@ -708,32 +814,41 @@ LIMIT :: 3
 draw :: proc(x: int) {
 	_ = x + LIMIT
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	dr{*}aw(1)
 }
-`)
+`,
+	)
 	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
 }
 
 // The caller's file gets the import that the copied text needs.
 @(test)
 action_inline_proc_adds_import_the_caller_lacks :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import "core:time"
 
 wait :: proc(d: time.Duration) {
 	_ = d
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	wa{*}it(5)
 }
-`)
-	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+`,
+	)
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_PROC_ACTION,
+		`package test
 
 import "core:time"
 
@@ -743,47 +858,58 @@ main :: proc() {
 		_ = d
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_refused_import_under_another_alias :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import t "core:time"
 
 wait :: proc(d: t.Duration) {
 	_ = d
 }
-`, `package test
+`,
+		`package test
 
 import "core:time"
 
 main :: proc() {
 	wa{*}it(5)
 }
-`)
+`,
+	)
 	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
 }
 
 @(test)
 action_inline_proc_import_both_files_share :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import "core:time"
 
 wait :: proc(d: time.Duration) {
 	_ = d
 }
-`, `package test
+`,
+		`package test
 
 import "core:time"
 
 main :: proc() {
 	wa{*}it(5)
 }
-`)
-	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+`,
+	)
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_PROC_ACTION,
+		`package test
 
 import "core:time"
 
@@ -793,13 +919,16 @@ main :: proc() {
 		_ = d
 	}
 }
-`)
+`,
+	)
 }
 
 // Corpus: manual check, repro3. The body redeclares a parameter, which clashes with the local that binds the argument.
 @(test)
 action_inline_proc_refused_body_shadows_parameter :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 Vec :: [2]f32
 
@@ -812,13 +941,16 @@ emit :: proc(v: Vec, uv: Vec) {
 g :: proc(vs: [2]Vec) {
 	em{*}it(vs[0], {0, 0})
 }
-`)
+`,
+	)
 }
 
 // Corpus: the solved symbol of a polymorphic call loses `generic`, and inlining leaves `T` undeclared.
 @(test)
 action_inline_proc_refused_polymorphic :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 bytes_of :: proc(ptr: ^$T) -> int {
 	return size_of(T)
@@ -828,8 +960,11 @@ main :: proc() {
 	x := 1
 	n := byt{*}es_of(&x)
 }
-`)
-	expect_no_inline_proc(t, `package test
+`,
+	)
+	expect_no_inline_proc(
+		t,
+		`package test
 
 report :: proc($T: typeid) {
 	_ = size_of(T)
@@ -838,8 +973,11 @@ report :: proc($T: typeid) {
 main :: proc() {
 	rep{*}ort(int)
 }
-`)
-	expect_no_inline_proc(t, `package test
+`,
+	)
+	expect_no_inline_proc(
+		t,
+		`package test
 
 twice :: proc(x: int) -> int where size_of(int) == 8 {
 	return x * 2
@@ -848,30 +986,36 @@ twice :: proc(x: int) -> int where size_of(int) == 8 {
 main :: proc() {
 	n := twi{*}ce(1)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_refused_polymorphic_in_other_file :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 bytes_of :: proc(ptr: ^$T) -> int {
 	return size_of(T)
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	x := 1
 	n := byt{*}es_of(&x)
 }
-`)
+`,
+	)
 	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
 }
 
 // The caller's local LIMIT would capture the body's use of the package constant.
 @(test)
 action_inline_proc_refused_caller_local_shadows_body_name :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 LIMIT :: 3
 
@@ -884,54 +1028,63 @@ main :: proc() {
 	dr{*}aw(1)
 	_ = LIMIT
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_refused_caller_local_shadows_body_name_across_files :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 LIMIT :: 3
 
 draw :: proc(x: int) {
 	_ = x + LIMIT
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	for LIMIT in 0 ..< 2 {
 		dr{*}aw(LIMIT)
 	}
 }
-`)
+`,
+	)
 	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
 }
 
 // An import of the caller's file under a name the body takes from the package changes what it means.
 @(test)
 action_inline_proc_refused_caller_import_shadows_body_name :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 time :: 3
 
 draw :: proc(x: int) {
 	_ = x + time
 }
-`, `package test
+`,
+		`package test
 
 import "core:time"
 
 main :: proc() {
 	dr{*}aw(1)
 }
-`)
+`,
+	)
 	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
 }
 
 // A package constant that both the body and the caller use is the same declaration after inlining.
 @(test)
 action_inline_proc_body_and_caller_share_a_global :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 LIMIT :: 3
 
@@ -943,7 +1096,8 @@ main :: proc() {
 	n := LIMIT
 	dr{*}aw(n)
 }
-`, `package test
+`,
+		`package test
 
 LIMIT :: 3
 
@@ -958,13 +1112,16 @@ main :: proc() {
 		_ = x + LIMIT
 	}
 }
-`)
+`,
+	)
 }
 
 // The loop's LIMIT ends with the loop, so the later use reads the package constant, which main's local would capture.
 @(test)
 action_inline_proc_refused_body_name_bound_outside_its_loop :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 LIMIT :: 3
 
@@ -980,12 +1137,15 @@ main :: proc() {
 	dr{*}aw(1)
 	_ = LIMIT
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_refused_type_switch_variable_shadows_body_name :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 LIMIT :: 3
 
@@ -1003,12 +1163,15 @@ main :: proc() {
 		dr{*}aw(LIMIT)
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_proc_refused_range_reference_shadows_body_name :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 LIMIT :: 3
 
@@ -1022,13 +1185,16 @@ main :: proc() {
 		dr{*}aw(LIMIT)
 	}
 }
-`)
+`,
+	)
 }
 
 // A map key is a value, so main's LIMIT would capture it.
 @(test)
 action_inline_proc_refused_map_key_shadowed :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 LIMIT :: 3
 
@@ -1041,20 +1207,23 @@ main :: proc() {
 	LIMIT := 10
 	dr{*}aw(LIMIT)
 }
-`)
+`,
+	)
 }
 
 // A file-private LIMIT of the caller's file shadows the package constant the body reads.
 @(test)
 action_inline_proc_refused_caller_file_private_shadows_body_name :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 LIMIT :: 3
 
 draw :: proc(x: int) {
 	_ = x + LIMIT
 }
-`, `package test
+`,
+		`package test
 
 @(private = "file")
 LIMIT :: 10
@@ -1062,14 +1231,17 @@ LIMIT :: 10
 main :: proc() {
 	dr{*}aw(1)
 }
-`)
+`,
+	)
 	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
 }
 
 // The caller's x and i are other bindings than the parameter x and the loop's i, so the copy keeps its meaning.
 @(test)
 action_inline_proc_caller_and_callee_bind_the_same_name :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 draw :: proc(x: int) {
 	for i in 0 ..< x {
@@ -1084,7 +1256,8 @@ main :: proc() {
 		_ = i
 	}
 }
-`, `package test
+`,
+		`package test
 
 draw :: proc(x: int) {
 	for i in 0 ..< x {
@@ -1103,13 +1276,16 @@ main :: proc() {
 		_ = i
 	}
 }
-`)
+`,
+	)
 }
 
 // A named slice type makes LIMIT an index, which main's local would capture.
 @(test)
 action_inline_proc_refused_slice_index_shadowed :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 LIMIT :: 1
 Ints :: []int
@@ -1123,20 +1299,23 @@ main :: proc() {
 	LIMIT := 10
 	dr{*}aw(LIMIT)
 }
-`)
+`,
+	)
 }
 
 // An aliased import is added under its alias, after the caller's imports of the same collection.
 @(test)
 action_inline_proc_adds_aliased_import :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import tm "core:time"
 
 wait :: proc(d: tm.Duration) {
 	_ = d
 }
-`, `package test
+`,
+		`package test
 
 import "core:fmt"
 
@@ -1144,8 +1323,13 @@ main :: proc() {
 	wa{*}it(5)
 	fmt.println()
 }
-`)
-	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+`,
+	)
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_PROC_ACTION,
+		`package test
 
 import "core:fmt"
 import tm "core:time"
@@ -1157,41 +1341,47 @@ main :: proc() {
 	}
 	fmt.println()
 }
-`)
+`,
+	)
 }
 
 // A local time at the call would capture the added import's name.
 @(test)
 action_inline_proc_refused_import_name_taken_by_caller_local :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import "core:time"
 
 wait :: proc(d: time.Duration) {
 	_ = d
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	time := 1
 	wa{*}it(5)
 	_ = time
 }
-`)
+`,
+	)
 	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
 }
 
 // The caller imports the same package under another name.
 @(test)
 action_inline_proc_refused_import_of_same_path_under_other_name :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import "core:time"
 
 wait :: proc(d: time.Duration) {
 	_ = d
 }
-`, `package test
+`,
+		`package test
 
 import tm "core:time"
 
@@ -1199,27 +1389,31 @@ main :: proc() {
 	wa{*}it(5)
 	_ = tm.Duration(1)
 }
-`)
+`,
+	)
 	test.expect_action_missing(t, &source, INLINE_PROC_ACTION)
 }
 
 // The parameter fmt shadows the import of the callee's file, so the copy does not use the import.
 @(test)
 action_inline_proc_parameter_named_like_callee_import :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import "core:fmt"
 
 g :: proc(fmt: int) -> int {
 	return fmt + 1
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	x := {*}g(2)
 	_ = x
 }
-`)
+`,
+	)
 	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
 
 main :: proc() {
@@ -1232,7 +1426,9 @@ main :: proc() {
 // The untyped literal is a map, so LIMIT is a key that main's local would capture.
 @(test)
 action_inline_proc_refused_untyped_map_key_shadowed :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 LIMIT :: 3
 
@@ -1245,13 +1441,16 @@ main :: proc() {
 	LIMIT := 10
 	dr{*}aw(LIMIT)
 }
-`)
+`,
+	)
 }
 
 // The untyped literal is a map, so the key k is the parameter.
 @(test)
 action_inline_proc_untyped_map_key_is_parameter :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 keyed :: proc(k: int) -> map[int]int {
 	return {k = 1}
@@ -1261,7 +1460,8 @@ main :: proc() {
 	m: map[int]int = ke{*}yed(5)
 	_ = m
 }
-`, `package test
+`,
+		`package test
 
 keyed :: proc(k: int) -> map[int]int {
 	return {k = 1}
@@ -1271,14 +1471,17 @@ main :: proc() {
 	m: map[int]int = map[int]int{5 = 1}
 	_ = m
 }
-`)
+`,
+	)
 }
 
 // The untyped literal is a struct, so x on the left is a field name and stays. The copy names the
 // result type, since `p := {x = 1}` does not compile.
 @(test)
 action_inline_proc_untyped_struct_field_named_like_parameter :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 Point :: struct {
 	x: int,
@@ -1292,7 +1495,8 @@ main :: proc() {
 	p := make_po{*}int(1)
 	_ = p
 }
-`, `package test
+`,
+		`package test
 
 Point :: struct {
 	x: int,
@@ -1306,13 +1510,16 @@ main :: proc() {
 	p := Point{x = 1}
 	_ = p
 }
-`)
+`,
+	)
 }
 
 // The literal's type does not resolve, so k may be a field or a key.
 @(test)
 action_inline_proc_refused_unresolved_literal_key_named_like_parameter :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 keyed :: proc(k: int) -> Missing {
 	return {k = 1}
@@ -1322,13 +1529,16 @@ main :: proc() {
 	m := ke{*}yed(5)
 	_ = m
 }
-`)
+`,
+	)
 }
 
 // Corpus: karl2d karl2d.odin:5723:20. An implicit selector argument gets its named type and needs no parentheses.
 @(test)
 action_inline_proc_implicit_selector_argument :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 Button :: enum {
 	Left,
@@ -1344,7 +1554,8 @@ get :: proc(b: Button) -> bool {
 main :: proc() {
 	_ = g{*}et(.Left)
 }
-`, `package test
+`,
+		`package test
 
 Button :: enum {
 	Left,
@@ -1360,13 +1571,15 @@ get :: proc(b: Button) -> bool {
 main :: proc() {
 	_ = arr[Button.Left]
 }
-`)
+`,
+	)
 }
 
 // The untyped literal is resolved in the callee's file, which the client has not opened.
 @(test)
 action_inline_proc_untyped_struct_literal_from_other_file :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 Point :: struct {
 	x: int,
@@ -1375,26 +1588,34 @@ Point :: struct {
 make_point :: proc(x: int) -> Point {
 	return {x = x}
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	p := make_po{*}int(1)
 	_ = p
 }
-`)
-	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+`,
+	)
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_PROC_ACTION,
+		`package test
 
 main :: proc() {
 	p := Point{x = 1}
 	_ = p
 }
-`)
+`,
+	)
 }
 
 // Only the parameter's type names time, and the argument replaces the parameter, so no import is added.
 @(test)
 action_inline_proc_expression_adds_no_import_for_replaced_parameter :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import "core:time"
 
@@ -1405,26 +1626,34 @@ get :: proc() -> time.Duration {
 twice :: proc(d: time.Duration) -> time.Duration {
 	return d * 2
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	x := twi{*}ce(get())
 	_ = x
 }
-`)
-	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+`,
+	)
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_PROC_ACTION,
+		`package test
 
 main :: proc() {
 	x := get() * 2
 	_ = x
 }
-`)
+`,
+	)
 }
 
 // The argument has the parameter's name, so no local and no import is written.
 @(test)
 action_inline_proc_statement_adds_no_import_for_argument_of_same_name :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import "core:time"
 
@@ -1435,14 +1664,20 @@ get :: proc() -> time.Duration {
 wait :: proc(d: time.Duration) {
 	_ = d
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	d := get()
 	wa{*}it(d)
 }
-`)
-	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+`,
+	)
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_PROC_ACTION,
+		`package test
 
 main :: proc() {
 	d := get()
@@ -1450,25 +1685,29 @@ main :: proc() {
 		_ = d
 	}
 }
-`)
+`,
+	)
 }
 
 // The body does not read the parameter, so its type is not written and needs no import.
 @(test)
 action_inline_proc_statement_adds_no_import_for_unused_parameter :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import "core:time"
 
 wait :: proc(d: time.Duration) {
 	_ = 1
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	wa{*}it(5)
 }
-`)
+`,
+	)
 	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
 
 main :: proc() {
@@ -1512,7 +1751,9 @@ main :: proc() {
 @(private = "file")
 inline_from_tagged_file :: proc(caller: string) -> test.Source {
 	files := make([]test.File, 1, context.temp_allocator)
-	files[0] = {"a.odin", `#+build darwin, linux, windows
+	files[0] = {
+		"a.odin",
+		`#+build darwin, linux, windows
 package test
 
 import "core:time"
@@ -1520,7 +1761,8 @@ import "core:time"
 wait :: proc(d: time.Duration) {
 	_ = d
 }
-`}
+`,
+	}
 	return test.Source{main = caller, files = files, config = {enable_code_action_inline_proc = true}}
 }
 
@@ -1546,7 +1788,11 @@ main :: proc() {
 	wa{*}it(5)
 }
 `)
-	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `#+build darwin, linux, windows
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_PROC_ACTION,
+		`#+build darwin, linux, windows
 package test
 
 import "core:time"
@@ -1557,25 +1803,33 @@ main :: proc() {
 		_ = d
 	}
 }
-`)
+`,
+	)
 }
 
 // Code right after the package clause gets a blank line below the import too.
 @(test)
 action_inline_proc_import_after_package_clause_followed_by_code :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import "core:time"
 
 wait :: proc(d: time.Duration) {
 	_ = d
 }
-`, `package test
+`,
+		`package test
 main :: proc() {
 	wa{*}it(5)
 }
-`)
-	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+`,
+	)
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_PROC_ACTION,
+		`package test
 
 import "core:time"
 
@@ -1585,13 +1839,15 @@ main :: proc() {
 		_ = d
 	}
 }
-`)
+`,
+	)
 }
 
 // Two imports after the package clause form one group.
 @(test)
 action_inline_proc_two_imports_after_package_clause :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import "core:fmt"
 import "core:time"
@@ -1599,13 +1855,19 @@ import "core:time"
 wait :: proc(d: time.Duration) {
 	fmt.println(d)
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	wa{*}it(5)
 }
-`)
-	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test
+`,
+	)
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_PROC_ACTION,
+		`package test
 
 import "core:fmt"
 import "core:time"
@@ -1616,85 +1878,120 @@ main :: proc() {
 		fmt.println(d)
 	}
 }
-`)
+`,
+	)
 }
 
 // A one-line caller file has no line after the package clause, so the import goes at the end of the file.
 @(test)
 action_inline_proc_import_into_one_line_file :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import "core:time"
 
 wait :: proc(d: time.Duration) -> time.Duration {
 	return d
 }
-`, `package test; main :: proc() {_ = wa{*}it(5)}`)
-	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test; main :: proc() {_ = time.Duration(5)}
+`,
+		`package test; main :: proc() {_ = wa{*}it(5)}`,
+	)
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_PROC_ACTION,
+		`package test; main :: proc() {_ = time.Duration(5)}
 
 import "core:time"
-`)
+`,
+	)
 }
 
 // A block comment that starts on the package line and spans several lines ends before the import.
 @(test)
 action_inline_proc_import_after_package_line_block_comment :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import "core:time"
 
 wait :: proc(d: time.Duration) -> time.Duration {
 	return d
 }
-`, "package test /* note\nmore */\nmain :: proc() {_ = wa{*}it(5)}")
-	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test /* note
+`,
+		"package test /* note\nmore */\nmain :: proc() {_ = wa{*}it(5)}",
+	)
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_PROC_ACTION,
+		`package test /* note
 more */
 
 import "core:time"
 
-main :: proc() {_ = time.Duration(5)}`)
+main :: proc() {_ = time.Duration(5)}`,
+	)
 }
 
 // A block comment that starts on the package line and runs to the end of the file has no line
 // after it, so the import ends the file.
 @(test)
 action_inline_proc_import_after_block_comment_to_end_of_file :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import "core:time"
 
 wait :: proc(d: time.Duration) -> time.Duration {
 	return d
 }
-`, "package test; main :: proc() {_ = wa{*}it(5)} /* note\nmore */")
-	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test; main :: proc() {_ = time.Duration(5)} /* note
+`,
+		"package test; main :: proc() {_ = wa{*}it(5)} /* note\nmore */",
+	)
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_PROC_ACTION,
+		`package test; main :: proc() {_ = time.Duration(5)} /* note
 more */
 
 import "core:time"
-`)
+`,
+	)
 }
 
 // With imports at the bottom, the last line of a file without a final line break is the last
 // declaration, so the import goes at the end of the file.
 @(test)
 action_inline_proc_import_to_bottom_of_one_line_file :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 import "core:time"
 
 wait :: proc(d: time.Duration) -> time.Duration {
 	return d
 }
-`, `package test; main :: proc() {_ = wa{*}it(5)}`)
+`,
+		`package test; main :: proc() {_ = wa{*}it(5)}`,
+	)
 	source.config.enable_add_import_to_bottom = true
-	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `package test; main :: proc() {_ = time.Duration(5)}
-import "core:time"`)
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_PROC_ACTION,
+		`package test; main :: proc() {_ = time.Duration(5)}
+import "core:time"`,
+	)
 }
 
 // Each `when` branch defines the procedure for other targets, so a copy of one would be wrong on the others.
 @(test)
 action_inline_proc_refused_when_branch_definition :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 when ODIN_OS == .Windows {
 	wait :: proc(x: int) -> int {
@@ -1709,13 +2006,16 @@ when ODIN_OS == .Windows {
 main :: proc() {
 	_ = wa{*}it(1)
 }
-`)
+`,
+	)
 }
 
 // A caller in the same `when` branch builds only with that branch's definition. The test host is not Windows.
 @(test)
 action_inline_proc_caller_in_same_when_branch :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 when ODIN_OS == .Windows {
 	wait :: proc(x: int) -> int {
@@ -1730,7 +2030,8 @@ when ODIN_OS == .Windows {
 		_ = wa{*}it(1)
 	}
 }
-`, `package test
+`,
+		`package test
 
 when ODIN_OS == .Windows {
 	wait :: proc(x: int) -> int {
@@ -1745,13 +2046,16 @@ when ODIN_OS == .Windows {
 		_ = 1 + 2
 	}
 }
-`)
+`,
+	)
 }
 
 // A caller in another `when` statement may build with another branch's definition.
 @(test)
 action_inline_proc_refused_caller_in_other_when :: proc(t: ^testing.T) {
-	expect_no_inline_proc(t, `package test
+	expect_no_inline_proc(
+		t,
+		`package test
 
 when ODIN_OS == .Windows {
 	wait :: proc(x: int) -> int {
@@ -1768,7 +2072,8 @@ when ODIN_OS != .Windows {
 		_ = wa{*}it(1)
 	}
 }
-`)
+`,
+	)
 }
 
 @(private = "file")
@@ -1812,19 +2117,26 @@ main :: proc() {
 	_ = wa{*}it(1)
 }
 `)
-	test.expect_action_applied(t, &source, INLINE_PROC_ACTION, `#+build !windows
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_PROC_ACTION,
+		`#+build !windows
 package test
 
 main :: proc() {
 	_ = 1 + 2
 }
-`)
+`,
+	)
 }
 
 // A key of the struct literal is a field, and a key of the map literal inside it is the parameter.
 @(test)
 action_inline_proc_parameter_named_key_in_nested_untyped_literals :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 Outer :: struct {
 	k: int,
@@ -1838,7 +2150,8 @@ build :: proc(k: int) -> Outer {
 main :: proc() {
 	_ = bu{*}ild(5)
 }
-`, `package test
+`,
+		`package test
 
 Outer :: struct {
 	k: int,
@@ -1852,13 +2165,16 @@ build :: proc(k: int) -> Outer {
 main :: proc() {
 	_ = Outer{k = 5, m = {5 = 1}}
 }
-`)
+`,
+	)
 }
 
 // An implicit selector has no type inside a conversion, so it gets the parameter's type.
 @(test)
 action_inline_proc_implicit_selector_in_conversion :: proc(t: ^testing.T) {
-	expect_inline_proc(t, `package test
+	expect_inline_proc(
+		t,
+		`package test
 
 Button :: enum {
 	Left,
@@ -1872,7 +2188,8 @@ code :: proc(b: Button) -> int {
 main :: proc() {
 	_ = co{*}de(.Left)
 }
-`, `package test
+`,
+		`package test
 
 Button :: enum {
 	Left,
@@ -1886,13 +2203,15 @@ code :: proc(b: Button) -> int {
 main :: proc() {
 	_ = int(Button.Left)
 }
-`)
+`,
+	)
 }
 
 // The callee's file has unsaved lines above the callee, so its indexed range now falls in another declaration.
 @(test)
 action_inline_proc_refused_stale_index_range :: proc(t: ^testing.T) {
-	source := inline_across_files(`package test
+	source := inline_across_files(
+		`package test
 
 wait :: proc(x: int) -> int {
 	return x + 1
@@ -1901,13 +2220,18 @@ wait :: proc(x: int) -> int {
 helper :: proc(x: int) -> int {
 	return x * 2
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	_ = wa{*}it(1)
 }
-`)
-	unsaved := []test.File{{"a.odin", `package test
+`,
+	)
+	unsaved := []test.File {
+		{
+			"a.odin",
+			`package test
 
 helper :: proc(x: int) -> int {
 	return x * 2
@@ -1916,6 +2240,8 @@ helper :: proc(x: int) -> int {
 wait :: proc(x: int) -> int {
 	return x + 1
 }
-`}}
+`,
+		},
+	}
 	test.expect_action_missing_unsaved(t, &source, INLINE_PROC_ACTION, unsaved)
 }

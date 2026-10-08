@@ -14,13 +14,13 @@ action_add_import_offers_nested_package :: proc(t: ^testing.T) {
 	`})
 
 	source := test.Source {
-		main        = `package main
+		main = `package main
 
 main :: proc() {
 	virtual.arena_i{*}nit()
 }
 `,
-		packages    = packages[:],
+		packages = packages[:],
 		collections = {"core" = "test"},
 	}
 

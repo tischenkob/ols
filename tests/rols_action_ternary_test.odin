@@ -26,14 +26,19 @@ main :: proc() {
 		config = {enable_code_action_ternary = true},
 	}
 
-	test.expect_action_applied(t, &source, TO_TERNARY_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		TO_TERNARY_ACTION,
+		`package test
 
 main :: proc() {
 	x := 0
 	c := true
 	x = 1 if c else 2
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -53,12 +58,17 @@ pick :: proc(c: bool) -> int {
 		config = {enable_code_action_ternary = true},
 	}
 
-	test.expect_action_applied(t, &source, TO_TERNARY_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		TO_TERNARY_ACTION,
+		`package test
 
 pick :: proc(c: bool) -> int {
 	return 1 if c else 2
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -166,7 +176,11 @@ main :: proc() {
 		config = {enable_code_action_ternary = true},
 	}
 
-	test.expect_action_applied(t, &source, TO_IF_ELSE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		TO_IF_ELSE_ACTION,
+		`package test
 
 main :: proc() {
 	x := 0
@@ -177,7 +191,8 @@ main :: proc() {
 		x = 2
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -193,7 +208,11 @@ pick :: proc(c: bool) -> int {
 		config = {enable_code_action_ternary = true},
 	}
 
-	test.expect_action_applied(t, &source, TO_IF_ELSE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		TO_IF_ELSE_ACTION,
+		`package test
 
 pick :: proc(c: bool) -> int {
 	if c {
@@ -202,7 +221,8 @@ pick :: proc(c: bool) -> int {
 		return 2
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -220,7 +240,11 @@ main :: proc() {
 		config = {enable_code_action_ternary = true},
 	}
 
-	test.expect_action_applied(t, &source, TO_IF_ELSE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		TO_IF_ELSE_ACTION,
+		`package test
 
 main :: proc() {
 	a, b := 1, 2
@@ -232,7 +256,8 @@ main :: proc() {
 		x = b
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -250,7 +275,11 @@ main :: proc() {
 		config = {enable_code_action_ternary = true},
 	}
 
-	test.expect_action_applied(t, &source, TO_IF_ELSE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		TO_IF_ELSE_ACTION,
+		`package test
 
 main :: proc() {
 	x := 0
@@ -261,7 +290,8 @@ main :: proc() {
 		x = 2
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -425,7 +455,11 @@ main :: proc() {
 		config = {enable_code_action_ternary = true},
 	}
 
-	test.expect_action_chain(t, &source, {TO_TERNARY_ACTION, TO_IF_ELSE_ACTION}, `package test
+	test.expect_action_chain(
+		t,
+		&source,
+		{TO_TERNARY_ACTION, TO_IF_ELSE_ACTION},
+		`package test
 
 main :: proc() {
 	result := 0
@@ -436,7 +470,8 @@ main :: proc() {
 		result = 2
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -457,7 +492,11 @@ main :: proc() {
 		config = {enable_code_action_ternary = true},
 	}
 
-	test.expect_action_chain(t, &source, {TO_TERNARY_ACTION, TO_IF_ELSE_ACTION}, `package test
+	test.expect_action_chain(
+		t,
+		&source,
+		{TO_TERNARY_ACTION, TO_IF_ELSE_ACTION},
+		`package test
 
 main :: proc() {
 	result := 0
@@ -468,7 +507,8 @@ main :: proc() {
 		result = 2
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -489,14 +529,19 @@ main :: proc() {
 		config = {enable_code_action_ternary = true},
 	}
 
-	test.expect_action_chain(t, &source, {TO_TERNARY_ACTION, TO_IF_ELSE_ACTION, TO_TERNARY_ACTION}, `package test
+	test.expect_action_chain(
+		t,
+		&source,
+		{TO_TERNARY_ACTION, TO_IF_ELSE_ACTION, TO_TERNARY_ACTION},
+		`package test
 
 main :: proc() {
 	result := 0
 	condition := true
 	result = 1 if condition else 2
 }
-`)
+`,
+	)
 }
 
 @(test)

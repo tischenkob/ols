@@ -7,48 +7,64 @@ import test "src:testing"
 NAMED_RESULTS_ACTION :: "Use named results"
 
 expect_named_results :: proc(t: ^testing.T, main, expected: string) {
-	source := test.Source{main = main, config = {enable_code_action_named_results = true}}
+	source := test.Source {
+		main = main,
+		config = {enable_code_action_named_results = true},
+	}
 	test.expect_action_applied(t, &source, NAMED_RESULTS_ACTION, expected)
 }
 
 expect_no_named_results :: proc(t: ^testing.T, main: string, enabled := true) {
-	source := test.Source{main = main, config = {enable_code_action_named_results = enabled}}
+	source := test.Source {
+		main = main,
+		config = {enable_code_action_named_results = enabled},
+	}
 	test.expect_action_missing(t, &source, NAMED_RESULTS_ACTION)
 }
 
 @(test)
 named_results_single :: proc(t: ^testing.T) {
-	expect_named_results(t, `package test
+	expect_named_results(
+		t,
+		`package test
 
 f :: proc(x: int) -> in{*}t {
 	return x
 }
-`, `package test
+`,
+		`package test
 
 f :: proc(x: int) -> (result: int) {
 	return x
 }
-`)
+`,
+	)
 }
 
 @(test)
 named_results_pair :: proc(t: ^testing.T) {
-	expect_named_results(t, `package test
+	expect_named_results(
+		t,
+		`package test
 
 f :: pr{*}oc() -> (int, bool) {
 	return 1, true
 }
-`, `package test
+`,
+		`package test
 
 f :: proc() -> (result: int, ok: bool) {
 	return 1, true
 }
-`)
+`,
+	)
 }
 
 @(test)
 named_results_types :: proc(t: ^testing.T) {
-	expect_named_results(t, `package test
+	expect_named_results(
+		t,
+		`package test
 
 Point :: struct { x, y: int }
 My_Error :: enum { None, Bad }
@@ -56,7 +72,8 @@ My_Error :: enum { None, Bad }
 f :: proc() -> (^Point, My_Error{*}) {
 	return nil, .None
 }
-`, `package test
+`,
+		`package test
 
 Point :: struct { x, y: int }
 My_Error :: enum { None, Bad }
@@ -64,87 +81,110 @@ My_Error :: enum { None, Bad }
 f :: proc() -> (point: ^Point, err: My_Error) {
 	return nil, .None
 }
-`)
+`,
+	)
 }
 
 @(test)
 named_results_mixed :: proc(t: ^testing.T) {
-	expect_named_results(t, `package test
+	expect_named_results(
+		t,
+		`package test
 
 f :: proc() -> (n: int, _: bool{*}) {
 	return 1, true
 }
-`, `package test
+`,
+		`package test
 
 f :: proc() -> (n: int, ok: bool) {
 	return 1, true
 }
-`)
+`,
+	)
 }
 
 @(test)
 named_results_keeps_default_on_named_field :: proc(t: ^testing.T) {
-	expect_named_results(t, `package test
+	expect_named_results(
+		t,
+		`package test
 
 f :: proc() -> (a: int = 1, _: bool{*}) {
 	return
 }
-`, `package test
+`,
+		`package test
 
 f :: proc() -> (a: int = 1, ok: bool) {
 	return
 }
-`)
+`,
+	)
 }
 
 @(test)
 named_results_keeps_default_on_renamed_field :: proc(t: ^testing.T) {
-	expect_named_results(t, `package test
+	expect_named_results(
+		t,
+		`package test
 
 f :: proc() -> (_: int = 1, ok: bool{*}) {
 	return
 }
-`, `package test
+`,
+		`package test
 
 f :: proc() -> (result: int = 1, ok: bool) {
 	return
 }
-`)
+`,
+	)
 }
 
 @(test)
 named_results_keeps_inferred_default :: proc(t: ^testing.T) {
-	expect_named_results(t, `package test
+	expect_named_results(
+		t,
+		`package test
 
 f :: proc() -> (a := 1, _: bool{*}) {
 	return
 }
-`, `package test
+`,
+		`package test
 
 f :: proc() -> (a := 1, ok: bool) {
 	return
 }
-`)
+`,
+	)
 }
 
 @(test)
 named_results_names_untyped_field :: proc(t: ^testing.T) {
-	expect_named_results(t, `package test
+	expect_named_results(
+		t,
+		`package test
 
 f :: proc() -> (a: int, _ := false{*}) {
 	return
 }
-`, `package test
+`,
+		`package test
 
 f :: proc() -> (a: int, result := false) {
 	return
 }
-`)
+`,
+	)
 }
 
 @(test)
 named_results_keeps_multi_line_list :: proc(t: ^testing.T) {
-	expect_named_results(t, `package test
+	expect_named_results(
+		t,
+		`package test
 
 f :: proc() -> (
 	_: int = 1, // count
@@ -152,7 +192,8 @@ f :: proc() -> (
 ) {
 	return
 }
-`, `package test
+`,
+		`package test
 
 f :: proc() -> (
 	result: int = 1, // count
@@ -160,12 +201,15 @@ f :: proc() -> (
 ) {
 	return
 }
-`)
+`,
+	)
 }
 
 @(test)
 named_results_keeps_comment_before_unnamed_type :: proc(t: ^testing.T) {
-	expect_named_results(t, `package test
+	expect_named_results(
+		t,
+		`package test
 
 f :: proc() -> (
 	int, // count
@@ -173,7 +217,8 @@ f :: proc() -> (
 ) {
 	return 1, true
 }
-`, `package test
+`,
+		`package test
 
 f :: proc() -> (
 	result: int, // count
@@ -181,12 +226,15 @@ f :: proc() -> (
 ) {
 	return 1, true
 }
-`)
+`,
+	)
 }
 
 @(test)
 named_results_keeps_comment_before_first_result :: proc(t: ^testing.T) {
-	expect_named_results(t, `package test
+	expect_named_results(
+		t,
+		`package test
 
 f :: proc() -> (
 	// first
@@ -195,7 +243,8 @@ f :: proc() -> (
 ) {
 	return 1, true
 }
-`, `package test
+`,
+		`package test
 
 f :: proc() -> (
 	// first
@@ -204,22 +253,27 @@ f :: proc() -> (
 ) {
 	return 1, true
 }
-`)
+`,
+	)
 }
 
 @(test)
 named_results_collision :: proc(t: ^testing.T) {
-	expect_named_results(t, `package test
+	expect_named_results(
+		t,
+		`package test
 
 f :: proc(ok: bool) -> (bool, bool{*}) {
 	return ok, ok
 }
-`, `package test
+`,
+		`package test
 
 f :: proc(ok: bool) -> (ok2: bool, ok3: bool) {
 	return ok, ok
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -253,22 +307,28 @@ f :: proc() -> in{*}t {
 
 @(test)
 named_results_optional_ok :: proc(t: ^testing.T) {
-	expect_named_results(t, `package test
+	expect_named_results(
+		t,
+		`package test
 
 f :: pr{*}oc() -> (int, bool) #optional_ok {
 	return 1, true
 }
-`, `package test
+`,
+		`package test
 
 f :: proc() -> (result: int, ok: bool) #optional_ok {
 	return 1, true
 }
-`)
+`,
+	)
 }
 
 @(test)
 named_results_proc_literal_in_a_local :: proc(t: ^testing.T) {
-	expect_named_results(t, `package test
+	expect_named_results(
+		t,
+		`package test
 
 main :: proc() {
 	f := proc() -> in{*}t {
@@ -276,7 +336,8 @@ main :: proc() {
 	}
 	_ = f
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	f := proc() -> (result: int) {
@@ -284,7 +345,8 @@ main :: proc() {
 	}
 	_ = f
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -300,7 +362,9 @@ S :: struct {
 // Corpus: ols src/server/analysis.odin:4748 on the S17 rerun, see docs/corpus-validation.md.
 @(test)
 named_results_avoids_local_name :: proc(t: ^testing.T) {
-	expect_named_results(t, `package test
+	expect_named_results(
+		t,
+		`package test
 
 Symbol :: struct {
 	name: string,
@@ -312,7 +376,8 @@ make_symbol :: proc(name: string) -> Sy{*}mbol {
 	}
 	return symbol
 }
-`, `package test
+`,
+		`package test
 
 Symbol :: struct {
 	name: string,
@@ -324,5 +389,6 @@ make_symbol :: proc(name: string) -> (result: Symbol) {
 	}
 	return symbol
 }
-`)
+`,
+	)
 }

@@ -38,17 +38,14 @@ when ODIN_OS == .%s {{
 `,
 		other_os,
 	)
-	main := fmt.tprintf(
-		`package test
+	main := fmt.tprintf(`package test
 
 when ODIN_OS == .%s {{
 	f :: proc() {{
 		old()
 	}}
 }}
-`,
-		other_os,
-	)
+`, other_os)
 	source := test.Source {
 		main = main,
 		files = {{"b.odin", b}},
@@ -61,26 +58,20 @@ when ODIN_OS == .%s {{
 @(test)
 naming_skips_name_with_platform_variant_in_inactive_branch :: proc(t: ^testing.T) {
 	other_os := "Windows" when ODIN_OS != .Windows else "Linux"
-	b := fmt.tprintf(
-		`package test
+	b := fmt.tprintf(`package test
 
 when ODIN_OS == .%s {{
 	T :: struct {{}}
 }} else {{
 	T :: 3
 }}
-`,
-		other_os,
-	)
-	main := fmt.tprintf(
-		`package test
+`, other_os)
+	main := fmt.tprintf(`package test
 
 when ODIN_OS == .%s {{
 	Max_Size :: T
 }}
-`,
-		other_os,
-	)
+`, other_os)
 	source := test.Source {
 		main = main,
 		files = {{"b.odin", b}},
@@ -106,15 +97,12 @@ when ODIN_OS == .%s {{
 `,
 		other_os,
 	)
-	main := fmt.tprintf(
-		`package test
+	main := fmt.tprintf(`package test
 
 when ODIN_OS == .%s {{
 	Small_Make :: Make(3)
 }}
-`,
-		other_os,
-	)
+`, other_os)
 	source := test.Source {
 		main = main,
 		files = {{"b.odin", b}},

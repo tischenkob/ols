@@ -316,7 +316,11 @@ f :: proc(x: bool, s: string, n: f32) {
 		config = {enable_lint_no_op = true},
 	}
 
-	test.expect_lint_diagnostics(t, &source, {{4, "empty-body"}, {6, "empty-body"}, {7, "empty-body"}, {8, "empty-body"}})
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{4, "empty-body"}, {6, "empty-body"}, {7, "empty-body"}, {8, "empty-body"}},
+	)
 }
 
 @(test)

@@ -107,61 +107,41 @@ main :: proc() {
 @(test)
 lint_integer_range_cases :: proc(t: ^testing.T) {
 	cases := []Lint_Case {
-		{
-			"shift below the bit width",
-			`package test
+		{"shift below the bit width", `package test
 
 main :: proc() {
 	a: u32 = 1
 	_ = a << 31
 }
-`,
-			{},
-		},
-		{
-			"a wider type takes the same shift",
-			`package test
+`, {}},
+		{"a wider type takes the same shift", `package test
 
 main :: proc() {
 	a: u64 = 1
 	_ = a << 32
 }
-`,
-			{},
-		},
-		{
-			"a variable shift amount",
-			`package test
+`, {}},
+		{"a variable shift amount", `package test
 
 main :: proc(n: uint) {
 	a: u32 = 1
 	_ = a << n
 }
-`,
-			{},
-		},
-		{
-			"an untyped constant has no width",
-			`package test
+`, {}},
+		{"an untyped constant has no width", `package test
 
 main :: proc() {
 	X :: 1
 	_ = X << 64
 }
-`,
-			{},
-		},
-		{
-			"unsigned compared to zero for inequality",
-			`package test
+`, {}},
+		{"unsigned compared to zero for inequality", `package test
 
 main :: proc() {
 	u: u32 = 1
 	_ = u != 0
 }
-`,
-			{},
-		},
+`, {}},
 		{
 			"integer division inside a float conversion",
 			`package test
@@ -172,26 +152,18 @@ main :: proc(a: int) {
 `,
 			{{3, "integer-division-float"}},
 		},
-		{
-			"remainder is not division",
-			`package test
+		{"remainder is not division", `package test
 
 main :: proc(a, b: int) {
 	_ = f64(a % b)
 }
-`,
-			{},
-		},
-		{
-			"dividing floats",
-			`package test
+`, {}},
+		{"dividing floats", `package test
 
 main :: proc(a, b: f32) {
 	_ = f64(a / b)
 }
-`,
-			{},
-		},
+`, {}},
 	}
 
 	expect_lint_cases(t, cases, {enable_lint_integer_range = true})

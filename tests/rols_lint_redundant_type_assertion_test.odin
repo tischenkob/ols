@@ -624,9 +624,7 @@ f :: proc(x: Holder) {
 		t,
 		&source,
 		"Bind the switch variant",
-		SHAPES +
-		HOLDER +
-		`
+		SHAPES + HOLDER + `
 f :: proc(x: Holder) {
 	switch v in x.shape {
 	case Circle:

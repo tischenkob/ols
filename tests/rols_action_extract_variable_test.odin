@@ -25,7 +25,11 @@ main :: proc() {
 		config = {enable_code_action_extract_variable = true},
 	}
 
-	test.expect_action_applied(t, &source, EXTRACT_VARIABLE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_VARIABLE_ACTION,
+		`package test
 
 foo :: proc(x: int) -> int {
 	return x
@@ -37,7 +41,8 @@ main :: proc() {
 		bar()
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -54,14 +59,19 @@ main :: proc() {
 		config = {enable_code_action_extract_variable = true},
 	}
 
-	test.expect_action_applied(t, &source, EXTRACT_VARIABLE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_VARIABLE_ACTION,
+		`package test
 
 main :: proc() {
 	a, b := 1, 2
 	value := a * b
 	y := value + 2
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -86,7 +96,11 @@ main :: proc() {
 		config = {enable_code_action_extract_variable = true},
 	}
 
-	test.expect_action_applied(t, &source, EXTRACT_VARIABLE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_VARIABLE_ACTION,
+		`package test
 
 Point :: struct {
 	x: int,
@@ -101,7 +115,8 @@ main :: proc() {
 	position := p.position
 	foo(position.x)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -118,14 +133,19 @@ main :: proc() {
 		config = {enable_code_action_extract_variable = true},
 	}
 
-	test.expect_action_applied(t, &source, EXTRACT_VARIABLE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_VARIABLE_ACTION,
+		`package test
 
 main :: proc() {
 	value := 1
 	value2 := value * 2
 	x := value2 + 3
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -203,7 +223,7 @@ main :: proc() {
 
 expect_extract_inline_round_trip :: proc(t: ^testing.T, main: string, cursor: string) {
 	source := test.Source {
-		main   = main,
+		main = main,
 		config = {enable_code_action_extract_variable = true, enable_code_action_inline_variable = true},
 	}
 	test.expect_action_round_trip(t, &source, {EXTRACT_VARIABLE_ACTION, INLINE_VARIABLE_ACTION}, {cursor})
@@ -211,7 +231,7 @@ expect_extract_inline_round_trip :: proc(t: ^testing.T, main: string, cursor: st
 
 expect_no_extract_variable :: proc(t: ^testing.T, main: string) {
 	source := test.Source {
-		main   = main,
+		main = main,
 		config = {enable_code_action_extract_variable = true},
 	}
 	test.expect_action_missing(t, &source, EXTRACT_VARIABLE_ACTION)
@@ -219,7 +239,9 @@ expect_no_extract_variable :: proc(t: ^testing.T, main: string) {
 
 @(test)
 action_extract_variable_round_trip_call :: proc(t: ^testing.T) {
-	expect_extract_inline_round_trip(t, `package test
+	expect_extract_inline_round_trip(
+		t,
+		`package test
 
 f :: proc(x: int) -> int {
 	return x
@@ -229,7 +251,9 @@ main :: proc() {
 	x := 1
 	bar({[f(x)]})
 }
-`, "f2 :=")
+`,
+		"f2 :=",
+	)
 }
 
 @(test)
@@ -245,19 +269,25 @@ main :: proc() {
 
 @(test)
 action_extract_variable_round_trip_index :: proc(t: ^testing.T) {
-	expect_extract_inline_round_trip(t, `package test
+	expect_extract_inline_round_trip(
+		t,
+		`package test
 
 main :: proc() {
 	s := []int{1, 2}
 	i := 0
 	bar({[s[i]]})
 }
-`, "value :=")
+`,
+		"value :=",
+	)
 }
 
 @(test)
 action_extract_variable_round_trip_selector_chain :: proc(t: ^testing.T) {
-	expect_extract_inline_round_trip(t, `package test
+	expect_extract_inline_round_trip(
+		t,
+		`package test
 
 Point :: struct {
 	x: int,
@@ -271,7 +301,9 @@ main :: proc() {
 	p: Player
 	bar({[p.position.x]})
 }
-`, "x :=")
+`,
+		"x :=",
+	)
 }
 
 @(test)
@@ -296,13 +328,17 @@ main :: proc() {
 
 @(test)
 action_extract_variable_round_trip_selection_with_spaces :: proc(t: ^testing.T) {
-	expect_extract_inline_round_trip(t, `package test
+	expect_extract_inline_round_trip(
+		t,
+		`package test
 
 main :: proc() {
 	a, b := 1, 2
 	bar({[ a + b ]})
 }
-`, "value :=")
+`,
+		"value :=",
+	)
 }
 
 @(test)
@@ -318,18 +354,24 @@ main :: proc() {
 
 @(test)
 action_extract_variable_round_trip_paren :: proc(t: ^testing.T) {
-	expect_extract_inline_round_trip(t, `package test
+	expect_extract_inline_round_trip(
+		t,
+		`package test
 
 main :: proc() {
 	a, b := 1, 2
 	bar({[(a + b)]})
 }
-`, "value :=")
+`,
+		"value :=",
+	)
 }
 
 @(test)
 action_extract_variable_round_trip_switch_case_body :: proc(t: ^testing.T) {
-	expect_extract_inline_round_trip(t, `package test
+	expect_extract_inline_round_trip(
+		t,
+		`package test
 
 main :: proc() {
 	a, b := 1, 2
@@ -338,35 +380,47 @@ main :: proc() {
 		bar({[a + b]})
 	}
 }
-`, "value :=")
+`,
+		"value :=",
+	)
 }
 
 @(test)
 action_extract_variable_round_trip_space_indented :: proc(t: ^testing.T) {
-	expect_extract_inline_round_trip(t, `package test
+	expect_extract_inline_round_trip(
+		t,
+		`package test
 
 main :: proc() {
     a, b := 1, 2
     bar({[a + b]})
 }
-`, "value :=")
+`,
+		"value :=",
+	)
 }
 
 @(test)
 action_extract_variable_round_trip_name_taken :: proc(t: ^testing.T) {
-	expect_extract_inline_round_trip(t, `package test
+	expect_extract_inline_round_trip(
+		t,
+		`package test
 
 main :: proc() {
 	a, b := 1, 2
 	value := 0
 	bar({[a + b]}, value)
 }
-`, "value2 :=")
+`,
+		"value2 :=",
+	)
 }
 
 @(test)
 action_extract_variable_round_trip_callee_name_taken_twice :: proc(t: ^testing.T) {
-	expect_extract_inline_round_trip(t, `package test
+	expect_extract_inline_round_trip(
+		t,
+		`package test
 
 f :: proc(x: int) -> int {
 	return x
@@ -376,7 +430,9 @@ main :: proc() {
 	f2 := 1
 	bar({[f(f2)]})
 }
-`, "f3 :=")
+`,
+		"f3 :=",
+	)
 }
 
 @(test)
@@ -436,13 +492,18 @@ some_nested_call :: proc(x: int) -> int { return x }
 		config = {enable_code_action_extract_variable = true},
 	}
 
-	test.expect_action_applied(t, &source, EXTRACT_VARIABLE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_VARIABLE_ACTION,
+		`package test
 
 main :: proc() {
 	some_nested_call2 := some_nested_call(1)
 	some_procedure(some_nested_call2)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -457,11 +518,16 @@ main :: proc(s: []int) {
 		config = {enable_code_action_extract_variable = true},
 	}
 
-	test.expect_action_applied(t, &source, EXTRACT_VARIABLE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_VARIABLE_ACTION,
+		`package test
 
 main :: proc(s: []int) {
 	len2 := len(s)
 	bar(len2)
 }
-`)
+`,
+	)
 }

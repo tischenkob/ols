@@ -177,24 +177,16 @@ E :: enum {
 `,
 			{{3, "naming"}},
 		},
-		{
-			"constant names",
-			`package test
+		{"constant names", `package test
 
 pi :: 3.14
 Max :: 1
 MAX_2D :: 2
-`,
-			{{2, "naming"}, {3, "naming"}},
-		},
-		{
-			"type alias follows the type rule",
-			`package test
+`, {{2, "naming"}, {3, "naming"}}},
+		{"type alias follows the type rule", `package test
 
 Foo :: int
-`,
-			{},
-		},
+`, {}},
 		{
 			"proc group follows the procedure rule",
 			`package test
@@ -214,15 +206,11 @@ badGroup :: proc {
 `,
 			{{10, "naming"}},
 		},
-		{
-			"variable names",
-			`package test
+		{"variable names", `package test
 
 myVar := 1
 my_var := 2
-`,
-			{{2, "naming"}},
-		},
+`, {{2, "naming"}}},
 		{
 			"blanks, single letters and non-ASCII pass",
 			`package test
@@ -233,23 +221,15 @@ größe := 1
 `,
 			{},
 		},
-		{
-			"polymorphic parameters are not names",
-			`package test
+		{"polymorphic parameters are not names", `package test
 
 generic :: proc($T: typeid, $N: int) {}
-`,
-			{},
-		},
-		{
-			"private is not an external name",
-			`package test
+`, {}},
+		{"private is not an external name", `package test
 
 @(private)
 internal_Proc :: proc() {}
-`,
-			{{3, "naming"}},
-		},
+`, {{3, "naming"}}},
 		{
 			"struct fields and parameters",
 			`package test
@@ -274,28 +254,20 @@ f :: proc(n: int) {
 `,
 			{},
 		},
-		{
-			"declarations inside when",
-			`package test
+		{"declarations inside when", `package test
 
 when ODIN_DEBUG {
 	badName :: proc() {}
 }
-`,
-			{{3, "naming"}},
-		},
-		{
-			"a selector use is not a declaration",
-			`package test
+`, {{3, "naming"}}},
+		{"a selector use is not a declaration", `package test
 
 import "other"
 
 f :: proc() {
 	other.badName()
 }
-`,
-			{},
-		},
+`, {}},
 	}
 
 	expect_lint_cases(
@@ -411,7 +383,10 @@ when ODIN_OS == .Windows {
 
 pf :: PLATFORM
 `,
-		files = {{name = "b.odin", source = `package test
+		files = {
+			{
+				name = "b.odin",
+				source = `package test
 
 Iface :: struct {
 	f: proc() -> int,
@@ -419,7 +394,9 @@ Iface :: struct {
 
 IMPL_A :: Iface{f = nil}
 IMPL_B :: Iface{f = nil}
-`}},
+`,
+			},
+		},
 		config = {enable_lint_naming = true},
 	}
 
@@ -434,7 +411,10 @@ lint_naming_constant_alias_of_value_in_other_file_when :: proc(t: ^testing.T) {
 
 pf :: PLATFORM
 `,
-		files = {{name = "b.odin", source = `package test
+		files = {
+			{
+				name = "b.odin",
+				source = `package test
 
 Iface :: struct {
 	f: proc() -> int,
@@ -448,7 +428,9 @@ when ODIN_OS == .Windows {
 } else {
 	PLATFORM :: IMPL_B
 }
-`}},
+`,
+			},
+		},
 		config = {enable_lint_naming = true},
 	}
 

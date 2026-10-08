@@ -6,7 +6,9 @@ import test "src:testing"
 
 @(private = "file")
 packages := []test.Package {
-	{pkg = "fmt", source = `package fmt
+	{
+		pkg = "fmt",
+		source = `package fmt
 Builder :: struct {}
 printf :: proc(f: string, args: ..any) {}
 println :: proc(args: ..any) {}
@@ -15,7 +17,8 @@ tprintf :: proc(f: string, args: ..any) -> string { return f }
 sbprintf :: proc(b: ^Builder, f: string, args: ..any) -> string { return f }
 panicf :: proc(f: string, args: ..any) {}
 assertf :: proc(cond: bool, f: string, args: ..any) {}
-`},
+`,
+	},
 	{pkg = "log", source = `package log
 infof :: proc(f: string, args: ..any) {}
 info :: proc(args: ..any) {}
@@ -151,18 +154,14 @@ main :: proc(s: string, n: int) {
 `,
 			{{5, "printf-type"}},
 		},
-		{
-			"width and precision",
-			`package test
+		{"width and precision", `package test
 
 import "fmt"
 
 main :: proc(f: f64) {
 	fmt.printf("%5.2f", f)
 }
-`,
-			{},
-		},
+`, {}},
 		{
 			"log.info with a directive",
 			`package test
@@ -214,13 +213,7 @@ main :: proc(s: string, ok: bool) {
 	fmt.assertf(ok, "%d", s)
 }
 `,
-			{
-				{6, "printf-type"},
-				{7, "printf-type"},
-				{8, "printf-type"},
-				{9, "printf-type"},
-				{10, "printf-type"},
-			},
+			{{6, "printf-type"}, {7, "printf-type"}, {8, "printf-type"}, {9, "printf-type"}, {10, "printf-type"}},
 		},
 		{
 			"a format held in a variable",
@@ -301,10 +294,13 @@ main :: proc(n: int, s: string) {
 
 @(private = "file")
 corpus_fmt := []test.Package {
-	{pkg = "fmt", source = `package fmt
+	{
+		pkg = "fmt",
+		source = `package fmt
 printfln :: proc(f: string, args: ..any) {}
 aprintf :: proc(f: string, args: ..any) -> string { return f }
-`},
+`,
+	},
 }
 
 @(test)

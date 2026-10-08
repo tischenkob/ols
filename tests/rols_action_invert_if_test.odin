@@ -449,7 +449,11 @@ main :: proc() {
 `,
 		config = {enable_code_action_invert_if = true},
 	}
-	test.expect_action_applied(t, &source, "Invert if (early continue)", `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		"Invert if (early continue)",
+		`package test
 
 main :: proc() {
 	for x in xs {
@@ -458,7 +462,8 @@ main :: proc() {
 		}
 	}
 }
-`)
+`,
+	)
 }
 
 // A lone CRLF line must not pull the inverted if onto CRLF.

@@ -57,7 +57,10 @@ clean_rerun_turns_every_style_error_into_a_warning :: proc(t: ^testing.T) {
 @(test)
 a_stopping_error_asks_for_the_rerun :: proc(t: ^testing.T) {
 	testing.expect(t, server.has_stopping_error({1, {error(1, "Syntax Error: x")}}))
-	testing.expect(t, server.has_stopping_error({1, {error(1, "With '-vet-tabs', tabs must be used for indentation", "warning")}}))
+	testing.expect(
+		t,
+		server.has_stopping_error({1, {error(1, "With '-vet-tabs', tabs must be used for indentation", "warning")}}),
+	)
 	testing.expect(t, !server.has_stopping_error({1, {error(1, "Cannot convert")}}))
 	testing.expect(t, !server.has_stopping_error({}))
 }

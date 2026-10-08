@@ -73,7 +73,12 @@ lint_unused_declarations :: proc(document: ^Document, config: ^common.Config) {
 	}
 
 	if len(files) > MAX_FILES || total > MAX_BYTES {
-		log.infof("unused declaration lint skipped for %v: %d files, %d bytes", document.package_name, len(files), total)
+		log.infof(
+			"unused declaration lint skipped for %v: %d files, %d bytes",
+			document.package_name,
+			len(files),
+			total,
+		)
 		return
 	}
 
@@ -133,7 +138,11 @@ unused_declarations :: proc(
 				case .Package, .Field, .EnumMember, .Keyword:
 					continue
 				}
-				candidates[{uri, symbol.range}] = Candidate{symbol = symbol, start = decl.pos.offset, end = decl.end.offset}
+				candidates[{uri, symbol.range}] = Candidate {
+					symbol = symbol,
+					start  = decl.pos.offset,
+					end    = decl.end.offset,
+				}
 			}
 		}
 	}

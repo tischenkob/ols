@@ -77,10 +77,7 @@ check_rename :: proc(
 	if qualifier {
 		append(
 			&out,
-			fmt.tprintf(
-				"`%s` is a package qualifier: use rename-package to rename a package",
-				target.old_name,
-			),
+			fmt.tprintf("`%s` is a package qualifier: use rename-package to rename a package", target.old_name),
 		)
 		return out[:], {}
 	}
@@ -116,7 +113,8 @@ import_at :: proc(document: ^Document, position: common.Position) -> (reason: st
 	offset := common.get_absolute_position(position, document.text[:document.used_text]) or_return
 	for imp in document.ast.imports {
 		if imp.pos.offset <= offset && offset <= imp.end.offset {
-			return "the position is on an import path: rename its alias or a qualifier, or use rename-package to rename the package", true
+			return "the position is on an import path: rename its alias or a qualifier, or use rename-package to rename the package",
+				true
 		}
 	}
 	return "", false
@@ -886,7 +884,7 @@ check_using_statements :: proc(scan: ^Embed_Scan) {
 	for site in scan.sites {
 		scan.site = site
 		visitor := ast.Visitor {
-			data  = scan,
+			data = scan,
 			visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
 				if node == nil do return nil
 				scan := (^Embed_Scan)(visitor.data)
@@ -1157,7 +1155,7 @@ in_nested_block :: proc(document: ^Document, offset, block: int) -> bool {
 nested_declarations :: proc(stmts: []^ast.Stmt) -> []Scope_Name {
 	names := make([dynamic]Scope_Name, context.temp_allocator)
 	visitor := ast.Visitor {
-		data  = &names,
+		data = &names,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
 			if node == nil do return nil
 			names := (^[dynamic]Scope_Name)(visitor.data)

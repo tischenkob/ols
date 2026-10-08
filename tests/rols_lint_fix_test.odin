@@ -342,12 +342,17 @@ g :: proc() -> int {
 		config = {enable_lint_unused_parameter = true},
 	}
 
-	test.expect_action_applied(t, &source, "Rename parameter to `_`", `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		"Rename parameter to `_`",
+		`package test
 
 f :: proc(a: int, _ := false) -> int {
 	return a
 }
-`)
+`,
+	)
 }
 
 // The quick fix would delete the comment, so it is not offered.
@@ -408,7 +413,8 @@ f :: proc(a: int, hid{*}den := false) -> int {
 	return a
 }
 `,
-		files = {{"c.odin", `package test
+		files = {
+			{"c.odin", `package test
 
 h :: proc(s: string) -> int {
 	return len(s)
@@ -418,12 +424,14 @@ g :: proc {
 	f,
 	h,
 }
-`}, {"b.odin", `package test
+`},
+			{"b.odin", `package test
 
 k :: proc() -> int {
 	return g(1, hidden = true)
 }
-`}},
+`},
+		},
 		config = {enable_lint_unused_parameter = true},
 	}
 

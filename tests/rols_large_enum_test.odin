@@ -20,7 +20,7 @@ rols_lint_large_documented_enum :: proc(t: ^testing.T) {
 	strings.write_string(&b, "}\n\nmain :: proc() {\n\tf()\n}\n")
 
 	src := test.Source {
-		main   = strings.to_string(b),
+		main = strings.to_string(b),
 		config = {enable_lint_deprecated = true},
 	}
 

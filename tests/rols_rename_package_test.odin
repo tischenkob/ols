@@ -463,7 +463,9 @@ f :: proc() {
 		"old",
 		"fresh",
 		{
-			{"main.odin", `package test
+			{
+				"main.odin",
+				`package test
 
 import "shared:fresh"
 
@@ -472,7 +474,8 @@ _ :: fresh
 f :: proc() {
 	when #defined(fresh) {}
 }
-`},
+`,
+			},
 			{"fresh/a.odin", "package fresh\n\nX :: 1\n\nS :: struct {\n\told: int,\n}\n"},
 			{"fresh/a_test.odin", "package fresh_test\n\nT :: 2\n"},
 		},
@@ -502,7 +505,9 @@ s := S{old = 1}
 		"old",
 		"fresh",
 		{
-			{"main.odin", `package test
+			{
+				"main.odin",
+				`package test
 
 import "shared:fresh"
 
@@ -512,7 +517,8 @@ S :: struct {
 
 alias :: fresh
 s := S{old = 1}
-`},
+`,
+			},
 			{"fresh/a.odin", "package fresh\n\nX :: 1\n\nS :: struct {\n\told: int,\n}\n"},
 			{"fresh/a_test.odin", "package fresh_test\n\nT :: 2\n"},
 		},

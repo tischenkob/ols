@@ -8,18 +8,30 @@ import test "src:testing"
 TO_SWITCH_ACTION :: "Convert to switch"
 
 expect_switch :: proc(t: ^testing.T, main, expected: string) {
-	source := test.Source{main = main, config = {enable_code_action_if_to_switch = true}}
+	source := test.Source {
+		main = main,
+		config = {enable_code_action_if_to_switch = true},
+	}
 	test.expect_action_applied(t, &source, TO_SWITCH_ACTION, expected)
 }
 
-expect_no_switch :: proc(t: ^testing.T, main: string, config := test.Source{config = {enable_code_action_if_to_switch = true}}.config) {
-	source := test.Source{main = main, config = config}
+expect_no_switch :: proc(
+	t: ^testing.T,
+	main: string,
+	config := test.Source{config = {enable_code_action_if_to_switch = true}}.config,
+) {
+	source := test.Source {
+		main   = main,
+		config = config,
+	}
 	test.expect_action_missing(t, &source, TO_SWITCH_ACTION)
 }
 
 @(test)
 if_to_switch_with_else :: proc(t: ^testing.T) {
-	expect_switch(t, `package test
+	expect_switch(
+		t,
+		`package test
 
 main :: proc() {
 	x := 1
@@ -32,7 +44,8 @@ main :: proc() {
 		baz()
 	}
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	x := 1
@@ -46,12 +59,15 @@ main :: proc() {
 		baz()
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 if_to_switch_or_chain_and_reversed :: proc(t: ^testing.T) {
-	expect_switch(t, `package test
+	expect_switch(
+		t,
+		`package test
 
 Kind :: enum { A, B, C, D }
 
@@ -65,7 +81,8 @@ main :: proc() {
 		baz()
 	}
 }
-`, `package test
+`,
+		`package test
 
 Kind :: enum { A, B, C, D }
 
@@ -80,12 +97,15 @@ main :: proc() {
 		baz()
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 if_to_switch_int_no_else :: proc(t: ^testing.T) {
-	expect_switch(t, `package test
+	expect_switch(
+		t,
+		`package test
 
 main :: proc() {
 	x := 1
@@ -93,7 +113,8 @@ main :: proc() {
 		foo()
 	}
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	x := 1
@@ -102,12 +123,15 @@ main :: proc() {
 		foo()
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 if_to_switch_refused :: proc(t: ^testing.T) {
-	expect_no_switch(t, `package test
+	expect_no_switch(
+		t,
+		`package test
 
 main :: proc() {
 	x, y := 1, 2
@@ -117,8 +141,11 @@ main :: proc() {
 		bar()
 	}
 }
-`)
-	expect_no_switch(t, `package test
+`,
+	)
+	expect_no_switch(
+		t,
+		`package test
 
 main :: proc() {
 	x := 1
@@ -128,7 +155,8 @@ main :: proc() {
 		bar()
 	}
 }
-`)
+`,
+	)
 	expect_no_switch(t, `package test
 
 main :: proc() {
@@ -137,7 +165,9 @@ main :: proc() {
 	else if x == 2 do bar()
 }
 `)
-	expect_no_switch(t, `package test
+	expect_no_switch(
+		t,
+		`package test
 
 main :: proc() {
 	x := 1
@@ -147,12 +177,16 @@ main :: proc() {
 		bar()
 	}
 }
-`, config = {})
+`,
+		config = {},
+	)
 }
 
 @(test)
 if_to_switch_string_cases :: proc(t: ^testing.T) {
-	expect_switch(t, `package test
+	expect_switch(
+		t,
+		`package test
 
 main :: proc() {
 	s := "a"
@@ -162,7 +196,8 @@ main :: proc() {
 		bar()
 	}
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	s := "a"
@@ -173,12 +208,15 @@ main :: proc() {
 		bar()
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 if_to_switch_space_indentation :: proc(t: ^testing.T) {
-	expect_switch(t, `package test
+	expect_switch(
+		t,
+		`package test
 
 main :: proc() {
     x := 1
@@ -188,7 +226,8 @@ main :: proc() {
         bar()
     }
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
     x := 1
@@ -199,12 +238,15 @@ main :: proc() {
         bar()
     }
 }
-`)
+`,
+	)
 }
 
 @(test)
 if_to_switch_refusals :: proc(t: ^testing.T) {
-	expect_no_switch(t, `package test
+	expect_no_switch(
+		t,
+		`package test
 
 main :: proc() {
 	x := 1
@@ -214,7 +256,8 @@ main :: proc() {
 		bar()
 	}
 }
-`)
+`,
+	)
 	// Nothing is offered on the result, so the action cannot be applied twice.
 	expect_no_switch(t, `package test
 
@@ -232,7 +275,9 @@ main :: proc() {
 
 @(test)
 if_to_switch_refuses_init_statement :: proc(t: ^testing.T) {
-	expect_no_switch(t, `package test
+	expect_no_switch(
+		t,
+		`package test
 
 f :: proc() -> int {
 	return 1
@@ -245,13 +290,16 @@ main :: proc() {
 		bar()
 	}
 }
-`)
+`,
+	)
 }
 
 // Odin rejects a plain enum switch that leaves a member out, even with a default case.
 @(test)
 if_to_switch_enum_with_else_is_partial :: proc(t: ^testing.T) {
-	expect_switch(t, `package test
+	expect_switch(
+		t,
+		`package test
 
 Layout :: enum { SPRITE, SHAPE, TEXT }
 
@@ -262,7 +310,8 @@ f :: proc(l: Layout) -> int {
 		return 2
 	}
 }
-`, `package test
+`,
+		`package test
 
 Layout :: enum { SPRITE, SHAPE, TEXT }
 
@@ -274,12 +323,15 @@ f :: proc(l: Layout) -> int {
 		return 2
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 if_to_switch_enum_all_members_is_plain :: proc(t: ^testing.T) {
-	expect_switch(t, `package test
+	expect_switch(
+		t,
+		`package test
 
 Layout :: enum { SPRITE, SHAPE, TEXT }
 
@@ -291,7 +343,8 @@ f :: proc(l: Layout) -> int {
 	}
 	return 3
 }
-`, `package test
+`,
+		`package test
 
 Layout :: enum { SPRITE, SHAPE, TEXT }
 
@@ -304,7 +357,8 @@ f :: proc(l: Layout) -> int {
 	}
 	return 3
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -314,7 +368,7 @@ if_to_switch_distinct_enum_from_package_is_partial :: proc(t: ^testing.T) {
 Layout :: enum { SPRITE, SHAPE, TEXT }
 `})
 	source := test.Source {
-		main     = `package test
+		main = `package test
 import "gfx"
 
 My_Layout :: distinct gfx.Layout
@@ -328,9 +382,13 @@ f :: proc(l: My_Layout) -> int {
 }
 `,
 		packages = packages[:],
-		config   = {enable_code_action_if_to_switch = true},
+		config = {enable_code_action_if_to_switch = true},
 	}
-	test.expect_action_applied(t, &source, TO_SWITCH_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		TO_SWITCH_ACTION,
+		`package test
 import "gfx"
 
 My_Layout :: distinct gfx.Layout
@@ -343,13 +401,16 @@ f :: proc(l: My_Layout) -> int {
 		return 2
 	}
 }
-`)
+`,
+	)
 }
 
 // An implicit selector only compares against an enum, so an unresolved subject still gets #partial.
 @(test)
 if_to_switch_unresolved_enum_subject_is_partial :: proc(t: ^testing.T) {
-	expect_switch(t, `package test
+	expect_switch(
+		t,
+		`package test
 
 f :: proc() -> int {
 	l := missing()
@@ -358,7 +419,8 @@ f :: proc() -> int {
 	}
 	return 2
 }
-`, `package test
+`,
+		`package test
 
 f :: proc() -> int {
 	l := missing()
@@ -368,12 +430,15 @@ f :: proc() -> int {
 	}
 	return 2
 }
-`)
+`,
+	)
 }
 
 @(test)
 if_to_switch_unresolved_subject_qualified_value_is_partial :: proc(t: ^testing.T) {
-	expect_switch(t, `package test
+	expect_switch(
+		t,
+		`package test
 
 Layout :: enum { SPRITE, SHAPE, TEXT }
 
@@ -385,7 +450,8 @@ f :: proc() -> int {
 		return 2
 	}
 }
-`, `package test
+`,
+		`package test
 
 Layout :: enum { SPRITE, SHAPE, TEXT }
 
@@ -398,13 +464,16 @@ f :: proc() -> int {
 		return 2
 	}
 }
-`)
+`,
+	)
 }
 
 // #partial is only legal on an enum, so a resolved non-enum subject stays plain.
 @(test)
 if_to_switch_float_field_is_plain :: proc(t: ^testing.T) {
-	expect_switch(t, `package test
+	expect_switch(
+		t,
+		`package test
 
 Shape :: struct { radius: f32 }
 
@@ -414,7 +483,8 @@ f :: proc(s: Shape) -> int {
 	}
 	return 2
 }
-`, `package test
+`,
+		`package test
 
 Shape :: struct { radius: f32 }
 
@@ -425,13 +495,16 @@ f :: proc(s: Shape) -> int {
 	}
 	return 2
 }
-`)
+`,
+	)
 }
 
 // Corpus: a bare `break` in an if body exits the enclosing loop, but in a case body it would exit the switch.
 @(test)
 if_to_switch_refused_break_leaves_loop :: proc(t: ^testing.T) {
-	expect_no_switch(t, `package test
+	expect_no_switch(
+		t,
+		`package test
 
 f :: proc(src: []u8) -> bool {
 	has_encoded := false
@@ -443,8 +516,11 @@ f :: proc(src: []u8) -> bool {
 	}
 	return has_encoded
 }
-`)
-	expect_no_switch(t, `package test
+`,
+	)
+	expect_no_switch(
+		t,
+		`package test
 
 g :: proc() -> (int, bool) {
 	return 1, true
@@ -459,12 +535,15 @@ f :: proc(xs: []int) {
 		}
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 if_to_switch_break_of_own_loop_or_label :: proc(t: ^testing.T) {
-	expect_switch(t, `package test
+	expect_switch(
+		t,
+		`package test
 
 f :: proc(xs: []int) {
 	for x in xs {
@@ -475,7 +554,8 @@ f :: proc(xs: []int) {
 		}
 	}
 }
-`, `package test
+`,
+		`package test
 
 f :: proc(xs: []int) {
 	for x in xs {
@@ -487,8 +567,11 @@ f :: proc(xs: []int) {
 		}
 	}
 }
-`)
-	expect_switch(t, `package test
+`,
+	)
+	expect_switch(
+		t,
+		`package test
 
 f :: proc(xs: []int) {
 	outer: for x in xs {
@@ -497,7 +580,8 @@ f :: proc(xs: []int) {
 		}
 	}
 }
-`, `package test
+`,
+		`package test
 
 f :: proc(xs: []int) {
 	outer: for x in xs {
@@ -507,20 +591,25 @@ f :: proc(xs: []int) {
 		}
 	}
 }
-`)
+`,
+	)
 }
 
 // An `or_break` in a nested loop or switch header, other than a `for` init or condition, exits the outer loop.
 @(test)
 if_to_switch_refuses_or_break_in_nested_header :: proc(t: ^testing.T) {
-	headers := []string{
+	headers := []string {
 		"for y in g() or_break {}",
 		"for v := g() or_break; y in xs {}",
 		"switch g() or_break {}",
 		"for i := 0; i < 1; i += g() or_break {}",
 	}
 	for header in headers {
-		expect_no_switch(t, strings.concatenate({`package test
+		expect_no_switch(
+			t,
+			strings.concatenate(
+				{
+					`package test
 
 g :: proc() -> (int, bool) {
 	return 1, true
@@ -529,13 +618,21 @@ g :: proc() -> (int, bool) {
 f :: proc(xs: []int) {
 	for x in xs {
 		{*}if x == 1 {
-			`, header, `
+			`,
+					header,
+					`
 		}
 	}
 }
-`}, context.temp_allocator))
+`,
+				},
+				context.temp_allocator,
+			),
+		)
 	}
-	expect_switch(t, `package test
+	expect_switch(
+		t,
+		`package test
 
 g :: proc() -> (int, bool) {
 	return 1, true
@@ -548,7 +645,8 @@ f :: proc(xs: []int) {
 		}
 	}
 }
-`, `package test
+`,
+		`package test
 
 g :: proc() -> (int, bool) {
 	return 1, true
@@ -562,5 +660,6 @@ f :: proc(xs: []int) {
 		}
 	}
 }
-`)
+`,
+	)
 }

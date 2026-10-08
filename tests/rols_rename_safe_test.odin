@@ -545,14 +545,19 @@ clone :: proc(s: string) -> string {
 `}},
 		collections = {"core" = "test"},
 	}
-	test.expect_rename(t, &source, "str", {{"main.odin", `package test
+	test.expect_rename(
+		t,
+		&source,
+		"str",
+		{{"main.odin", `package test
 
 import str "core:strings"
 
 main :: proc() {
 	_ = str.clone("a")
 }
-`}})
+`}},
+	)
 }
 
 @(test)
@@ -1253,7 +1258,9 @@ f :: proc(using foo: ^Foo) -> int {
 		t,
 		&source,
 		"limit",
-		{"at test/main.odin:11:9 `limit` refers to `limit` declared at test/main.odin:8, but after the rename it would mean the field through `using foo`"},
+		{
+			"at test/main.odin:11:9 `limit` refers to `limit` declared at test/main.odin:8, but after the rename it would mean the field through `using foo`",
+		},
 	)
 }
 
@@ -1282,7 +1289,9 @@ f :: proc() -> int {
 		t,
 		&source,
 		"limit",
-		{"at test/main.odin:15:9 `limit` refers to `limit` declared at test/main.odin:11, but after the rename it would mean the field through `using v`"},
+		{
+			"at test/main.odin:15:9 `limit` refers to `limit` declared at test/main.odin:11, but after the rename it would mean the field through `using v`",
+		},
 	)
 }
 
@@ -1307,7 +1316,9 @@ f :: proc() -> int {
 		t,
 		&source,
 		"limit",
-		{"at test/main.odin:11:9 `limit` refers to `limit` declared at test/main.odin:7, but after the rename it would mean the field through `using v`"},
+		{
+			"at test/main.odin:11:9 `limit` refers to `limit` declared at test/main.odin:7, but after the rename it would mean the field through `using v`",
+		},
 	)
 }
 
@@ -1324,7 +1335,8 @@ make_foo :: proc() -> Foo {
 	return {}
 }
 `,
-		files = {{"other.odin", `package test
+		files = {
+			{"other.odin", `package test
 
 limit :: 10
 
@@ -1332,13 +1344,16 @@ g :: proc() -> int {
 	using v := make_foo()
 	return limit
 }
-`}},
+`},
+		},
 	}
 	test.expect_rename_refused(
 		t,
 		&source,
 		"limit",
-		{"at test/other.odin:7:9 `limit` refers to `limit` declared at test/other.odin:3, but after the rename it would mean the field through `using v`"},
+		{
+			"at test/other.odin:7:9 `limit` refers to `limit` declared at test/other.odin:3, but after the rename it would mean the field through `using v`",
+		},
 	)
 }
 
@@ -1358,7 +1373,12 @@ f :: proc() {
 }
 `,
 	}
-	test.expect_rename_refused(t, &source, "y", {"`y` is already declared in the scope of `using v` at test/main.odin:9:2"})
+	test.expect_rename_refused(
+		t,
+		&source,
+		"y",
+		{"`y` is already declared in the scope of `using v` at test/main.odin:9:2"},
+	)
 }
 
 @(test)
@@ -1478,7 +1498,12 @@ f :: proc() {
 }
 `,
 	}
-	test.expect_rename_refused(t, &source, "v", {"`v` is already declared in the scope of `using v` at test/main.odin:8:8"})
+	test.expect_rename_refused(
+		t,
+		&source,
+		"v",
+		{"`v` is already declared in the scope of `using v` at test/main.odin:8:8"},
+	)
 }
 
 @(test)
@@ -1753,7 +1778,9 @@ f :: proc(foo: ^Foo) -> int {
 		t,
 		&source,
 		"limit",
-		{"at test/main.odin:12:9 `limit` refers to `limit` declared at test/main.odin:8, but after the rename it would mean the field through `using foo`"},
+		{
+			"at test/main.odin:12:9 `limit` refers to `limit` declared at test/main.odin:8, but after the rename it would mean the field through `using foo`",
+		},
 	)
 }
 
@@ -1968,7 +1995,9 @@ make_foo :: proc() -> ^Foo {
 }
 `,
 		files = {
-			{"b.odin", `#+feature using-stmt
+			{
+				"b.odin",
+				`#+feature using-stmt
 package test
 
 g :: proc() -> int {
@@ -1976,14 +2005,17 @@ g :: proc() -> int {
 	using f
 	return limit
 }
-`},
+`,
+			},
 		},
 	}
 	test.expect_rename_refused(
 		t,
 		&source,
 		"limit",
-		{"at test/b.odin:7:9 `limit` refers to `limit` declared at test/main.odin:7, but after the rename it would mean the field through `using f`"},
+		{
+			"at test/b.odin:7:9 `limit` refers to `limit` declared at test/main.odin:7, but after the rename it would mean the field through `using f`",
+		},
 	)
 }
 
@@ -2011,7 +2043,9 @@ f :: proc() -> int {
 		t,
 		&source,
 		"limit",
-		{"at test/main.odin:13:9 `limit` refers to `limit` declared at test/main.odin:7, but after the rename it would mean the field through `using v`"},
+		{
+			"at test/main.odin:13:9 `limit` refers to `limit` declared at test/main.odin:7, but after the rename it would mean the field through `using v`",
+		},
 	)
 }
 
@@ -2039,7 +2073,9 @@ f :: proc(foo: ^Foo) -> int {
 		t,
 		&source,
 		"limit",
-		{"at test/main.odin:14:9 `limit` refers to `limit` declared at test/main.odin:8, but after the rename it would mean the field through `using foo`"},
+		{
+			"at test/main.odin:14:9 `limit` refers to `limit` declared at test/main.odin:8, but after the rename it would mean the field through `using foo`",
+		},
 	)
 }
 
@@ -2143,7 +2179,9 @@ g :: proc(s: S) -> int { return s.a{*} }
 		t,
 		&source,
 		"b",
-		{"`S` at test/main.odin:8 carries the renamed field `a`, but its platform variant `S` at test/main.odin:6 is another type, which the rename does not change"},
+		{
+			"`S` at test/main.odin:8 carries the renamed field `a`, but its platform variant `S` at test/main.odin:6 is another type, which the rename does not change",
+		},
 	)
 }
 

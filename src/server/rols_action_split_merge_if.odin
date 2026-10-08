@@ -109,7 +109,10 @@ merge_if_text :: proc(src: string, if_stmt: ^ast.If_Stmt) -> (string, bool) {
 	deeper := strings.concatenate({ind, unit}, context.temp_allocator)
 
 	sb := strings.builder_make(context.temp_allocator)
-	cond := strings.concatenate({operand_text(src, if_stmt.cond), " && ", operand_text(src, inner.cond)}, context.temp_allocator)
+	cond := strings.concatenate(
+		{operand_text(src, if_stmt.cond), " && ", operand_text(src, inner.cond)},
+		context.temp_allocator,
+	)
 	write_if_head(&sb, src, if_stmt, cond)
 	if text := block_inner_text(src, inner_body); len(text) > 0 {
 		strings.write_string(&sb, reindent(text, strings.concatenate({deeper, unit}, context.temp_allocator), deeper))

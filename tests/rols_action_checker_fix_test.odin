@@ -91,7 +91,11 @@ g :: proc() {
 
 	test.seed_check_diagnostic(&source, 5, 1, 2, "'x' declared but not used")
 
-	test.expect_action_applied(t, &source, "Replace 'x' with _", `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		"Replace 'x' with _",
+		`package test
 
 f :: proc() -> int { return 1 }
 
@@ -99,7 +103,8 @@ g :: proc() {
 	x := f()
 	_ = x
 }
-`)
+`,
+	)
 
 	removal := test.Source {
 		main = `package test
@@ -158,7 +163,11 @@ g :: proc() -> int {
 
 	test.seed_check_diagnostic(&source, 5, 4, 5, "'y' declared but not used")
 
-	test.expect_action_applied(t, &source, "Replace 'y' with _", `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		"Replace 'y' with _",
+		`package test
 
 f :: proc() -> (int, int) { return 1, 2 }
 
@@ -166,7 +175,8 @@ g :: proc() -> int {
 	x, _ := f()
 	return x
 }
-`)
+`,
+	)
 }
 
 // A range variable is not a declaration, so neither fix applies to it.

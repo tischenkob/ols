@@ -143,7 +143,9 @@ add_compound_assignment :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 		}
 		op := strings.trim_suffix(assign.op.text, "=")
 		// The tokenizer lists Add_Eq..Cmp_Or_Eq in the same order as Add..Cmp_Or.
-		op_kind := tokenizer.Token_Kind(int(assign.op.kind) - int(tokenizer.Token_Kind.Add_Eq) + int(tokenizer.Token_Kind.Add))
+		op_kind := tokenizer.Token_Kind(
+			int(assign.op.kind) - int(tokenizer.Token_Kind.Add_Eq) + int(tokenizer.Token_Kind.Add),
+		)
 		rhs_text := node_text(src, rhs)
 		wrap := false
 		#partial switch r in rhs.derived {

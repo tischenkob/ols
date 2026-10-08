@@ -201,7 +201,11 @@ main :: proc() {
 }
 `)
 
-	test.expect_action_applied(t, &partial_selection, TO_BLOCK, `package test
+	test.expect_action_applied(
+		t,
+		&partial_selection,
+		TO_BLOCK,
+		`package test
 
 main :: proc() {
 	/*
@@ -211,7 +215,8 @@ main :: proc() {
 	// three
 	x := 1
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -219,13 +224,19 @@ action_comment_forms_and_refusals :: proc(t: ^testing.T) {
 	// Neither form keeps interior spacing, so a round trip normalises it.
 	trailing_space := comment_source("package test\n\nmain :: proc() {\n\t// no{*}te   \n\tx := 1\n}\n")
 
-	test.expect_action_chain(t, &trailing_space, {TO_BLOCK, TO_LINES}, `package test
+	test.expect_action_chain(
+		t,
+		&trailing_space,
+		{TO_BLOCK, TO_LINES},
+		`package test
 
 main :: proc() {
 	// note
 	x := 1
 }
-`, {"/*"})
+`,
+		{"/*"},
+	)
 
 	blank_between := comment_source(`package test
 
@@ -277,7 +288,11 @@ main :: proc() {
 }
 `)
 
-	test.expect_action_chain(t, &one_liner, {TO_LINES, TO_BLOCK}, `package test
+	test.expect_action_chain(
+		t,
+		&one_liner,
+		{TO_LINES, TO_BLOCK},
+		`package test
 
 main :: proc() {
 	/*
@@ -285,7 +300,9 @@ main :: proc() {
 	*/
 	x := 1
 }
-`, {"// note"})
+`,
+		{"// note"},
+	)
 }
 
 @(test)

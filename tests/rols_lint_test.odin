@@ -396,12 +396,7 @@ f :: proc(xs: []int, i, j: int, p: ^int, u, v: S) {
 	test.expect_lint_diagnostics(
 		t,
 		&source,
-		{
-			{11, "self-assignment"},
-			{12, "self-assignment"},
-			{13, "self-assignment"},
-			{16, "self-assignment"},
-		},
+		{{11, "self-assignment"}, {12, "self-assignment"}, {13, "self-assignment"}, {16, "self-assignment"}},
 	)
 }
 
@@ -670,11 +665,7 @@ f :: proc(a, b: f32) -> bool {
 		config = {enable_lint_float_equality = true},
 	}
 
-	test.expect_lint_diagnostics(
-		t,
-		&source,
-		{{7, "float-equality"}, {8, "float-equality"}, {9, "float-equality"}},
-	)
+	test.expect_lint_diagnostics(t, &source, {{7, "float-equality"}, {8, "float-equality"}, {9, "float-equality"}})
 }
 
 @(test)
@@ -741,7 +732,9 @@ main :: proc() {
 lint_ignored_result_names_the_type_as_the_file_writes_it :: proc(t: ^testing.T) {
 	// Corpus: `(Error)` without its package, and an absolute package path for a package the file does not import.
 	packages := []test.Package {
-		{pkg = "io", source = `package io
+		{
+			pkg = "io",
+			source = `package io
 Error :: enum {
 	None,
 	Bad,
@@ -750,14 +743,18 @@ Error :: enum {
 write :: proc() -> Error {
 	return .None
 }
-`},
-		{pkg = "other", source = `package other
+`,
+		},
+		{
+			pkg = "other",
+			source = `package other
 import "../io"
 @(require_results)
 get :: proc() -> io.Error {
 	return .None
 }
-`},
+`,
+		},
 	}
 	aliased := test.Source {
 		main = `package test
@@ -887,7 +884,8 @@ g :: proc(x: int) {
 	_ = n
 }
 `,
-		files = {{"b.odin", `package test
+		files = {
+			{"b.odin", `package test
 
 register :: proc(cb: proc(x: int)) {}
 
@@ -895,7 +893,8 @@ init :: proc() {
 	register(f)
 	g(1)
 }
-`}},
+`},
+		},
 		config = {enable_lint_unused_parameter = true},
 	}
 
@@ -968,7 +967,10 @@ e :: proc(x: int) { _ = 1 }
 f :: proc(x: int) { _ = 1 }
 g :: proc(x: int) { _ = 1 }
 `,
-		files = {{"b.odin", `package test
+		files = {
+			{
+				"b.odin",
+				`package test
 
 register :: proc(cb: proc(x: int)) {}
 
@@ -977,7 +979,9 @@ init :: proc() {
 	d(1)
 	// f
 }
-`}},
+`,
+			},
+		},
 		config = {enable_lint_unused_parameter = true},
 	}
 

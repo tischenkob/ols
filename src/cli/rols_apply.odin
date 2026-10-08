@@ -904,12 +904,19 @@ finish :: proc(
 	case .Refused:
 		left := make([dynamic]string, context.temp_allocator)
 		if left_files > 0 {
-			append(&left, fmt.tprintf("%d %s modified", left_files, "file remains" if left_files == 1 else "files remain"))
+			append(
+				&left,
+				fmt.tprintf("%d %s modified", left_files, "file remains" if left_files == 1 else "files remain"),
+			)
 		}
 		if left_dirs > 0 {
 			append(
 				&left,
-				fmt.tprintf("%d %s renamed", left_dirs, "directory remains" if left_dirs == 1 else "directories remain"),
+				fmt.tprintf(
+					"%d %s renamed",
+					left_dirs,
+					"directory remains" if left_dirs == 1 else "directories remain",
+				),
 			)
 		}
 		summary = fmt.tprintf(

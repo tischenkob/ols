@@ -457,7 +457,14 @@ when ODIN_DEBUG {
 g :: proc(s: S) -> int { return s.a{*} }
 `,
 	}
-	test.expect_rename(t, &source, "b", {{"main.odin", `package test
+	test.expect_rename(
+		t,
+		&source,
+		"b",
+		{
+			{
+				"main.odin",
+				`package test
 
 when ODIN_DEBUG {
 	S :: struct { b: int }
@@ -466,7 +473,10 @@ when ODIN_DEBUG {
 }
 
 g :: proc(s: S) -> int { return s.b }
-`}})
+`,
+			},
+		},
+	)
 }
 
 // A field rename through a variant that aliases or embeds the member's type, directly or through another alias,
@@ -571,7 +581,10 @@ rename_collision_skips_when_branch_of_other_os :: proc(t: ^testing.T) {
 		{"ODIN_OS == .Linux", {}},
 		{"!(ODIN_OS == .Windows) && ODIN_ARCH != .i386", {}},
 		{"ODIN_OS == .Windows", {"`h` is already declared in the package at test/b.odin:4:2 (in a when branch)"}},
-		{"ODIN_OS == .Linux || FLAG", {"`h` is already declared in the package at test/b.odin:4:2 (in a when branch)"}},
+		{
+			"ODIN_OS == .Linux || FLAG",
+			{"`h` is already declared in the package at test/b.odin:4:2 (in a when branch)"},
+		},
 	}
 	for c in cases {
 		source := test.Source {
@@ -655,7 +668,14 @@ when ODIN_DEBUG {
 g :: proc() -> E { return .A{*} }
 `,
 	}
-	test.expect_rename(t, &source, "Z", {{"main.odin", `package test
+	test.expect_rename(
+		t,
+		&source,
+		"Z",
+		{
+			{
+				"main.odin",
+				`package test
 
 when ODIN_DEBUG {
 	E :: enum { Z, B }
@@ -664,7 +684,10 @@ when ODIN_DEBUG {
 }
 
 g :: proc() -> E { return .Z }
-`}})
+`,
+			},
+		},
+	)
 }
 
 // A variant that aliases a type without the member, or that may reach the member through `using`, refuses the field

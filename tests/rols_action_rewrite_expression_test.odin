@@ -26,7 +26,11 @@ main :: proc() {
 		config = {enable_code_action_rewrite_expression = true},
 	}
 
-	test.expect_action_applied(t, &source, FLIP_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		FLIP_ACTION,
+		`package test
 
 main :: proc() {
 	a, b := 1, 2
@@ -34,7 +38,8 @@ main :: proc() {
 		foo()
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -74,13 +79,18 @@ main :: proc() {
 		config = {enable_code_action_rewrite_expression = true},
 	}
 
-	test.expect_action_applied(t, &source, FLIP_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		FLIP_ACTION,
+		`package test
 
 main :: proc() {
 	a, b, c, d := 1, 2, 3, 4
 	ok := (b > a) == (c > d)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -99,7 +109,11 @@ main :: proc() {
 		config = {enable_code_action_rewrite_expression = true},
 	}
 
-	test.expect_action_applied(t, &source, DE_MORGAN_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		DE_MORGAN_ACTION,
+		`package test
 
 main :: proc() {
 	a, b := true, false
@@ -107,7 +121,8 @@ main :: proc() {
 		foo()
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -126,7 +141,11 @@ main :: proc() {
 		config = {enable_code_action_rewrite_expression = true},
 	}
 
-	test.expect_action_applied(t, &source, DE_MORGAN_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		DE_MORGAN_ACTION,
+		`package test
 
 main :: proc() {
 	x, y := 1, true
@@ -134,7 +153,8 @@ main :: proc() {
 		foo()
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -151,13 +171,18 @@ main :: proc() {
 		config = {enable_code_action_rewrite_expression = true},
 	}
 
-	test.expect_action_applied(t, &source, DE_MORGAN_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		DE_MORGAN_ACTION,
+		`package test
 
 main :: proc() {
 	a, b, c := true, false, true
 	ok := !a || !b || !c
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -174,13 +199,18 @@ main :: proc() {
 		config = {enable_code_action_rewrite_expression = true},
 	}
 
-	test.expect_action_applied(t, &source, DE_MORGAN_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		DE_MORGAN_ACTION,
+		`package test
 
 main :: proc() {
 	a, b, c := true, false, true
 	ok := c && (!a || !b)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -199,7 +229,11 @@ main :: proc() {
 		config = {enable_code_action_rewrite_expression = true},
 	}
 
-	test.expect_action_applied(t, &source, DE_MORGAN_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		DE_MORGAN_ACTION,
+		`package test
 
 main :: proc() {
 	a, b := true, false
@@ -207,7 +241,8 @@ main :: proc() {
 		foo()
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -267,14 +302,19 @@ main :: proc() {
 		config = {enable_code_action_rewrite_expression = true},
 	}
 
-	test.expect_action_applied(t, &source, COMPOUND_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		COMPOUND_ACTION,
+		`package test
 
 main :: proc() {
 	v := []int{1, 2}
 	i := 0
 	v[i] *= 2
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -299,7 +339,11 @@ main :: proc() {
 		config = {enable_code_action_rewrite_expression = true},
 	}
 
-	test.expect_action_applied(t, &source, COMPOUND_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		COMPOUND_ACTION,
+		`package test
 
 P :: struct {
 	x: int,
@@ -313,7 +357,8 @@ main :: proc() {
 	p: P
 	p.x += f()
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -378,13 +423,18 @@ main :: proc() {
 		config = {enable_code_action_rewrite_expression = true},
 	}
 
-	test.expect_action_applied(t, &source, EXPAND_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXPAND_ACTION,
+		`package test
 
 main :: proc() {
 	x, a, b := 1, 2, 3
 	x = x * (a + b)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -403,7 +453,11 @@ g :: proc() -> (x: int, ok: bool) {
 		config = {enable_code_action_rewrite_expression = true},
 	}
 
-	test.expect_action_applied(t, &source, EXPAND_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXPAND_ACTION,
+		`package test
 
 f :: proc() -> (int, bool) { return 1, true }
 
@@ -411,7 +465,8 @@ g :: proc() -> (x: int, ok: bool) {
 	x = x + (f() or_return)
 	return x, true
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -662,7 +717,11 @@ main :: proc() {
 		config = {enable_code_action_rewrite_expression = true},
 	}
 
-	test.expect_action_applied(t, &source, COMPOUND_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		COMPOUND_ACTION,
+		`package test
 
 main :: proc() {
 	a: struct {
@@ -671,7 +730,8 @@ main :: proc() {
 	i := 0
 	a.b[i] += 1
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -690,7 +750,11 @@ main :: proc() {
 		config = {enable_code_action_rewrite_expression = true},
 	}
 
-	test.expect_action_applied(t, &source, COMPOUND_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		COMPOUND_ACTION,
+		`package test
 
 main :: proc() {
 	a: struct {
@@ -699,7 +763,8 @@ main :: proc() {
 	i := 0
 	a.b [i] += 1
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -715,13 +780,18 @@ main :: proc() {
 		config = {enable_code_action_rewrite_expression = true},
 	}
 
-	test.expect_action_applied(t, &source, EXPAND_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXPAND_ACTION,
+		`package test
 
 main :: proc() {
 	x, c := 1, true
 	x = x + (c ? 1 : 2)
 }
-`)
+`,
+	)
 }
 
 @(test)

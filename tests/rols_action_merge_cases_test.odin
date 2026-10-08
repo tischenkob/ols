@@ -145,7 +145,8 @@ cases_source :: proc(main: string) -> test.Source {
 
 @(test)
 action_merge_cases_round_trip :: proc(t: ^testing.T) {
-	three := cases_source(`package test
+	three := cases_source(
+		`package test
 
 Color :: enum {
 	Red,
@@ -160,11 +161,13 @@ main :: proc() {
 		foo()
 	}
 }
-`)
+`,
+	)
 
 	test.expect_action_round_trip(t, &three, {SPLIT_CASE_ACTION, MERGE_CASES_ACTION, MERGE_CASES_ACTION})
 
-	ranges := cases_source(`package test
+	ranges := cases_source(
+		`package test
 
 Color :: enum {
 	Red,
@@ -181,7 +184,8 @@ main :: proc() {
 		foo()
 	}
 }
-`)
+`,
+	)
 
 	test.expect_action_round_trip(t, &ranges, {SPLIT_CASE_ACTION, MERGE_CASES_ACTION})
 }
@@ -189,7 +193,8 @@ main :: proc() {
 @(test)
 action_merge_cases_body_matching :: proc(t: ^testing.T) {
 	// Bodies are compared with whitespace dropped, and the first body is the one kept.
-	indentation := cases_source(`package test
+	indentation := cases_source(
+		`package test
 
 Color :: enum {
 	Red,
@@ -205,9 +210,14 @@ main :: proc() {
 			foo()
 	}
 }
-`)
+`,
+	)
 
-	test.expect_action_applied(t, &indentation, MERGE_CASES_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&indentation,
+		MERGE_CASES_ACTION,
+		`package test
 
 Color :: enum {
 	Red,
@@ -221,10 +231,12 @@ main :: proc() {
 		foo()
 	}
 }
-`)
+`,
+	)
 
 	// A comment is not part of a statement, so it neither blocks the merge nor survives it.
-	commented := cases_source(`package test
+	commented := cases_source(
+		`package test
 
 Color :: enum {
 	Red,
@@ -240,9 +252,14 @@ main :: proc() {
 		foo() // green
 	}
 }
-`)
+`,
+	)
 
-	test.expect_action_applied(t, &commented, MERGE_CASES_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&commented,
+		MERGE_CASES_ACTION,
+		`package test
 
 Color :: enum {
 	Red,
@@ -256,12 +273,14 @@ main :: proc() {
 		foo()
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_merge_cases_refusals :: proc(t: ^testing.T) {
-	next_is_default := cases_source(`package test
+	next_is_default := cases_source(
+		`package test
 
 main :: proc() {
 	x := 1
@@ -272,11 +291,13 @@ main :: proc() {
 		foo()
 	}
 }
-`)
+`,
+	)
 
 	test.expect_action_missing(t, &next_is_default, MERGE_CASES_ACTION)
 
-	last_clause := cases_source(`package test
+	last_clause := cases_source(
+		`package test
 
 main :: proc() {
 	x := 1
@@ -287,7 +308,8 @@ main :: proc() {
 		foo()
 	}
 }
-`)
+`,
+	)
 
 	test.expect_action_missing(t, &last_clause, MERGE_CASES_ACTION)
 
@@ -304,7 +326,8 @@ main :: proc() {
 
 	test.expect_action_missing(t, &single_value, SPLIT_CASE_ACTION)
 
-	default_clause := cases_source(`package test
+	default_clause := cases_source(
+		`package test
 
 main :: proc() {
 	x := 1
@@ -315,12 +338,14 @@ main :: proc() {
 		bar()
 	}
 }
-`)
+`,
+	)
 
 	test.expect_action_missing(t, &default_clause, SPLIT_CASE_ACTION)
 
 	// Type switches are not handled.
-	type_switch := cases_source(`package test
+	type_switch := cases_source(
+		`package test
 
 main :: proc() {
 	v: any
@@ -329,7 +354,8 @@ main :: proc() {
 		foo()
 	}
 }
-`)
+`,
+	)
 
 	test.expect_action_missing(t, &type_switch, SPLIT_CASE_ACTION)
 }
@@ -337,7 +363,8 @@ main :: proc() {
 @(test)
 action_merge_cases_refuses_fallthrough :: proc(t: ^testing.T) {
 	// Merging would drop one run of the shared body for the first value.
-	merge := cases_source(`package test
+	merge := cases_source(
+		`package test
 
 Color :: enum {
 	Red,
@@ -358,12 +385,14 @@ main :: proc() {
 		bar()
 	}
 }
-`)
+`,
+	)
 
 	test.expect_action_missing(t, &merge, MERGE_CASES_ACTION)
 
 	// Splitting would make the first value fall into its own copy of the body.
-	split := cases_source(`package test
+	split := cases_source(
+		`package test
 
 Color :: enum {
 	Red,
@@ -381,7 +410,8 @@ main :: proc() {
 		bar()
 	}
 }
-`)
+`,
+	)
 
 	test.expect_action_missing(t, &split, SPLIT_CASE_ACTION)
 }

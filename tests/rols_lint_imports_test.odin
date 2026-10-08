@@ -82,16 +82,12 @@ import "../builtin"
 `,
 			{},
 		},
-		{
-			"imports cannot appear inside when",
-			`package test
+		{"imports cannot appear inside when", `package test
 
 when ODIN_DEBUG {
 	import "core:fmt"
 }
-`,
-			{},
-		},
+`, {}},
 	}
 
 	expect_lint_cases(t, cases, {enable_lint_imports = true})

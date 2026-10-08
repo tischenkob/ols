@@ -138,16 +138,12 @@ f :: proc() {
 `,
 			{},
 		},
-		{
-			"map keys are not field names",
-			`package test
+		{"map keys are not field names", `package test
 
 f :: proc() {
 	_ = map[string]int{"a" = 1, "a" = 2}
 }
-`,
-			{},
-		},
+`, {}},
 		{
 			"a struct from another package",
 			`package test

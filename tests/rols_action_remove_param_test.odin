@@ -7,8 +7,8 @@ import test "src:testing"
 
 expect_no_remove_param :: proc(t: ^testing.T, title, main: string, files: []test.File = {}, enabled := true) {
 	source := test.Source {
-		main   = main,
-		files  = files,
+		main = main,
+		files = files,
 		config = {enable_code_action_remove_param = enabled},
 	}
 	test.expect_action_missing(t, &source, title)
@@ -27,14 +27,12 @@ main :: proc() {
 	x := add(1, 2, 3)
 }
 `,
-		files = {
-			{"b.odin", `package test
+		files = {{"b.odin", `package test
 
 other :: proc() {
 	y := add(4, 5, 6)
 }
-`},
-		},
+`}},
 		config = {enable_code_action_remove_param = true},
 	}
 	test.expect_action_applied_files(
@@ -42,7 +40,9 @@ other :: proc() {
 		&source,
 		"Remove parameter unused",
 		{
-			{"main.odin", `package test
+			{
+				"main.odin",
+				`package test
 
 add :: proc(a: int, b: int) -> int {
 	return a + b
@@ -51,7 +51,8 @@ add :: proc(a: int, b: int) -> int {
 main :: proc() {
 	x := add(1, 3)
 }
-`},
+`,
+			},
 			{"b.odin", `package test
 
 other :: proc() {
@@ -77,7 +78,14 @@ main :: proc() {
 `,
 		config = {enable_code_action_remove_param = true},
 	}
-	test.expect_action_applied_files(t, &source, "Remove parameter b", {{"main.odin", `package test
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Remove parameter b",
+		{
+			{
+				"main.odin",
+				`package test
 
 add :: proc(a, c: int) -> int {
 	return a + c
@@ -86,7 +94,10 @@ add :: proc(a, c: int) -> int {
 main :: proc() {
 	x := add(1, 3)
 }
-`}})
+`,
+			},
+		},
+	)
 }
 
 @(test)
@@ -104,7 +115,11 @@ main :: proc() {
 `,
 		config = {enable_code_action_remove_param = true},
 	}
-	test.expect_action_applied_files(t, &source, "Remove parameter flag", {{"main.odin", `package test
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Remove parameter flag",
+		{{"main.odin", `package test
 
 show :: proc(a: int) {
 	_ = a
@@ -113,12 +128,16 @@ show :: proc(a: int) {
 main :: proc() {
 	show(1)
 }
-`}})
+`}},
+	)
 }
 
 @(test)
 action_remove_param_refused_used :: proc(t: ^testing.T) {
-	expect_no_remove_param(t, "Remove parameter a", `package test
+	expect_no_remove_param(
+		t,
+		"Remove parameter a",
+		`package test
 
 add :: proc({*}a: int, b: int) -> int {
 	return a + b
@@ -127,12 +146,16 @@ add :: proc({*}a: int, b: int) -> int {
 main :: proc() {
 	x := add(1, 2)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_remove_param_refused_named_argument_caller :: proc(t: ^testing.T) {
-	expect_no_remove_param(t, "Remove parameter unused", `package test
+	expect_no_remove_param(
+		t,
+		"Remove parameter unused",
+		`package test
 
 add :: proc(a: int, un{*}used: int) -> int {
 	return a
@@ -141,12 +164,16 @@ add :: proc(a: int, un{*}used: int) -> int {
 main :: proc() {
 	x := add(a = 1, unused = 2)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_remove_param_refused_proc_group_member :: proc(t: ^testing.T) {
-	expect_no_remove_param(t, "Remove parameter unused", `package test
+	expect_no_remove_param(
+		t,
+		"Remove parameter unused",
+		`package test
 
 add :: proc(a: int, un{*}used: int) -> int {
 	return a
@@ -161,12 +188,16 @@ group :: proc{add, add_f}
 main :: proc() {
 	x := add(1, 2)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_remove_param_disabled :: proc(t: ^testing.T) {
-	expect_no_remove_param(t, "Remove parameter unused", `package test
+	expect_no_remove_param(
+		t,
+		"Remove parameter unused",
+		`package test
 
 add :: proc(a: int, un{*}used: int) -> int {
 	return a
@@ -175,13 +206,15 @@ add :: proc(a: int, un{*}used: int) -> int {
 main :: proc() {
 	x := add(1, 2)
 }
-`, enabled = false)
+`,
+		enabled = false,
+	)
 }
 
 @(test)
 reorder_params_three_across_files :: proc(t: ^testing.T) {
 	source := test.Source {
-		main = `package test
+		main  = `package test
 
 pl{*}ace :: proc(x: int, y: int, name: string) {
 }
@@ -190,21 +223,21 @@ main :: proc() {
 	place(1, 2, "a")
 }
 `,
-		files = {
-			{"b.odin", `package test
+		files = {{"b.odin", `package test
 
 other :: proc() {
 	place(3, 4, "b")
 }
-`},
-		},
+`}},
 	}
 	test.expect_reorder_params(
 		t,
 		&source,
 		{2, 0, 1},
 		{
-			{"main.odin", `package test
+			{
+				"main.odin",
+				`package test
 
 place :: proc(name: string, x: int, y: int) {
 }
@@ -212,7 +245,8 @@ place :: proc(name: string, x: int, y: int) {
 main :: proc() {
 	place("a", 1, 2)
 }
-`},
+`,
+			},
 			{"b.odin", `package test
 
 other :: proc() {
@@ -236,7 +270,14 @@ main :: proc() {
 }
 `,
 	}
-	test.expect_reorder_params(t, &source, {1, 2, 0}, {{"main.odin", `package test
+	test.expect_reorder_params(
+		t,
+		&source,
+		{1, 2, 0},
+		{
+			{
+				"main.odin",
+				`package test
 
 place :: proc(y: int, name: string, x: int) {
 }
@@ -244,7 +285,10 @@ place :: proc(y: int, name: string, x: int) {
 main :: proc() {
 	place(2, "a", 1)
 }
-`}})
+`,
+			},
+		},
+	)
 }
 
 @(test)
@@ -278,7 +322,11 @@ main :: proc() {
 `,
 		config = {enable_code_action_remove_param = true},
 	}
-	test.expect_action_applied_files(t, &source, "Remove parameter unused", {{"main.odin", `package test
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Remove parameter unused",
+		{{"main.odin", `package test
 
 f :: proc() {
 	print(1)
@@ -287,7 +335,8 @@ f :: proc() {
 main :: proc() {
 	f()
 }
-`}})
+`}},
+	)
 }
 
 @(test)
@@ -305,7 +354,14 @@ main :: proc() {
 `,
 		config = {enable_code_action_remove_param = true},
 	}
-	test.expect_action_applied_files(t, &source, "Remove parameter unused", {{"main.odin", `package test
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Remove parameter unused",
+		{
+			{
+				"main.odin",
+				`package test
 
 add :: proc(a: int, b: int) -> int {
 	return a + b
@@ -314,7 +370,10 @@ add :: proc(a: int, b: int) -> int {
 main :: proc() {
 	x := add(2, 3)
 }
-`}})
+`,
+			},
+		},
+	)
 }
 
 @(test)
@@ -335,7 +394,14 @@ main :: proc() {
 `,
 		config = {enable_code_action_remove_param = true},
 	}
-	test.expect_action_applied_files(t, &source, "Remove parameter unused", {{"main.odin", `package test
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Remove parameter unused",
+		{
+			{
+				"main.odin",
+				`package test
 
 add :: proc(a: int) -> int {
 	return a
@@ -346,12 +412,18 @@ main :: proc() {
 		1,
 	)
 }
-`}})
+`,
+			},
+		},
+	)
 }
 
 @(test)
 action_remove_param_refused_variadic :: proc(t: ^testing.T) {
-	expect_no_remove_param(t, "Remove parameter unused", `package test
+	expect_no_remove_param(
+		t,
+		"Remove parameter unused",
+		`package test
 
 f :: proc(un{*}used: int, xs: ..int) {
 	print(1)
@@ -360,12 +432,16 @@ f :: proc(un{*}used: int, xs: ..int) {
 main :: proc() {
 	f(1, 2)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_remove_param_refused_side_effecting_argument :: proc(t: ^testing.T) {
-	expect_no_remove_param(t, "Remove parameter unused", `package test
+	expect_no_remove_param(
+		t,
+		"Remove parameter unused",
+		`package test
 
 next :: proc() -> int {
 	return 1
@@ -378,12 +454,16 @@ add :: proc(a: int, un{*}used: int) -> int {
 main :: proc() {
 	x := add(1, next())
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_remove_param_refused_name_reused_in_nested_proc_lit :: proc(t: ^testing.T) {
-	expect_no_remove_param(t, "Remove parameter a", `package test
+	expect_no_remove_param(
+		t,
+		"Remove parameter a",
+		`package test
 
 use :: proc(x: int) {
 }
@@ -398,12 +478,16 @@ f :: proc({*}a: int) {
 main :: proc() {
 	f(1)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_remove_param_refused_used_in_when_block :: proc(t: ^testing.T) {
-	expect_no_remove_param(t, "Remove parameter a", `package test
+	expect_no_remove_param(
+		t,
+		"Remove parameter a",
+		`package test
 
 use :: proc(x: int) {
 }
@@ -417,12 +501,16 @@ f :: proc({*}a: int) {
 main :: proc() {
 	f(1)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_remove_param_refused_underscore_name :: proc(t: ^testing.T) {
-	expect_no_remove_param(t, "Remove parameter _", `package test
+	expect_no_remove_param(
+		t,
+		"Remove parameter _",
+		`package test
 
 f :: proc(a: int, {*}_: int) -> int {
 	return a
@@ -431,7 +519,8 @@ f :: proc(a: int, {*}_: int) -> int {
 main :: proc() {
 	x := f(1, 2)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -469,7 +558,14 @@ main :: proc() {
 }
 `,
 	}
-	test.expect_reorder_params(t, &back, {1, 2, 0}, {{"main.odin", `package test
+	test.expect_reorder_params(
+		t,
+		&back,
+		{1, 2, 0},
+		{
+			{
+				"main.odin",
+				`package test
 
 place :: proc(x: int, y: int, name: string) {
 }
@@ -477,7 +573,10 @@ place :: proc(x: int, y: int, name: string) {
 main :: proc() {
 	place(1, 2, "a")
 }
-`}})
+`,
+			},
+		},
+	)
 }
 
 @(test)
@@ -496,7 +595,14 @@ main :: proc() {
 }
 `,
 	}
-	test.expect_reorder_params(t, &source, {1, 0}, {{"main.odin", `package test
+	test.expect_reorder_params(
+		t,
+		&source,
+		{1, 0},
+		{
+			{
+				"main.odin",
+				`package test
 
 place :: proc(name: string, x: int) {
 }
@@ -507,7 +613,10 @@ main :: proc() {
 		1,
 	)
 }
-`}})
+`,
+			},
+		},
+	)
 }
 
 @(test)
@@ -528,7 +637,14 @@ main :: proc() {
 }
 `,
 	}
-	test.expect_reorder_params(t, &source, {2, 0, 1}, {{"main.odin", `package test
+	test.expect_reorder_params(
+		t,
+		&source,
+		{2, 0, 1},
+		{
+			{
+				"main.odin",
+				`package test
 
 place :: proc(
 	name: string,
@@ -541,7 +657,10 @@ place :: proc(
 main :: proc() {
 	place("a", 1, 2)
 }
-`}})
+`,
+			},
+		},
+	)
 }
 
 @(test)
@@ -557,7 +676,14 @@ main :: proc() {
 }
 `,
 	}
-	test.expect_reorder_params(t, &source, {1, 0}, {{"main.odin", `package test
+	test.expect_reorder_params(
+		t,
+		&source,
+		{1, 0},
+		{
+			{
+				"main.odin",
+				`package test
 
 place :: proc(y: int, x: int /* first */) {
 }
@@ -565,7 +691,10 @@ place :: proc(y: int, x: int /* first */) {
 main :: proc() {
 	place(2, 1)
 }
-`}})
+`,
+			},
+		},
+	)
 }
 
 // A line comment moved into a slot whose block comment precedes its comma follows the comma.
@@ -585,7 +714,14 @@ main :: proc() {
 }
 `,
 	}
-	test.expect_reorder_params(t, &source, {1, 0}, {{"main.odin", `package test
+	test.expect_reorder_params(
+		t,
+		&source,
+		{1, 0},
+		{
+			{
+				"main.odin",
+				`package test
 
 place :: proc(
 	name: string, // label
@@ -596,7 +732,10 @@ place :: proc(
 main :: proc() {
 	place("a", 1)
 }
-`}})
+`,
+			},
+		},
+	)
 }
 
 @(test)
@@ -613,7 +752,14 @@ main :: proc() {
 }
 `,
 	}
-	test.expect_reorder_params(t, &source, {1, 2, 0}, {{"main.odin", `package test
+	test.expect_reorder_params(
+		t,
+		&source,
+		{1, 2, 0},
+		{
+			{
+				"main.odin",
+				`package test
 
 place :: proc(y: int,
                  name: string,
@@ -623,7 +769,10 @@ place :: proc(y: int,
 main :: proc() {
 	place(2, "a", 1)
 }
-`}})
+`,
+			},
+		},
+	)
 }
 
 // The comments of a split field stay with its names, and a CRLF file keeps its line endings.
@@ -735,7 +884,10 @@ main :: proc() {
 }
 `,
 		files = {
-			{"add_windows.odin", "#+build windows\npackage test\n\nadd :: proc(a, unused: int) -> int {\n\treturn a + 1\n}\n"},
+			{
+				"add_windows.odin",
+				"#+build windows\npackage test\n\nadd :: proc(a, unused: int) -> int {\n\treturn a + 1\n}\n",
+			},
 		},
 		config = {enable_code_action_remove_param = true},
 	}
@@ -744,7 +896,9 @@ main :: proc() {
 		&source,
 		"Remove parameter unused",
 		{
-			{"main.odin", `#+build !windows
+			{
+				"main.odin",
+				`#+build !windows
 package test
 
 add :: proc(a: int) -> int {
@@ -754,7 +908,8 @@ add :: proc(a: int) -> int {
 main :: proc() {
 	x := add(1)
 }
-`},
+`,
+			},
 			{"add_windows.odin", "#+build windows\npackage test\n\nadd :: proc(a: int) -> int {\n\treturn a + 1\n}\n"},
 		},
 	)
@@ -774,10 +929,7 @@ main :: proc() {
 	x := add(1, 2)
 }
 `
-	for variant in ([2]string{
-		"#+build windows\npackage test\n\nadd :: proc(a: int, unused: int) -> int {\n\treturn a + unused\n}\n",
-		"#+build windows\npackage test\n\nadd :: proc(a: int, unused: f32) -> int {\n\treturn a\n}\n",
-	}) {
+	for variant in ([2]string{"#+build windows\npackage test\n\nadd :: proc(a: int, unused: int) -> int {\n\treturn a + unused\n}\n", "#+build windows\npackage test\n\nadd :: proc(a: int, unused: f32) -> int {\n\treturn a\n}\n"}) {
 		expect_no_remove_param(t, "Remove parameter unused", main, {{"add_windows.odin", variant}})
 	}
 }
@@ -785,7 +937,10 @@ main :: proc() {
 // In `h(f)(1)` the outer call is not a call of f, so its argument must stay.
 @(test)
 action_remove_param_refused_procedure_inside_callee :: proc(t: ^testing.T) {
-	expect_no_remove_param(t, "Remove parameter x", `package test
+	expect_no_remove_param(
+		t,
+		"Remove parameter x",
+		`package test
 
 f :: proc({*}x: int) -> int {
 	return 1
@@ -799,7 +954,8 @@ main :: proc() {
 	v := h(f)(1)
 	_ = v
 }
-`)
+`,
+	)
 }
 
 // A call in a file that only a platform variant's target builds loses its argument too.
@@ -838,7 +994,10 @@ add :: proc(a: int, un{*}used: int) -> int {
 // A platform variant that is no procedure literal keeps the procedure's parameter.
 @(test)
 action_remove_param_skips_non_procedure_variant :: proc(t: ^testing.T) {
-	expect_no_remove_param(t, "Remove parameter unused", `package test
+	expect_no_remove_param(
+		t,
+		"Remove parameter unused",
+		`package test
 
 when ODIN_DEBUG {
 	add :: proc(a: int, un{*}used: int) -> int {
@@ -851,5 +1010,6 @@ when ODIN_DEBUG {
 other_add :: proc(a: int, unused: int) -> int {
 	return a + unused
 }
-`)
+`,
+	)
 }

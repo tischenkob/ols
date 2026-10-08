@@ -333,7 +333,10 @@ f :: proc(k: kinds.Kind) {
 	}
 }
 `,
-		packages = {{pkg = "kinds", source = `package kinds
+		packages = {
+			{
+				pkg = "kinds",
+				source = `package kinds
 
 ONE :: 2 - 1
 
@@ -343,7 +346,9 @@ Kind :: enum {
 	C = (ONE << 2) %% 3,
 	D = 'b' - 'a',
 }
-`}},
+`,
+			},
+		},
 		collections = {"core" = "test"},
 		config = {enable_lint_switch = true},
 	}

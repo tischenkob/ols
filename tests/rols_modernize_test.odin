@@ -957,7 +957,11 @@ g :: proc() -> int {
 		config = {enable_lint_unused_parameter = true},
 	}
 
-	test.expect_modernized(t, &src, {"unused-parameter"}, `package test
+	test.expect_modernized(
+		t,
+		&src,
+		{"unused-parameter"},
+		`package test
 
 f :: proc(a: int, _: int, hidden := false) -> int {
 	return a
@@ -966,7 +970,8 @@ f :: proc(a: int, _: int, hidden := false) -> int {
 g :: proc() -> int {
 	return f(1, 2, hidden = true)
 }
-`)
+`,
+	)
 }
 
 // A call in another file that names the argument keeps the parameter name.
@@ -1397,7 +1402,11 @@ g :: proc() -> int {
 		config = {enable_lint_unused_parameter = true, enable_lint_self_assignment = true},
 	}
 
-	test.expect_modernized(t, &src, {"unused-parameter", "self-assignment"}, `package test
+	test.expect_modernized(
+		t,
+		&src,
+		{"unused-parameter", "self-assignment"},
+		`package test
 
 s :: proc() {
 	x := 1
@@ -1407,5 +1416,6 @@ s :: proc() {
 f :: proc(a: int, hidden := false) -> int {
 	return a
 }
-`)
+`,
+	)
 }

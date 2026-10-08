@@ -62,7 +62,10 @@ find_stmt_list_at :: proc(root: ^ast.Node, start, end: int) -> (StmtListAt, bool
 		found:      bool,
 	}
 
-	data := Data{start = start, end = end}
+	data := Data {
+		start = start,
+		end   = end,
+	}
 
 	visitor := ast.Visitor {
 		data = &data,
@@ -82,7 +85,11 @@ find_stmt_list_at :: proc(root: ^ast.Node, start, end: int) -> (StmtListAt, bool
 				return visitor
 			}
 
-			data.result = {stmts = stmts, first = len(stmts), last = -1}
+			data.result = {
+				stmts = stmts,
+				first = len(stmts),
+				last  = -1,
+			}
 			data.found = true
 			for stmt, i in stmts {
 				if stmt == nil || stmt.end.offset < data.start || data.end < stmt.pos.offset {
@@ -514,7 +521,10 @@ delete_lines_edit :: proc(ctx: ^ActionContext, first, last: int) -> TextEdit {
 	}
 	if _, ok := common.get_last_column(last + 1, ctx.document.text); !ok {
 		if column, ok := common.get_last_column(last, ctx.document.text); ok {
-			edit.range.end = {line = last, character = column}
+			edit.range.end = {
+				line      = last,
+				character = column,
+			}
 		}
 	}
 	return edit

@@ -87,7 +87,9 @@ prepare_move :: proc(document: ^Document, offset: int) -> (move: Move, reason: s
 				continue
 			}
 			if hit.symbol.uri == document.uri.uri && hit.symbol.range in privates {
-				return {}, fmt.tprintf("the declaration uses the file-private symbol %s", node_text(src, hit.node)), false
+				return {},
+					fmt.tprintf("the declaration uses the file-private symbol %s", node_text(src, hit.node)),
+					false
 			}
 		}
 	}

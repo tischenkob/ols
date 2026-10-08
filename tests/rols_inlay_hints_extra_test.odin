@@ -95,7 +95,10 @@ inlay_variable_type_of_unimported_package :: proc(t: ^testing.T) {
 		}
 		`,
 		packages = {
-			{pkg = "other", source = "package other\n\nimport \"core:c\"\n\ncount :: proc() -> c.int {\n\treturn 4\n}\n"},
+			{
+				pkg = "other",
+				source = "package other\n\nimport \"core:c\"\n\ncount :: proc() -> c.int {\n\treturn 4\n}\n",
+			},
 			{pkg = "c", source = "package c\n\nint :: i32\n"},
 		},
 		collections = {"core" = "test"},

@@ -134,11 +134,16 @@ main :: proc() {
 		t,
 		cases,
 		{enable_lint_deprecated = true},
-		{{pkg = "old", source = `package old
+		{
+			{
+				pkg = "old",
+				source = `package old
 @(deprecated="use Point")
 Old_Type :: struct {}
 @(deprecated="use LIMIT")
 OLD :: 1
-`}},
+`,
+			},
+		},
 	)
 }

@@ -30,18 +30,12 @@ load_poly :: proc(r: ^$T, s: string) -> int { return 0 }
 load_spec :: proc(r: $T/^Reader, s: string) -> int { return 0 }
 `,
 	},
-	{
-		pkg = "math",
-		source = `package math
+	{pkg = "math", source = `package math
 sqrt :: proc(x: f64) -> f64 { return 0 }
-`,
-	},
-	{
-		pkg = "fmt",
-		source = `package fmt
+`},
+	{pkg = "fmt", source = `package fmt
 tprintf :: proc(f: string, args: ..any) -> string { return f }
-`,
-	},
+`},
 	{
 		pkg = "slice",
 		source = `package slice
@@ -114,18 +108,14 @@ main :: proc(x: f64) {
 `,
 			{{5, "pure-call-unused"}},
 		},
-		{
-			"fmt is not a pure package",
-			`package test
+		{"fmt is not a pure package", `package test
 
 import "fmt"
 
 main :: proc() {
 	fmt.tprintf("x")
 }
-`,
-			{},
-		},
+`, {}},
 		{
 			"builtins are not checked",
 			`package test

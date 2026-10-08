@@ -99,16 +99,12 @@ f :: proc(n: int) -> int {
 `,
 			{},
 		},
-		{
-			"a deferred self-call",
-			`package test
+		{"a deferred self-call", `package test
 
 f :: proc(n: int) {
 	defer f(n - 1)
 }
-`,
-			{{3, "infinite-recursion"}},
-		},
+`, {{3, "infinite-recursion"}}},
 		{
 			"mutual recursion",
 			`package test

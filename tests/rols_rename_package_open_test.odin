@@ -29,7 +29,10 @@ rename_package_reads_open_document_text :: proc(t: ^testing.T) {
 		collections = make(map[string]string),
 	}
 	defer delete(config.collections)
-	append(&config.workspace_folders, common.WorkspaceFolder{uri = common.create_uri(root, context.temp_allocator).uri})
+	append(
+		&config.workspace_folders,
+		common.WorkspaceFolder{uri = common.create_uri(root, context.temp_allocator).uri},
+	)
 	defer delete(config.workspace_folders)
 
 	server.document_storage.documents = make(map[string]server.Document)
