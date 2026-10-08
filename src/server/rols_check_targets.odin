@@ -743,11 +743,14 @@ file_when_named_targets :: proc(file: ^ast.File, base: parser.Build_Target, plai
 		plain: Gate_Consts,
 		base:  parser.Build_Target,
 		names: [dynamic]string,
+		// The `else when` links of the chains already read, which are no chain of their own.
+		links: [dynamic]^ast.When_Stmt,
 	}
 	data := Data {
 		plain = file_consts(file, plain),
 		base  = base,
 		names = make([dynamic]string, context.temp_allocator),
+		links = make([dynamic]^ast.When_Stmt, context.temp_allocator),
 	}
 	visitor := ast.Visitor {
 		data = &data,
@@ -755,17 +758,23 @@ file_when_named_targets :: proc(file: ^ast.File, base: parser.Build_Target, plai
 			data := (^Data)(visitor.data)
 			if node == nil do return nil
 			s, is_when := node.derived.(^ast.When_Stmt)
-			if !is_when do return visitor
+			if !is_when || slice.contains(data.links[:], s) do return visitor
 			mine := make([dynamic]string, context.temp_allocator)
-			collect_named_targets(s.cond, data.plain, data.base, &mine)
+			for link := s; link != nil; {
+				collect_named_targets(link.cond, data.plain, data.base, &mine)
+				if link.else_stmt == nil do break
+				link, _ = link.else_stmt.derived.(^ast.When_Stmt)
+				if link != nil do append(&data.links, link)
+			}
+			base_branch := chain_branch(s, data.base, data.plain)
 			for name in mine {
-				// Without an else, a target that skips the branch builds less than base, which adds no error there.
+				// A target that takes the branch of base, no branch or an empty final else builds no more than base,
+				// which adds no error there.
 				target, _ := parse_target(name)
-				if slice.contains(data.names[:], name) ||
-				   (s.else_stmt == nil && condition_on(s.cond, target, data.plain) == .False) {
-					continue
-				}
-				append(&data.names, name)
+				branch := chain_branch(s, target, data.plain)
+				known := branch != CHAIN_UNKNOWN && base_branch != CHAIN_UNKNOWN
+				if known && (branch == base_branch || branch == CHAIN_NONE) do continue
+				if !slice.contains(data.names[:], name) do append(&data.names, name)
 			}
 			return visitor
 		},
@@ -783,6 +792,36 @@ file_when_named_targets :: proc(file: ^ast.File, base: parser.Build_Target, plai
 		if takes do append(&named, data.names[i])
 	}
 	return named[:]
+}
+
+// The branches of a `when` chain that chain_branch returns besides an index: an unknown condition decides it, or
+// the target builds none of them, because it takes no branch or an empty final else.
+@(private = "file")
+CHAIN_UNKNOWN :: -1
+@(private = "file")
+CHAIN_NONE :: -2
+
+// The index of the branch of the `when` chain s, its `else when` links in order, then the final else, that
+// target takes, as condition_on reads each condition with the constants of plain.
+@(private = "file")
+chain_branch :: proc(s: ^ast.When_Stmt, target: parser.Build_Target, plain: Gate_Consts) -> int {
+	index := 0
+	for link := s;; index += 1 {
+		switch condition_on(link.cond, target, plain) {
+		case .Unknown:
+			return CHAIN_UNKNOWN
+		case .True:
+			return index
+		case .False:
+		}
+		if link.else_stmt == nil do return CHAIN_NONE
+		next, is_when := link.else_stmt.derived.(^ast.When_Stmt)
+		if !is_when {
+			block, is_block := link.else_stmt.derived.(^ast.Block_Stmt)
+			return CHAIN_NONE if is_block && len(block.stmts) == 0 else index + 1
+		}
+		link = next
+	}
 }
 
 // Appends to names, once each, the candidate that compared_target picks for each ODIN_OS or ODIN_ARCH comparison of

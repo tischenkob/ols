@@ -668,9 +668,13 @@ apply_gate_targets_add_the_targets_a_when_names :: proc(t: ^testing.T) {
 	named_one(t, "when ODIN_OS == .Linux {\n} else {\n}\n", "linux_amd64")
 	// The current OS names the first target where the comparison reads otherwise.
 	named_one(t, "when ODIN_OS != .Darwin {\n\tx: int = \"s\"\n}\n", "windows_amd64")
-	named_one(t, "when ODIN_OS == .Darwin {\n} else {\n}\n", "windows_amd64")
+	named_one(t, "when ODIN_OS == .Darwin {\n} else {\n\tx :: 1\n}\n", "windows_amd64")
 	named_one(t, "when ODIN_ARCH == .amd64 {\n}\n", "darwin_amd64")
-	named_one(t, "when ODIN_ARCH == .arm64 {\n} else {\n}\n", "darwin_amd64")
+	named_one(t, "when ODIN_ARCH == .arm64 {\n} else {\n\tx :: 1\n}\n", "darwin_amd64")
+	// A target that takes an empty final else, or no branch of a chain, builds less there than on the current target.
+	named_one(t, "when ODIN_OS == .Darwin {\n\tx :: 1\n} else {\n}\n", "")
+	named_one(t, "when ODIN_OS == .Darwin {\n\tA :: 1\n} else when ODIN_OS == .Linux {\n\tB :: 1\n}\n", "linux_amd64")
+	named_one(t, "when ODIN_OS == .Linux {\n\tA :: 1\n} else when ODIN_OS == .Darwin {\n\tB :: 1\n}\n", "linux_amd64")
 	named_one(t, "when ODIN_ARCH == .wasm32 {\n}\n", "js_wasm32")
 	// A branch without an else that the named target skips builds less there than on the current target.
 	named_one(t, "when ODIN_OS != .Freestanding {\n}\n", "")
