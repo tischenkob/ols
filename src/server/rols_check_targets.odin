@@ -305,11 +305,6 @@ Condition :: enum {
 	True,
 }
 
-// The constants of a package directory that a `when` condition can read, by name: the value of a constant outside
-// any `when`, or nil for a name that the files declare in a `when` branch or in more than one file, whose value can
-// differ between builds.
-Gate_Consts :: map[string]^ast.Expr
-
 // The value of a `when` condition on target, as far as branch_possible_on knows it. Every name other than true and
 // false is unknown.
 @(private = "file")
@@ -449,37 +444,4 @@ parse_gate_text :: proc(name, text: string) -> ^ast.File {
 	context.allocator = context.temp_allocator
 	parser.parse_file(&p, file)
 	return file
-}
-
-// Adds the constants of file to consts: one outside any `when` with its value, unless another file of consts
-// declares it too, and one in a `when` branch as nil. Allocates in the temp allocator.
-add_gate_consts :: proc(consts: ^Gate_Consts, file: ^ast.File) {
-	mine := make(map[string]^ast.Expr, context.temp_allocator)
-	add_plain_consts(&mine, file)
-	for key, value in mine {
-		consts[key] = nil if key in consts else value
-	}
-	for decl in file.decls {
-		add_when_names(consts, decl, false)
-	}
-}
-
-// Sets each name that stmt declares in a `when` branch to nil in consts. inside tells whether stmt is in one.
-@(private = "file")
-add_when_names :: proc(consts: ^Gate_Consts, stmt: ^ast.Stmt, inside: bool) {
-	if stmt == nil do return
-	#partial switch s in stmt.derived {
-	case ^ast.When_Stmt:
-		add_when_names(consts, s.body, true)
-		add_when_names(consts, s.else_stmt, true)
-	case ^ast.Block_Stmt:
-		for inner in s.stmts do add_when_names(consts, inner, inside)
-	case ^ast.Foreign_Block_Decl:
-		add_when_names(consts, s.body, inside)
-	case ^ast.Value_Decl:
-		if !inside do return
-		for name in s.names {
-			if ident, ok := name.derived.(^ast.Ident); ok do consts[ident.name] = nil
-		}
-	}
 }

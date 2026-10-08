@@ -636,9 +636,6 @@ collect_globals :: proc(file: ast.File, open_file := false) -> []GlobalExpr {
 
 	// Declaration-order const fold for when conditions (e.g. MAP_ENABLED :: !ODIN_BEDROCK).
 	when_expr_map := make_when_expr_map()
-	// rols: fold the constants outside any `when` first, in dependency order, so a condition may read one declared
-	// further down. A constant that reads a name of a `when` branch still folds in declaration order below.
-	fold_when_file_consts(&when_expr_map, file)
 	// rols: a target collection also reads the constants of the other files of the package.
 	seed_target_package_consts(&when_expr_map, file)
 
