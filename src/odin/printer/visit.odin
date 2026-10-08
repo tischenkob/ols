@@ -1417,10 +1417,11 @@ visit_stmt :: proc(
 				result = paren.expr
 			}
 
-			document = cons(text("return"), if_break("("), break_with(" "), visit_expr(p, result))
+			// rols: keep the statement's state flags, such as #no_bounds_check, in front of the return
+			returned := cons(text("return"), if_break("("), break_with(" "), visit_expr(p, result))
 
-			document = nest(document)
-			document = group(cons(document, if_break(" \\"), break_with(""), if_break(")")))
+			returned = nest(returned)
+			document = cons(document, group(cons(returned, if_break(" \\"), break_with(""), if_break(")"))))
 		} else {
 			document = cons(document, text("return"))
 
@@ -1798,9 +1799,10 @@ visit_expr :: proc(
 
 		if v.poly_params != nil {
 			document = cons(document, text("("))
+			// rols: a broken parameter list needs a trailing comma even with one parameter, as -strict-style requires
 			document = cons(
 				document,
-				nest(cons(break_with(""), visit_signature_list(p, v.poly_params, false, false, options))),
+				nest(cons(break_with(""), visit_signature_list(p, v.poly_params, true, false, options))),
 			)
 			document = cons(document, break_with(""), text(")"))
 		} else {
@@ -1929,7 +1931,11 @@ visit_expr :: proc(
 			document = cons_with_nopl(document, text("---"))
 		}
 	case ^ast.Proc_Type:
+		// rols: a procedure type carries its own tags, such as #optional_ok, as a procedure literal does
 		document = group(visit_proc_type(p, v^, false, false))
+		if v.tags != {} {
+			document = cons(document, visit_proc_tags(p, v.tags))
+		}
 	case ^ast.Basic_Lit:
 		document = text_token(p, v.tok)
 	case ^ast.Binary_Expr:
