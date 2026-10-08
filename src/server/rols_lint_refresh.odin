@@ -101,7 +101,7 @@ relint_siblings :: proc(changes: []Changed_File, config: ^common.Config) -> (rel
 		for change in changes {
 			if change.fullpath == sibling.fullpath do continue
 			same_package := filepath.dir(change.fullpath) == dir
-			if !same_package && !contains_word(change.text, sibling.ast.pkg_name) do continue
+			if !same_package && !slice.contains(verdicts.used_in[:], change.fullpath) && !contains_word(change.text, sibling.ast.pkg_name) do continue
 			if verdict_may_change(verdicts, change.fullpath, change.text) {
 				run_lints(&sibling, config)
 				relinted = true

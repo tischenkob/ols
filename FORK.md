@@ -389,6 +389,7 @@ line names where a fix would go.
 - `ignored-result` skips `f() or_return` with results left over and calls in `defer`; `odin check` reports both.
 - An import alias outside ASCII is not found at a qualifier (`import_name_at` in `rols_rename_import.odin`).
 - Upstream auto-import completion with `enable_add_import_to_bottom` uses the 1-based end line as a 0-based line (`append_non_imported_packages` in `completion.odin`).
+- The editor package rename has been checked only over raw stdio, not applied in Zed or Helix. After it, the index keeps the old package path until it is rebuilt.
 - There is no cross-package move: `move_edit` in `rols_move_decl.odin` refuses a target outside the declaration's directory. An estimate is 900 to 1300 lines with tests.
 - Performance: `unused-parameter` builds the workspace import graph on each lint that needs importers (about 70 ms for `requests.odin`); a field rename and an implementation request read every workspace file (0.1 to 0.4 s on this repository); a package imported directly and through an import is parsed twice per `find` or `tests` query; the multi-target lint walks extra targets whose variant files match. Revisit only on a profile of a much larger workspace.
 - `tests/rols_lint_refresh_test.odin`, `tests/rols_rename_package_open_test.odin` and `tests/imports_test.odin` call `server.setup_index` outside the harness without `collections_mutex`, a data race under parallel runs.
