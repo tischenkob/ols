@@ -305,39 +305,6 @@ branch_possible_on :: proc(
 	return data.possible
 }
 
-// The first of GATE_TARGET_CANDIDATES that builds file and can take every `when` branch around offset, when base
-// cannot take one of them. A candidate of base's OS comes first, so an ODIN_ARCH branch keeps the OS. ok is false
-// when base can take them all or no candidate can. A condition reads the file-scope constants of file. A branch whose
-// condition branch_possible_on cannot read, such as `when FLAG` with `FLAG :: #config(FLAG, false)`, is possible on
-// base, so it has no target here. consts caches file_consts of file over plain, the constants of its package: the
-// first call fills it.
-branch_target :: proc(
-	file: ast.File,
-	offset: int,
-	base: parser.Build_Target,
-	consts: ^Branch_Constants,
-	plain: Gate_Consts = nil,
-) -> (
-	target: parser.Build_Target,
-	ok: bool,
-) {
-	if consts^ == nil {
-		parsed := file
-		consts^ = file_consts(&parsed, plain)
-	}
-	consts := consts.?
-	if branch_possible_on(file, offset, base, consts) do return {}, false
-	facts := facts_of(file.fullpath, build_tags(file))
-	for same_os in ([2]bool{true, false}) {
-		for candidate in GATE_TARGET_CANDIDATES {
-			parsed, _ := parse_target(candidate)
-			if (parsed.os == base.os) != same_os do continue
-			if facts_build_on(facts, parsed) && branch_possible_on(file, offset, parsed, consts) do return parsed, true
-		}
-	}
-	return {}, false
-}
-
 @(private = "file")
 Condition :: enum {
 	Unknown,
@@ -355,9 +322,6 @@ Gate_Consts :: map[string]^ast.Expr
 // the work at each step.
 @(private = "file")
 CONDITION_CONST_DEPTH :: 8
-
-// The constants of a file that branch_target reads, from file_consts.
-Branch_Constants :: Maybe(Gate_Consts)
 
 // The value of a `when` condition on target, as far as branch_possible_on knows it. A name of consts reads its
 // value. A name of free, a boolean that no constant of consts fixes, reads its bit of mask, and any other name is

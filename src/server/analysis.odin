@@ -64,12 +64,6 @@ AstContext :: struct {
 	// A caller that sets them must handle a SymbolAggregateValue callee: the tied members that differ there.
 	overload_arg_call:         ^ast.Call_Expr,
 	overload_arg_index:        int,
-	// rols: the files that branch_fallback placed names in, by full path, in context.temp_allocator: the document's
-	// cache arena under resolve_entire_file, so a parsed copy lives as long as that document's cached symbols
-	branch_files:              map[string]Branch_File,
-	// rols: the package constants that branch_fallback read, by directory, package and target, in
-	// context.temp_allocator like branch_files
-	branch_packages:           map[string]Gate_Consts,
 	// rols: the import that a selector completion on an unimported package adds to every item
 	auto_import_edit:          Maybe(TextEdit),
 }
@@ -2661,8 +2655,6 @@ resolve_selector_expression :: proc(ast_context: ^AstContext, node: ^ast.Selecto
 
 			if node.field != nil {
 				field_symbol, ok := lookup(node.field.name, selector.pkg, node.pos.file)
-				// rols: a fallback takes the declaration of the target that takes the `when` branch around the field
-				if ok && .Fallback in field_symbol.flags do field_symbol, _ = branch_fallback(ast_context, node.field^, field_symbol)
 				if ok {
 					if pkg_alias_symbol, ok := resolve_field_through_package_alias(
 						ast_context,
@@ -2985,8 +2977,8 @@ internal_resolve_type_identifier :: proc(ast_context: ^AstContext, node: ast.Ide
 		}
 	}
 
-	// rols: see `fallback`, which a target that takes the `when` branch around node can replace
-	if symbol, ok := branch_fallback(ast_context, node, fallback, package_name = true); ok {
+	// rols: see `fallback`
+	if symbol, ok := fallback.?; ok {
 		return resolve_symbol_return(ast_context, symbol)
 	}
 
@@ -4062,8 +4054,8 @@ resolve_location_identifier :: proc(ast_context: ^AstContext, node: ast.Ident) -
 		return symbol, ok
 	}
 
-	// rols: see `fallback`, which a target that takes the `when` branch around node can replace
-	if symbol, ok := branch_fallback(ast_context, node, fallback, package_name = true); ok {
+	// rols: see `fallback`
+	if symbol, ok := fallback.?; ok {
 		return symbol, true
 	}
 
@@ -4361,8 +4353,6 @@ resolve_symbol_selector :: proc(
 		}
 	case SymbolPackageValue:
 		if pkg, ok := lookup(field, symbol.pkg, symbol.uri); ok {
-			// rols: a fallback takes the declaration of the target that takes the `when` branch around the field
-			if .Fallback in pkg.flags do pkg, _ = branch_fallback(ast_context, selector.field^, pkg)
 			symbol.range = pkg.range
 			symbol.uri = pkg.uri
 		} else {
