@@ -2244,7 +2244,7 @@ import "other"
 
 when ODIN_OS == .Windows {
 	S :: other.S_Other
-} else when ODIN_OS == .Linux {
+} else when ODIN_OS == .Haiku {
 	S :: other.S_Other
 } else {
 	S :: struct { a: int }

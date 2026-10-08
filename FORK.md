@@ -370,6 +370,29 @@ These limits stay because a fix needs a change outside rols (Odin, upstream OLS,
 
 - **Known limit: the editor check reports the -windows-sdk-root failure only through `window/showMessage`.** When `checker_args` targets Windows on a non-Windows host, `src/server/check.odin` now shows the failure once in `window/showMessage`; a client that ignores showMessage still sees nothing.
 
+### Left open after review
+
+Reviews of fork code found these cases, and no real project or user has hit them. They stay open until one does. The
+line names where a fix would go.
+
+- Empty-body lint still flags `for i := 0; i < n; advance(&state) {}`, whose post statement calls a procedure (`rols_lint_no_op.odin`).
+- `package_siblings` in `rols_lint.odin` compares directories exactly, so a Windows drive-letter case mismatch drops siblings.
+- A file that no target builds (`#+build ignore`) loses the collision check against its own declarations (`check_collisions` in `rols_rename_check.odin`).
+- `file_private_global` in `rols_rename_check.odin` evaluates file-scope `when` for the host in a file the host does not build.
+- "Inline variable" does not see an `any` value built outside a call, such as `a: any = n`, store `&n` (`stable_locals`).
+- A `when` constant chain across files of a package stays unknown in `ols query tests` (`package_const_literal` in `rols_when_inactive.odin`).
+- The host index folds each file's `when` constants alone, so `when IS_HOST` with `IS_HOST` in another file marks a host declaration `.Fallback` (`collect_globals`).
+- The struct-type lookup in `analysis.odin` and the proc-group definition in `definition.odin` read `ast_context.globals` without `branch_fallback`.
+- Inactive-branch dimming evaluates `when` for the host in a file the host does not build (`get_when_block_stmt` in `rols_when_inactive.odin`).
+- A `_test.odin` file in a renamed directory that imports its own package may keep `old.x`; Odin may reject that layout anyway.
+- Package aliases refresh on a runtime change of `enable_auto_import_skip_hidden_paths` only, and a collection with several workspace folders uses the first folder's filter.
+- `ignored-result` skips `f() or_return` with results left over and calls in `defer`; `odin check` reports both.
+- An import alias outside ASCII is not found at a qualifier (`import_name_at` in `rols_rename_import.odin`).
+- Upstream auto-import completion with `enable_add_import_to_bottom` uses the 1-based end line as a 0-based line (`append_non_imported_packages` in `completion.odin`).
+- There is no cross-package move: `move_edit` in `rols_move_decl.odin` refuses a target outside the declaration's directory. An estimate is 900 to 1300 lines with tests.
+- Performance: `unused-parameter` builds the workspace import graph on each lint that needs importers (about 70 ms for `requests.odin`); a field rename and an implementation request read every workspace file (0.1 to 0.4 s on this repository); a package imported directly and through an import is parsed twice per `find` or `tests` query; the multi-target lint walks extra targets whose variant files match. Revisit only on a profile of a much larger workspace.
+- `tests/rols_lint_refresh_test.odin`, `tests/rols_rename_package_open_test.odin` and `tests/imports_test.odin` call `server.setup_index` outside the harness without `collections_mutex`, a data race under parallel runs.
+
 ### Large-file performance
 
 - **Known limit: opening a 2 MB file takes 1.3 to 1.5 s.** On `core/rexcode/isa/ppc/mnemonic_builders.odin` (13,308 declarations), `didOpen` followed by a hover takes 1.31 to 1.52 s, and 0.19 s with `enable_diagnostics` off. The whole-file resolve that the lints start (`resolve_entire_file`) costs about 1.1 to 1.2 s, and parsing and the hover the remaining 0.2 s. Stage S8 removed a second `run_lints` call from `didOpen` (`document_refresh` already lints): before it, the same open and hover took 1.42 to 1.43 s. The whole-file resolve is shared: unused imports, inlay hints and semantic tokens read the same cached map, so inlay hints after the open add almost nothing (1.30 to 1.42 s in total). Earlier stacks showed no single hot spot: `clone_node`, `resolve_function_overload`, `create_uri` and `store_local` each hold a few percent. After the open, documentSymbol answers in 1.36 to 1.39 s in total and a code action in 1.54 to 1.58 s. The overload fixes of stage S3a left it unchanged (1.36 to 1.60 s against 1.36 to 1.91 s in paired runs). Before stage S15 the open took 15 to 25 s, because `lint_deprecated` and `lint_test_attribute` scanned every top-level declaration for each identifier, and documentSymbol, a code action and inlay hints took 17 to 26 s, 25 to 34 s and 51 s. A synthetic 2 MB file (16,000 procedures, 64,000 hints) answers inlay hints in 5.7 s, against 144 s before.
