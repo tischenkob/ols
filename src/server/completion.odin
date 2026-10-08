@@ -2263,7 +2263,8 @@ get_package_completion :: proc(
 		}
 
 		// rols: in a collection, skip directories that hold no package the filtered alias walk kept
-		if colon_index >= 0 && !collection_dir_has_package(without_quotes[:colon_index], without_quotes[colon_index + 1:], item.label) {
+		collection, typed := without_quotes[:max(colon_index, 0)], without_quotes[colon_index + 1:]
+		if colon_index >= 0 && !collection_dir_has_package(collection, typed, item.label) {
 			continue
 		}
 
