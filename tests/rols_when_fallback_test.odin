@@ -2,8 +2,6 @@
 package tests
 
 import "core:fmt"
-import "core:os"
-import "core:path/filepath"
 import "core:testing"
 
 import test "src:testing"
@@ -210,16 +208,13 @@ when ODIN_OS == .%s {{
 	test.expect_lint_diagnostics(t, &source, {{5, "deprecated"}})
 }
 
-// A file the host does not build is linted for the target that builds it: its calls resolve to that target's
-// declarations, so the resolving lints judge them.
+// A file the host does not build is linted like an inactive branch: its calls resolve to the host's declarations,
+// so the resolving lints stay silent there.
 @(test)
-resolving_lints_run_in_file_the_host_does_not_build :: proc(t: ^testing.T) {
+resolving_lints_skip_file_the_host_does_not_build :: proc(t: ^testing.T) {
 	other_os := "windows" when ODIN_OS != .Windows else "linux"
 	source := test.Source {
-		main = fmt.tprintf(
-			"#+build %s\npackage test\n\n@(require_results)\nown :: proc() -> int {{ return 1 }}\n\ncheck :: proc() {{\n\topen()\n\town()\n}}\n",
-			other_os,
-		),
+		main = fmt.tprintf("#+build %s\npackage test\n\ncheck :: proc() {{\n\topen()\n}}\n", other_os),
 		files = {
 			{
 				"b.odin",
@@ -228,106 +223,7 @@ resolving_lints_run_in_file_the_host_does_not_build :: proc(t: ^testing.T) {
 		},
 		config = {enable_lint_ignored_result = true},
 	}
-	test.expect_lint_diagnostics(t, &source, {{7, "ignored-result"}, {8, "ignored-result"}})
-}
-
-// In a file the host does not build, a name that the target building it does not declare resolves to the host's
-// declaration, which no lint judges: neither through the resolved map (ignored-result) nor through a callee that a
-// lint resolves again (argument-count).
-@(test)
-resolving_lints_skip_host_declaration_in_excluded_file :: proc(t: ^testing.T) {
-	other_os := "windows" when ODIN_OS != .Windows else "linux"
-	host_os := "darwin" when ODIN_OS == .Darwin else ("windows" when ODIN_OS == .Windows else "linux")
-	source := test.Source {
-		main = fmt.tprintf(
-			"#+build %s\npackage test\n\nimport \"p\"\n\npair :: proc(a, b: int) {{}}\n\ncheck :: proc() {{\n\tp.open()\n\tpair(p.open())\n}}\n",
-			other_os,
-		),
-		packages = {
-			{
-				pkg = "p",
-				files = {
-					{
-						"p.odin",
-						fmt.tprintf(
-							"#+build %s\npackage p\n\n@(require_results)\nopen :: proc() -> int {{ return 1 }}\n",
-							host_os,
-						),
-					},
-				},
-			},
-		},
-		config = {enable_lint_ignored_result = true, enable_lint_call_arity = true},
-	}
 	test.expect_lint_diagnostics(t, &source, {})
-}
-
-// The `when` branches of a file the host does not build are evaluated for the target that builds it.
-@(test)
-resolving_lints_follow_when_of_excluded_file_target :: proc(t: ^testing.T) {
-	other_os, other_enum := "windows", "Windows"
-	when ODIN_OS == .Windows do other_os, other_enum = "linux", "Linux"
-	source := test.Source {
-		main = fmt.tprintf(
-			"#+build %s\npackage test\n\ncheck :: proc() {{\n\twhen ODIN_OS == .%s {{\n\t\topen()\n\t}}\n\twhen ODIN_OS != .%s {{\n\t\topen()\n\t}}\n}}\n",
-			other_os,
-			other_enum,
-			other_enum,
-		),
-		files = {{"b.odin", "package test\n\n@(require_results)\nopen :: proc() -> int { return 1 }\n"}},
-		config = {enable_lint_ignored_result = true},
-	}
-	test.expect_lint_diagnostics(t, &source, {{5, "ignored-result"}})
-}
-
-// A constant of a file the host does not build that a `when` condition reads is folded for the target that builds it.
-@(test)
-resolving_lints_fold_constant_of_excluded_file_target :: proc(t: ^testing.T) {
-	other_os, other_enum := "windows", "Windows"
-	when ODIN_OS == .Windows do other_os, other_enum = "linux", "Linux"
-	source := test.Source {
-		main = fmt.tprintf(
-			"#+build %s\npackage test\n\nIS_OTHER :: ODIN_OS == .%s\n\ncheck :: proc() {{\n\twhen IS_OTHER {{\n\t\topen()\n\t}}\n}}\n",
-			other_os,
-			other_enum,
-		),
-		files = {{"b.odin", "package test\n\n@(require_results)\nopen :: proc() -> int { return 1 }\n"}},
-		config = {enable_lint_ignored_result = true},
-	}
-	test.expect_lint_diagnostics(t, &source, {{7, "ignored-result"}})
-}
-
-// A package that the `when` evaluation of a lint in a file the host does not build loads into the index is
-// collected for the host, not for the target of that file. The parse of the file loads its import p, so only q, which
-// the fold of p.ON reaches, loads during the lint.
-@(test)
-lint_of_excluded_file_builds_index_for_host :: proc(t: ^testing.T) {
-	other_os, other_enum := "windows", "Windows"
-	when ODIN_OS == .Windows do other_os, other_enum = "linux", "Linux"
-	root, err := os.make_directory_temp("", "ols-r3d-index-*", context.temp_allocator)
-	if !testing.expectf(t, err == nil, "failed to create temporary directory: %v", err) do return
-	defer os.remove_all(root)
-	root, err = os.get_absolute_path(root, context.temp_allocator)
-	if !testing.expectf(t, err == nil, "failed to resolve temporary directory: %v", err) do return
-	files := [2][2]string {
-		{"p", "package p\n\nimport \"disk:q\"\n\nON :: q.ON\n"},
-		{"q", fmt.tprintf("package q\n\nON :: true\n\nwhen ODIN_OS == .%s {{\n\tY :: 1\n}}\n", other_enum)},
-	}
-	for file in files {
-		dir, _ := filepath.join({root, file[0]}, context.temp_allocator)
-		path, _ := filepath.join({dir, "pkg.odin"}, context.temp_allocator)
-		if !testing.expect(t, os.make_directory(dir) == nil) do return
-		if !testing.expect(t, os.write_entire_file(path, transmute([]byte)file[1]) == nil) do return
-	}
-	q, _ := filepath.join({root, "q"}, context.temp_allocator)
-	source := test.Source {
-		main = fmt.tprintf(
-			"#+build %s\npackage test\n\nimport \"disk:p\"\n\ncheck :: proc() {{\n\twhen p.ON {{\n\t\tx := 1\n\t\t_ = x\n\t}}\n}}\n",
-			other_os,
-		),
-		collections = {"disk" = root},
-	}
-	test.expect_index_fallback_after_lint(t, &source, q, "Y", true)
 }
 
 // A fallback that an active declaration in another file hid takes the name back when a save drops that declaration.

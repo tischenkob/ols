@@ -276,8 +276,7 @@ binds_poly_name :: proc(lits: []^ast.Proc_Lit, name: string) -> bool {
 @(private = "file")
 callee_results :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> (int, bool) {
 	symbol, ok := resolve_callee(ctx, expr)
-	// A declaration that the target building the file does not build counts as unresolved.
-	if !ok || !lint_target_builds(ctx, symbol) do return 1, false
+	if !ok do return 1, false
 	if _, is_call := expr.derived.(^ast.Call_Expr); !is_call && names_proc_type(symbol) do return 1, true
 	#partial switch v in symbol.value {
 	case SymbolProcedureValue:
