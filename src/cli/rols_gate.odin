@@ -1,7 +1,6 @@
 package cli
 
 import "core:fmt"
-import "core:odin/ast"
 import "core:odin/parser"
 import "core:os"
 import "core:path/filepath"
@@ -62,11 +61,9 @@ on_edited_line :: proc(edited: Edited_Lines, e: Check_Error) -> bool {
 
 // The checks of the gate without checker_variants: dirs, every package directory, on the current target
 // first, then one check per other target. A target that checker_targets names checks dirs. Another target
-// is one that a file the current target does not build needs, or that a `when` condition of a file names
-// (when_named_targets): a touched file, a file next to one, or a file of an importer directory. Its check
-// covers the directories of those files, the directory of such a file that can take another `when` branch on
-// it than on the current target, and their importers in graph. Before and after the write use the same
-// checks. A touched file that no target builds gets a warning.
+// is one that a file the current target does not build needs: a touched file, a file next to one, or a file of
+// an importer directory. Its check covers the directories of those files and their importers in graph. Before
+// and after the write use the same checks. A touched file that no target builds gets a warning.
 gate_targets :: proc(
 	changed: []File_State,
 	dirs, importers: []string,
@@ -99,10 +96,10 @@ gate_targets :: proc(
 			append(&touched, dir)
 		}
 		if file.existed && (!file.exists || file.original != file.text) {
-			append(&sources, Gate_Source{dir, file.path, file.original, true, nil})
+			append(&sources, Gate_Source{dir, file.path, file.original, true})
 		}
 		if file.exists {
-			append(&sources, Gate_Source{dir, file.path, file.text, true, nil})
+			append(&sources, Gate_Source{dir, file.path, file.text, true})
 		}
 	}
 	for dir in touched {
@@ -115,28 +112,6 @@ gate_targets :: proc(
 	needs := make(map[string][dynamic]string, context.temp_allocator)
 	for source in sources {
 		note_target(&needs, reasons if source.touched else nil, source.dir, source.path, source.text, base)
-	}
-	consts := dir_consts(sources[:])
-	// A `when ODIN_OS == .X` branch builds on X only, so X checks its directory even when no file needs X.
-	for &source in sources {
-		if !server.gate_may_name_target(source.text, consts[source.dir]) do continue
-		for target in server.file_when_named_targets(source_file(&source), base, consts[source.dir]) {
-			add_need(&needs, target, source.dir)
-		}
-	}
-	// A branch can also differ on a target that another file needs, such as one under `ODIN_ARCH == .wasm32` on
-	// wasi_wasm32, or one whose condition the gate cannot read.
-	others := make([dynamic]string, context.temp_allocator)
-	parsed := make([dynamic]parser.Build_Target, context.temp_allocator)
-	for target in needs {
-		append(&others, target)
-		append(&parsed, server.parse_target(target) or_else parser.Build_Target{})
-	}
-	for &source in sources {
-		if len(parsed) == 0 || !server.gate_may_name_target(source.text, consts[source.dir]) do continue
-		for takes, i in server.file_branch_targets(source_file(&source), base, parsed[:], consts[source.dir]) {
-			if takes do add_need(&needs, others[i], source.dir)
-		}
 	}
 
 	targets := make([dynamic]string, context.temp_allocator)
@@ -206,39 +181,11 @@ add_need :: proc(needs: ^map[string][dynamic]string, target, dir: string) {
 	needs[target] = list
 }
 
-// The constants that the `when` conditions of each directory of sources can read, for a directory with a `when`
-// in some file. A file with two texts gives those of its last one, the text after the edit.
-@(private = "file")
-dir_consts :: proc(sources: []Gate_Source) -> map[string]server.Gate_Consts {
-	consts := make(map[string]server.Gate_Consts, context.temp_allocator)
-	for source in sources {
-		if strings.contains(source.text, "when") && source.dir not_in consts {
-			consts[source.dir] = make(server.Gate_Consts, context.temp_allocator)
-		}
-	}
-	last := make(map[string]int, context.temp_allocator)
-	for source, i in sources do last[source.path] = i
-	for &source, i in sources {
-		if last[source.path] != i || source.dir not_in consts || !strings.contains(source.text, "::") do continue
-		server.add_gate_consts(&consts[source.dir], source_file(&source))
-	}
-	return consts
-}
-
 // A text that decides the targets of the gate: a file in dir, and whether the edit touches it.
 @(private = "file")
 Gate_Source :: struct {
 	dir, path, text: string,
 	touched:         bool,
-	// The parsed text, from source_file, so each text is parsed at most once.
-	file:            ^ast.File,
-}
-
-// The parsed text of source.
-@(private = "file")
-source_file :: proc(source: ^Gate_Source) -> ^ast.File {
-	if source.file == nil do source.file = server.parse_gate_text(source.path, source.text)
-	return source.file
 }
 
 // Appends each .odin file of dir on disk that changed does not name to sources.
@@ -250,7 +197,7 @@ add_dir_sources :: proc(sources: ^[dynamic]Gate_Source, dir: string, changed: []
 			if file.path == match do continue next
 		}
 		if data, err := os.read_entire_file(match, context.temp_allocator); err == nil {
-			append(sources, Gate_Source{dir, match, string(data), false, nil})
+			append(sources, Gate_Source{dir, match, string(data), false})
 		}
 	}
 }

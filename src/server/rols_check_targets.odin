@@ -264,21 +264,14 @@ site_possible_on :: proc(site: When_Site, target: parser.Build_Target) -> bool {
 
 // Whether target can take every `when` branch around offset in file: no condition on the way is known to rule
 // it out. Only comparisons of ODIN_OS or ODIN_ARCH with an implicit selector such as `.Linux`, the literals
-// true and false, `!`, `&&`, `||`, parentheses and the constants of consts are known. Any other condition can go
-// either way.
-branch_possible_on :: proc(
-	file: ast.File,
-	offset: int,
-	target: parser.Build_Target,
-	consts: Gate_Consts = nil,
-) -> bool {
+// true and false, `!`, `&&`, `||` and parentheses are known. Any other condition can go either way.
+branch_possible_on :: proc(file: ast.File, offset: int, target: parser.Build_Target) -> bool {
 	Data :: struct {
 		offset:   int,
 		target:   parser.Build_Target,
-		consts:   Gate_Consts,
 		possible: bool,
 	}
-	data := Data{offset, target, consts, true}
+	data := Data{offset, target, true}
 	visitor := ast.Visitor {
 		data = &data,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
@@ -287,7 +280,7 @@ branch_possible_on :: proc(
 				return nil
 			}
 			if s, ok := node.derived.(^ast.When_Stmt); ok {
-				value := condition_on(s.cond, data.target, data.consts)
+				value := condition_on(s.cond, data.target)
 				if s.body != nil && s.body.pos.offset <= data.offset && data.offset < s.body.end.offset {
 					if value == .False do data.possible = false
 				} else if s.else_stmt != nil &&
@@ -317,42 +310,20 @@ Condition :: enum {
 // differ between builds.
 Gate_Consts :: map[string]^ast.Expr
 
-// The longest chain of constants that condition_on and its helpers follow, so a cycle such as `X :: !X` or `A :: B`,
-// `B :: A` ends as Unknown. It is short because a name that occurs twice in a value, as in `X :: X && X`, doubles
-// the work at each step.
+// The value of a `when` condition on target, as far as branch_possible_on knows it. Every name other than true and
+// false is unknown.
 @(private = "file")
-CONDITION_CONST_DEPTH :: 8
-
-// The value of a `when` condition on target, as far as branch_possible_on knows it. A name of consts reads its
-// value. A name of free, a boolean that no constant of consts fixes, reads its bit of mask, and any other name is
-// unknown. free comes before consts, since a `#config` constant of consts is free. Without free, a `#config` value
-// reads as unknown.
-@(private = "file")
-condition_on :: proc(
-	expr: ^ast.Expr,
-	target: parser.Build_Target,
-	consts: Gate_Consts = nil,
-	free: []string = nil,
-	mask: u32 = 0,
-	depth := 0,
-) -> Condition {
+condition_on :: proc(expr: ^ast.Expr, target: parser.Build_Target) -> Condition {
 	if expr == nil do return .Unknown
 	#partial switch e in expr.derived {
 	case ^ast.Paren_Expr:
-		return condition_on(e.expr, target, consts, free, mask, depth)
+		return condition_on(e.expr, target)
 	case ^ast.Ident:
 		switch e.name {
 		case "true":
 			return .True
 		case "false":
 			return .False
-		}
-		for name, i in free {
-			if name == e.name do return .True if mask & (1 << u32(i)) != 0 else .False
-		}
-		if value, is_plain := consts[e.name]; is_plain {
-			if value == nil || depth >= CONDITION_CONST_DEPTH do return .Unknown
-			return condition_on(value, target, consts, free, mask, depth + 1)
 		}
 	case ^ast.Unary_Expr:
 		if e.op.kind == .Not {
@@ -361,18 +332,18 @@ condition_on :: proc(
 				.False   = .True,
 				.True    = .False,
 			}
-			return negated[condition_on(e.expr, target, consts, free, mask, depth)]
+			return negated[condition_on(e.expr, target)]
 		}
 	case ^ast.Binary_Expr:
 		#partial switch e.op.kind {
 		case .Cmp_And:
-			left := condition_on(e.left, target, consts, free, mask, depth)
-			right := condition_on(e.right, target, consts, free, mask, depth)
+			left := condition_on(e.left, target)
+			right := condition_on(e.right, target)
 			if left == .False || right == .False do return .False
 			if left == .True && right == .True do return .True
 		case .Cmp_Or:
-			left := condition_on(e.left, target, consts, free, mask, depth)
-			right := condition_on(e.right, target, consts, free, mask, depth)
+			left := condition_on(e.left, target)
+			right := condition_on(e.right, target)
 			if left == .True || right == .True do return .True
 			if left == .False && right == .False do return .False
 		case .Cmp_Eq, .Not_Eq:
@@ -386,98 +357,6 @@ condition_on :: proc(
 		}
 	}
 	return .Unknown
-}
-
-// The most free names whose values condition_differs tries in every combination: 2^6 evaluations per target.
-@(private = "file")
-MAX_FREE_NAMES :: 6
-
-// Appends to free each name that expr, or a constant of plain that it names, uses as an operand of `!`, `&&` or
-// `||`, or as the whole condition, that is neither true, false nor an ODIN_* builtin, and is either missing from
-// plain or a `#config(NAME, default)` constant of it, which a `-define:` can set either way, whose default names
-// neither ODIN_OS nor ODIN_ARCH.
-@(private = "file")
-collect_free_names :: proc(expr: ^ast.Expr, plain: Gate_Consts, free: ^[dynamic]string, depth := 0) {
-	if expr == nil || depth > CONDITION_CONST_DEPTH do return
-	#partial switch e in expr.derived {
-	case ^ast.Paren_Expr:
-		collect_free_names(e.expr, plain, free, depth)
-	case ^ast.Unary_Expr:
-		if e.op.kind == .Not do collect_free_names(e.expr, plain, free, depth)
-	case ^ast.Binary_Expr:
-		if e.op.kind == .Cmp_And || e.op.kind == .Cmp_Or {
-			collect_free_names(e.left, plain, free, depth)
-			collect_free_names(e.right, plain, free, depth)
-		}
-	case ^ast.Ident:
-		if e.name == "true" || e.name == "false" || strings.has_prefix(e.name, "ODIN_") do return
-		value, is_plain := plain[e.name]
-		fallback, is_config := config_default(value)
-		if is_plain && !(is_config && !names_target(fallback, plain)) {
-			collect_free_names(value, plain, free, depth + 1)
-		} else if !slice.contains(free[:], e.name) {
-			append(free, e.name)
-		}
-	}
-}
-
-// Whether the `when` condition cond can take another branch on target than on base: condition_on reads it
-// otherwise on the two, or cannot read it on target. Each free name, a boolean that no constant gives, such as a
-// `#config` the build may set either way, gets the same value on both, and every combination of values counts.
-// With more than MAX_FREE_NAMES of them, each reads as unknown.
-@(private = "file")
-condition_differs :: proc(cond: ^ast.Expr, base, target: parser.Build_Target, plain: Gate_Consts) -> bool {
-	names := make([dynamic]string, context.temp_allocator)
-	collect_free_names(cond, plain, &names)
-	free := names[:] if len(names) <= MAX_FREE_NAMES else nil
-	for mask in 0 ..< u32(1) << u32(len(free)) {
-		on_base := condition_on(cond, base, plain, free, mask)
-		on_target := condition_on(cond, target, plain, free, mask)
-		if on_target == .Unknown || on_target != on_base do return true
-	}
-	return false
-}
-
-// The default of expr when it is `#config(NAME, default)`.
-@(private = "file")
-config_default :: proc(expr: ^ast.Expr) -> (fallback: ^ast.Expr, ok: bool) {
-	if expr == nil do return
-	call := expr.derived.(^ast.Call_Expr) or_return
-	directive := call.expr.derived.(^ast.Basic_Directive) or_return
-	if directive.name != "config" || len(call.args) != 2 do return
-	return call.args[1], true
-}
-
-// Whether expr, or a constant of plain that it names, names a builtin that starts with ODIN_OS or ODIN_ARCH, such
-// as ODIN_OS_STRING, in any kind of expression.
-@(private = "file")
-names_target :: proc(expr: ^ast.Expr, plain: Gate_Consts, depth := 0) -> bool {
-	if expr == nil || depth > CONDITION_CONST_DEPTH do return false
-	Data :: struct {
-		plain: Gate_Consts,
-		depth: int,
-		found: bool,
-	}
-	data := Data {
-		plain = plain,
-		depth = depth,
-	}
-	visitor := ast.Visitor {
-		data = &data,
-		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
-			data := (^Data)(visitor.data)
-			if node == nil || data.found do return nil
-			if ident, ok := node.derived.(^ast.Ident); ok {
-				data.found =
-					strings.has_prefix(ident.name, "ODIN_OS") ||
-					strings.has_prefix(ident.name, "ODIN_ARCH") ||
-					names_target(data.plain[ident.name], data.plain, data.depth + 1)
-			}
-			return visitor
-		},
-	}
-	ast.walk(&visitor, expr)
-	return data.found
 }
 
 // Whether the target's OS or architecture, named by the identifier constant, equals the implicit selector value.
@@ -603,236 +482,4 @@ add_when_names :: proc(consts: ^Gate_Consts, stmt: ^ast.Stmt, inside: bool) {
 			if ident, ok := name.derived.(^ast.Ident); ok do consts[ident.name] = nil
 		}
 	}
-}
-
-// The constants that the `when` conditions of file read: those of plain, the constants of the package directory,
-// with the file's own in place of the ones plain has under the same name, since a target that builds the file
-// builds its constants.
-@(private = "file")
-file_consts :: proc(file: ^ast.File, plain: Gate_Consts) -> Gate_Consts {
-	consts := make(Gate_Consts, context.temp_allocator)
-	for key, value in plain do consts[key] = value
-	add_plain_consts(&consts, file)
-	for decl in file.decls do add_when_names(&consts, decl, false)
-	return consts
-}
-
-// For each of targets, whether it builds the file called name with the source text and can take a `when` branch
-// of it that base does not take. Only a condition that names ODIN_OS or ODIN_ARCH, directly or through a
-// constant of plain or of the file, counts, as in `when IS_WASM` with `IS_WASM :: ODIN_ARCH == .wasm32`. It differs
-// when condition_differs says so at a place that branch_possible_on allows on the target. The text is parsed once
-// for every target.
-other_branch_targets :: proc(
-	name, text: string,
-	base: parser.Build_Target,
-	targets: []parser.Build_Target,
-	plain: Gate_Consts = nil,
-) -> []bool {
-	if !gate_may_name_target(text, plain) do return make([]bool, len(targets), context.temp_allocator)
-	return file_branch_targets(parse_gate_text(name, text), base, targets, plain)
-}
-
-// Whether a `when` condition of text can name ODIN_OS or ODIN_ARCH, directly or through a constant of plain.
-gate_may_name_target :: proc(text: string, plain: Gate_Consts) -> bool {
-	if !strings.contains(text, "when") do return false
-	return strings.contains(text, "ODIN_OS") || strings.contains(text, "ODIN_ARCH") || len(plain) > 0
-}
-
-// other_branch_targets for a parsed file.
-file_branch_targets :: proc(
-	file: ^ast.File,
-	base: parser.Build_Target,
-	targets: []parser.Build_Target,
-	plain: Gate_Consts,
-) -> []bool {
-	Data :: struct {
-		file:    ^ast.File,
-		base:    parser.Build_Target,
-		targets: []parser.Build_Target,
-		plain:   Gate_Consts,
-		takes:   []bool,
-		// A target that does not build the file takes none of its branches.
-		skip:    []bool,
-		left:    int,
-	}
-	data := Data {
-		file    = file,
-		base    = base,
-		targets = targets,
-		takes   = make([]bool, len(targets), context.temp_allocator),
-		skip    = make([]bool, len(targets), context.temp_allocator),
-	}
-	facts := facts_of(file.fullpath, build_tags(file^))
-	for target, i in targets {
-		data.skip[i] = !facts_build_on(facts, target)
-		if !data.skip[i] do data.left += 1
-	}
-	if data.left == 0 do return data.takes
-	data.plain = file_consts(file, plain)
-	visitor := ast.Visitor {
-		data = &data,
-		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
-			data := (^Data)(visitor.data)
-			if node == nil || data.left == 0 do return nil
-			s, ok := node.derived.(^ast.When_Stmt)
-			if !ok || s.cond == nil || !names_target(s.cond, data.plain) do return visitor
-			for target, i in data.targets {
-				if data.skip[i] || data.takes[i] do continue
-				if condition_differs(s.cond, data.base, target, data.plain) &&
-				   branch_possible_on(data.file^, s.pos.offset, target, data.plain) {
-					data.takes[i] = true
-					data.left -= 1
-				}
-			}
-			return visitor
-		},
-	}
-	for decl in file.decls {
-		ast.walk(&visitor, decl)
-	}
-	return data.takes
-}
-
-// The `-target:` values that a `when` condition of the file called name with the source text names, other than
-// base, where the file builds and can take another branch than on base, as other_branch_targets decides. An
-// ODIN_OS or ODIN_ARCH comparison, directly or through a constant of plain or of the file, names the first candidate
-// on which it reads otherwise than on base, candidates of the OS of base first. A `when` without an else keeps a
-// named target only when its condition does not read false there.
-when_named_targets :: proc(name, text: string, base: parser.Build_Target, plain: Gate_Consts = nil) -> []string {
-	if !gate_may_name_target(text, plain) do return {}
-	return file_when_named_targets(parse_gate_text(name, text), base, plain)
-}
-
-// when_named_targets for a parsed file.
-file_when_named_targets :: proc(file: ^ast.File, base: parser.Build_Target, plain: Gate_Consts = nil) -> []string {
-	Data :: struct {
-		plain: Gate_Consts,
-		base:  parser.Build_Target,
-		names: [dynamic]string,
-		// The `else when` links of the chains already read, which are no chain of their own.
-		links: [dynamic]^ast.When_Stmt,
-	}
-	data := Data {
-		plain = file_consts(file, plain),
-		base  = base,
-		names = make([dynamic]string, context.temp_allocator),
-		links = make([dynamic]^ast.When_Stmt, context.temp_allocator),
-	}
-	visitor := ast.Visitor {
-		data = &data,
-		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
-			data := (^Data)(visitor.data)
-			if node == nil do return nil
-			s, is_when := node.derived.(^ast.When_Stmt)
-			if !is_when || slice.contains(data.links[:], s) do return visitor
-			mine := make([dynamic]string, context.temp_allocator)
-			for link := s; link != nil; {
-				collect_named_targets(link.cond, data.plain, data.base, &mine)
-				if link.else_stmt == nil do break
-				link, _ = link.else_stmt.derived.(^ast.When_Stmt)
-				if link != nil do append(&data.links, link)
-			}
-			base_branch := chain_branch(s, data.base, data.plain)
-			for name in mine {
-				// A target that takes the branch of base, no branch or an empty final else builds no more than base,
-				// which adds no error there.
-				target, _ := parse_target(name)
-				branch := chain_branch(s, target, data.plain)
-				if branch == CHAIN_NONE || (branch != CHAIN_UNKNOWN && branch == base_branch) do continue
-				if !slice.contains(data.names[:], name) do append(&data.names, name)
-			}
-			return visitor
-		},
-	}
-	for decl in file.decls {
-		ast.walk(&visitor, decl)
-	}
-	if len(data.names) == 0 do return {}
-	parsed := make([]parser.Build_Target, len(data.names), context.temp_allocator)
-	for target, i in data.names {
-		parsed[i], _ = parse_target(target)
-	}
-	named := make([dynamic]string, context.temp_allocator)
-	for takes, i in file_branch_targets(file, base, parsed, plain) {
-		if takes do append(&named, data.names[i])
-	}
-	return named[:]
-}
-
-// The branches of a `when` chain that chain_branch returns besides an index: an unknown condition decides it, or
-// the target builds none of them, because it takes no branch or an empty final else.
-@(private = "file")
-CHAIN_UNKNOWN :: -1
-@(private = "file")
-CHAIN_NONE :: -2
-
-// The index of the branch of the `when` chain s, its `else when` links in order, then the final else, that
-// target takes, as condition_on reads each condition with the constants of plain.
-@(private = "file")
-chain_branch :: proc(s: ^ast.When_Stmt, target: parser.Build_Target, plain: Gate_Consts) -> int {
-	index := 0
-	for link := s;; index += 1 {
-		switch condition_on(link.cond, target, plain) {
-		case .Unknown:
-			return CHAIN_UNKNOWN
-		case .True:
-			return index
-		case .False:
-		}
-		if link.else_stmt == nil do return CHAIN_NONE
-		next, is_when := link.else_stmt.derived.(^ast.When_Stmt)
-		if !is_when {
-			block, is_block := link.else_stmt.derived.(^ast.Block_Stmt)
-			return CHAIN_NONE if is_block && len(block.stmts) == 0 else index + 1
-		}
-		link = next
-	}
-}
-
-// Appends to names, once each, the candidate that compared_target picks for each ODIN_OS or ODIN_ARCH comparison of
-// expr, or of a constant of plain that it names: the first on which the comparison reads otherwise than on base.
-@(private = "file")
-collect_named_targets :: proc(
-	expr: ^ast.Expr,
-	plain: Gate_Consts,
-	base: parser.Build_Target,
-	names: ^[dynamic]string,
-	depth := 0,
-) {
-	if expr == nil || depth > CONDITION_CONST_DEPTH do return
-	#partial switch e in expr.derived {
-	case ^ast.Paren_Expr:
-		collect_named_targets(e.expr, plain, base, names, depth)
-	case ^ast.Unary_Expr:
-		collect_named_targets(e.expr, plain, base, names, depth)
-	case ^ast.Ident:
-		collect_named_targets(plain[e.name], plain, base, names, depth + 1)
-	case ^ast.Binary_Expr:
-		if e.op.kind != .Cmp_Eq && e.op.kind != .Not_Eq {
-			collect_named_targets(e.left, plain, base, names, depth)
-			collect_named_targets(e.right, plain, base, names, depth)
-			return
-		}
-		name, found := compared_target(e.left, e.right, base)
-		if !found {
-			name, found = compared_target(e.right, e.left, base)
-		}
-		if found && !slice.contains(names[:], name) do append(names, name)
-	}
-}
-
-// The candidate on which the comparison of constant, ODIN_OS or ODIN_ARCH, with the implicit selector value reads
-// otherwise than on base: the first such candidate of the OS of base, else the first such one.
-@(private = "file")
-compared_target :: proc(constant, value: ^ast.Expr, base: parser.Build_Target) -> (name: string, found: bool) {
-	on_base, known := target_comparison(constant, value, base)
-	if !known do return
-	for same_os in ([2]bool{true, false}) {
-		for candidate in GATE_TARGET_CANDIDATES {
-			parsed, _ := parse_target(candidate)
-			if same_os && parsed.os != base.os do continue
-			if on, _ := target_comparison(constant, value, parsed); on != on_base do return candidate, true
-		}
-	}
-	return
 }
