@@ -1,5 +1,6 @@
 package server
 
+import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
@@ -63,18 +64,57 @@ add_used_in :: proc(verdicts: ^Lint_Verdicts, fullpath: string) {
 	if !slice.contains(verdicts.used_in[:], fullpath) do append(&verdicts.used_in, strings.clone(fullpath))
 }
 
+// A file whose text, as the other files of its package read it, is now text. Empty for a deleted file.
+@(private = "package")
+Changed_File :: struct {
+	fullpath: string,
+	text:     string,
+}
+
 // Relints the open documents of the package of document whose verdicts its new text could change.
 @(private = "package")
 relint_package_siblings :: proc(document: ^Document, config: ^common.Config) {
+	relint_siblings({{document.fullpath, string(document.text[:document.used_text])}}, config)
+}
+
+// Records the new disk text of the file at fullpath, unless the file is open: an open file reads its buffer.
+@(private = "package")
+append_disk_change :: proc(changes: ^[dynamic]Changed_File, fullpath, text: string) {
+	if open := &document_storage.documents[fullpath]; open != nil && open.client_owned do return
+	append(changes, Changed_File{fullpath, text})
+}
+
+// Relints, once each, the open documents whose verdicts one of changes could change, and reports whether it relinted
+// any. A changed file relints only the other open documents of its directory.
+@(private = "package")
+relint_siblings :: proc(changes: []Changed_File, config: ^common.Config) -> (relinted: bool) {
 	if len(lint_verdicts) == 0 do return
-	dir := filepath.dir(document.fullpath)
-	text := string(document.text[:document.used_text])
 	for _, &sibling in document_storage.documents {
-		if !sibling.client_owned || sibling.fullpath == document.fullpath do continue
-		if filepath.dir(sibling.fullpath) != dir do continue
-		verdicts, found := lint_verdicts[sibling.fullpath]
-		if found && verdict_may_change(verdicts, document.fullpath, text) do run_lints(&sibling, config)
+		if !sibling.client_owned do continue
+		verdicts := lint_verdicts[sibling.fullpath] or_continue
+		dir := filepath.dir(sibling.fullpath)
+		for change in changes {
+			if change.fullpath == sibling.fullpath || filepath.dir(change.fullpath) != dir do continue
+			if verdict_may_change(verdicts, change.fullpath, change.text) {
+				run_lints(&sibling, config)
+				relinted = true
+				break
+			}
+		}
 	}
+	return
+}
+
+// Relints the siblings of the file at fullpath when the text that they read for it switches between buffer and the
+// disk text: on an open, from the disk text to buffer, and on a close, from buffer to the disk text. A file missing on
+// disk reads as empty. An unchanged buffer relints nothing. Reports whether it relinted any.
+@(private = "package")
+relint_siblings_on_switch :: proc(fullpath, buffer: string, opening: bool, config: ^common.Config) -> bool {
+	if len(lint_verdicts) == 0 do return false
+	data, _ := os.read_entire_file(fullpath, context.temp_allocator)
+	disk := string(data)
+	if disk == buffer do return false
+	return relint_siblings({{fullpath, buffer if opening else disk}}, config)
 }
 
 // Frees the verdicts of the document at fullpath.
