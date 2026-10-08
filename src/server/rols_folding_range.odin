@@ -118,7 +118,10 @@ get_folding_ranges :: proc(document: ^Document) -> []FoldingRange {
 		}
 	}
 
-	visitor := ast.Visitor{visit = visit, data = &w}
+	visitor := ast.Visitor {
+		visit = visit,
+		data  = &w,
+	}
 	for decl in document.ast.decls {
 		ast.walk(&visitor, decl)
 	}

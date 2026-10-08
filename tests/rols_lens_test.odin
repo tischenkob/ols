@@ -31,8 +31,8 @@ main :: proc() {
 @(test)
 code_lens_reference_counts :: proc(t: ^testing.T) {
 	source := test.Source {
-		main   = LENS_A,
-		files  = {{"b.odin", LENS_B}},
+		main = LENS_A,
+		files = {{"b.odin", LENS_B}},
 		config = {enable_code_lens_references = true},
 	}
 	test.expect_code_lenses(t, &source, {"2 references", "1 reference", "1 reference", "no references"})

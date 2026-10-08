@@ -21,13 +21,18 @@ main :: proc() {
 		config = {enable_code_action_inline_variable = true},
 	}
 
-	test.expect_action_applied(t, &source, INLINE_VARIABLE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_VARIABLE_ACTION,
+		`package test
 
 main :: proc() {
 	foo(5)
 	bar(5 + 1)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -46,14 +51,19 @@ main :: proc() {
 		config = {enable_code_action_inline_variable = true},
 	}
 
-	test.expect_action_applied(t, &source, INLINE_VARIABLE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_VARIABLE_ACTION,
+		`package test
 
 main :: proc() {
 	a, b := 1, 2
 	y := (a + b) * 2
 	bar(a + b)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -74,7 +84,11 @@ main :: proc() {
 		config = {enable_code_action_inline_variable = true},
 	}
 
-	test.expect_action_applied(t, &source, INLINE_VARIABLE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_VARIABLE_ACTION,
+		`package test
 
 foo :: proc() -> int {
 	return 1
@@ -83,7 +97,8 @@ foo :: proc() -> int {
 main :: proc() {
 	bar(foo())
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -104,7 +119,11 @@ main :: proc() {
 		config = {enable_code_action_inline_variable = true},
 	}
 
-	test.expect_action_applied(t, &source, INLINE_VARIABLE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		INLINE_VARIABLE_ACTION,
+		`package test
 
 main :: proc() {
 	{
@@ -113,7 +132,8 @@ main :: proc() {
 	}
 	foo(5)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -251,7 +271,7 @@ main :: proc() {
 
 expect_inline_variable :: proc(t: ^testing.T, main, expected: string) {
 	source := test.Source {
-		main   = main,
+		main = main,
 		config = {enable_code_action_inline_variable = true},
 	}
 	test.expect_action_applied(t, &source, INLINE_VARIABLE_ACTION, expected)
@@ -259,7 +279,7 @@ expect_inline_variable :: proc(t: ^testing.T, main, expected: string) {
 
 expect_no_inline_variable :: proc(t: ^testing.T, main: string) {
 	source := test.Source {
-		main   = main,
+		main = main,
 		config = {enable_code_action_inline_variable = true},
 	}
 	test.expect_action_missing(t, &source, INLINE_VARIABLE_ACTION)
@@ -267,25 +287,31 @@ expect_no_inline_variable :: proc(t: ^testing.T, main: string) {
 
 @(test)
 action_inline_variable_parens_under_negation :: proc(t: ^testing.T) {
-	expect_inline_variable(t, `package test
+	expect_inline_variable(
+		t,
+		`package test
 
 main :: proc() {
 	a, b := 1, 2
 	x{*} := a + b
 	foo(-x)
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	a, b := 1, 2
 	foo(-(a + b))
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_variable_parens_before_selector :: proc(t: ^testing.T) {
-	expect_inline_variable(t, `package test
+	expect_inline_variable(
+		t,
+		`package test
 
 Point :: struct {
 	y: int,
@@ -297,7 +323,8 @@ main :: proc() {
 	x{*} := c ? p : q
 	foo(x.y)
 }
-`, `package test
+`,
+		`package test
 
 Point :: struct {
 	y: int,
@@ -308,12 +335,15 @@ main :: proc() {
 	c := true
 	foo((c ? p : q).y)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_variable_parens_before_index :: proc(t: ^testing.T) {
-	expect_inline_variable(t, `package test
+	expect_inline_variable(
+		t,
+		`package test
 
 main :: proc() {
 	a, b := []int{1}, []int{2}
@@ -321,48 +351,58 @@ main :: proc() {
 	x{*} := c ? a : b
 	foo(x[0])
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	a, b := []int{1}, []int{2}
 	c := true
 	foo((c ? a : b)[0])
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_variable_ignores_name_inside_string :: proc(t: ^testing.T) {
-	expect_inline_variable(t, `package test
+	expect_inline_variable(
+		t,
+		`package test
 
 main :: proc() {
 	x{*} := 5
 	foo("x")
 	foo(x)
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	foo("x")
 	foo(5)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_variable_drops_trailing_comment :: proc(t: ^testing.T) {
-	expect_inline_variable(t, `package test
+	expect_inline_variable(
+		t,
+		`package test
 
 main :: proc() {
 	x{*} := 5 // the answer
 	foo(x)
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	foo(5)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -675,7 +715,9 @@ main :: proc() {
 
 @(test)
 action_inline_variable_refused_using_pointer_field :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, `package test
+	expect_no_inline_variable(
+		t,
+		`package test
 
 Point :: struct {
 	y: int,
@@ -690,12 +732,15 @@ main :: proc(using p: ^Point) {
 	clear_point(p)
 	foo(v)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_variable_refused_using_local_field :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, `package test
+	expect_no_inline_variable(
+		t,
+		`package test
 
 S :: struct {
 	y: int,
@@ -707,12 +752,15 @@ main :: proc() {
 	s.y = 2
 	foo(v)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_variable_refused_literal_with_two_uses :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, `package test
+	expect_no_inline_variable(
+		t,
+		`package test
 
 clear_first :: proc(s: []int) {
 	s[0] = 0
@@ -723,12 +771,15 @@ main :: proc() {
 	clear_first(v)
 	foo(v[0])
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_variable_refused_input_sliced :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, `package test
+	expect_no_inline_variable(
+		t,
+		`package test
 
 main :: proc() {
 	arr := [2]int{1, 2}
@@ -737,12 +788,15 @@ main :: proc() {
 	s[0] = 9
 	foo(v)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_variable_refused_input_ranged_by_reference :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, `package test
+	expect_no_inline_variable(
+		t,
+		`package test
 
 main :: proc() {
 	arr := [2]int{1, 2}
@@ -752,7 +806,8 @@ main :: proc() {
 	}
 	foo(v)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -781,7 +836,9 @@ main :: proc() {
 
 @(test)
 action_inline_variable_builtin_len_past_statement :: proc(t: ^testing.T) {
-	expect_inline_variable(t, `package test
+	expect_inline_variable(
+		t,
+		`package test
 
 main :: proc() -> int {
 	s := []int{1, 2, 3}
@@ -789,19 +846,23 @@ main :: proc() -> int {
 	x := 2
 	return n + x
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() -> int {
 	s := []int{1, 2, 3}
 	x := 2
 	return len(s) + x
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_variable_refused_builtin_len_past_append :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, `package test
+	expect_no_inline_variable(
+		t,
+		`package test
 
 main :: proc() -> int {
 	d: [dynamic]int
@@ -809,13 +870,16 @@ main :: proc() -> int {
 	append(&d, 1)
 	return n
 }
-`)
+`,
+	)
 }
 
 // align_of reads only the type of its argument, so a write to the global does not change it.
 @(test)
 action_inline_variable_align_of_global_past_write :: proc(t: ^testing.T) {
-	expect_inline_variable(t, `package test
+	expect_inline_variable(
+		t,
+		`package test
 
 g: int
 
@@ -824,7 +888,8 @@ main :: proc() -> int {
 	g = 2
 	return n
 }
-`, `package test
+`,
+		`package test
 
 g: int
 
@@ -832,13 +897,16 @@ main :: proc() -> int {
 	g = 2
 	return align_of(g)
 }
-`)
+`,
+	)
 }
 
 // A local whose address is never taken cannot change in the call, so reading it first is safe.
 @(test)
 action_inline_variable_call_after_local_read :: proc(t: ^testing.T) {
-	expect_inline_variable(t, INLINE_ORDER_PRELUDE + `
+	expect_inline_variable(
+		t,
+		INLINE_ORDER_PRELUDE + `
 g :: proc(a, b: int) {}
 
 f :: proc() {
@@ -846,19 +914,24 @@ f :: proc() {
 	v{*} := bump()
 	g(a, v)
 }
-`, INLINE_ORDER_PRELUDE + `
+`,
+		INLINE_ORDER_PRELUDE + `
 g :: proc(a, b: int) {}
 
 f :: proc() {
 	a := 1
 	g(a, bump())
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_variable_refused_call_after_address_taken_local_read :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, INLINE_ORDER_PRELUDE + `
+	expect_no_inline_variable(
+		t,
+		INLINE_ORDER_PRELUDE +
+		`
 g :: proc(a, b: int) {}
 
 f :: proc() {
@@ -868,28 +941,35 @@ f :: proc() {
 	v{*} := bump()
 	g(a, v)
 }
-`)
+`,
+	)
 }
 
 // A plain `=` target is written after the value is computed, so a global target is safe too.
 @(test)
 action_inline_variable_call_into_global_assignment :: proc(t: ^testing.T) {
-	expect_inline_variable(t, INLINE_ORDER_PRELUDE + `
+	expect_inline_variable(
+		t,
+		INLINE_ORDER_PRELUDE + `
 f :: proc() {
 	v{*} := bump()
 	counter = v
 }
-`, INLINE_ORDER_PRELUDE + `
+`,
+		INLINE_ORDER_PRELUDE + `
 f :: proc() {
 	counter = bump()
 }
-`)
+`,
+	)
 }
 
 // A recursive call writes the same static local, so reading it first changes the result.
 @(test)
 action_inline_variable_refused_call_after_static_local_read :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, `package test
+	expect_no_inline_variable(
+		t,
+		`package test
 
 f :: proc(n: int) -> int {
 	@(static) calls: int
@@ -899,12 +979,15 @@ f :: proc(n: int) -> int {
 	total := calls + v
 	return total
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_variable_refused_static_local_read_past_call :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, `package test
+	expect_no_inline_variable(
+		t,
+		`package test
 
 f :: proc(n: int) -> int {
 	@(static) calls: int
@@ -914,13 +997,16 @@ f :: proc(n: int) -> int {
 	f(n - 1)
 	return v
 }
-`)
+`,
+	)
 }
 
 // len of a cstring reads the bytes it points to.
 @(test)
 action_inline_variable_refused_cstring_len_past_write :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, `package test
+	expect_no_inline_variable(
+		t,
+		`package test
 
 main :: proc() -> int {
 	buf := [4]u8{'a', 'b', 0, 0}
@@ -929,12 +1015,15 @@ main :: proc() -> int {
 	buf[0] = 0
 	return n
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_variable_refused_shadowed_len_past_statement :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, `package test
+	expect_no_inline_variable(
+		t,
+		`package test
 
 len :: proc(s: []int) -> int { return 0 }
 
@@ -944,12 +1033,15 @@ main :: proc() -> int {
 	x := 2
 	return n + x
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_variable_refused_len_of_pointer_past_statement :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, `package test
+	expect_no_inline_variable(
+		t,
+		`package test
 
 main :: proc() -> int {
 	arr := [4]int{}
@@ -958,12 +1050,16 @@ main :: proc() -> int {
 	x := 2
 	return n + x
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_variable_refused_call_after_method_base_local_read :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, INLINE_ORDER_PRELUDE + `
+	expect_no_inline_variable(
+		t,
+		INLINE_ORDER_PRELUDE +
+		`
 S :: struct {
 	m: proc(s: ^S),
 }
@@ -976,12 +1072,16 @@ f :: proc() {
 	v{*} := bump()
 	g(s, v)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_inline_variable_refused_call_after_sliced_local_read :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, INLINE_ORDER_PRELUDE + `
+	expect_no_inline_variable(
+		t,
+		INLINE_ORDER_PRELUDE +
+		`
 g :: proc(a: [2]int, b: int) {}
 
 f :: proc() {
@@ -991,13 +1091,16 @@ f :: proc() {
 	v{*} := bump()
 	g(arr, v)
 }
-`)
+`,
+	)
 }
 
 // A nested procedure sees the static local of the procedure around it, and bump writes it.
 @(test)
 action_inline_variable_refused_call_after_enclosing_static_local_read :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, `package test
+	expect_no_inline_variable(
+		t,
+		`package test
 
 outer :: proc() {
 	@(static) n: int
@@ -1011,7 +1114,8 @@ outer :: proc() {
 		return x
 	}
 }
-`)
+`,
+	)
 }
 
 // An `any` argument points at the local itself, so a later call can write it through that pointer.

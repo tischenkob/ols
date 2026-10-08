@@ -99,7 +99,9 @@ main :: proc(p: int) {
 	}
 
 	test.with_document(t, &source, proc(t: ^testing.T, src: ^test.Source, range: common.Range) {
-		ctx := server.ActionContext{document = src.document}
+		ctx := server.ActionContext {
+			document = src.document,
+		}
 		symbols := server.resolve_entire_file_for_references(src.document, context.temp_allocator, .Identifier, "")
 		text := document_text(src)
 
@@ -155,7 +157,9 @@ main :: proc() {
 	}
 
 	test.with_document(t, &source, proc(t: ^testing.T, src: ^test.Source, range: common.Range) {
-		ctx := server.ActionContext{document = src.document}
+		ctx := server.ActionContext {
+			document = src.document,
+		}
 		start := strings.index(document_text(src), "x := 1")
 		expected := common.Range{{3, 11}, {3, 17}}
 		testing.expect_value(t, server.range_of(&ctx, start, start + len("x := 1")), expected)

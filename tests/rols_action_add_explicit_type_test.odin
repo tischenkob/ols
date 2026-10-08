@@ -44,13 +44,18 @@ main :: proc() {
 		config = {enable_code_action_add_explicit_type = true},
 	}
 
-	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		ADD_EXPLICIT_TYPE_ACTION,
+		`package test
 
 main :: proc() {
 	x := 5
 	y: int = x
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -66,12 +71,17 @@ main :: proc() {
 		config = {enable_code_action_add_explicit_type = true},
 	}
 
-	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		ADD_EXPLICIT_TYPE_ACTION,
+		`package test
 
 main :: proc() {
 	s: string = "a"
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -92,7 +102,11 @@ main :: proc() {
 		config = {enable_code_action_add_explicit_type = true},
 	}
 
-	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		ADD_EXPLICIT_TYPE_ACTION,
+		`package test
 
 Point :: struct {
 	x: int,
@@ -102,7 +116,8 @@ main :: proc() {
 	pt: Point
 	p: ^Point = &pt
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -122,7 +137,11 @@ main :: proc() {
 		config = {enable_code_action_add_explicit_type = true},
 	}
 
-	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		ADD_EXPLICIT_TYPE_ACTION,
+		`package test
 
 f :: proc() -> []int {
 	return nil
@@ -131,7 +150,8 @@ f :: proc() -> []int {
 main :: proc() {
 	v: []int = f()
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -192,9 +212,9 @@ main :: proc() {
 
 	for main in sources {
 		source := test.Source {
-			main     = main,
+			main = main,
 			packages = {},
-			config   = {enable_code_action_add_explicit_type = true},
+			config = {enable_code_action_add_explicit_type = true},
 		}
 		test.expect_action_missing(t, &source, ADD_EXPLICIT_TYPE_ACTION)
 	}
@@ -202,7 +222,7 @@ main :: proc() {
 
 expect_add_explicit_type :: proc(t: ^testing.T, main, expected: string) {
 	source := test.Source {
-		main   = main,
+		main = main,
 		config = {enable_code_action_add_explicit_type = true},
 	}
 	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, expected)
@@ -210,37 +230,47 @@ expect_add_explicit_type :: proc(t: ^testing.T, main, expected: string) {
 
 @(test)
 action_add_explicit_type_float :: proc(t: ^testing.T) {
-	expect_add_explicit_type(t, `package test
+	expect_add_explicit_type(
+		t,
+		`package test
 
 main :: proc() {
 	x{*} := 1.5
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	x: f64 = 1.5
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_add_explicit_type_rune :: proc(t: ^testing.T) {
-	expect_add_explicit_type(t, `package test
+	expect_add_explicit_type(
+		t,
+		`package test
 
 main :: proc() {
 	r{*} := 'a'
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	r: rune = 'a'
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_add_explicit_type_enum_member :: proc(t: ^testing.T) {
-	expect_add_explicit_type(t, `package test
+	expect_add_explicit_type(
+		t,
+		`package test
 
 Color :: enum {
 	Red,
@@ -250,7 +280,8 @@ Color :: enum {
 main :: proc() {
 	c{*} := Color.Red
 }
-`, `package test
+`,
+		`package test
 
 Color :: enum {
 	Red,
@@ -260,46 +291,57 @@ Color :: enum {
 main :: proc() {
 	c: Color = Color.Red
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_add_explicit_type_ternary :: proc(t: ^testing.T) {
-	expect_add_explicit_type(t, `package test
+	expect_add_explicit_type(
+		t,
+		`package test
 
 main :: proc() {
 	c := true
 	v{*} := c ? 1 : 2
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	c := true
 	v: int = c ? 1 : 2
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_add_explicit_type_or_else :: proc(t: ^testing.T) {
-	expect_add_explicit_type(t, `package test
+	expect_add_explicit_type(
+		t,
+		`package test
 
 main :: proc() {
 	m: map[string]int
 	v{*} := m["a"] or_else 0
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	m: map[string]int
 	v: int = m["a"] or_else 0
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_add_explicit_type_distinct :: proc(t: ^testing.T) {
-	expect_add_explicit_type(t, `package test
+	expect_add_explicit_type(
+		t,
+		`package test
 
 Meters :: distinct int
 
@@ -307,7 +349,8 @@ main :: proc() {
 	d: Meters = 1
 	e{*} := d
 }
-`, `package test
+`,
+		`package test
 
 Meters :: distinct int
 
@@ -315,39 +358,48 @@ main :: proc() {
 	d: Meters = 1
 	e: Meters = d
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_add_explicit_type_for_header :: proc(t: ^testing.T) {
-	expect_add_explicit_type(t, `package test
+	expect_add_explicit_type(
+		t,
+		`package test
 
 main :: proc() {
 	for i{*} := 0; i < 3; i += 1 {
 	}
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	for i: int = 0; i < 3; i += 1 {
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_add_explicit_type_unicode_name :: proc(t: ^testing.T) {
-	expect_add_explicit_type(t, `package test
+	expect_add_explicit_type(
+		t,
+		`package test
 
 main :: proc() {
 	héllo{*} := 5
 }
-`, `package test
+`,
+		`package test
 
 main :: proc() {
 	héllo: int = 5
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -388,7 +440,7 @@ main :: proc() {
 	replaced, _ := strings.replace(typed, "x:", "x{*}:", 1, context.temp_allocator)
 
 	again := test.Source {
-		main   = replaced,
+		main = replaced,
 		config = {enable_code_action_add_explicit_type = true},
 	}
 	test.expect_action_missing(t, &again, ADD_EXPLICIT_TYPE_ACTION)
@@ -413,7 +465,9 @@ main :: proc() {
 // Corpus: reduced (odin-http review), see docs/corpus-validation.md.
 @(test)
 action_add_explicit_type_slice_of_field :: proc(t: ^testing.T) {
-	expect_add_explicit_type(t, `package test
+	expect_add_explicit_type(
+		t,
+		`package test
 
 S :: struct {
 	arr: [4]int,
@@ -423,7 +477,8 @@ f :: proc(s: ^S) {
 	r{*} := s.arr[:2]
 	_ = r
 }
-`, `package test
+`,
+		`package test
 
 S :: struct {
 	arr: [4]int,
@@ -433,12 +488,15 @@ f :: proc(s: ^S) {
 	r: []int = s.arr[:2]
 	_ = r
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_add_explicit_type_slice_of_named_array :: proc(t: ^testing.T) {
-	expect_add_explicit_type(t, `package test
+	expect_add_explicit_type(
+		t,
+		`package test
 
 Buf :: [4]int
 
@@ -446,7 +504,8 @@ f :: proc(b: ^Buf) {
 	r{*} := b[:2]
 	_ = r
 }
-`, `package test
+`,
+		`package test
 
 Buf :: [4]int
 
@@ -454,7 +513,8 @@ f :: proc(b: ^Buf) {
 	r: []int = b[:2]
 	_ = r
 }
-`)
+`,
+	)
 }
 
 // Corpus: ols src/server/analysis.odin:2784 on the S17 rerun, see docs/corpus-validation.md.
@@ -473,14 +533,19 @@ main :: proc() {
 		config = {enable_code_action_add_explicit_type = true},
 	}
 
-	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		ADD_EXPLICIT_TYPE_ACTION,
+		`package test
 
 import "other"
 
 main :: proc() {
 	x: bool = other.has("a")
 }
-`)
+`,
+	)
 }
 
 // An alias that a package declares with a builtin name (core:c has `int :: builtin.i32`) keeps its package.
@@ -499,14 +564,19 @@ f :: proc(y: other.int) {
 		config = {enable_code_action_add_explicit_type = true},
 	}
 
-	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		ADD_EXPLICIT_TYPE_ACTION,
+		`package test
 
 import "other"
 
 f :: proc(y: other.int) {
 	x: other.int = y
 }
-`)
+`,
+	)
 }
 
 // Corpus: manual check, repro2. The typed argument of min/max/clamp names the type, not the builtin.
@@ -524,13 +594,18 @@ f :: proc(a: f32) {
 		config = {enable_code_action_add_explicit_type = true},
 	}
 
-	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		ADD_EXPLICIT_TYPE_ACTION,
+		`package test
 
 f :: proc(a: f32) {
 	x0: int = max(0, int(a * 2))
 	_ = x0
 }
-`)
+`,
+	)
 }
 
 // Corpus: manual check, repro1. A local poly proc applied to a field of a foreign struct.
@@ -555,7 +630,11 @@ main :: proc() {
 		config = {enable_code_action_add_explicit_type = true},
 	}
 
-	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		ADD_EXPLICIT_TYPE_ACTION,
+		`package test
 
 import "other"
 
@@ -568,7 +647,8 @@ main :: proc() {
 	size_buf: []byte = unwritten(b.buf)
 	_ = size_buf
 }
-`)
+`,
+	)
 }
 
 // A builtin constant keeps its type name, though its package is not imported.
@@ -586,13 +666,18 @@ main :: proc() {
 		config = {enable_code_action_add_explicit_type = true},
 	}
 
-	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		ADD_EXPLICIT_TYPE_ACTION,
+		`package test
 
 main :: proc() {
 	x: Odin_OS_Type = ODIN_OS
 	_ = x
 }
-`)
+`,
+	)
 }
 
 // An unimported package has no name to write, so the action is not offered.
@@ -609,7 +694,10 @@ main :: proc() {
 }
 `,
 		packages = {
-			{pkg = "other", source = "package other\n\nimport \"core:c\"\n\ncount :: proc() -> c.int {\n\treturn 4\n}\n"},
+			{
+				pkg = "other",
+				source = "package other\n\nimport \"core:c\"\n\ncount :: proc() -> c.int {\n\treturn 4\n}\n",
+			},
 			{pkg = "c", source = "package c\n\nint :: i32\n"},
 		},
 		collections = {"core" = "test"},
@@ -704,7 +792,11 @@ main :: proc() {
 		config = {enable_code_action_add_explicit_type = true},
 	}
 
-	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		ADD_EXPLICIT_TYPE_ACTION,
+		`package test
 
 import "other"
 
@@ -712,7 +804,8 @@ main :: proc() {
 	x: string = other.name()
 	_ = x
 }
-`)
+`,
+	)
 }
 
 // A file-private alias named like a builtin type is not seen from the other files of its package.
@@ -740,7 +833,11 @@ main :: proc() {
 		config = {enable_code_action_add_explicit_type = true},
 	}
 
-	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		ADD_EXPLICIT_TYPE_ACTION,
+		`package test
 
 import "other"
 
@@ -748,7 +845,8 @@ main :: proc() {
 	x: int = other.count()
 	_ = x
 }
-`)
+`,
+	)
 }
 
 // A constant named like a builtin type is no type, so the builtin result stays bare. The `when` keeps
@@ -774,7 +872,11 @@ main :: proc() {
 		config = {enable_code_action_add_explicit_type = true},
 	}
 
-	test.expect_action_applied(t, &source, ADD_EXPLICIT_TYPE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		ADD_EXPLICIT_TYPE_ACTION,
+		`package test
 
 import "other"
 
@@ -782,5 +884,6 @@ main :: proc() {
 	x: string = other.g()
 	_ = x
 }
-`)
+`,
+	)
 }

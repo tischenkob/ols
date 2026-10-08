@@ -38,7 +38,10 @@ LIMIT :: 10
 
 main :: proc() {}
 `,
-		files = {{"other.odin", `package test
+		files = {
+			{
+				"other.odin",
+				`package test
 
 @(private)
 other :: proc() -> int {
@@ -48,7 +51,9 @@ other :: proc() -> int {
 
 @(private)
 lonely :: proc() {}
-`}},
+`,
+			},
+		},
 	}
 	test.expect_unused_declarations(t, &source, {{"other.odin", 3}, {"other.odin", 9}})
 }
@@ -86,7 +91,10 @@ lint_unused_declaration_file_directive :: proc(t: ^testing.T) {
 
 main :: proc() {}
 `,
-		files = {{"other.odin", `#+private file
+		files = {
+			{
+				"other.odin",
+				`#+private file
 package test
 
 used_here :: proc() {}
@@ -96,7 +104,9 @@ not_used :: proc() {}
 caller :: proc() {
 	used_here()
 }
-`}},
+`,
+			},
+		},
 	}
 	test.expect_unused_declarations(t, &source, {{"other.odin", 5}, {"other.odin", 7}})
 }
@@ -206,7 +216,10 @@ helper :: proc() {}
 
 main :: proc() {}
 `,
-		files = {{"main_test.odin", `package test
+		files = {
+			{
+				"main_test.odin",
+				`package test
 
 import "core:testing"
 
@@ -214,7 +227,9 @@ import "core:testing"
 uses_helper :: proc(t: ^testing.T) {
 	helper()
 }
-`}},
+`,
+			},
+		},
 	}
 	test.expect_unused_declarations(t, &source, {})
 }

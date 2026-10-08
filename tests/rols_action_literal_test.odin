@@ -216,12 +216,17 @@ main :: proc() {
 }
 `)
 
-	test.expect_action_applied(t, &grouping_kept, "Convert to binary", `package test
+	test.expect_action_applied(
+		t,
+		&grouping_kept,
+		"Convert to binary",
+		`package test
 
 main :: proc() {
 	x := 0b1_0000_0000_0000_0000
 }
-`)
+`,
+	)
 
 	zero := literal_source(`package test
 
@@ -320,12 +325,17 @@ main :: proc() {
 }
 `)
 
-	test.expect_action_applied(t, &prefixed_decimal, "Convert to decimal", `package test
+	test.expect_action_applied(
+		t,
+		&prefixed_decimal,
+		"Convert to decimal",
+		`package test
 
 main :: proc() {
 	x := 10
 }
-`)
+`,
+	)
 
 	negated := literal_source(`package test
 
@@ -349,13 +359,18 @@ main :: proc() {
 }
 `)
 
-	test.expect_action_applied(t, &index, "Convert to decimal", `package test
+	test.expect_action_applied(
+		t,
+		&index,
+		"Convert to decimal",
+		`package test
 
 main :: proc() {
 	xs := []int{1, 2}
 	x := xs[1]
 }
-`)
+`,
+	)
 
 	case_label := literal_source(`package test
 
@@ -368,7 +383,11 @@ main :: proc() {
 }
 `)
 
-	test.expect_action_applied(t, &case_label, "Convert to decimal", `package test
+	test.expect_action_applied(
+		t,
+		&case_label,
+		"Convert to decimal",
+		`package test
 
 main :: proc() {
 	x := 255
@@ -377,7 +396,8 @@ main :: proc() {
 		x = 0
 	}
 }
-`)
+`,
+	)
 
 	float := literal_source(`package test
 

@@ -112,7 +112,11 @@ main :: proc() {
 }
 `)
 
-	test.expect_action_applied(t, &conditional, LOOP_LABEL_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&conditional,
+		LOOP_LABEL_ACTION,
+		`package test
 
 main :: proc() {
 	c := true
@@ -120,7 +124,8 @@ main :: proc() {
 		foo()
 	}
 }
-`)
+`,
+	)
 
 	infinite := loop_source(`package test
 
@@ -131,14 +136,19 @@ main :: proc() {
 }
 `)
 
-	test.expect_action_applied(t, &infinite, LOOP_LABEL_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&infinite,
+		LOOP_LABEL_ACTION,
+		`package test
 
 main :: proc() {
 	loop: for {
 		break
 	}
 }
-`)
+`,
+	)
 
 	do_body := loop_source(`package test
 
@@ -147,15 +157,21 @@ main :: proc() {
 }
 `)
 
-	test.expect_action_applied(t, &do_body, LOOP_LABEL_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&do_body,
+		LOOP_LABEL_ACTION,
+		`package test
 
 main :: proc() {
 	loop: for i := 0; i < 3; i += 1 do foo(i)
 }
-`)
+`,
+	)
 
 	// The inner loop of a nest holds no loop of its own, so it is a plain `loop`.
-	inner := loop_source(`package test
+	inner := loop_source(
+		`package test
 
 main :: proc() {
 	for i := 0; i < 10; i += 1 {
@@ -164,9 +180,14 @@ main :: proc() {
 		}
 	}
 }
-`)
+`,
+	)
 
-	test.expect_action_applied(t, &inner, LOOP_LABEL_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&inner,
+		LOOP_LABEL_ACTION,
+		`package test
 
 main :: proc() {
 	for i := 0; i < 10; i += 1 {
@@ -175,7 +196,8 @@ main :: proc() {
 		}
 	}
 }
-`)
+`,
+	)
 
 	not_a_loop := loop_source(`package test
 

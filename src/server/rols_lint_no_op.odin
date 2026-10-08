@@ -255,7 +255,9 @@ calls_procedure :: proc(ctx: ^LintContext, expr: ^ast.Expr) -> bool {
 		ctx:   ^LintContext,
 		found: bool,
 	}
-	data := Data{ctx = ctx}
+	data := Data {
+		ctx = ctx,
+	}
 	visitor := ast.Visitor {
 		data = &data,
 		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {

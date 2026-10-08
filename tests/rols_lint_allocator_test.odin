@@ -211,17 +211,13 @@ f :: proc() {
 `,
 			{},
 		},
-		{
-			"make with capacity",
-			`package test
+		{"make with capacity", `package test
 
 f :: proc() {
 	xs := make([dynamic]int, 0, 10)
 	append(&xs, 1)
 }
-`,
-			{},
-		},
+`, {}},
 		{
 			"make with a length and no append",
 			`package test

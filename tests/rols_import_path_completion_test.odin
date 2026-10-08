@@ -32,11 +32,11 @@ import_path_completion_skips_directories_without_kept_packages :: proc(t: ^testi
 	append(&packages, test.Package{pkg = "deep/inner", source = "package inner"})
 
 	source := test.Source {
-		main        = `package main
+		main = `package main
 
 import "lib:{*}"
 `,
-		packages    = packages[:],
+		packages = packages[:],
 		collections = {"lib" = root},
 	}
 

@@ -8,7 +8,7 @@ INTRODUCE_PARAM_ACTION :: "Introduce parameter"
 
 expect_introduce_param :: proc(t: ^testing.T, main, expected: string) {
 	source := test.Source {
-		main   = main,
+		main = main,
 		config = {enable_code_action_introduce_param = true},
 	}
 	test.expect_action_applied_files(t, &source, INTRODUCE_PARAM_ACTION, {{"main.odin", expected}})
@@ -16,8 +16,8 @@ expect_introduce_param :: proc(t: ^testing.T, main, expected: string) {
 
 expect_no_introduce_param :: proc(t: ^testing.T, main: string, files: []test.File = {}, enabled := true) {
 	source := test.Source {
-		main   = main,
-		files  = files,
+		main = main,
+		files = files,
 		config = {enable_code_action_introduce_param = enabled},
 	}
 	test.expect_action_missing(t, &source, INTRODUCE_PARAM_ACTION)
@@ -25,7 +25,9 @@ expect_no_introduce_param :: proc(t: ^testing.T, main: string, files: []test.Fil
 
 @(test)
 action_introduce_param_two_callers :: proc(t: ^testing.T) {
-	expect_introduce_param(t, `package test
+	expect_introduce_param(
+		t,
+		`package test
 
 grow :: proc(x: int) -> int {
 	return x * {*}2
@@ -35,7 +37,8 @@ main :: proc() {
 	a := grow(1)
 	b := grow(a)
 }
-`, `package test
+`,
+		`package test
 
 grow :: proc(x: int, value: int) -> int {
 	return x * value
@@ -45,12 +48,15 @@ main :: proc() {
 	a := grow(1, 2)
 	b := grow(a, 2)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_introduce_param_no_params_named_by_argument :: proc(t: ^testing.T) {
-	expect_introduce_param(t, `package test
+	expect_introduce_param(
+		t,
+		`package test
 
 area :: proc(radius: f32) -> f32 {
 	return radius * radius
@@ -63,7 +69,8 @@ run :: proc() {
 main :: proc() {
 	run()
 }
-`, `package test
+`,
+		`package test
 
 area :: proc(radius: f32) -> f32 {
 	return radius * radius
@@ -76,12 +83,15 @@ run :: proc(radius: f32) {
 main :: proc() {
 	run(3.5)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_introduce_param_takes_the_callee_parameter_type :: proc(t: ^testing.T) {
-	expect_introduce_param(t, `package test
+	expect_introduce_param(
+		t,
+		`package test
 
 scale :: proc(factor: f64) -> f64 {
 	return factor
@@ -94,7 +104,8 @@ run :: proc() {
 main :: proc() {
 	run()
 }
-`, `package test
+`,
+		`package test
 
 scale :: proc(factor: f64) -> f64 {
 	return factor
@@ -107,7 +118,8 @@ run :: proc(factor: f64) {
 main :: proc() {
 	run(2)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -119,14 +131,12 @@ greet :: proc(name: string) -> string {
 	return {["hi "]} + name
 }
 `,
-		files = {
-			{"b.odin", `package test
+		files = {{"b.odin", `package test
 
 main :: proc() {
 	s := greet("bob")
 }
-`},
-		},
+`}},
 		config = {enable_code_action_introduce_param = true},
 	}
 	test.expect_action_applied_files(
@@ -134,12 +144,15 @@ main :: proc() {
 		&source,
 		INTRODUCE_PARAM_ACTION,
 		{
-			{"main.odin", `package test
+			{
+				"main.odin",
+				`package test
 
 greet :: proc(name: string, value: string) -> string {
 	return value + name
 }
-`},
+`,
+			},
 			{"b.odin", `package test
 
 main :: proc() {
@@ -152,7 +165,9 @@ main :: proc() {
 
 @(test)
 action_introduce_param_refused_not_constant :: proc(t: ^testing.T) {
-	expect_no_introduce_param(t, `package test
+	expect_no_introduce_param(
+		t,
+		`package test
 
 grow :: proc(x: int) -> int {
 	y := 3
@@ -162,12 +177,15 @@ grow :: proc(x: int) -> int {
 main :: proc() {
 	a := grow(1)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_introduce_param_refused_used_as_value :: proc(t: ^testing.T) {
-	expect_no_introduce_param(t, `package test
+	expect_no_introduce_param(
+		t,
+		`package test
 
 grow :: proc(x: int) -> int {
 	return x * {*}2
@@ -177,27 +195,34 @@ main :: proc() {
 	f := grow
 	a := f(1)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_introduce_param_refused_named_argument_in_other_file :: proc(t: ^testing.T) {
-	expect_no_introduce_param(t, `package test
+	expect_no_introduce_param(
+		t,
+		`package test
 
 grow :: proc(x: int) -> int {
 	return x * {*}2
 }
-`, {{"b.odin", `package test
+`,
+		{{"b.odin", `package test
 
 main :: proc() {
 	a := grow(x = 1)
 }
-`}})
+`}},
+	)
 }
 
 @(test)
 action_introduce_param_disabled :: proc(t: ^testing.T) {
-	expect_no_introduce_param(t, `package test
+	expect_no_introduce_param(
+		t,
+		`package test
 
 grow :: proc(x: int) -> int {
 	return x * {*}2
@@ -206,12 +231,16 @@ grow :: proc(x: int) -> int {
 main :: proc() {
 	a := grow(1)
 }
-`, enabled = false)
+`,
+		enabled = false,
+	)
 }
 
 @(test)
 action_introduce_param_string_holding_a_comma :: proc(t: ^testing.T) {
-	expect_introduce_param(t, `package test
+	expect_introduce_param(
+		t,
+		`package test
 
 greet :: proc(name: string) -> string {
 	return {["a, b"]} + name
@@ -220,7 +249,8 @@ greet :: proc(name: string) -> string {
 main :: proc() {
 	s := greet("bob")
 }
-`, `package test
+`,
+		`package test
 
 greet :: proc(name: string, value: string) -> string {
 	return value + name
@@ -229,12 +259,15 @@ greet :: proc(name: string, value: string) -> string {
 main :: proc() {
 	s := greet("bob", "a, b")
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_introduce_param_binary_constant :: proc(t: ^testing.T) {
-	expect_introduce_param(t, `package test
+	expect_introduce_param(
+		t,
+		`package test
 
 use :: proc(n: int) {
 }
@@ -247,7 +280,8 @@ f :: proc(x: int) {
 main :: proc() {
 	f(1)
 }
-`, `package test
+`,
+		`package test
 
 use :: proc(n: int) {
 }
@@ -260,12 +294,15 @@ f :: proc(x: int, n: int) {
 main :: proc() {
 	f(1, 1 + 2)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_introduce_param_name_collision :: proc(t: ^testing.T) {
-	expect_introduce_param(t, `package test
+	expect_introduce_param(
+		t,
+		`package test
 
 grow :: proc(value: int) -> int {
 	return value * {*}2
@@ -274,7 +311,8 @@ grow :: proc(value: int) -> int {
 main :: proc() {
 	a := grow(1)
 }
-`, `package test
+`,
+		`package test
 
 grow :: proc(value: int, value2: int) -> int {
 	return value * value2
@@ -283,12 +321,15 @@ grow :: proc(value: int, value2: int) -> int {
 main :: proc() {
 	a := grow(1, 2)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_introduce_param_no_params :: proc(t: ^testing.T) {
-	expect_introduce_param(t, `package test
+	expect_introduce_param(
+		t,
+		`package test
 
 f :: proc() -> int {
 	return {*}10
@@ -297,7 +338,8 @@ f :: proc() -> int {
 main :: proc() {
 	a := f()
 }
-`, `package test
+`,
+		`package test
 
 f :: proc(value: int) -> int {
 	return value
@@ -306,12 +348,15 @@ f :: proc(value: int) -> int {
 main :: proc() {
 	a := f(10)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_introduce_param_refused_variadic_param :: proc(t: ^testing.T) {
-	expect_no_introduce_param(t, `package test
+	expect_no_introduce_param(
+		t,
+		`package test
 
 f :: proc(xs: ..int) -> int {
 	return {*}10
@@ -320,12 +365,15 @@ f :: proc(xs: ..int) -> int {
 main :: proc() {
 	a := f(1)
 }
-`)
+`,
+	)
 }
 
 @(test)
 action_introduce_param_refused_default_param :: proc(t: ^testing.T) {
-	expect_no_introduce_param(t, `package test
+	expect_no_introduce_param(
+		t,
+		`package test
 
 f :: proc(a: int = 1) -> int {
 	return {*}10
@@ -334,7 +382,8 @@ f :: proc(a: int = 1) -> int {
 main :: proc() {
 	b := f()
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -357,7 +406,14 @@ value :: 5
 		config = {enable_code_action_introduce_param = true},
 	}
 
-	test.expect_action_applied_files(t, &source, INTRODUCE_PARAM_ACTION, {{"main.odin", `package test
+	test.expect_action_applied_files(
+		t,
+		&source,
+		INTRODUCE_PARAM_ACTION,
+		{
+			{
+				"main.odin",
+				`package test
 
 grow :: proc(x: int, value2: int) -> int {
 	return x * value2
@@ -366,7 +422,10 @@ grow :: proc(x: int, value2: int) -> int {
 main :: proc() {
 	a := grow(1, 2)
 }
-`}})
+`,
+			},
+		},
+	)
 }
 
 // The action edits one declaration, so a procedure with a platform variant gets no new parameter.

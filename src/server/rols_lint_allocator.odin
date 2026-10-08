@@ -129,7 +129,8 @@ make_len_append :: proc(ctx: ^LintContext, uses: []IdentUse, diags: ^[dynamic]Di
 		length := call.args[1]
 		if lit, is_lit := length.derived.(^ast.Basic_Lit); is_lit {
 			if lit.tok.text == "0" do continue
-		} else if len_call, is_call := length.derived.(^ast.Call_Expr); !is_call ||
+		} else if len_call, is_call := length.derived.(^ast.Call_Expr);
+		   !is_call ||
 		   (len_call.expr.derived.(^ast.Ident) or_else nil) == nil ||
 		   len_call.expr.derived.(^ast.Ident).name != "len" {
 			continue

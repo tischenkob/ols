@@ -23,7 +23,7 @@ check_unused_variable_is_an_error_without_a_known_source :: proc(t: ^testing.T) 
 	cache := make(server.Hard_Unused_Cache, context.temp_allocator)
 	error := server.Json_Error {
 		type = "error",
-		pos  = {file = "missing.odin", offset = 5},
+		pos = {file = "missing.odin", offset = 5},
 	}
 	testing.expect_value(
 		t,
@@ -73,7 +73,7 @@ check_unused_variable_severity_follows_the_source :: proc(t: ^testing.T) {
 	for n in names {
 		error := server.Json_Error {
 			type = "error",
-			pos  = {file = "p.odin", offset = strings.index(UNUSED_SOURCE, n.name)},
+			pos = {file = "p.odin", offset = strings.index(UNUSED_SOURCE, n.name)},
 		}
 		message := strings.concatenate({"'", n.name, "' declared but not used"}, context.temp_allocator)
 		testing.expect_value(t, server.check_error_severity(error, message, &cache), n.severity)

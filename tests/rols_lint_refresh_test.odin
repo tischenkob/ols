@@ -163,36 +163,28 @@ lint_refresh_unused_parameter_returns_when_sibling_drops_use :: proc(t: ^testing
 // relints a.odin. The relint finds the use in d.odin, written to disk without a notification, which shows it ran.
 @(test)
 lint_refresh_importer_change_relints_package :: proc(t: ^testing.T) {
-	with_package(
-		t,
-		B_UNRELATED,
-		proc(t: ^testing.T, pkg: ^Refresh_Package) {
-			testing.expect_value(t, unused_parameters_of_a(pkg), 1)
+	with_package(t, B_UNRELATED, proc(t: ^testing.T, pkg: ^Refresh_Package) {
+		testing.expect_value(t, unused_parameters_of_a(pkg), 1)
 
-			d_err := os.write_entire_file(file_path(pkg, "d.odin"), "package p\n\nd :: proc() { register(f) }\n")
-			if !testing.expectf(t, d_err == nil, "failed to write d.odin: %v", d_err) do return
-			q_dir := file_path(pkg, "q")
-			if !testing.expect(t, os.make_directory(q_dir) == nil) do return
-			c_path, _ := filepath.join({q_dir, "c.odin"}, context.temp_allocator)
-			c_uri := common.create_uri(c_path, context.temp_allocator).uri
-			c_text := "package q\n\nimport p \"..\"\n\nh :: proc() {}\n"
-			open_err := server.document_open(c_uri, strings.clone(c_text), &pkg.config, nil)
-			if !testing.expectf(t, open_err == .None, "failed to open c.odin: %v", open_err) do return
-			defer server.document_close(c_uri)
-			testing.expect_value(t, unused_parameters_of_a(pkg), 1)
+		d_err := os.write_entire_file(file_path(pkg, "d.odin"), "package p\n\nd :: proc() { register(f) }\n")
+		if !testing.expectf(t, d_err == nil, "failed to write d.odin: %v", d_err) do return
+		q_dir := file_path(pkg, "q")
+		if !testing.expect(t, os.make_directory(q_dir) == nil) do return
+		c_path, _ := filepath.join({q_dir, "c.odin"}, context.temp_allocator)
+		c_uri := common.create_uri(c_path, context.temp_allocator).uri
+		c_text := "package q\n\nimport p \"..\"\n\nh :: proc() {}\n"
+		open_err := server.document_open(c_uri, strings.clone(c_text), &pkg.config, nil)
+		if !testing.expectf(t, open_err == .None, "failed to open c.odin: %v", open_err) do return
+		defer server.document_close(c_uri)
+		testing.expect_value(t, unused_parameters_of_a(pkg), 1)
 
-			params_text := fmt.tprintf(
-				`{{"textDocument":{{"uri":"%s","version":2}},"contentChanges":[{{"text":%q}}]}}`,
-				c_uri,
-				"package q\n\nimport p \"..\"\n\nh :: proc() { p.register(p.f) }\n",
-			)
-			params, parse_err := json.parse_string(params_text, parse_integers = true, allocator = context.temp_allocator)
-			if !testing.expectf(t, parse_err == .None, "failed to parse didChange params: %v", parse_err) do return
-			change_err := server.notification_did_change(params, i64(0), &pkg.config, nil)
-			if !testing.expectf(t, change_err == .None, "didChange failed: %v", change_err) do return
-			testing.expect_value(t, unused_parameters_of_a(pkg), 0)
-		},
-	)
+		params_text := fmt.tprintf(`{{"textDocument":{{"uri":"%s","version":2}},"contentChanges":[{{"text":%q}}]}}`, c_uri, "package q\n\nimport p \"..\"\n\nh :: proc() { p.register(p.f) }\n")
+		params, parse_err := json.parse_string(params_text, parse_integers = true, allocator = context.temp_allocator)
+		if !testing.expectf(t, parse_err == .None, "failed to parse didChange params: %v", parse_err) do return
+		change_err := server.notification_did_change(params, i64(0), &pkg.config, nil)
+		if !testing.expectf(t, change_err == .None, "didChange failed: %v", change_err) do return
+		testing.expect_value(t, unused_parameters_of_a(pkg), 0)
+	})
 }
 
 @(test)

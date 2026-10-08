@@ -10,20 +10,36 @@ FILL_ALL_ACTION :: "Fill all fields"
 FILL_MISSING_ACTION :: "Fill missing fields"
 
 expect_fill :: proc(t: ^testing.T, action, main, expected: string) {
-	source := test.Source{main = main, config = {enable_code_action_fill_struct = true}}
+	source := test.Source {
+		main = main,
+		config = {enable_code_action_fill_struct = true},
+	}
 	test.expect_action_applied(t, &source, action, expected)
 }
 
-expect_no_fill :: proc(t: ^testing.T, main: string, config := test.Source{config = {enable_code_action_fill_struct = true}}.config) {
-	all := test.Source{main = main, config = config}
+expect_no_fill :: proc(
+	t: ^testing.T,
+	main: string,
+	config := test.Source{config = {enable_code_action_fill_struct = true}}.config,
+) {
+	all := test.Source {
+		main   = main,
+		config = config,
+	}
 	test.expect_action_missing(t, &all, FILL_ALL_ACTION)
-	missing := test.Source{main = main, config = config}
+	missing := test.Source {
+		main   = main,
+		config = config,
+	}
 	test.expect_action_missing(t, &missing, FILL_MISSING_ACTION)
 }
 
 @(test)
 fill_struct_all :: proc(t: ^testing.T) {
-	expect_fill(t, FILL_ALL_ACTION, `package test
+	expect_fill(
+		t,
+		FILL_ALL_ACTION,
+		`package test
 
 Kind :: enum { A, B }
 
@@ -48,7 +64,8 @@ main :: proc() {
 	o := Outer{{*}}
 	_ = o
 }
-`, `package test
+`,
+		`package test
 
 Kind :: enum { A, B }
 
@@ -84,12 +101,16 @@ main :: proc() {
 	}
 	_ = o
 }
-`)
+`,
+	)
 }
 
 @(test)
 fill_struct_missing_keeps_existing :: proc(t: ^testing.T) {
-	expect_fill(t, FILL_MISSING_ACTION, `package test
+	expect_fill(
+		t,
+		FILL_MISSING_ACTION,
+		`package test
 
 Point :: struct {
 	x, y: int,
@@ -100,7 +121,8 @@ main :: proc() {
 	p := Point{x = 1{*}}
 	_ = p
 }
-`, `package test
+`,
+		`package test
 
 Point :: struct {
 	x, y: int,
@@ -115,8 +137,12 @@ main :: proc() {
 	}
 	_ = p
 }
-`)
-	expect_fill(t, FILL_MISSING_ACTION, `package test
+`,
+	)
+	expect_fill(
+		t,
+		FILL_MISSING_ACTION,
+		`package test
 
 Point :: struct {
 	x, y: int,
@@ -130,7 +156,8 @@ main :: proc() {
 	}
 	_ = p
 }
-`, `package test
+`,
+		`package test
 
 Point :: struct {
 	x, y: int,
@@ -145,12 +172,16 @@ main :: proc() {
 	}
 	_ = p
 }
-`)
+`,
+	)
 }
 
 @(test)
 fill_struct_untyped_literal :: proc(t: ^testing.T) {
-	expect_fill(t, FILL_ALL_ACTION, `package test
+	expect_fill(
+		t,
+		FILL_ALL_ACTION,
+		`package test
 
 Point :: struct {
 	x, y: int,
@@ -160,7 +191,8 @@ main :: proc() {
 	p: Point = {{*}}
 	_ = p
 }
-`, `package test
+`,
+		`package test
 
 Point :: struct {
 	x, y: int,
@@ -173,7 +205,8 @@ main :: proc() {
 	}
 	_ = p
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -196,7 +229,9 @@ main :: proc() {
 	_ = a
 }
 `)
-	expect_no_fill(t, `package test
+	expect_no_fill(
+		t,
+		`package test
 
 Point :: struct {
 	x, y: int,
@@ -206,8 +241,11 @@ main :: proc() {
 	p := Point{x = 1, y = 2{*}}
 	_ = p
 }
-`)
-	expect_no_fill(t, `package test
+`,
+	)
+	expect_no_fill(
+		t,
+		`package test
 
 Point :: struct {
 	x, y: int,
@@ -217,12 +255,17 @@ main :: proc() {
 	p := Point{{*}}
 	_ = p
 }
-`, config = {})
+`,
+		config = {},
+	)
 }
 
 @(test)
 fill_struct_zero_values :: proc(t: ^testing.T) {
-	expect_fill(t, FILL_ALL_ACTION, `package test
+	expect_fill(
+		t,
+		FILL_ALL_ACTION,
+		`package test
 
 Value :: union {
 	int,
@@ -249,7 +292,8 @@ main :: proc() {
 	b := Big{{*}}
 	_ = b
 }
-`, `package test
+`,
+		`package test
 
 Value :: union {
 	int,
@@ -286,13 +330,17 @@ main :: proc() {
 	}
 	_ = b
 }
-`)
+`,
+	)
 }
 
 @(test)
 fill_struct_using_field :: proc(t: ^testing.T) {
 	// The members a `using` field brings in are filled through the field itself.
-	expect_fill(t, FILL_ALL_ACTION, `package test
+	expect_fill(
+		t,
+		FILL_ALL_ACTION,
+		`package test
 
 Base :: struct {
 	id: int,
@@ -307,7 +355,8 @@ main :: proc() {
 	d := Derived{{*}}
 	_ = d
 }
-`, `package test
+`,
+		`package test
 
 Base :: struct {
 	id: int,
@@ -325,7 +374,8 @@ main :: proc() {
 	}
 	_ = d
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -351,7 +401,11 @@ Point :: struct {
 		config = {enable_code_action_fill_struct = true},
 	}
 
-	test.expect_action_applied(t, &source, FILL_ALL_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		FILL_ALL_ACTION,
+		`package test
 
 import "core:geom"
 
@@ -363,12 +417,16 @@ main :: proc() {
 	}
 	_ = p
 }
-`)
+`,
+	)
 }
 
 @(test)
 fill_struct_parametric_type :: proc(t: ^testing.T) {
-	expect_fill(t, FILL_ALL_ACTION, `package test
+	expect_fill(
+		t,
+		FILL_ALL_ACTION,
+		`package test
 
 Pair :: struct($T: typeid) {
 	a: T,
@@ -379,7 +437,8 @@ main :: proc() {
 	p := Pair(int){{*}}
 	_ = p
 }
-`, `package test
+`,
+		`package test
 
 Pair :: struct($T: typeid) {
 	a: T,
@@ -393,5 +452,6 @@ main :: proc() {
 	}
 	_ = p
 }
-`)
+`,
+	)
 }

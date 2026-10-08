@@ -26,7 +26,11 @@ pick :: proc(c: bool) -> int {
 		config = {enable_code_action_unwrap = true},
 	}
 
-	test.expect_action_applied(t, &source, REMOVE_ELSE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		REMOVE_ELSE_ACTION,
+		`package test
 
 pick :: proc(c: bool) -> int {
 	if c {
@@ -35,7 +39,8 @@ pick :: proc(c: bool) -> int {
 	// fallback
 	return 2
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -58,7 +63,11 @@ main :: proc() {
 		config = {enable_code_action_unwrap = true},
 	}
 
-	test.expect_action_applied(t, &source, REMOVE_ELSE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		REMOVE_ELSE_ACTION,
+		`package test
 
 main :: proc() {
 	for i in 0 ..< 3 {
@@ -69,7 +78,8 @@ main :: proc() {
 		_ = x
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -158,7 +168,11 @@ main :: proc() {
 		config = {enable_code_action_unwrap = true},
 	}
 
-	test.expect_action_applied(t, &source, UNWRAP_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		UNWRAP_ACTION,
+		`package test
 
 main :: proc() {
 	c := true
@@ -166,7 +180,8 @@ main :: proc() {
 
 	_ = x
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -228,7 +243,11 @@ main :: proc() {
 		config = {enable_code_action_unwrap = true},
 	}
 
-	test.expect_action_applied(t, &source, REMOVE_ELSE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		REMOVE_ELSE_ACTION,
+		`package test
 
 main :: proc() {
 	for i in 0 ..< 3 {
@@ -238,7 +257,8 @@ main :: proc() {
 		foo(i)
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -257,7 +277,11 @@ pick :: proc(c: bool) -> int {
 		config = {enable_code_action_unwrap = true},
 	}
 
-	test.expect_action_applied(t, &source, REMOVE_ELSE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		REMOVE_ELSE_ACTION,
+		`package test
 
 pick :: proc(c: bool) -> int {
     if c {
@@ -265,7 +289,8 @@ pick :: proc(c: bool) -> int {
     }
     return 2
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -365,7 +390,11 @@ main :: proc() {
 		config = {enable_code_action_unwrap = true},
 	}
 
-	test.expect_action_applied(t, &source, UNWRAP_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		UNWRAP_ACTION,
+		`package test
 
 main :: proc() {
 	x := 1
@@ -373,7 +402,8 @@ main :: proc() {
 	_ = y
 	_ = x
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -393,13 +423,18 @@ main :: proc() {
 		config = {enable_code_action_unwrap = true},
 	}
 
-	test.expect_action_chain(t, &source, {UNWRAP_ACTION, UNWRAP_ACTION}, `package test
+	test.expect_action_chain(
+		t,
+		&source,
+		{UNWRAP_ACTION, UNWRAP_ACTION},
+		`package test
 
 main :: proc() {
 	y := 1
 	_ = y
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -460,14 +495,19 @@ main :: proc() {
 		config = {enable_code_action_unwrap = true},
 	}
 
-	test.expect_action_applied(t, &source, UNWRAP_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		UNWRAP_ACTION,
+		`package test
 
 main :: proc() {
     c := true
     x := 1
     _ = x
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -488,7 +528,11 @@ main :: proc() {
 		config = {enable_code_action_unwrap = true},
 	}
 
-	test.expect_action_applied(t, &source, UNWRAP_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		UNWRAP_ACTION,
+		`package test
 
 main :: proc() {
 	switch x {
@@ -497,7 +541,8 @@ main :: proc() {
 		_ = y
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -520,7 +565,7 @@ main :: proc() {
 @(test)
 action_unwrap_disabled :: proc(t: ^testing.T) {
 	source := test.Source {
-		main = `package test
+		main     = `package test
 
 main :: proc() {
 	{*}{
@@ -530,7 +575,7 @@ main :: proc() {
 }
 `,
 		packages = {},
-		config = {},
+		config   = {},
 	}
 
 	test.expect_action_missing(t, &source, UNWRAP_ACTION)
@@ -753,7 +798,11 @@ f :: proc(n: int) {
 		config = {enable_code_action_unwrap = true},
 	}
 
-	test.expect_action_applied(t, &source, UNWRAP_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		UNWRAP_ACTION,
+		`package test
 
 f :: proc(n: int) {
 	for i in 0 ..< n {
@@ -761,7 +810,8 @@ f :: proc(n: int) {
 		_ = y
 	}
 }
-`)
+`,
+	)
 }
 
 // A panic, an exit call or an if whose branches all return ends the body, so `return 2` would become unreachable.
@@ -770,7 +820,8 @@ action_unwrap_not_offered_when_body_ends_flow_before_statements :: proc(t: ^test
 	bodies := []string{"panic(\"no\")", "os.exit(1)", "if d {\n\t\t\treturn 1\n\t\t} else {\n\t\t\treturn 0\n\t\t}"}
 	for body in bodies {
 		source := test.Source {
-			main = strings.concatenate({`package test
+			main = strings.concatenate(
+				{`package test
 
 f :: proc(c, d: bool) -> int {
 	{*}if c {
@@ -778,7 +829,9 @@ f :: proc(c, d: bool) -> int {
 	}
 	return 2
 }
-`}, context.temp_allocator),
+`},
+				context.temp_allocator,
+			),
 			config = {enable_code_action_unwrap = true},
 		}
 
@@ -805,7 +858,11 @@ pick :: proc(c: bool) -> int {
 		config = {enable_code_action_unwrap = true},
 	}
 
-	test.expect_action_applied(t, &source, REMOVE_ELSE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		REMOVE_ELSE_ACTION,
+		`package test
 
 pick :: proc(c: bool) -> int {
 	x := 0
@@ -816,7 +873,8 @@ pick :: proc(c: bool) -> int {
 	x = y
 	return x
 }
-`)
+`,
+	)
 }
 
 // After the if, `y := 3` would redeclare the unwrapped y, and the deferred g would run after `return x`.
@@ -824,7 +882,9 @@ pick :: proc(c: bool) -> int {
 action_remove_else_refused_before_colliding_or_deferred_statements :: proc(t: ^testing.T) {
 	for else_body in ([]string{"y := 2\n\t\tx = y\n\t}\n\ty := 3\n\tx += y", "defer g()\n\t\tx = 2\n\t}\n\tx += 1"}) {
 		source := test.Source {
-			main = strings.concatenate({`package test
+			main = strings.concatenate(
+				{
+					`package test
 
 g :: proc() {}
 
@@ -833,10 +893,15 @@ pick :: proc(c: bool) -> int {
 	{*}if c {
 		return 1
 	} else {
-		`, else_body, `
+		`,
+					else_body,
+					`
 	return x
 }
-`}, context.temp_allocator),
+`,
+				},
+				context.temp_allocator,
+			),
 			config = {enable_code_action_unwrap = true},
 		}
 
@@ -862,7 +927,11 @@ f :: proc(c, d: bool) -> int {
 		config = {enable_code_action_unwrap = true},
 	}
 
-	test.expect_action_applied(t, &source, UNWRAP_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		UNWRAP_ACTION,
+		`package test
 
 f :: proc(c, d: bool) -> int {
 	x := 0
@@ -873,7 +942,8 @@ f :: proc(c, d: bool) -> int {
 	}
 	return x
 }
-`)
+`,
+	)
 }
 
 // A procedure named `exit` that returns does not end the flow.
@@ -900,7 +970,11 @@ exit :: proc() {}
 		config = {enable_code_action_unwrap = true},
 	}
 
-	test.expect_action_applied(t, &source, UNWRAP_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		UNWRAP_ACTION,
+		`package test
 
 import "lib"
 
@@ -910,7 +984,8 @@ f :: proc(c: bool) {
 	lib.exit()
 	x()
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -943,12 +1018,10 @@ stop :: proc() -> ! {
 
 @(test)
 action_unwrap_not_offered_on_else_if_with_init_or_else :: proc(t: ^testing.T) {
-	for chain in ([]string {
-		"} else {*}if y := 2; d {\n\t\tx = y\n\t}",
-		"} else {*}if d {\n\t\tx = 2\n\t} else {\n\t\tx = 3\n\t}",
-	}) {
+	for chain in ([]string{"} else {*}if y := 2; d {\n\t\tx = y\n\t}", "} else {*}if d {\n\t\tx = 2\n\t} else {\n\t\tx = 3\n\t}"}) {
 		source := test.Source {
-			main = strings.concatenate({`package test
+			main = strings.concatenate(
+				{`package test
 
 f :: proc(c, d: bool) -> int {
 	x := 0
@@ -957,7 +1030,9 @@ f :: proc(c, d: bool) -> int {
 	`, chain, `
 	return x
 }
-`}, context.temp_allocator),
+`},
+				context.temp_allocator,
+			),
 			config = {enable_code_action_unwrap = true},
 		}
 

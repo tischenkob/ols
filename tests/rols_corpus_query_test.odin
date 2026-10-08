@@ -21,7 +21,11 @@ document_symbol_names :: proc(symbols: []server.DocumentSymbol) -> []string {
 // Corpus: reduced, see docs/corpus-validation.md.
 @(test)
 skip_file_keeps_bsd_files_on_darwin :: proc(t: ^testing.T) {
-	testing.expectf(t, !server.skip_file("a_bsd.odin"), "odin builds *_bsd.odin on every host, but skip_file rejects it")
+	testing.expectf(
+		t,
+		!server.skip_file("a_bsd.odin"),
+		"odin builds *_bsd.odin on every host, but skip_file rejects it",
+	)
 }
 
 @(test)
@@ -103,28 +107,48 @@ E := 3
 F{*} :: [2]int{1, 2}
 `,
 	}
-	test.with_document(t, &source, proc(t: ^testing.T, src: ^test.Source, _: common.Range) {
-		expected := map[string]server.SymbolKind {
-			"P" = .Struct,
-			"A" = .Variable,
-			"B" = .Variable,
-			"C" = .Constant,
-			"D" = .Variable,
-			"E" = .Variable,
-			"F" = .Constant,
-		}
-		defer delete(expected)
-		symbols := server.get_document_symbols(src.document)
-		testing.expectf(t, len(symbols) == len(expected), "\nExpected %d symbols but received %v", len(expected), symbols)
-		for symbol in symbols {
-			testing.expectf(t, expected[symbol.name] == symbol.kind, "%s: expected %v, got %v", symbol.name, expected[symbol.name], symbol.kind)
-			// Upstream lists the fields a struct literal sets as its children.
-			if symbol.name == "C" || symbol.name == "D" {
-				ok := len(symbol.children) == 1 && symbol.children[0].name == "x" && symbol.children[0].kind == .Field
-				testing.expectf(t, ok, "%s: expected the child field x, got %v", symbol.name, symbol.children)
+	test.with_document(
+		t,
+		&source,
+		proc(t: ^testing.T, src: ^test.Source, _: common.Range) {
+			expected := map[string]server.SymbolKind {
+				"P" = .Struct,
+				"A" = .Variable,
+				"B" = .Variable,
+				"C" = .Constant,
+				"D" = .Variable,
+				"E" = .Variable,
+				"F" = .Constant,
 			}
-		}
-	})
+			defer delete(expected)
+			symbols := server.get_document_symbols(src.document)
+			testing.expectf(
+				t,
+				len(symbols) == len(expected),
+				"\nExpected %d symbols but received %v",
+				len(expected),
+				symbols,
+			)
+			for symbol in symbols {
+				testing.expectf(
+					t,
+					expected[symbol.name] == symbol.kind,
+					"%s: expected %v, got %v",
+					symbol.name,
+					expected[symbol.name],
+					symbol.kind,
+				)
+				// Upstream lists the fields a struct literal sets as its children.
+				if symbol.name == "C" || symbol.name == "D" {
+					ok :=
+						len(symbol.children) == 1 &&
+						symbol.children[0].name == "x" &&
+						symbol.children[0].kind == .Field
+					testing.expectf(t, ok, "%s: expected the child field x, got %v", symbol.name, symbol.children)
+				}
+			}
+		},
+	)
 }
 
 // Corpus: reduced, see docs/corpus-validation.md.
@@ -662,7 +686,7 @@ main :: proc() {
 @(test)
 document_symbols_list_when_not_imported_flag :: proc(t: ^testing.T) {
 	source := test.Source {
-		main        = `package test
+		main = `package test
 
 import "core:cfg"
 
@@ -670,7 +694,7 @@ when !cfg.FLAG {
 	a{*} :: proc() {}
 }
 `,
-		packages    = {{pkg = "cfg", source = "package cfg\n\nFLAG :: #config(FLAG, false)\n"}},
+		packages = {{pkg = "cfg", source = "package cfg\n\nFLAG :: #config(FLAG, false)\n"}},
 		collections = {"core" = "test"},
 	}
 	test.with_document(t, &source, proc(t: ^testing.T, src: ^test.Source, _: common.Range) {
@@ -690,18 +714,22 @@ index_file_skips_file_for_other_platform :: proc(t: ^testing.T) {
 h{*} :: proc() {}
 `,
 	}
-	test.with_document(t, &source, proc(t: ^testing.T, src: ^test.Source, _: common.Range) {
-		server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
-		// `_orca` is excluded on every host the tests run on.
-		uri := common.create_uri("test/x_orca.odin", context.temp_allocator)
-		server.index_file(uri, "package test\n\nonly_there :: proc() {}\n")
+	test.with_document(
+		t,
+		&source,
+		proc(t: ^testing.T, src: ^test.Source, _: common.Range) {
+			server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
+			// `_orca` is excluded on every host the tests run on.
+			uri := common.create_uri("test/x_orca.odin", context.temp_allocator)
+			server.index_file(uri, "package test\n\nonly_there :: proc() {}\n")
 
-		for _, pkg in server.indexer.index.collection.packages {
-			for name, symbol in pkg.symbols {
-				testing.expectf(t, symbol.uri != uri.uri, "the excluded file indexed %s", name)
+			for _, pkg in server.indexer.index.collection.packages {
+				for name, symbol in pkg.symbols {
+					testing.expectf(t, symbol.uri != uri.uri, "the excluded file indexed %s", name)
+				}
 			}
-		}
-	})
+		},
+	)
 }
 
 @(test)
@@ -718,7 +746,9 @@ config_directive_reads_define_before_default :: proc(t: ^testing.T) {
 
 	value, ok := server.resolve_config_directive({}, call, {})
 	testing.expect(t, ok && value == false, "the default applies without a define")
-	defines := map[string]string{"FLAG" = "true"}
+	defines := map[string]string {
+		"FLAG" = "true",
+	}
 	value, ok = server.resolve_config_directive({}, call, defines)
 	testing.expect(t, ok && value == true, "the define wins over the default")
 }

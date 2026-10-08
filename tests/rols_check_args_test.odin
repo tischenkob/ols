@@ -23,7 +23,7 @@ check_command_user_define_and_collection_win :: proc(t: ^testing.T) {
 	defines["A"] = "profile"
 	defines["B"] = "keep"
 	config := common.Config {
-		profile      = {defines = defines},
+		profile = {defines = defines},
 		checker_args = "-define:A=user -collection:x=/user",
 	}
 	cmd := server.check_command("pkg/", {"-collection:x=/profile", "-collection:y=/y"}, &config)
@@ -56,20 +56,18 @@ check_command_uses_file_flag_for_a_file :: proc(t: ^testing.T) {
 @(test)
 gate_config_drops_vet_flags_and_asks_for_every_error :: proc(t: ^testing.T) {
 	config := common.Config {
-		enable_checker_vet_shadowing         = true,
-		enable_checker_vet_unused_variables  = true,
-		enable_checker_vet_cast              = true,
-		enable_checker_vet_style             = true,
-		enable_checker_vet_semicolon         = true,
-		enable_checker_vet_tabs              = true,
-		enable_checker_strict_style          = true,
-		checker_args                         = "-no-entry-point -vet-style",
+		enable_checker_vet_shadowing        = true,
+		enable_checker_vet_unused_variables = true,
+		enable_checker_vet_cast             = true,
+		enable_checker_vet_style            = true,
+		enable_checker_vet_semicolon        = true,
+		enable_checker_vet_tabs             = true,
+		enable_checker_strict_style         = true,
+		checker_args                        = "-no-entry-point -vet-style",
 	}
 	gated := server.gate_config(config)
 	cmd := server.check_command("pkg/", nil, &gated)
-	for flag in ([?]string {
-			"-vet-shadowing", "-vet-unused-variables", "-vet-cast", "-vet-semicolon", "-vet-tabs", "-strict-style",
-		}) {
+	for flag in ([?]string{"-vet-shadowing", "-vet-unused-variables", "-vet-cast", "-vet-semicolon", "-vet-tabs", "-strict-style"}) {
 		testing.expect_value(t, slice.count(cmd, flag), 0)
 	}
 	// The user's own checker_args stay, repeated flags included once.

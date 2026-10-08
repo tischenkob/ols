@@ -137,11 +137,14 @@ fo{*}o :: proc(a: int) {
 
 @(test)
 generate_test_adds_the_testing_import :: proc(t: ^testing.T) {
-	source := generate_source(`package test
+	source := generate_source(
+		`package test
 
 fo{*}o :: proc(a: int) {
 }
-`, {{"main_test.odin", "package test\n\nhelper :: proc() {}\n"}})
+`,
+		{{"main_test.odin", "package test\n\nhelper :: proc() {}\n"}},
+	)
 	test.expect_action_applied_files(
 		t,
 		&source,
@@ -337,14 +340,17 @@ f{*} :: proc() -> tm.Time {
 		},
 	)
 	// An existing test file gets the import among its core imports.
-	existing := generate_source(`package test
+	existing := generate_source(
+		`package test
 
 import "core:time"
 
 f{*} :: proc() -> time.Time {
 	return {}
 }
-`, {{"main_test.odin", "package test\n\nimport \"core:testing\"\n"}})
+`,
+		{{"main_test.odin", "package test\n\nimport \"core:testing\"\n"}},
+	)
 	existing.packages = {{pkg = "time", source = "package time\nTime :: struct {\n\tnsec: i64,\n}\n"}}
 	test.expect_action_applied_files(
 		t,
@@ -362,20 +368,32 @@ f{*} :: proc() -> time.Time {
 @(test)
 generate_test_refused_when_a_qualified_zero_value_is_shadowed :: proc(t: ^testing.T) {
 	for alias in ([]string{"t", "testing", "result"}) {
-		main := strings.concatenate({"package test\n\nimport ", alias, " \"core:time\"\n\nf{*} :: proc() -> ", alias, ".Time {\n\treturn {}\n}\n"}, context.temp_allocator)
+		main := strings.concatenate(
+			{
+				"package test\n\nimport ",
+				alias,
+				" \"core:time\"\n\nf{*} :: proc() -> ",
+				alias,
+				".Time {\n\treturn {}\n}\n",
+			},
+			context.temp_allocator,
+		)
 		source := generate_source(main)
 		source.packages = {{pkg = "time", source = "package time\nTime :: struct {\n\tnsec: i64,\n}\n"}}
 		test.expect_action_missing(t, &source, "Generate test for f")
 	}
 	// The existing test file imports another package under the name the zero value needs.
-	source := generate_source(`package test
+	source := generate_source(
+		`package test
 
 import "core:time"
 
 f{*} :: proc() -> time.Time {
 	return {}
 }
-`, {{"main_test.odin", "package test\n\nimport \"core:testing\"\nimport time \"core:fmt\"\n"}})
+`,
+		{{"main_test.odin", "package test\n\nimport \"core:testing\"\nimport time \"core:fmt\"\n"}},
+	)
 	source.packages = {{pkg = "time", source = "package time\nTime :: struct {\n\tnsec: i64,\n}\n"}}
 	test.expect_action_missing(t, &source, "Generate test for f")
 }
@@ -383,7 +401,8 @@ f{*} :: proc() -> time.Time {
 // Corpus: manual check, repro2. A `$` nested in a parameter type makes the call `send(nil, {})` fail to compile.
 @(test)
 generate_test_refused_for_nested_poly_parameter :: proc(t: ^testing.T) {
-	source := generate_source(`package test
+	source := generate_source(
+		`package test
 
 Ctx :: struct($M: typeid) {
 	x: M,
@@ -392,7 +411,8 @@ Ctx :: struct($M: typeid) {
 se{*}nd :: proc(ctx: ^Ctx($Msg), m: Msg) {
 	ctx.x = m
 }
-`)
+`,
+	)
 	test.expect_action_missing(t, &source, "Generate test for send")
 }
 
@@ -465,7 +485,17 @@ f{*} :: proc() -> Outer {
 }
 `,
 	)
-	test.expect_action_applied_files(t, &source, "Generate test for f", {{"main_test.odin", "#+build !wasi\n#+build !js\n#+build !orca\n#+build !freestanding\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\t_ = f()\n\t// Not checked: testing.expect_value cannot compare `Outer`.\n}\n"}})
+	test.expect_action_applied_files(
+		t,
+		&source,
+		"Generate test for f",
+		{
+			{
+				"main_test.odin",
+				"#+build !wasi\n#+build !js\n#+build !orca\n#+build !freestanding\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\t_ = f()\n\t// Not checked: testing.expect_value cannot compare `Outer`.\n}\n",
+			},
+		},
+	)
 
 	any_result := generate_source(`package test
 
@@ -473,7 +503,17 @@ f{*} :: proc() -> (any, int) {
 	return nil, 0
 }
 `)
-	test.expect_action_applied_files(t, &any_result, "Generate test for f", {{"main_test.odin", "#+build !wasi\n#+build !js\n#+build !orca\n#+build !freestanding\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\t_, b := f()\n\t// Not checked: testing.expect_value cannot compare `any`.\n\ttesting.expect_value(t, b, 0)\n}\n"}})
+	test.expect_action_applied_files(
+		t,
+		&any_result,
+		"Generate test for f",
+		{
+			{
+				"main_test.odin",
+				"#+build !wasi\n#+build !js\n#+build !orca\n#+build !freestanding\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\t_, b := f()\n\t// Not checked: testing.expect_value cannot compare `any`.\n\ttesting.expect_value(t, b, 0)\n}\n",
+			},
+		},
+	)
 }
 
 // Corpus: review of the comparable fix. Neither `delete` nor `expect_value` accepts a fixed-capacity
@@ -486,7 +526,17 @@ f{*} :: proc() -> [dynamic; 4]int {
 	return {}
 }
 `)
-	test.expect_action_applied_files(t, &fixed_capacity, "Generate test for f", {{"main_test.odin", "#+build !wasi\n#+build !js\n#+build !orca\n#+build !freestanding\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\t_ = f()\n\t// Not checked: testing.expect_value cannot compare `[dynamic; 4]int`.\n}\n"}})
+	test.expect_action_applied_files(
+		t,
+		&fixed_capacity,
+		"Generate test for f",
+		{
+			{
+				"main_test.odin",
+				"#+build !wasi\n#+build !js\n#+build !orca\n#+build !freestanding\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\t_ = f()\n\t// Not checked: testing.expect_value cannot compare `[dynamic; 4]int`.\n}\n",
+			},
+		},
+	)
 
 	soa := generate_source(`package test
 
@@ -498,9 +548,20 @@ f{*} :: proc() -> #soa[4]P {
 	return {}
 }
 `)
-	test.expect_action_applied_files(t, &soa, "Generate test for f", {{"main_test.odin", "#+build !wasi\n#+build !js\n#+build !orca\n#+build !freestanding\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\t_ = f()\n\t// Not checked: testing.expect_value cannot compare `#soa[4]P`.\n}\n"}})
+	test.expect_action_applied_files(
+		t,
+		&soa,
+		"Generate test for f",
+		{
+			{
+				"main_test.odin",
+				"#+build !wasi\n#+build !js\n#+build !orca\n#+build !freestanding\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\t_ = f()\n\t// Not checked: testing.expect_value cannot compare `#soa[4]P`.\n}\n",
+			},
+		},
+	)
 
-	raw_union := generate_source(`package test
+	raw_union := generate_source(
+		`package test
 
 R :: struct #raw_union {
 	i: int,
@@ -510,8 +571,19 @@ R :: struct #raw_union {
 f{*} :: proc() -> R {
 	return {}
 }
-`)
-	test.expect_action_applied_files(t, &raw_union, "Generate test for f", {{"main_test.odin", "#+build !wasi\n#+build !js\n#+build !orca\n#+build !freestanding\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\t_ = f()\n\t// Not checked: testing.expect_value cannot compare `R`.\n}\n"}})
+`,
+	)
+	test.expect_action_applied_files(
+		t,
+		&raw_union,
+		"Generate test for f",
+		{
+			{
+				"main_test.odin",
+				"#+build !wasi\n#+build !js\n#+build !orca\n#+build !freestanding\npackage test\n\nimport \"core:testing\"\n\n@(test)\ntest_f :: proc(t: ^testing.T) {\n\t_ = f()\n\t// Not checked: testing.expect_value cannot compare `R`.\n}\n",
+			},
+		},
+	)
 }
 
 // A variadic parameter accepts no arguments, so the call leaves it out.
@@ -537,7 +609,8 @@ f{*} :: proc(n: int, xs: ..int) {
 
 @(test)
 generate_test_poly_struct_result :: proc(t: ^testing.T) {
-	source := generate_source(`package test
+	source := generate_source(
+		`package test
 
 Box :: struct($T: typeid) {
 	v: T,
@@ -546,7 +619,8 @@ Box :: struct($T: typeid) {
 f{*} :: proc() -> Box(int) {
 	return {}
 }
-`)
+`,
+	)
 	test.expect_action_applied_files(
 		t,
 		&source,
@@ -563,7 +637,9 @@ f{*} :: proc() -> Box(int) {
 // Corpus: host sweep, host_gentest. The indentation comes from code, not from the lines of a raw string.
 @(test)
 generate_test_ignores_raw_string_indentation :: proc(t: ^testing.T) {
-	source := generate_source("package test\n\nMSG :: `header\n  indented line\n`\n\nfo{*}o :: proc(x: int) -> int {\n\treturn x\n}\n")
+	source := generate_source(
+		"package test\n\nMSG :: `header\n  indented line\n`\n\nfo{*}o :: proc(x: int) -> int {\n\treturn x\n}\n",
+	)
 	test.expect_action_applied_files(
 		t,
 		&source,
@@ -613,7 +689,8 @@ fo{*}o :: proc(a: int) {
 // The test file cannot name a type private to the source file, so `Point{}` would not compile there.
 @(test)
 generate_test_refused_for_file_private_result_type :: proc(t: ^testing.T) {
-	source := generate_source(`package test
+	source := generate_source(
+		`package test
 
 @(private = "file")
 Point :: struct {
@@ -623,6 +700,7 @@ Point :: struct {
 fo{*}o :: proc() -> [2]Point {
 	return {}
 }
-`)
+`,
+	)
 	test.expect_action_missing(t, &source, "Generate test for foo")
 }

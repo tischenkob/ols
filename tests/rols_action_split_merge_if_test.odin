@@ -23,7 +23,11 @@ main :: proc() {
 		config = {enable_code_action_split_merge_if = true},
 	}
 
-	test.expect_action_applied(t, &source, SPLIT_IF_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		SPLIT_IF_ACTION,
+		`package test
 
 main :: proc() {
 	a, b := true, false
@@ -33,7 +37,8 @@ main :: proc() {
 		}
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -52,7 +57,11 @@ main :: proc() {
 		config = {enable_code_action_split_merge_if = true},
 	}
 
-	test.expect_action_applied(t, &source, SPLIT_IF_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		SPLIT_IF_ACTION,
+		`package test
 
 main :: proc() {
 	b := true
@@ -62,7 +71,8 @@ main :: proc() {
 		}
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -81,7 +91,11 @@ main :: proc() {
 		config = {enable_code_action_split_merge_if = true},
 	}
 
-	test.expect_action_applied(t, &source, SPLIT_IF_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		SPLIT_IF_ACTION,
+		`package test
 
 main :: proc() {
 	a, b, c := true, false, true
@@ -91,7 +105,8 @@ main :: proc() {
 		}
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -110,7 +125,11 @@ main :: proc() {
 		config = {enable_code_action_split_merge_if = true},
 	}
 
-	test.expect_action_applied(t, &source, SPLIT_IF_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		SPLIT_IF_ACTION,
+		`package test
 
 main :: proc() {
 	a, b, c := true, false, true
@@ -120,7 +139,8 @@ main :: proc() {
 		}
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -184,7 +204,11 @@ main :: proc() {
 		config = {enable_code_action_split_merge_if = true},
 	}
 
-	test.expect_action_applied(t, &source, MERGE_IF_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		MERGE_IF_ACTION,
+		`package test
 
 main :: proc() {
 	a, b := true, false
@@ -195,7 +219,8 @@ main :: proc() {
 		bar()
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -216,7 +241,11 @@ main :: proc() {
 		config = {enable_code_action_split_merge_if = true},
 	}
 
-	test.expect_action_applied(t, &source, MERGE_IF_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		MERGE_IF_ACTION,
+		`package test
 
 main :: proc() {
 	a, b, c := true, false, true
@@ -224,7 +253,8 @@ main :: proc() {
 		bar(x)
 	}
 }
-`)
+`,
+	)
 }
 
 // Odin rejects an unparenthesised `or_return` operand of a binary expression.
@@ -519,7 +549,11 @@ main :: proc() {
 		config = {enable_code_action_split_merge_if = true},
 	}
 
-	test.expect_action_chain(t, &source, {SPLIT_IF_ACTION, SPLIT_IF_ACTION}, `package test
+	test.expect_action_chain(
+		t,
+		&source,
+		{SPLIT_IF_ACTION, SPLIT_IF_ACTION},
+		`package test
 
 main :: proc() {
 	a, b, c := true, false, true
@@ -531,7 +565,8 @@ main :: proc() {
 		}
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -553,7 +588,11 @@ main :: proc() {
 		config = {enable_code_action_split_merge_if = true},
 	}
 
-	test.expect_action_chain(t, &source, {MERGE_IF_ACTION, MERGE_IF_ACTION}, `package test
+	test.expect_action_chain(
+		t,
+		&source,
+		{MERGE_IF_ACTION, MERGE_IF_ACTION},
+		`package test
 
 main :: proc() {
 	a, b, c := true, false, true
@@ -561,7 +600,8 @@ main :: proc() {
 		foo()
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -659,13 +699,13 @@ main :: proc() {
 @(test)
 action_split_merge_if_refused_label :: proc(t: ^testing.T) {
 	source := test.Source {
-		main   = LABELLED_IF,
+		main = LABELLED_IF,
 		config = {enable_code_action_split_merge_if = true},
 	}
 	test.expect_action_missing(t, &source, SPLIT_IF_ACTION)
 
 	source2 := test.Source {
-		main   = LABELLED_IF,
+		main = LABELLED_IF,
 		config = {enable_code_action_split_merge_if = true},
 	}
 	test.expect_action_missing(t, &source2, MERGE_IF_ACTION)

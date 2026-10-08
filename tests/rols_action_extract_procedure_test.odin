@@ -24,7 +24,11 @@ main :: proc() {
 		config = {enable_code_action_extract_procedure = true},
 	}
 
-	test.expect_action_applied(t, &source, EXTRACT_PROCEDURE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_PROCEDURE_ACTION,
+		`package test
 
 foo :: proc(x: int) {
 }
@@ -38,7 +42,8 @@ extracted :: proc() {
 	foo(1)
 	foo(2)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -59,7 +64,11 @@ main :: proc() {
 		config = {enable_code_action_extract_procedure = true},
 	}
 
-	test.expect_action_applied(t, &source, EXTRACT_PROCEDURE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_PROCEDURE_ACTION,
+		`package test
 
 foo :: proc(x: int, y: f32) {
 }
@@ -73,7 +82,8 @@ main :: proc() {
 extracted :: proc(x: int, y: f32) {
 	foo(x, y)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -94,7 +104,11 @@ main :: proc() {
 		config = {enable_code_action_extract_procedure = true},
 	}
 
-	test.expect_action_applied(t, &source, EXTRACT_PROCEDURE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_PROCEDURE_ACTION,
+		`package test
 
 use :: proc(a: int, b: f64) {
 }
@@ -109,7 +123,8 @@ extracted :: proc() -> (int, f64) {
 	b := 2.0
 	return a, b
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -133,7 +148,11 @@ main :: proc(p: Point, q: ^Point) {
 		config = {enable_code_action_extract_procedure = true},
 	}
 
-	test.expect_action_applied(t, &source, EXTRACT_PROCEDURE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_PROCEDURE_ACTION,
+		`package test
 
 Point :: struct {
 	x: int,
@@ -150,7 +169,8 @@ extracted :: proc(p: Point, q: ^Point) {
 	use(p, q)
 	use(p, q)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -172,7 +192,11 @@ main :: proc() {
 		config = {enable_code_action_extract_procedure = true},
 	}
 
-	test.expect_action_applied(t, &source, EXTRACT_PROCEDURE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_PROCEDURE_ACTION,
+		`package test
 
 use :: proc(s: []int, m: map[string]int) {
 }
@@ -187,7 +211,8 @@ main :: proc() {
 extracted :: proc(s: []int, m: map[string]int) {
 	use(s, m)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -208,7 +233,11 @@ main :: proc() {
 		config = {enable_code_action_extract_procedure = true},
 	}
 
-	test.expect_action_applied(t, &source, EXTRACT_PROCEDURE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_PROCEDURE_ACTION,
+		`package test
 
 main :: proc() {
 	x := true
@@ -222,7 +251,8 @@ extracted :: proc(x: bool) {
 		}
 	}
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -343,7 +373,11 @@ main :: proc() {
 		config = {enable_code_action_extract_procedure = true, enable_code_action_inline_proc = true},
 	}
 
-	test.expect_action_chain(t, &source, {EXTRACT_PROCEDURE_ACTION, INLINE_PROC_ACTION}, `package test
+	test.expect_action_chain(
+		t,
+		&source,
+		{EXTRACT_PROCEDURE_ACTION, INLINE_PROC_ACTION},
+		`package test
 
 use :: proc(a: int, b: int) {
 }
@@ -361,7 +395,8 @@ extracted :: proc(a: int, b: int) {
 	use(a, b)
 	use(b, a)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -380,7 +415,11 @@ main :: proc() {
 		config = {enable_code_action_extract_procedure = true},
 	}
 
-	test.expect_action_applied(t, &source, EXTRACT_PROCEDURE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_PROCEDURE_ACTION,
+		`package test
 
 use :: proc(a: int) {
 }
@@ -394,7 +433,8 @@ extracted :: proc() -> int {
 	a := 1
 	return a
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -433,7 +473,11 @@ main :: proc() {
 		config = {enable_code_action_extract_procedure = true, enable_code_action_inline_proc = true},
 	}
 
-	test.expect_action_chain(t, &source, {EXTRACT_PROCEDURE_ACTION, INLINE_PROC_ACTION}, `package test
+	test.expect_action_chain(
+		t,
+		&source,
+		{EXTRACT_PROCEDURE_ACTION, INLINE_PROC_ACTION},
+		`package test
 
 run :: proc(f: proc()) {
 }
@@ -451,7 +495,8 @@ extracted :: proc() {
 		return
 	})
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -469,7 +514,11 @@ main :: proc() {
 		config = {enable_code_action_extract_procedure = true, enable_code_action_inline_proc = true},
 	}
 
-	test.expect_action_chain(t, &source, {EXTRACT_PROCEDURE_ACTION, INLINE_PROC_ACTION}, `package test
+	test.expect_action_chain(
+		t,
+		&source,
+		{EXTRACT_PROCEDURE_ACTION, INLINE_PROC_ACTION},
+		`package test
 
 foo :: proc(x: int) {
 }
@@ -483,7 +532,8 @@ main :: proc() {
 extracted :: proc() {
 	foo(context.user_index)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -503,7 +553,11 @@ f :: proc() -> (n: int) {
 		config = {enable_code_action_extract_procedure = true},
 	}
 
-	test.expect_action_applied(t, &source, EXTRACT_PROCEDURE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_PROCEDURE_ACTION,
+		`package test
 
 use :: proc(x: int) {
 }
@@ -517,7 +571,8 @@ f :: proc() -> (n: int) {
 extracted :: proc(n: int) {
 	use(n)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -535,7 +590,11 @@ main :: proc() {
 		config = {enable_code_action_extract_procedure = true},
 	}
 
-	test.expect_action_applied(t, &source, EXTRACT_PROCEDURE_ACTION, `package test
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_PROCEDURE_ACTION,
+		`package test
 
 foo :: proc(x: int) {
 }
@@ -547,7 +606,8 @@ main :: proc() {
 extracted :: proc() {
 	foo(1)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -566,7 +626,11 @@ main :: proc() {
 		config = {enable_code_action_extract_procedure = true, enable_code_action_inline_proc = true},
 	}
 
-	test.expect_action_chain(t, &source, {EXTRACT_PROCEDURE_ACTION, INLINE_PROC_ACTION}, `package test
+	test.expect_action_chain(
+		t,
+		&source,
+		{EXTRACT_PROCEDURE_ACTION, INLINE_PROC_ACTION},
+		`package test
 
 foo :: proc(x: int) {
 }
@@ -582,7 +646,8 @@ extracted :: proc() {
 	foo(1)
 	foo(2)
 }
-`)
+`,
+	)
 }
 
 @(test)
@@ -602,7 +667,11 @@ main :: proc() {
 		config = {enable_code_action_extract_procedure = true, enable_code_action_inline_proc = true},
 	}
 
-	test.expect_action_chain(t, &source, {EXTRACT_PROCEDURE_ACTION, INLINE_PROC_ACTION}, `package test
+	test.expect_action_chain(
+		t,
+		&source,
+		{EXTRACT_PROCEDURE_ACTION, INLINE_PROC_ACTION},
+		`package test
 
 foo :: proc(x: int) {
 }
@@ -620,5 +689,6 @@ extracted :: proc() {
 	// why
 	foo(2)
 }
-`)
+`,
+	)
 }

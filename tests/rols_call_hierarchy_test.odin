@@ -130,13 +130,17 @@ main :: proc() {
 }
 `,
 	}
-	test.expect_implementation_locations(t, &source, {{range = {start = {line = 1, character = 0}, end = {line = 1, character = 3}}}})
+	test.expect_implementation_locations(
+		t,
+		&source,
+		{{range = {start = {line = 1, character = 0}, end = {line = 1, character = 3}}}},
+	)
 }
 
 @(test)
 implementation_finds_group_in_another_file :: proc(t: ^testing.T) {
 	source := test.Source {
-		main = `package test
+		main  = `package test
 foo :: proc(x: int) {}
 
 main :: proc() {

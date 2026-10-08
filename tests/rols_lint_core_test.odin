@@ -183,18 +183,14 @@ main :: proc() {
 `,
 			{},
 		},
-		{
-			"floor on a float",
-			`package test
+		{"floor on a float", `package test
 
 import "math"
 
 main :: proc(x: f32) {
 	math.floor(f32(x))
 }
-`,
-			{},
-		},
+`, {}},
 		{
 			"rounding a division is not a converted integer",
 			`package test
@@ -255,14 +251,16 @@ main :: proc() {
 
 @(test)
 lint_fix_replace_count_extra_args :: proc(t: ^testing.T) {
-	src := source(`package test
+	src := source(
+		`package test
 
 import "strings"
 
 main :: proc() {
 	s, _ := strings.rep{*}lace("a", "b", "c", -1, context.temp_allocator)
 }
-`)
+`,
+	)
 
 	test.expect_action_applied(
 		t,

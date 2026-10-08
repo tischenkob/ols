@@ -459,7 +459,10 @@ absolute_new :: proc(p: string) -> string {
 	full := p if filepath.is_abs(p) else path.join({cwd, p}, context.temp_allocator)
 	full, _ = filepath.replace_separators(full, '/', context.temp_allocator)
 	full = path.clean(full, context.temp_allocator)
-	return path.join({server.canonical_dir(path.dir(full, context.temp_allocator)), path.base(full)}, context.temp_allocator)
+	return path.join(
+		{server.canonical_dir(path.dir(full, context.temp_allocator)), path.base(full)},
+		context.temp_allocator,
+	)
 }
 
 // FILE:LINE:COL or FILE:LINE:COL-LINE:COL, parsed from the right so the file may contain colons.

@@ -237,7 +237,8 @@ inline_expression :: proc(
 			}
 		}
 		if len(use.parents) > 0 {
-			if unary, is_unary := use.parents[len(use.parents) - 1].derived.(^ast.Unary_Expr); is_unary && unary.op.kind == .And {
+			if unary, is_unary := use.parents[len(use.parents) - 1].derived.(^ast.Unary_Expr);
+			   is_unary && unary.op.kind == .And {
 				return
 			}
 		}

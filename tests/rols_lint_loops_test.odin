@@ -350,7 +350,11 @@ same :: proc(text: string) {
 	}
 
 	// Indexing the bounded collection itself without a guard still runs one past the end.
-	test.expect_lint_diagnostics(t, &source, {{16, "range-off-by-one"}, {19, "range-off-by-one"}, {23, "range-off-by-one"}})
+	test.expect_lint_diagnostics(
+		t,
+		&source,
+		{{16, "range-off-by-one"}, {19, "range-off-by-one"}, {23, "range-off-by-one"}},
+	)
 }
 
 @(test)
