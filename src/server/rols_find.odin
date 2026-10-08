@@ -13,7 +13,7 @@ import "src:common"
 
 // One match of `ols query find`: the LSP WorkspaceSymbol fields, and whether the declaration is private
 // (`@(private)`, `@(private = "file")` or a `#+private` file) or sits in a file that the current target does
-// not build or in a `when` branch that the editor's target does not take (see inactive_when_decls).
+// not build.
 Find_Symbol :: struct {
 	name:          string,
 	kind:          SymbolKind,
@@ -105,31 +105,21 @@ Find_Hit :: struct {
 // The declarations of the workspace whose names match query, best match first, at most limit. Unlike the
 // workspace symbols of the LSP, which come from the index of the current target, it reads every .odin file, so
 // it also reports private declarations and those of files that only another target builds. A file that no
-// target builds (`#+build ignore`) and one that does not parse are left out. `when` conditions evaluate for the
-// target of checker_args, its `-target:` else the host, with the builtins that set_when_target seeds.
+// target builds (`#+build ignore`) and one that does not parse are left out.
 find_symbols :: proc(query: string, config: ^common.Config, limit := 100) -> []Find_Symbol {
 	matchers := make([dynamic]^common.FuzzyMatcher, context.temp_allocator)
 	for field in strings.fields(query, context.temp_allocator) {
 		append(&matchers, common.make_fuzzy_matcher(field))
 	}
 	base := base_target(config.checker_args)
-	saved_when := set_when_target(config)
-	defer restore_when_target(saved_when)
 
-	// One arena holds a parsed file, the other the `when` tables of the package directory.
-	arena, package_arena: virtual.Arena
+	arena: virtual.Arena
 	if virtual.arena_init_growing(&arena) != nil do return {}
 	defer virtual.arena_destroy(&arena)
-	if virtual.arena_init_growing(&package_arena) != nil do return {}
-	defer virtual.arena_destroy(&package_arena)
 
 	hits := make([dynamic]Find_Hit, context.temp_allocator)
 	for dir in workspace_package_dirs(config) {
 		files, _ := filepath.glob(fmt.tprintf("%v/*.odin", dir), context.temp_allocator)
-		pkg := When_Package {
-			files     = files,
-			allocator = virtual.arena_allocator(&package_arena),
-		}
 		for file in files {
 			data, err := os.read_entire_file(file, context.temp_allocator)
 			if err != nil do continue
@@ -145,14 +135,12 @@ find_symbols :: proc(query: string, config: ^common.Config, limit := 100) -> []F
 			if parsed, parsed_ok := parse_syntax(file, text); parsed_ok {
 				private_file := parser.parse_file_tags(parsed, context.allocator).private != .Public
 				uri := common.create_uri(file, context.temp_allocator).uri
-				inactive := inactive_when_decls(&parsed, &pkg)
 				for stmt in parsed.decls {
-					collect_find_hits(&hits, matchers[:], stmt, &parsed, uri, private_file, other_platform, inactive)
+					collect_find_hits(&hits, matchers[:], stmt, &parsed, uri, private_file, other_platform)
 				}
 			}
 			virtual.arena_free_all(&arena)
 		}
-		virtual.arena_free_all(&package_arena)
 	}
 
 	slice.sort_by(hits[:], proc(a, b: Find_Hit) -> bool {
@@ -221,7 +209,6 @@ collect_find_hits :: proc(
 	file: ^ast.File,
 	uri: string,
 	private_file, other_platform: bool,
-	inactive: map[^ast.Value_Decl]struct{},
 ) {
 	if stmt == nil do return
 	#partial switch s in stmt.derived {
@@ -239,21 +226,21 @@ collect_find_hits :: proc(
 						kind = find_kind(s, i),
 						location = {uri = uri, range = common.get_token_range(ident, file.src)},
 						private = private,
-						otherPlatform = other_platform || s in inactive,
+						otherPlatform = other_platform,
 					},
 					score = score,
 				},
 			)
 		}
 	case ^ast.When_Stmt:
-		collect_find_hits(hits, matchers, s.body, file, uri, private_file, other_platform, inactive)
-		collect_find_hits(hits, matchers, s.else_stmt, file, uri, private_file, other_platform, inactive)
+		collect_find_hits(hits, matchers, s.body, file, uri, private_file, other_platform)
+		collect_find_hits(hits, matchers, s.else_stmt, file, uri, private_file, other_platform)
 	case ^ast.Block_Stmt:
 		for inner in s.stmts {
-			collect_find_hits(hits, matchers, inner, file, uri, private_file, other_platform, inactive)
+			collect_find_hits(hits, matchers, inner, file, uri, private_file, other_platform)
 		}
 	case ^ast.Foreign_Block_Decl:
-		collect_find_hits(hits, matchers, s.body, file, uri, private_file, other_platform, inactive)
+		collect_find_hits(hits, matchers, s.body, file, uri, private_file, other_platform)
 	}
 }
 

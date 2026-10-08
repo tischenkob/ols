@@ -18,19 +18,14 @@ Test_Proc :: struct {
 // Every @(test) procedure of the package at dir, or of one .odin file, in file then line order. Only the
 // files that `odin test` builds count: not `#+build ignore`, and not those that name or tag another target
 // than the one of checker_args, else the host. A file named as the target counts whatever its name says, since
-// `odin test FILE -file` reads only its tags. A test in a `when` branch that the target does not take (see
-// inactive_when_decls, evaluated for the same target, with ODIN_TEST true) does not count either.
+// `odin test FILE -file` reads only its tags.
 find_tests :: proc(target: string, config: ^common.Config) -> []Test_Proc {
 	// The parsed files are not freed.
 	context.allocator = context.temp_allocator
-	saved_when := set_when_target(config, testing = true)
-	defer restore_when_target(saved_when)
 	files := []string{target}
-	// `odin test FILE -file` builds the file alone, so only a directory brings the constants of other files.
-	pkg: ^When_Package
-	if os.is_directory(target) {
+	is_dir := os.is_directory(target)
+	if is_dir {
 		files, _ = filepath.glob(fmt.tprintf("%s/*.odin", target), context.temp_allocator)
-		pkg = new_clone(When_Package{files = files, allocator = context.temp_allocator})
 	}
 
 	tests := make([dynamic]Test_Proc, context.temp_allocator)
@@ -38,14 +33,12 @@ find_tests :: proc(target: string, config: ^common.Config) -> []Test_Proc {
 	for file in files {
 		data, err := os.read_entire_file(file, context.temp_allocator)
 		if err != nil do continue
-		builds :=
-			builds_on(file, string(data), built_on) if pkg != nil else tags_build_on(file, string(data), built_on)
+		builds := builds_on(file, string(data), built_on) if is_dir else tags_build_on(file, string(data), built_on)
 		if !builds do continue
 		// Only the syntax tree counts: parse_package_file would also index the packages the file imports.
 		parsed := parse_syntax(file, string(data)) or_continue
-		inactive := inactive_when_decls(&parsed, pkg)
 		for decl, attributes in top_level_decls(parsed) {
-			if decl in inactive || !slice.contains(attribute_names(attributes), "test") do continue
+			if !slice.contains(attribute_names(attributes), "test") do continue
 			for name in decl.names {
 				append(&tests, Test_Proc{node_to_string(name), file, name.pos.line, name.pos.column, parsed.pkg_name})
 			}

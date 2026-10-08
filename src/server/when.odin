@@ -105,7 +105,7 @@ register_when_consts_from_globals :: proc(
 }
 
 resolve_when_ident :: proc(when_expr_map: map[string]When_Expr, ident: string) -> (When_Expr, bool) {
-	// rols: the CLI evaluates ODIN_OS and ODIN_ARCH for the -target: of checker_args (set_when_target).
+	// rols: ODIN_OS and ODIN_ARCH of the target that collects or evaluates this file (when_target_ident).
 	if value, ok := when_target_ident(ident); ok do return value, true
 	switch ident {
 	case "ODIN_OS":
@@ -301,8 +301,7 @@ active_when_block :: proc(
 	return get_when_block_stmt(stmt, consts)
 }
 
-// rols: `#config(NAME, default)` reads the define NAME, then the default. A `-define:` of checker_args in a CLI
-// query (set_when_target) wins over `defines`.
+// rols: `#config(NAME, default)` reads the define NAME, then the default.
 resolve_config_directive :: proc(
 	when_expr_map: map[string]When_Expr,
 	call: ^ast.Call_Expr,
@@ -314,9 +313,7 @@ resolve_config_directive :: proc(
 	directive, is_directive := call.expr.derived.(^ast.Basic_Directive)
 	if !is_directive || directive.name != "config" || len(call.args) != 2 do return {}, false
 	if name, is_ident := call.args[0].derived.(^ast.Ident); is_ident {
-		value, defined := when_defines[name.name]
-		if !defined do value, defined = defines[name.name]
-		if defined {
+		if value, defined := defines[name.name]; defined {
 			return resolve_when_ident(when_expr_map, value)
 		}
 	}
