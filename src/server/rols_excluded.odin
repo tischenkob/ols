@@ -259,9 +259,11 @@ set_file_target :: proc(
 }
 
 // The target that builds fullpath when the host does not. A lookup asks once per identifier, so the answer is kept
-// until a reindex or removal of the file, a parse of its document, or a change of the host.
+// until a reindex or removal of the file, a parse of its document, or a change of the host. Every lookup into and
+// build of the collections of other targets asks this first, so with enable_excluded_file_targets off there is none.
 file_target :: proc(fullpath: string) -> (parser.Build_Target, bool) {
-	if fullpath == "" {
+	config := indexer.index.collection.config
+	if fullpath == "" || config == nil || !config.enable_excluded_file_targets {
 		return {}, false
 	}
 	host := host_target()

@@ -258,6 +258,7 @@ diff <(git show upstream/master:misc/ols.schema.json | grep -o '"enable_[a-z_]*"
 ### Other (6)
 
 - `enable_code_lens_references`
+- `enable_excluded_file_targets`
 - `enable_organize_imports_on_save`
 - `enable_range_format`
 - `enable_selection_range`
