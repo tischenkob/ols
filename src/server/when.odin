@@ -38,6 +38,9 @@ when_ast_context: ^AstContext
 make_when_expr_map :: proc(defines := common.config.profile.defines) -> map[string]When_Expr {
 	when_expr_map := make(map[string]When_Expr, context.temp_allocator)
 
+	// rols: a define that reads an unknown name must not mark the caller's evaluation as a guess.
+	saved_guessed := when_guessed
+	defer when_guessed = saved_guessed
 	for key, value in defines {
 		resolved := resolve_when_ident(when_expr_map, value) or_continue
 		if b, is_bool := resolved.(bool); is_bool && !b {
@@ -70,7 +73,7 @@ register_when_const :: proc(when_expr_map: ^map[string]When_Expr, name: string, 
 	saved_guessed := when_guessed
 	when_guessed = false
 	resolved, ok := resolve_when_expr(when_expr_map^, value)
-	guessed := when_guessed
+	guessed := when_guessed || when_branch_guessed
 	when_guessed = saved_guessed
 	if !ok {
 		return
