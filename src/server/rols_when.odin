@@ -123,7 +123,8 @@ host_fallback :: proc(ast_context: ^AstContext, node: ast.Ident, fallback: Maybe
 	if !open_in_pkg do return {}, false
 	probe := node
 	probe.pos.file = ast_context.file.fullpath
-	open_file, _ := node_file(ast_context, probe)
+	open_file, has_open := node_file(ast_context, probe)
+	if !has_open do return {}, false
 	for &global in branch_globals(ast_context, open_file, node.name) {
 		if .Ruled_Out in global.flags do continue
 		if ok do return symbol, true
@@ -356,6 +357,24 @@ when_selector_key :: proc(pkg, name: string) -> string {
 @(thread_local)
 when_guessed: bool
 
+// rols: set while collect_when_stmt collects a branch that it picked through a guess, so register_when_const
+// stores each constant of the branch as a guess.
+@(thread_local)
+when_branch_guessed: bool
+
+// Whether the branch of when_decl that get_when_block_stmt picks depends on a condition that is not known: that
+// condition or one before it in the chain.
+when_pick_guessed :: proc(when_decl: ^ast.When_Stmt, when_expr_map: map[string]When_Expr) -> bool {
+	for branch := when_decl; branch != nil; {
+		value, known := when_condition_known(branch.cond, when_expr_map)
+		if !known do return true
+		if value do return false
+		if branch.else_stmt == nil do break
+		branch, _ = branch.else_stmt.derived.(^ast.When_Stmt)
+	}
+	return false
+}
+
 // The stored values of a constant whose fold is a guess, which `resolve_when_expr` reads back as one. Nothing
 // writes to them.
 @(private = "file")
@@ -385,9 +404,8 @@ when_logic :: proc(when_expr_map: map[string]When_Expr, expr: ^ast.Binary_Expr) 
 	values, bools, guesses: [2]bool
 	for operand, i in ([2]^ast.Expr{expr.left, expr.right}) {
 		when_guessed = false
-		value, ok := resolve_when_expr(when_expr_map, operand)
+		value, _ := resolve_when_expr(when_expr_map, operand)
 		values[i], bools[i] = value.(bool)
-		bools[i] &&= ok
 		guesses[i] = when_guessed
 	}
 	when_guessed = outer

@@ -70,6 +70,36 @@ active_code_reaches_declaration_of_unknown_branch :: proc(t: ^testing.T) {
 	}
 }
 
+// A constant that a branch picked through a guess declares is a guess too, so a `when` that reads it keeps its
+// declaration reachable.
+@(test)
+active_code_reaches_declaration_under_constant_of_guessed_branch :: proc(t: ^testing.T) {
+	Case :: struct {
+		decls, condition: string,
+	}
+	cases := [?]Case {
+		{"LEVEL :: 2\n} else {\n\tLEVEL :: 0", "LEVEL > 1"},
+		{"CHECKS :: true\n} else {\n\tCHECKS :: false", "CHECKS"},
+		{"OUTER :: true\n\twhen OUTER {\n\t\tINNER :: true\n\t}\n} else {\n\tINNER :: false", "INNER"},
+	}
+	for c in cases {
+		source := test.Source {
+			main  = "package test\n\nmain :: proc() {\n\tx := MAY{*}BE\n}\n",
+			files = {
+				{
+					"b.odin",
+					fmt.tprintf(
+						"package test\n\nwhen ODIN_DEBUG {{\n\t%s\n}}\n\nwhen %s {{\n\tMAYBE :: 1\n}}\n",
+						c.decls,
+						c.condition,
+					),
+				},
+			},
+		}
+		test.expect_hover(t, &source, "test.MAYBE :: 1")
+	}
+}
+
 // Of several fallbacks of one name, one in a branch that the host may take keeps the name reachable, in the same
 // file or in another one, whichever the index reads first.
 @(test)

@@ -532,7 +532,11 @@ collect_when_stmt :: proc(
 	// rols: the inactive branches register their constants in a copy, so they cannot change later conditions.
 	stmt, ok := get_when_block_stmt(when_decl, when_expr_map^)
 	if ok {
+		// rols: a branch picked through a guess stores the constants it declares as guesses (when_branch_guessed).
+		outer_guessed := when_branch_guessed
+		when_branch_guessed ||= when_pick_guessed(when_decl, when_expr_map^)
 		collect_when_body(exprs, file, file_tags, stmt, when_expr_map, fallbacks)
+		when_branch_guessed = outer_guessed
 	}
 	if !fallbacks {
 		return
