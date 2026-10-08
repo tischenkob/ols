@@ -559,6 +559,7 @@ OlsConfig :: struct {
 	enable_checker_vet_tabs:                 Maybe(bool),
 	enable_checker_strict_style:             Maybe(bool),
 	enable_workspace_gitignore:              Maybe(bool),
+	enable_excluded_file_targets:            Maybe(bool),
 	workspace_exclude:                       []string,
 	workspace_include:                       []string,
 	modernize_recipes:                       []common.Modernize_Recipe,

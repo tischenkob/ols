@@ -398,6 +398,11 @@
 			"description": "Skip paths that git reports as ignored when walking the workspace.",
 			"default": true
 		},
+		"enable_excluded_file_targets": {
+			"type": "boolean",
+			"description": "Resolve names in a file that the host does not build, such as socket_linux.odin on darwin, against the files of a target that builds it. Turning it off saves the memory and first-open time of those per-target indexes, and such names resolve through the host index.",
+			"default": true
+		},
 		"workspace_exclude": {
 			"type": "array",
 			"description": "Globs relative to each workspace root. Workspace walks skip matching files and directories. A glob without / matches a name at any depth, and ** spans directories.",

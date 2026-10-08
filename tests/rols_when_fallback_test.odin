@@ -332,10 +332,27 @@ hover_from_excluded_file_reaches_its_target :: proc(t: ^testing.T) {
 		siblings := excluded_siblings(other_os)
 		append(&files, ..siblings[:])
 		source := test.Source {
+			config = {enable_excluded_file_targets = true},
 			files = files[:],
 		}
 		test.expect_hover(t, &source, c.expected)
 	}
+}
+
+// With enable_excluded_file_targets off, a file that the host does not build resolves through the host index.
+@(test)
+hover_from_excluded_file_reaches_host_when_disabled :: proc(t: ^testing.T) {
+	other_os := "linux" when ODIN_OS != .Linux else "windows"
+	call := "package test\n\nf :: proc() {\n\ty := e{*}rr()\n}\n"
+	files := make([dynamic]test.File, context.temp_allocator)
+	append(&files, test.File{"main.odin", fmt.tprintf("#+build %s\n%s", other_os, call)})
+	siblings := excluded_siblings(other_os)
+	append(&files, ..siblings[:])
+	source := test.Source {
+		files = files[:],
+		config = {enable_excluded_file_targets = false},
+	}
+	test.expect_hover(t, &source, "test.err :: proc() -> int")
 }
 
 // A save of a sibling that the host does not build reaches lookups from a file of the same target.
@@ -353,6 +370,7 @@ hover_from_excluded_file_after_sibling_save :: proc(t: ^testing.T) {
 	siblings := excluded_siblings(other_os)
 	append(&files, ..siblings[:])
 	source := test.Source {
+		config = {enable_excluded_file_targets = true},
 		files = files[:],
 	}
 	saved := test.File{fmt.tprintf("errors_%s.odin", other_os), "package test\n\nerr :: proc() -> f64 { return 0 }\n"}
@@ -364,6 +382,7 @@ hover_from_excluded_file_after_sibling_save :: proc(t: ^testing.T) {
 hover_from_excluded_file_into_other_package :: proc(t: ^testing.T) {
 	other_os := "linux" when ODIN_OS != .Linux else "windows"
 	source := test.Source {
+		config = {enable_excluded_file_targets = true},
 		main = fmt.tprintf(
 			"#+build %s\npackage test\n\nimport \"core:errs\"\n\nf :: proc() {{\n\ty := errs.e{{*}}rr()\n}}\n",
 			other_os,
@@ -393,6 +412,7 @@ hover_from_excluded_file_into_other_package :: proc(t: ^testing.T) {
 hover_from_excluded_file_into_host_package :: proc(t: ^testing.T) {
 	other_os := "linux" when ODIN_OS != .Linux else "windows"
 	source := test.Source {
+		config = {enable_excluded_file_targets = true},
 		main = fmt.tprintf(
 			"#+build %s\npackage test\n\nimport \"core:plain\"\n\nf :: proc() {{\n\tplain.r{{*}}un()\n}}\n",
 			other_os,
@@ -409,6 +429,7 @@ hover_from_excluded_file_through_shared_when :: proc(t: ^testing.T) {
 	other_os := "linux" when ODIN_OS != .Linux else "windows"
 	other_enum := "Linux" when ODIN_OS != .Linux else "Windows"
 	source := test.Source {
+		config = {enable_excluded_file_targets = true},
 		files = {
 			{
 				"main.odin",
@@ -447,6 +468,7 @@ hover_from_excluded_file_misses_other_targets_and_private :: proc(t: ^testing.T)
 	}
 	files := [3]test.File{main, siblings[0], siblings[1]}
 	source := test.Source {
+		config = {enable_excluded_file_targets = true},
 		files = files[:],
 	}
 	test.expect_hover_after_reindex(t, &source, {}, "")
@@ -468,6 +490,7 @@ hover_from_excluded_file_after_sibling_removal :: proc(t: ^testing.T) {
 	siblings := excluded_siblings(other_os)
 	append(&files, ..siblings[:])
 	source := test.Source {
+		config = {enable_excluded_file_targets = true},
 		files = files[:],
 	}
 	removed := []string{fmt.tprintf("errors_%s.odin", other_os)}
@@ -490,6 +513,7 @@ completion_in_excluded_file_lists_its_target :: proc(t: ^testing.T) {
 		siblings := excluded_siblings(other_os)
 		append(&files, ..siblings[:])
 		source := test.Source {
+			config = {enable_excluded_file_targets = true},
 			files = files[:],
 		}
 		if prefix == "er" {
@@ -511,6 +535,7 @@ completion_in_excluded_file_lists_its_target :: proc(t: ^testing.T) {
 hover_from_excluded_file_into_package_its_target_does_not_build :: proc(t: ^testing.T) {
 	other_os := "linux" when ODIN_OS != .Linux else "windows"
 	source := test.Source {
+		config = {enable_excluded_file_targets = true},
 		main = fmt.tprintf(
 			"#+build %s\npackage test\n\nimport \"core:errs\"\n\nf :: proc() {{\n\ty := errs.e{{*}}rr()\n}}\n",
 			other_os,
