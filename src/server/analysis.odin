@@ -2662,7 +2662,7 @@ resolve_selector_expression :: proc(ast_context: ^AstContext, node: ^ast.Selecto
 			if node.field != nil {
 				field_symbol, ok := lookup(node.field.name, selector.pkg, node.pos.file)
 				// rols: a fallback takes the declaration of the target that takes the `when` branch around the field
-				if ok && .Fallback in field_symbol.flags do field_symbol, _ = branch_fallback(ast_context, node.field^, field_symbol)
+				if ok && .Fallback in field_symbol.flags do field_symbol, ok = branch_fallback(ast_context, node.field^, field_symbol)
 				if ok {
 					if pkg_alias_symbol, ok := resolve_field_through_package_alias(
 						ast_context,
@@ -4362,7 +4362,11 @@ resolve_symbol_selector :: proc(
 	case SymbolPackageValue:
 		if pkg, ok := lookup(field, symbol.pkg, symbol.uri); ok {
 			// rols: a fallback takes the declaration of the target that takes the `when` branch around the field
-			if .Fallback in pkg.flags do pkg, _ = branch_fallback(ast_context, selector.field^, pkg)
+			if .Fallback in pkg.flags {
+				reached, reachable := branch_fallback(ast_context, selector.field^, pkg)
+				if !reachable do return {}, false
+				pkg = reached
+			}
 			symbol.range = pkg.range
 			symbol.uri = pkg.uri
 		} else {
