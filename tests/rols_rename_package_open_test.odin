@@ -48,9 +48,16 @@ rename_package_reads_open_document_text :: proc(t: ^testing.T) {
 	uri := common.create_uri(file, context.temp_allocator).uri
 	open_err := server.document_open(uri, strings.clone("// moved\npackage old\n\nX :: 1\n"), &config, nil)
 	if !testing.expectf(t, open_err == .None, "failed to open a.odin: %v", open_err) do return
-	defer server.document_close(uri)
+	clause_line_on_rename(t, dir, &config, 1)
 
-	edit, _, reasons, ok := server.rename_package(dir, "fresh", &config)
+	// A closed document keeps its storage entry, but the rename must read the disk again.
+	server.document_close(uri)
+	clause_line_on_rename(t, dir, &config, 0)
+}
+
+@(private = "file")
+clause_line_on_rename :: proc(t: ^testing.T, dir: string, config: ^common.Config, expected: int) {
+	edit, _, reasons, ok := server.rename_package(dir, "fresh", config)
 	if !testing.expectf(t, ok, "Expected the package rename to pass its check, but received %v", reasons) do return
 
 	clause_line := -1
@@ -61,5 +68,5 @@ rename_package_reads_open_document_text :: proc(t: ^testing.T) {
 			}
 		}
 	}
-	testing.expectf(t, clause_line == 1, "Expected the clause edit on buffer line 1, got %v", clause_line)
+	testing.expectf(t, clause_line == expected, "Expected the clause edit on line %v, got %v", expected, clause_line)
 }

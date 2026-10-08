@@ -108,14 +108,8 @@ rename_package :: proc(
 			continue
 		}
 		text := file.text
-		if text == "" {
-			// An open document gives its unsaved text, so the edit ranges match the buffer.
-			read, ok := file_text(file.fullpath)
-			if !ok {
-				continue
-			}
-			text = read
-		}
+		// An open document gives its unsaved text, so the edit ranges match the buffer.
+		if text == "" do text = file_text(file.fullpath) or_continue
 		if !contains_word(text, old_name) && !imports_into(&r, file.fullpath, text) {
 			continue
 		}

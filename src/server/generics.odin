@@ -664,14 +664,10 @@ resolve_generic_function_symbol :: proc(
 	return_types := make([dynamic]^ast.Field, ast_context.allocator)
 	argument_types := make([dynamic]^ast.Field, ast_context.allocator)
 
-	// rols: only the argument types pick a group member, so the return types also bind the poly-type arguments
-	result_map := poly_map
-	if len(poly_args) > 0 {
-		result_map = make(map[string]^ast.Expr, len(poly_map) + len(poly_args), context.temp_allocator)
-		for k, v in poly_args do result_map[k] = v
-		for k, v in poly_map do result_map[k] = v
-	}
-
+	// rols: only the argument types pick a group member, so the return types, through result_map in the loop below,
+	// also bind the poly-type arguments; a bound poly_map entry wins
+	for k, v in poly_map do poly_args[k] = v
+	result_map := poly_args
 	for result in results {
 		if result.type == nil {
 			append(&return_types, result)

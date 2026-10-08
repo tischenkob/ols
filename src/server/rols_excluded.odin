@@ -330,7 +330,8 @@ file_targets :: proc(fullpath, text: string) -> []parser.Build_Target {
 
 // The text of an open document, else of an unsaved file, else of the file on disk, in temp memory.
 file_text :: proc(fullpath: string) -> (string, bool) {
-	if document, ok := document_storage.documents[fullpath]; ok && document.text != nil {
+	// A closed document keeps its entry and a freed text pointer, so only a client-owned one counts as open.
+	if document, ok := document_storage.documents[fullpath]; ok && document.client_owned && document.text != nil {
 		return string(document.text[:document.used_text]), true
 	}
 	forward, _ := filepath.replace_separators(fullpath, '/', context.temp_allocator)
