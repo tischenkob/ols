@@ -66,7 +66,11 @@ cli_find_tests_lists_only_what_odin_test_builds :: proc(t: ^testing.T) {
 	other := strings.concatenate({"c_", OTHER_OS, ".odin"}, context.temp_allocator)
 	dir, ok := fixture(
 		t,
-		{{"a.odin", test_file("t_host")}, {"b.odin", test_file("t_ignore", "#+build ignore\n")}, {other, test_file("t_other")}},
+		{
+			{"a.odin", test_file("t_host")},
+			{"b.odin", test_file("t_ignore", "#+build ignore\n")},
+			{other, test_file("t_other")},
+		},
 	)
 	defer os.remove_all(dir)
 	if !ok do return
@@ -331,6 +335,72 @@ when cfg.UNFOLDABLE {
 	names := make([dynamic]string, context.temp_allocator)
 	for test in server.find_tests(app_dir, &config) do append(&names, test.name)
 	expected := []string{"t_on", "t_level_high", "t_missing_a", "t_missing_b", "t_unfoldable_a", "t_unfoldable_b"}
+	testing.expectf(t, slice.equal(names[:], expected), "got %v, expected %v", names, expected)
+}
+
+// tests folds a constant of a sibling file that reads a selector through that file's own import, which may name
+// another package than the same alias in the evaluated file, and a constant of an imported package that reads a
+// selector of its own import, but not one more level.
+@(test)
+cli_tests_fold_selectors_of_sibling_files_and_nested_imports :: proc(t: ^testing.T) {
+	app := `package app
+
+import "core:testing"
+import cfg "../cfg"
+import "../lib"
+
+when ON {
+	@(test)
+	t_on :: proc(t: ^testing.T) {}
+} else {
+	@(test)
+	t_off :: proc(t: ^testing.T) {}
+}
+
+when cfg.FLAG {
+	@(test)
+	t_cfg :: proc(t: ^testing.T) {}
+}
+
+when lib.LEVEL > 2 {
+	@(test)
+	t_deep_high :: proc(t: ^testing.T) {}
+} else {
+	@(test)
+	t_deep_low :: proc(t: ^testing.T) {}
+}
+
+when lib.FAR {
+	@(test)
+	t_far_a :: proc(t: ^testing.T) {}
+} else {
+	@(test)
+	t_far_b :: proc(t: ^testing.T) {}
+}
+`
+	dir, ok := fixture(t, {})
+	defer os.remove_all(dir)
+	if !ok do return
+	files := [][2]string {
+		{"app/a.odin", app},
+		{"app/consts.odin", "package app\n\nimport cfg \"../lib\"\n\nON :: cfg.FLAG\n"},
+		{"cfg/cfg.odin", "package cfg\n\nFLAG :: true\n"},
+		{"lib/lib.odin", "package lib\n\nimport \"../deep\"\n\nFLAG :: false\nLEVEL :: deep.LEVEL\nFAR :: deep.FAR\n"},
+		{"deep/deep.odin", "package deep\n\nimport \"../far\"\n\nLEVEL :: 3\nFAR :: far.ON\n"},
+		{"far/far.odin", "package far\n\nON :: true\n"},
+	}
+	for entry in files {
+		file, _ := filepath.join({dir, entry[0]}, context.temp_allocator)
+		os.make_directory_all(filepath.dir(file))
+		if !testing.expect_value(t, os.write_entire_file(file, entry[1]), nil) do return
+	}
+
+	config: common.Config
+	app_dir, _ := filepath.join({dir, "app"}, context.temp_allocator)
+	names := make([dynamic]string, context.temp_allocator)
+	for test in server.find_tests(app_dir, &config) do append(&names, test.name)
+	// Imports are followed one level further than the evaluated file's, and no more.
+	expected := []string{"t_off", "t_cfg", "t_deep_high", "t_far_a", "t_far_b"}
 	testing.expectf(t, slice.equal(names[:], expected), "got %v, expected %v", names, expected)
 }
 
