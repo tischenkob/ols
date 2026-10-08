@@ -54,6 +54,8 @@ Known gaps and out-of-scope issues found during fork work. Each entry names wher
 - **`queue_check_request` in `src/server/check.odin` logs "check queue full" at error level when a harness test reaches it with `enable_diagnostics` true.** Tests never start the checker, and the file-private `checker` has no channel (repro: call `notification_did_save` in a test with `enable_diagnostics = true`). A skip when no worker exists would let tests drop the log filter in `tests/rols_lint_refresh_test.odin`.
 - `file_text` in src/server/rols_excluded.odin returns no text for a test-harness document, which the harness does not store under its fullpath. As a result, `builds_on(fullpath, file_text(fullpath))` treats such a file as built on every target. Repro: call `file_text(document.fullpath)` for the main source in any `expect_lint_diagnostics` test with a `#+build linux` header.
 
+- **`tools/corpus_smoke.sh` no longer reports the `pt_rescale` FAIL.** On the pinned corpus with Odin dev-2026-10:84bc3fc21, `core/crypto/_weierstrass` passes (core shows 264/264 check/lint), yet `docs/corpus-validation.md` still says a run should end with only that line. Repro: run `tools/corpus_smoke.sh` and check whether core's `pt_rescale` call changed or the lint stopped reporting it.
+
 ## Overload resolution and hover (`src/server/analysis.odin`, `src/server/hover.odin`)
 
 - **Hover on a local whose type comes from a generic call on a poly argument fails with "Failed get_hover_information", before and after A13.** In the hover path of `src/server`, with `foo :: proc(x: $T) -> T { return x }` and `h :: proc(w: $U) { r := foo(w); r }`, hover on `r` fails.
