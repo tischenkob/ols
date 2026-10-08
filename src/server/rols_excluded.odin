@@ -8,6 +8,7 @@ import "core:odin/parser"
 import "core:os"
 import "core:path/filepath"
 import path "core:path/slashpath"
+import "core:slice"
 import "core:strings"
 
 import "src:common"
@@ -366,6 +367,12 @@ build_target_package :: proc(index: ^Target_Index, target: parser.Build_Target, 
 	saved_eval := when_eval_target
 	when_eval_target = nil
 	defer when_eval_target = saved_eval
+	saved_build := target_build
+	target_build = {
+		dir    = pkg,
+		consts = make(map[string]map[string]When_Expr, context.temp_allocator),
+	}
+	defer target_build = saved_build
 
 	arena: runtime.Arena
 	_ = runtime.arena_init(&arena, mem.Megabyte, runtime.heap_allocator())
@@ -387,6 +394,62 @@ build_target_package :: proc(index: ^Target_Index, target: parser.Build_Target, 
 		}
 		runtime.arena_free_all(&arena)
 	}
+}
+
+// The directory that build_target_package collects for when_target, and the constants of each package in it that
+// seed_target_package_consts folded, by package name, in the temp allocator.
+@(private = "file", thread_local)
+target_build: struct {
+	dir:    string,
+	consts: map[string]map[string]When_Expr,
+}
+
+// Adds to consts the constants of the other files of the package of file that when_target builds, while
+// build_target_package collects that package, so a `when` of file reads a constant of another file as odin does on
+// that target. A name that file declares, a name that consts holds already, and a constant that does not fold keep
+// their reading.
+seed_target_package_consts :: proc(consts: ^map[string]When_Expr, file: ast.File) {
+	target, has_target := when_target.?
+	if target_build.dir == "" || !has_target do return
+	forward, _ := filepath.replace_separators(file.fullpath, '/', context.temp_allocator)
+	if path.dir(forward, context.temp_allocator) != target_build.dir do return
+	folded, cached := target_build.consts[file.pkg_name]
+	if !cached {
+		folded = make_when_expr_map()
+		fold_when_consts(&folded, package_consts(target_build.dir, file.pkg_name, target))
+		target_build.consts[file.pkg_name] = folded
+	}
+	mine := make(map[string]^ast.Expr, context.temp_allocator)
+	parsed := file
+	add_plain_consts(&mine, &parsed)
+	for name, value in folded {
+		if _, unknown := value.(^ast.Expr); unknown || name in mine || name in consts do continue
+		consts[name] = value
+	}
+}
+
+// The constants of package pkg_name in directory dir that a `when` condition can read, from add_gate_consts over
+// each file of that package that target builds: its open document, else its unsaved text, else the disk. Allocates
+// in the temp allocator.
+package_consts :: proc(dir, pkg_name: string, target: parser.Build_Target) -> Gate_Consts {
+	consts := make(Gate_Consts, context.temp_allocator)
+	forward, _ := filepath.replace_separators(dir, '/', context.temp_allocator)
+	paths := make([dynamic]string, context.temp_allocator)
+	// A range over a missing map element dereferences nil, so the element is copied first.
+	unsaved := excluded.unsaved[forward]
+	for file in unsaved do append(&paths, file.fullpath)
+	matches, _ := filepath.glob(fmt.tprintf("%v/*.odin", dir), context.temp_allocator)
+	for match in matches {
+		match_forward, _ := filepath.replace_separators(match, '/', context.temp_allocator)
+		if !slice.contains(paths[:], match_forward) do append(&paths, match_forward)
+	}
+	for fullpath in paths {
+		text := file_text(fullpath) or_continue
+		if !strings.contains(text, "::") || !builds_on(fullpath, text, target) do continue
+		file := parse_gate_text(fullpath, text)
+		if file.pkg_name == pkg_name do add_gate_consts(&consts, file)
+	}
+	return consts
 }
 
 @(private = "file")

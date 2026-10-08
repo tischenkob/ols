@@ -726,6 +726,21 @@ hover_in_inactive_branch_reaches_same_file_fallback :: proc(t: ^testing.T) {
 	test.expect_hover(t, &source, "T.b: int")
 }
 
+// A branch condition and the fallbacks it picks between read a constant that another file of the package declares.
+@(test)
+hover_in_inactive_branch_reads_constant_of_other_file :: proc(t: ^testing.T) {
+	a, b := other_oses()
+	source := test.Source {
+		main  = "package test\n\nwhen IS_B {\n\tf :: proc(t: T) -> int {\n\t\treturn t.b{*}\n\t}\n}\n",
+		files = {
+			{"a.odin", "package test\n\nwhen IS_A {\n\tT :: struct { a: int }\n}\n"},
+			{"b.odin", "package test\n\nwhen IS_B {\n\tT :: struct { b: int }\n}\n"},
+			{"consts.odin", fmt.tprintf("package test\n\nIS_A :: ODIN_OS == .%s\nIS_B :: ODIN_OS == .%s\n", a, b)},
+		},
+	}
+	test.expect_hover(t, &source, "T.b: int")
+}
+
 // Code under a branch that the host takes keeps the host's declaration over the fallbacks of other OSes.
 @(test)
 hover_in_host_branch_keeps_host_declaration :: proc(t: ^testing.T) {

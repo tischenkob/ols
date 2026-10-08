@@ -309,19 +309,21 @@ branch_possible_on :: proc(
 // cannot take one of them. A candidate of base's OS comes first, so an ODIN_ARCH branch keeps the OS. ok is false
 // when base can take them all or no candidate can. A condition reads the file-scope constants of file. A branch whose
 // condition branch_possible_on cannot read, such as `when FLAG` with `FLAG :: #config(FLAG, false)`, is possible on
-// base, so it has no target here. consts caches file_consts of file: the first call fills it.
+// base, so it has no target here. consts caches file_consts of file over plain, the constants of its package: the
+// first call fills it.
 branch_target :: proc(
 	file: ast.File,
 	offset: int,
 	base: parser.Build_Target,
 	consts: ^Branch_Constants,
+	plain: Gate_Consts = nil,
 ) -> (
 	target: parser.Build_Target,
 	ok: bool,
 ) {
 	if consts^ == nil {
 		parsed := file
-		consts^ = file_consts(&parsed, nil)
+		consts^ = file_consts(&parsed, plain)
 	}
 	consts := consts.?
 	if branch_possible_on(file, offset, base, consts) do return {}, false
