@@ -423,7 +423,9 @@ seed_target_package_consts :: proc(consts: ^map[string]When_Expr, file: ast.File
 	parsed := file
 	add_plain_consts(&mine, &parsed)
 	for name, value in folded {
-		if _, unknown := value.(^ast.Expr); unknown || name in mine || name in consts do continue
+		// A guess keeps its value, which when_guessed marks when a condition reads it.
+		expr, is_expr := value.(^ast.Expr)
+		if (is_expr && !is_when_guess(expr)) || name in mine || name in consts do continue
 		consts[name] = value
 	}
 }

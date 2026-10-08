@@ -94,6 +94,8 @@ GlobalFlags :: enum {
 	Fallback,
 	// rols: a Fallback whose branch a known condition rules out, see `collect_when_stmt`.
 	Ruled_Out,
+	// rols: declared in a branch that the host picks through a guess, see `collect_when_stmt`.
+	Guessed,
 }
 
 GlobalExpr :: struct {
@@ -535,7 +537,11 @@ collect_when_stmt :: proc(
 		// rols: a branch picked through a guess stores the constants it declares as guesses (when_branch_guessed).
 		outer_guessed := when_branch_guessed
 		when_branch_guessed ||= when_pick_guessed(when_decl, when_expr_map^)
+		start := len(exprs)
 		collect_when_body(exprs, file, file_tags, stmt, when_expr_map, fallbacks)
+		if when_branch_guessed {
+			for &expr in exprs[start:] do expr.flags += {.Guessed}
+		}
 		when_branch_guessed = outer_guessed
 	}
 	if !fallbacks {

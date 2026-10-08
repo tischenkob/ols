@@ -100,6 +100,30 @@ active_code_reaches_declaration_under_constant_of_guessed_branch :: proc(t: ^tes
 	}
 }
 
+// A constant of a branch picked through a guess keeps its value, so a later condition that it makes true picks the
+// branch that odin builds without -debug, and completion offers the declaration of that branch.
+@(test)
+guessed_branch_constant_keeps_its_value :: proc(t: ^testing.T) {
+	Case :: struct {
+		decls, condition: string,
+	}
+	cases := [?]Case {
+		{"LEVEL :: 0\n} else {\n\tLEVEL :: 2", "LEVEL > 1"},
+		{"MODE :: \"debug\"\n} else {\n\tMODE :: \"release\"", "MODE == \"release\""},
+		{"BACKEND :: .Vulkan\n} else {\n\tBACKEND :: .GL", "BACKEND == .GL"},
+	}
+	for c in cases {
+		source := test.Source {
+			main = fmt.tprintf(
+				"package test\n\nwhen ODIN_DEBUG {{\n\t%s\n}}\n\nwhen %s {{\n\tpicked_decl :: proc() {{}}\n}}\n\nmain :: proc() {{\n\tpicked{{*}}\n}}\n",
+				c.decls,
+				c.condition,
+			),
+		}
+		test.expect_completion_labels(t, &source, "", {"picked_decl"})
+	}
+}
+
 // Of several fallbacks of one name, one in a branch that the host may take keeps the name reachable, in the same
 // file or in another one, whichever the index reads first.
 @(test)
@@ -143,6 +167,8 @@ when_condition_reads_unknown_constant_of_other_package :: proc(t: ^testing.T) {
 		{"package cfg\n\nON :: ODIN_OS == .Freestanding || ODIN_DEBUG\n", true},
 		{"package cfg\n\nON :: ODIN_OS == .Freestanding\n", false},
 		{"package cfg\n\nON :: ODIN_OS == .Freestanding && ODIN_DEBUG\n", false},
+		// The index stores the ON of the branch that cfg picks through a guess as a guess.
+		{"package cfg\n\nwhen ODIN_DEBUG {\n\tON :: true\n} else {\n\tON :: false\n}\n", true},
 	}
 	for c in cases {
 		source := test.Source {

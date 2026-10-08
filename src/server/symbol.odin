@@ -239,6 +239,8 @@ SymbolFlag :: enum {
 	Fallback,
 	// rols: a Fallback whose branch a known `when` condition rules out on the host, see `collect_when_stmt`
 	Ruled_Out,
+	// rols: declared in a `when` branch that the host picks through a guess, see `collect_when_stmt`
+	Guessed,
 }
 
 SymbolFlags :: bit_set[SymbolFlag]
