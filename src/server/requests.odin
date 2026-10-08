@@ -1550,8 +1550,23 @@ notification_did_close :: proc(
 		return .ParseError
 	}
 
+	// rols: keep the path and the buffer of the closing document to relint its package files against the disk text
+	closing: Changed_File
+	if document := document_get(close_params.textDocument.uri); document != nil {
+		closing = {
+			strings.clone(document.fullpath, context.temp_allocator),
+			strings.clone(string(document.text[:document.used_text]), context.temp_allocator),
+		}
+		document_release(document)
+	}
+
 	if n := document_close(close_params.textDocument.uri); n != nil {
 		return .InternalError
+	}
+
+	// rols: the package files now read the disk text of the closed document
+	if closing.fullpath != "" && relint_siblings_on_switch(closing.fullpath, closing.text, false, config) {
+		push_diagnostics(writer)
 	}
 
 	return .None
@@ -2037,16 +2052,22 @@ notification_did_change_watched_files :: proc(
 	}
 
 	package_aliases_changed := false
+	// rols: the closed files whose new disk text the open package files read
+	changed_files := make([dynamic]Changed_File, context.temp_allocator)
 	for change in did_change_watched_files_params.changes {
 		if change.type == cast(int)FileChangeType.Deleted {
 			if uri, ok := common.parse_uri(change.uri, context.temp_allocator); ok {
 				remove_index_file(uri)
+				// rols: a deleted file reads as empty
+				append_disk_change(&changed_files, uri.path, "")
 			}
 			package_aliases_changed = true
 		} else {
 			if uri, ok := common.parse_uri(change.uri, context.temp_allocator); ok {
 				if data, err := os.read_entire_file(uri.path, context.temp_allocator); err == nil {
 					index_file(uri, cast(string)data)
+					// rols: record the new disk text
+					append_disk_change(&changed_files, uri.path, cast(string)data)
 				}
 			}
 			if change.type == cast(int)FileChangeType.Created {
@@ -2058,6 +2079,9 @@ notification_did_change_watched_files :: proc(
 		clear_all_package_aliases()
 		find_all_package_aliases(config)
 	}
+
+	// rols: relint the open package files whose verdicts the new disk text may turn
+	if relint_siblings(changed_files[:], config) do push_diagnostics(writer)
 
 	if config.enable_checker_workspace_diagnostics {
 		queue_check_request(.Workspace, {}, config)

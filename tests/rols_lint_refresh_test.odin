@@ -124,7 +124,10 @@ with_package :: proc(t: ^testing.T, b_text: string, body: proc(t: ^testing.T, pk
 
 	if !open_package(t, &pkg, b_text) do return
 	defer os.remove_all(pkg.dir)
-	defer for name in ([]string{"a.odin", "b.odin"}) do server.document_close(file_uri(&pkg, name))
+	// A test may leave a file closed.
+	defer for name in ([]string{"a.odin", "b.odin"}) {
+		if server.document_storage.documents[file_path(&pkg, name)].client_owned do server.document_close(file_uri(&pkg, name))
+	}
 	body(t, &pkg)
 }
 
@@ -223,6 +226,78 @@ lint_refresh_save_relints_sibling :: proc(t: ^testing.T) {
 			context.logger = outer
 			if !testing.expectf(t, save_err == .None, "didSave failed: %v", save_err) do return
 			testing.expect_value(t, unused_parameters_of_a(pkg), 0)
+		},
+	)
+}
+
+@(private = "file")
+notify :: proc(
+	t: ^testing.T,
+	pkg: ^Refresh_Package,
+	handler: proc(_: json.Value, _: server.RequestId, _: ^common.Config, _: ^server.Writer) -> common.Error,
+	params_text: string,
+) -> bool {
+	params, parse_err := json.parse_string(params_text, parse_integers = true, allocator = context.temp_allocator)
+	if !testing.expectf(t, parse_err == .None, "failed to parse params %s: %v", params_text, parse_err) do return false
+	err := handler(params, i64(0), &pkg.config, nil)
+	return testing.expectf(t, err == .None, "notification failed: %v", err)
+}
+
+@(test)
+lint_refresh_close_of_dirty_buffer_relints_sibling :: proc(t: ^testing.T) {
+	with_package(
+		t,
+		B_CALLS,
+		proc(t: ^testing.T, pkg: ^Refresh_Package) {
+			if !change_b(t, pkg, B_REGISTERS) do return
+			testing.expect_value(t, unused_parameters_of_a(pkg), 0)
+
+			// The disk still holds B_CALLS, which only calls f.
+			params := fmt.tprintf(`{{"textDocument":{{"uri":"%s"}}}}`, file_uri(pkg, "b.odin"))
+			if !notify(t, pkg, server.notification_did_close, params) do return
+			testing.expect_value(t, unused_parameters_of_a(pkg), 1)
+		},
+	)
+}
+
+@(test)
+lint_refresh_open_with_unsaved_text_relints_sibling :: proc(t: ^testing.T) {
+	with_package(
+		t,
+		B_UNRELATED,
+		proc(t: ^testing.T, pkg: ^Refresh_Package) {
+			testing.expect_value(t, unused_parameters_of_a(pkg), 1)
+			server.document_close(file_uri(pkg, "b.odin"))
+
+			// The disk still holds B_UNRELATED, but the buffer registers f.
+			open_err := server.document_open(file_uri(pkg, "b.odin"), strings.clone(B_REGISTERS), &pkg.config, nil)
+			if !testing.expectf(t, open_err == .None, "failed to reopen b.odin: %v", open_err) do return
+			testing.expect_value(t, unused_parameters_of_a(pkg), 0)
+		},
+	)
+}
+
+@(test)
+lint_refresh_watched_file_change_relints_sibling :: proc(t: ^testing.T) {
+	with_package(
+		t,
+		B_CALLS,
+		proc(t: ^testing.T, pkg: ^Refresh_Package) {
+			testing.expect_value(t, unused_parameters_of_a(pkg), 1)
+			server.document_close(file_uri(pkg, "b.odin"))
+
+			// b.odin changes outside the editor while closed.
+			write_err := os.write_entire_file(file_path(pkg, "b.odin"), transmute([]u8)string(B_REGISTERS))
+			if !testing.expectf(t, write_err == nil, "failed to write b.odin: %v", write_err) do return
+			changed := fmt.tprintf(`{{"changes":[{{"uri":"%s","type":2}}]}}`, file_uri(pkg, "b.odin"))
+			if !notify(t, pkg, server.notification_did_change_watched_files, changed) do return
+			testing.expect_value(t, unused_parameters_of_a(pkg), 0)
+
+			remove_err := os.remove(file_path(pkg, "b.odin"))
+			if !testing.expectf(t, remove_err == nil, "failed to remove b.odin: %v", remove_err) do return
+			deleted := fmt.tprintf(`{{"changes":[{{"uri":"%s","type":3}}]}}`, file_uri(pkg, "b.odin"))
+			if !notify(t, pkg, server.notification_did_change_watched_files, deleted) do return
+			testing.expect_value(t, unused_parameters_of_a(pkg), 1)
 		},
 	)
 }

@@ -217,6 +217,11 @@ document_open :: proc(uri_string: string, text: string, config: ^common.Config, 
 		document_storage.documents[strings.clone(uri.path)] = document
 	}
 
+	// rols: relint the open package files whose verdicts read the disk text, now that the buffer is in the storage
+	if document := &document_storage.documents[uri.path]; document != nil {
+		relint_siblings_on_switch(document.fullpath, string(document.text[:document.used_text]), true, config)
+	}
+
 	return .None
 }
 
