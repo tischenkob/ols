@@ -1,8 +1,11 @@
 package server
 
+import "core:fmt"
 import "core:odin/ast"
 import "core:odin/parser"
 import "core:os"
+import "core:path/filepath"
+import path "core:path/slashpath"
 import "core:strings"
 
 import "src:common"
@@ -50,13 +53,31 @@ branch_fallback :: proc(ast_context: ^AstContext, node: ast.Ident, fallback: May
 	if is_builtin_pkg(symbol.pkg) do return symbol, true
 	file, placed := node_file(ast_context, node)
 	if !placed do return symbol, true
-	target, has_target := branch_target(file.file^, node.pos.offset, file_build_target(node.pos.file), &file.consts)
+	base := file_build_target(node.pos.file)
+	plain: Gate_Consts
+	if file.consts == nil do plain = branch_package_consts(ast_context, file.file^, base)
+	target, has_target := branch_target(file.file^, node.pos.offset, base, &file.consts, plain)
 	if !has_target do return symbol, true
 	if built, found := lookup_on_target(node.name, symbol.pkg, node.pos.file, target);
 	   found && .Fallback not_in built.flags {
 		return built, true
 	}
 	return symbol, true
+}
+
+// The constants of the package of file that base builds, from package_consts, cached in ast_context.
+@(private = "file")
+branch_package_consts :: proc(ast_context: ^AstContext, file: ast.File, base: parser.Build_Target) -> Gate_Consts {
+	forward, _ := filepath.replace_separators(file.fullpath, '/', context.temp_allocator)
+	dir := path.dir(forward, context.temp_allocator)
+	key := fmt.tprintf("%v\x00%v\x00%v\x00%v", dir, file.pkg_name, base.os, base.arch)
+	if ast_context.branch_packages == nil {
+		ast_context.branch_packages = make(map[string]Gate_Consts, context.temp_allocator)
+	}
+	if consts, cached := ast_context.branch_packages[key]; cached do return consts
+	consts := package_consts(dir, file.pkg_name, base)
+	ast_context.branch_packages[key] = consts
+	return consts
 }
 
 // rols: a file that branch_fallback places names in, parsed once per AstContext, with its constants.
