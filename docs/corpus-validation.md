@@ -1,6 +1,6 @@
 # Corpus validation
 
-rols was run over seven open-source Odin projects and the Odin standard library on 2026-10-02, at rols `2c89a95a` with Odin `dev-2026-09:a2fb372b7` on macOS arm64. The sweep looked for crashes, hangs, edits that break `odin check`, false lints and wrong query results. A rerun on 2026-10-04 at rols `5d2021f9` (after stages S1 to S16) used the same Odin version and the same pinned commits, and so did a second rerun on 2026-10-05 at rols `ac740c8c` (after stages S17 to S22 and the sweep over mirage). A third rerun on 2026-10-06 at rols `223ee8e2` checked the fixes of the 2026-10-05 findings with the same setup. This file records the corpus, the rerun results, the follow-ups that have no passing harness test, and how to repeat the sweep.
+rols was run over seven open-source Odin projects and the Odin standard library on 2026-10-02, at rols `2c89a95a` with Odin `dev-2026-09:a2fb372b7` on macOS arm64. The sweep looked for crashes, hangs, edits that break `odin check`, false lints and wrong query results. A rerun on 2026-10-04 at rols `5d2021f9` (after stages S1 to S16) used the same Odin version and the same pinned commits, and so did a second rerun on 2026-10-05 at rols `ac740c8c` (after stages S17 to S22 and the sweep over mirage). A third rerun on 2026-10-06 at rols `223ee8e2` checked the fixes of the 2026-10-05 findings with the same setup. This file records the corpus, the rerun results, where the follow-ups live, and how to repeat the sweep.
 
 ## Corpus
 
@@ -45,7 +45,7 @@ The manual checks ran on scratch copies of karl2d and tina, with `odin check` af
 | rename a package proc (`calculate_frame_time`, karl2d; `prng_init`, tina) | applied, 3 edits in 2 files and 14 edits in 4 files, clean. Only comments keep the old name |
 | rename a field used through `using` (`FD_Entry_Payload.writer_isolate`, tina) | 20 edits in 6 files, applied 3 of 3 times, clean on all five tina configurations. karl2d `Window_Render_Glue.viewport_resized`: 6 edits in 6 files, clean |
 | rename an enum member used inside call arguments (`Mouse_Button.Left`, karl2d; `Exit_Kind.Normal`, tina) | 47 edits in 19 files, also gated on `js_wasm32`, every `.Left` of other enums untouched; tina 9 edits in 5 files. Both clean |
-| rename a local (`now`, karl2d; `local_seed` and `next` in a nested proc, tina) | applied, clean. Renaming `now` to `time` is refused because the local would shadow the `time` import. `local_seed` rolled back in 3 of 16 runs, counted by hand during the session (see Follow-ups: gate flake) |
+| rename a local (`now`, karl2d; `local_seed` and `next` in a nested proc, tina) | applied, clean. Renaming `now` to `time` is refused because the local would shadow the `time` import. `local_seed` rolled back in 3 of 16 runs, counted by hand during the session (see the gate flake in the "Known limitations" section of `FORK.md`) |
 | `move` | karl2d `rect_middle` to a new file: applied, and the new file carries `#+vet explicit-allocators`. To `render_backend_gl.odin`: refused, different build constraints. tina `prng_uint_less_than` to a new file: clean. tina `prng_step`: refused, it uses the file-private `_rotl_u64` |
 | `reorder-params` (`point_in_rect`, karl2d; `fd_table_handoff`, tina) | 31 edits in 6 files and 25 edits in 4 files, clean. tina's multi-line parameter list was joined into one line, since fixed: each parameter keeps its place in the list (test `reorder_params_keeps_multi_line_list`) |
 | `rename-package` on a leaf package | karl2d `platform_bindings/linux/evdev`: 47 edits and the directory rename, also gated on `linux_amd64`, clean. karl2d `gamecontroller`: refused, its clause `karl2d_darwin_gamecontroller` differs from the directory name. tina `datastar`: 3 edits and the directory rename; `tests` and the package are clean, `examples` keeps its 11 baseline errors |
@@ -105,7 +105,7 @@ Manual checks on scratch copies of karl2d, tina and ols (`odin check` after each
 | Check | Result |
 |---|---|
 | rename a package proc (`calculate_frame_time`, karl2d) | applied, 3 edits, `odin check` clean |
-| rename a field used through `using` (`FD_Entry_Payload.writer_isolate`, tina) | applied, 18 edits in 5 files, clean. One of five runs rolled back (see Follow-ups: gate flake) |
+| rename a field used through `using` (`FD_Entry_Payload.writer_isolate`, tina) | applied, 18 edits in 5 files, clean. One of five runs rolled back (see the gate flake in the "Known limitations" section of `FORK.md`) |
 | rename an enum member used inside call arguments (`Mouse_Button.Left`, karl2d) | fixed in S18 (test `rename_safe_enum_member_in_call_inside_binary_expression`): the selector inside a call that is an operand of any binary operator now takes its type from the parameter |
 | rename a local (`now`, karl2d) | applied, clean |
 | `move` | refused with a reason that names the file-private symbol (fixed in S18) |
@@ -123,27 +123,7 @@ Fixed since the first sweep, checked on the rerun: the upstream ols test suite n
 
 ## Follow-ups
 
-These findings have no passing harness test, and each item names a repro. Most live in the CLI, the compile gate or the sweep script, depend on timing, or were not reduced.
-
-### Formatter
-
-- **Known limit: `fits` measures a later group in the rest up to its first possible break, as upstream does.** A construct that needs the whole line measured opts in with `rest_flat`. Changing it globally rewrites upstream's `calls.odin` snapshot and breaks output compatibility with OLS.
-
-### Hangs and crashes not reduced
-
-- **A code action on a 1.8 MB generated file segfaulted: not reproduced on 95b77b09.** The first sweep saw the server killed by SIGSEGV after about 8 s when the package also held odin-godot's `libgd/classdb/bind.odin` (F26 in `docs/corpus/findings-B.md`). The clone does have `libgd/classdb/bind.gen.odin` (145.7 KB, tracked in git); the earlier note that it was missing was wrong. The recheck rebuilt the setup in a scratch directory `big12`: an `ols.json` with collection `godot` at `.`, copies of `godot/` and `gdext/`, and `libgd/classdb/` with `bind.odin`, `bind.gen.odin` and a 1.79 MB `big.gen.odin`. It tried three forms of `big.gen.odin`: the whole `bind.gen.odin` 12 times, one header followed by 12 copies of its body, and one header followed by 12 bodies whose top-level names carry a per-copy suffix. `REQ_TIMEOUT=120 python3 docs/corpus/triage/lsp_one.py big12 big12/libgd/classdb/big.gen.odin codeAction 20 5` answered in 0.9 s in all 9 runs, 3 per form. A code action at 20:5 and at 224:9 answered in 0.9 to 1.5 s on 95b77b09 and with stage S8. The sweep's scratch copy was not kept, so its exact form is unknown.
-
-### Performance
-
-- **Opening a 2 MB file takes 1.3 to 1.5 s.** The lints resolve every node of `core/rexcode/isa/ppc/mnemonic_builders.odin` (13,308 declarations), about 1.1 to 1.2 s of it. Stage S8 measured open plus hover at 1.31 to 1.52 s. The "Large-file performance" section of `FOLLOWUPS.md` holds the current numbers. Before S15 the open took 15 to 25 s, because `lint_deprecated` and `lint_test_attribute` scanned every top-level declaration for each identifier. After the open, documentSymbol answers in about 1.4 s, a code action in 1.5 to 1.6 s and inlay hints in 1.3 to 1.4 s (before S15: 17 to 26 s, 25 to 34 s and 51 s). A synthetic 2 MB file (16,000 procedures, 64,000 hints) answers inlay hints in 5.7 s, against 144 s before.
-
-### Lint heuristics and noise
-
-- **Known limit: `naming` fires on C names in a package without a `foreign import` or an import of `core:dynlib`.** The lint skips `foreign` blocks, `@(link_name)`, `@(export)`, tagged struct fields, parameters of a procedure type with a non-Odin calling convention, and type, field, enum member and constant names in a package where a file has a `foreign import` or imports `core:dynlib`. Nothing in the source marks any other name as foreign: the LSP protocol structs in ols (`workspaceFolders`, `rootUri`, 116 field hits) have no tag or attribute, so those hits remain. A struct tag such as `json:"rootUri"` already exempts a field. Marking other names would need a new attribute or comment marker, which other OLS clients and the Odin compiler do not know, so it would break drop-in compatibility. karl2d's `platform_bindings`, which load their C functions with `dlopen`, were not rechecked against the `core:dynlib` exemption.
-
-### Edits
-
-- **"Invert if" on an `if` without `else` leaves an empty then-branch** (`if !c {} else {…}`). This is upstream OLS's tested behavior (`action_invert_if_simple_edit`), kept for compatibility.
+The sweeps' open follow-ups live in `FOLLOWUPS.md`. The limits that stay live in the "Known limitations" section of `FORK.md`: the formatter's `fits`, `naming` on C names, the unreduced segfault of a code action on a 1.8 MB generated file, the open time of a 2 MB file, and the empty then-branch of "Invert if".
 
 ## Findings in the corpus itself
 
@@ -168,6 +148,6 @@ At `223ee8e2`, `tools/corpus_smoke.sh --lsp` ended with one `FAIL` line, the `pt
    - Request `actions` at about 15 positions, apply each offered action, and run `odin check`.
    - Sample about 15 lint hits per project and judge them by reading the code.
    - Check an edit to a `#+build` file on the targets it builds for.
-4. Move each fixed follow-up out of this file. Add a test for any new bug the rerun finds.
+4. Record each new bug the rerun finds in `FOLLOWUPS.md`, and add a test with its fix.
 
 To move the corpus forward, update the commits in `tools/corpus_smoke.sh` and in the table above together. Then run step 2 on the old commits and the new ones, and record any change in the baseline package list.

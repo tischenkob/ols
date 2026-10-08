@@ -1,5 +1,7 @@
 # Open follow-up inventory (rols at b69893ef, 2026-10-07)
 
+**Completed on 2026-10-08.** The remaining open items live in `FOLLOWUPS.md`, and the Known limits in the "Known limitations" section of `FORK.md`.
+
 Scope: every entry in `FOLLOWUPS.md` and in the "Follow-ups" section of `docs/corpus-validation.md` whose bold lead does not start with "Known limit", plus the notes in `tmp/new-followups.md`. The section "Rename, imports and lints from the mirage gaps (2026-10-07)" is excluded. The "CLI compile gate" section is included after the r4a merge (b69893ef). Line numbers refer to `FOLLOWUPS.md` at b69893ef.
 
 Totals: 28 open entries (20 FIX, 8 DOCS-ONLY, 0 KNOWN-LIMIT), plus one note that is already fixed. The FIX entries form 6 stages.
