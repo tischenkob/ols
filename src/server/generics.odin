@@ -576,6 +576,8 @@ resolve_generic_function_symbol :: proc(
 	call_expr := ast_context.call
 
 	poly_map := make(map[string]^ast.Expr, 0, context.temp_allocator)
+	// rols: the poly-type arguments left unbound below, which still give the return types their type
+	poly_args := make(map[string]^ast.Expr, 0, context.temp_allocator)
 	i := 0
 
 	call_args, _ := expand_call_args(ast_context, call_expr)
@@ -613,8 +615,9 @@ resolve_generic_function_symbol :: proc(
 
 			// rols: a poly-type argument leaves an unspecialized poly parameter unbound.
 			// The other arguments then pick the member of a group call.
-			if _, is_poly_arg := symbol.value.(SymbolPolyTypeValue); is_poly_arg {
+			if poly_arg, is_poly_arg := symbol.value.(SymbolPolyTypeValue); is_poly_arg {
 				if poly, ok := param.type.derived.(^ast.Poly_Type); ok && poly.specialization == nil {
+					if poly_arg.ident != nil do poly_args[poly.type.name] = poly_arg.ident
 					continue
 				}
 			}
@@ -661,6 +664,14 @@ resolve_generic_function_symbol :: proc(
 	return_types := make([dynamic]^ast.Field, ast_context.allocator)
 	argument_types := make([dynamic]^ast.Field, ast_context.allocator)
 
+	// rols: only the argument types pick a group member, so the return types also bind the poly-type arguments
+	result_map := poly_map
+	if len(poly_args) > 0 {
+		result_map = make(map[string]^ast.Expr, len(poly_map) + len(poly_args), context.temp_allocator)
+		for k, v in poly_args do result_map[k] = v
+		for k, v in poly_map do result_map[k] = v
+	}
+
 	for result in results {
 		if result.type == nil {
 			append(&return_types, result)
@@ -670,12 +681,12 @@ resolve_generic_function_symbol :: proc(
 		field := cast(^ast.Field)clone_node(result, ast_context.allocator, nil)
 
 		if ident, ok := unwrap_ident(field.type); ok {
-			if expr, ok := poly_map[ident.name]; ok {
+			if expr, ok := result_map[ident.name]; ok {
 				field.type = expr
 			}
 		}
 
-		find_and_replace_poly_type(field.type, &poly_map)
+		find_and_replace_poly_type(field.type, &result_map)
 
 		append(&return_types, field)
 	}

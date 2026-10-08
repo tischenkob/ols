@@ -1678,6 +1678,7 @@ expect_rename_package_clause :: proc(
 	new_name: string,
 	expected: []File,
 	causes: []string = {},
+	warnings: []string = {},
 ) {
 	cursor := source_remove_cursor(src)
 
@@ -1686,7 +1687,7 @@ expect_rename_package_clause :: proc(
 
 	server.collect_symbols(&server.indexer.index.collection, src.document.ast, src.document.uri.uri)
 
-	edit, reasons, found := server.rename_package_clause(src.document, cursor, new_name, &src.config, source_files(src))
+	edit, reasons, got, found := server.rename_package_clause(src.document, cursor, new_name, &src.config, source_files(src))
 	if !testing.expect(t, found, "Expected the cursor on the package clause") do return
 	if len(expected) == 0 {
 		expect_causes(t, reasons, causes)
@@ -1694,6 +1695,7 @@ expect_rename_package_clause :: proc(
 	}
 	if !testing.expectf(t, len(reasons) == 0, "Expected the package rename to pass its check, but received %v", reasons) do return
 	expect_workspace_edit(t, src, edit, expected)
+	expect_contained(t, got, warnings)
 }
 
 Attr_Command :: enum {

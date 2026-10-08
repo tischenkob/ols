@@ -2,6 +2,7 @@
 package server
 
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 
 import "src:common"
@@ -73,4 +74,24 @@ normalize_alias_path :: proc(path: string) -> string {
 		result, _ = strings.replace_all(result, "\\", "/", context.temp_allocator)
 	}
 	return result
+}
+
+// Reports whether name, a directory listed for the import path typed after "collection:", is a package the alias
+// walk kept or a parent of one. The walk already skipped git-ignored, excluded and hidden paths, so import path
+// completion reuses its result. Paths come from the typed text because the listing may resolve symlinks.
+// A collection without aliases keeps every directory.
+@(private = "package")
+collection_dir_has_package :: proc(collection, typed, name: string) -> bool {
+	aliases, ok := build_cache.pkg_aliases[collection]
+	if !ok {
+		return true
+	}
+	rel, _ := filepath.join({filepath.dir(typed), name}, context.temp_allocator)
+	rel, _ = filepath.replace_separators(rel, '/', context.temp_allocator)
+	for alias in aliases {
+		if path_within(alias, rel) {
+			return true
+		}
+	}
+	return false
 }

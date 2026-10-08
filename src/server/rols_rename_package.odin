@@ -107,15 +107,14 @@ rename_package :: proc(
 		if is_source(sources, file.fullpath) {
 			continue
 		}
-		data: []byte
-		defer delete(data)
 		text := file.text
 		if text == "" {
-			read, err := os.read_entire_file(file.fullpath, context.allocator)
-			if err != nil {
+			// An open document gives its unsaved text, so the edit ranges match the buffer.
+			read, ok := file_text(file.fullpath)
+			if !ok {
 				continue
 			}
-			data, text = read, string(read)
+			text = read
 		}
 		if !contains_word(text, old_name) && !imports_into(&r, file.fullpath, text) {
 			continue
@@ -225,13 +224,13 @@ package_sources :: proc(out: ^[dynamic]string, dir: string, files: []Package_Fil
 		matches, _ := filepath.glob(path.join({dir, "*.odin"}), context.temp_allocator)
 		slice.sort(matches)
 		for match in matches {
-			data, err := os.read_entire_file(match, context.temp_allocator)
-			if err != nil {
-				append(out, fmt.tprintf("cannot read %s: %v", match, err))
+			text, ok := file_text(match)
+			if !ok {
+				append(out, fmt.tprintf("cannot read %s", match))
 				return {}, false
 			}
 			slashed, _ := filepath.replace_separators(match, '/', context.temp_allocator)
-			append(&sources, Package_File{slashed, string(data)})
+			append(&sources, Package_File{slashed, text})
 		}
 	}
 	if len(sources) == 0 {

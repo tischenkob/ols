@@ -575,6 +575,27 @@ rename_package_clause_needs_client_renames :: proc(t: ^testing.T) {
 	test.expect_rename_package_clause(t, &source, "gametest", {}, {"the client cannot rename directories"})
 }
 
+// The editor rename keeps the warnings of the package rename, so the server can show them.
+@(test)
+rename_package_clause_keeps_warnings :: proc(t: ^testing.T) {
+	source := test.Source {
+		files = {
+			{"old/b.odin", "package o{*}ld\n\nimport \"../old\"\n\nY :: old.X\n"},
+			{"old/a.odin", "package old\n\nX :: 1\n"},
+		},
+		collections = {"shared" = "test"},
+		config = {client_rename_file_support = true},
+	}
+	test.expect_rename_package_clause(
+		t,
+		&source,
+		"fresh",
+		{{"fresh/b.odin", "package fresh\n\nimport \"../fresh\"\n\nY :: old.X\n"}},
+		{},
+		{"cannot resolve `old.X`, so the rename does not change it"},
+	)
+}
+
 // The symbol rename of the command line points to rename-package on the package clause.
 @(test)
 rename_package_clause_symbol_rename_refused :: proc(t: ^testing.T) {

@@ -1922,7 +1922,7 @@ request_rename :: proc(params: json.Value, id: RequestId, config: ^common.Config
 	}
 
 	// rols: a package clause renames its package, an import name renames once here; a refusal answers with its causes
-	edit, reasons, found := rename_package_clause(document, rename_param.position, rename_param.newName, config)
+	edit, reasons, warnings, found := rename_package_clause(document, rename_param.position, rename_param.newName, config)
 	if !found {
 		edit, _, reasons, found = rename_import(document, rename_param.position, rename_param.newName)
 	}
@@ -1932,6 +1932,7 @@ request_rename :: proc(params: json.Value, id: RequestId, config: ^common.Config
 			send_error(make_response_message_error(id = id, error = {code = .RequestFailed, message = message}), writer)
 		} else {
 			send_response(make_response_message(params = edit, id = id), writer)
+			show_rename_warnings(warnings, writer)
 		}
 		return .None
 	}
