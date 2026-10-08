@@ -70,20 +70,23 @@ branch_fallback :: proc(
 	file, placed := node_file(ast_context, node)
 	if !placed do return symbol, ok
 	candidates: []GlobalExpr
-	if own do candidates = branch_globals(file, node.name)
+	if own do candidates = branch_globals(ast_context, file, node.name)
 	if !ok && len(candidates) == 0 do return {}, false
 	base := file_build_target(node.pos.file)
 	plain: Gate_Consts
 	if file.consts == nil do plain = branch_package_consts(ast_context, file.file^, base)
 	target, has_target := branch_target(file.file^, node.pos.offset, base, &file.consts, plain)
-	if !has_target do return symbol, ok
+	if !has_target {
+		// Code that the host may not build keeps the fallback, but reaches a declaration of the open file that the
+		// index lacks only in a branch that the build may take.
+		_, excluded := file_target(node.pos.file)
+		if excluded || when_eval_target != nil do return symbol, ok
+		if ok && !branch_taken_on(file.file^, node.pos.offset, base, file.consts.?) do return symbol, ok
+		return host_fallback(ast_context, node, fallback)
+	}
 	for &global in candidates {
 		if branch_possible_on(file.file^, global.name_expr.pos.offset, target, file.consts.?) {
-			// Like an indexed symbol, it spans the declaration's name, which go to definition reads.
-			own_symbol, resolved := resolve_global_identifier(ast_context, node, &global)
-			own_symbol.range = common.get_token_range(global.name_expr^, file.file.src)
-			own_symbol.uri = common.create_uri(global.name_expr.pos.file, ast_context.allocator).uri
-			return own_symbol, resolved
+			return own_global_symbol(ast_context, node, &global, file.file^)
 		}
 	}
 	if !ok do return {}, false
@@ -92,6 +95,59 @@ branch_fallback :: proc(
 		return built, true
 	}
 	return symbol, true
+}
+
+// The fallback that code which the host builds for certain reaches: none when every declaration of the name in its
+// package lies in a `when` branch that a known condition rules out on the host (`.Ruled_Out`), as odin then reports
+// `Undeclared name`. A branch whose condition reads a name that the evaluator does not know may be the one that the
+// build takes, so its declaration keeps the name reachable. The index holds one fallback of a name and the others
+// that another file declares in `hidden_fallbacks`. The open file's own text stands in for what the index read from
+// it, and a declaration of it that the index lacks is returned.
+@(private = "file")
+host_fallback :: proc(ast_context: ^AstContext, node: ast.Ident, fallback: Maybe(Symbol)) -> (Symbol, bool) {
+	symbol, ok := fallback.?
+	pkg := symbol.pkg if ok else ast_context.document_package
+	open_in_pkg := ast_context.document_package == pkg
+	open_uri := common.create_uri(ast_context.file.fullpath, context.temp_allocator).uri
+	possible :: proc(indexed: Symbol, open_in_pkg: bool, open_uri: string) -> bool {
+		return .Ruled_Out not_in indexed.flags && !(open_in_pkg && strings.equal_fold(indexed.uri, open_uri))
+	}
+	if ok {
+		if possible(symbol, open_in_pkg, open_uri) do return symbol, true
+		if indexed, found := indexer.index.collection.packages[pkg]; found {
+			for hidden in indexed.hidden_fallbacks {
+				if hidden.name == node.name && possible(hidden, open_in_pkg, open_uri) do return symbol, true
+			}
+		}
+	}
+	if !open_in_pkg do return {}, false
+	probe := node
+	probe.pos.file = ast_context.file.fullpath
+	open_file, _ := node_file(ast_context, probe)
+	for &global in branch_globals(ast_context, open_file, node.name) {
+		if .Ruled_Out in global.flags do continue
+		if ok do return symbol, true
+		return own_global_symbol(ast_context, node, &global, open_file.file^)
+	}
+	return {}, false
+}
+
+// The symbol of global, a declaration of the open file named like node. Like an indexed symbol, it spans the
+// declaration's name, which go to definition reads.
+@(private = "file")
+own_global_symbol :: proc(
+	ast_context: ^AstContext,
+	node: ast.Ident,
+	global: ^GlobalExpr,
+	file: ast.File,
+) -> (
+	Symbol,
+	bool,
+) {
+	own_symbol, resolved := resolve_global_identifier(ast_context, node, global)
+	own_symbol.range = common.get_token_range(global.name_expr^, file.src)
+	own_symbol.uri = common.create_uri(global.name_expr.pos.file, ast_context.allocator).uri
+	return own_symbol, resolved
 }
 
 // The constants of the package of file that base builds, from package_consts, cached in ast_context.
@@ -117,18 +173,25 @@ Branch_File :: struct {
 	globals: Maybe([]GlobalExpr),
 }
 
-// The declarations named name in the `when` branches of file, every branch, in source order. The first call
-// collects them all into file.globals.
+// The declarations named name in the `when` branches of file, every branch, flagged as `collect_globals` flags
+// them for the index. The conditions read the file's constants, and those of the open file read its imports too.
+// The first call collects them all into file.globals.
 @(private = "file")
-branch_globals :: proc(file: ^Branch_File, name: string) -> []GlobalExpr {
+branch_globals :: proc(ast_context: ^AstContext, file: ^Branch_File, name: string) -> []GlobalExpr {
 	if file.globals == nil {
 		tags := parser.parse_file_tags(file.file^, context.temp_allocator)
 		exprs := make([dynamic]GlobalExpr, context.temp_allocator)
+		consts := make_when_expr_map()
+		fold_when_file_consts(&consts, file.file^)
+		saved := swap_when_ast_context(ast_context if file.file == &ast_context.file else nil)
+		defer swap_when_ast_context(saved)
 		for decl in file.file.decls {
-			when_decl, is_when := decl.derived.(^ast.When_Stmt)
-			if !is_when do continue
-			consts := make_when_expr_map()
-			collect_when_stmt(&exprs, file.file^, tags, when_decl, &consts, fallbacks = true)
+			#partial switch d in decl.derived {
+			case ^ast.Value_Decl:
+				register_when_consts_from_value_decl(&consts, file.file^, d)
+			case ^ast.When_Stmt:
+				collect_when_stmt(&exprs, file.file^, tags, d, &consts, fallbacks = true)
+			}
 		}
 		file.globals = exprs[:]
 	}
@@ -207,8 +270,9 @@ restore_hidden_fallbacks :: proc(collection: ^SymbolCollection) {
 // rols: folds the value of constant `symbol` of package `pkg` for a `when` condition. A name in it folds to a
 // constant of the same package, and a selector `other.NAME` to a constant of package `other`. The value is unknown
 // when it reads a mutable or fallback global, a constant that does not fold, or a cycle of constants. A name that no
-// constant declares reads as false, like in any `when` condition, because it can be `true`, `ODIN_OS` or a define.
-// The caller clears `when_ast_context` so that a selector does not read the open file's imports.
+// constant declares reads as false, like in any `when` condition, because it can be `true`, `ODIN_OS` or a define,
+// but `when_guessed` marks that false as a guess, as for a builtin that the editor does not seed, such as
+// `ODIN_DEBUG`. The caller clears `when_ast_context` so that a selector does not read the open file's imports.
 fold_package_when_const :: proc(symbol: Symbol, pkg: string) -> (When_Expr, bool) {
 	envs := make(map[string]^map[string]When_Expr, context.temp_allocator)
 	return fold_package_const(&envs, symbol, pkg)
@@ -265,11 +329,17 @@ fold_package_const :: proc(envs: ^map[string]^map[string]When_Expr, symbol: Symb
 		if key in consts do continue
 		if ref_pkg != pkg do try_build_package(ref_pkg)
 		named, found := lookup(name, ref_pkg, uri.path)
-		// A name stays unset and reads as false, but a selector reads a declaration of the package or nothing.
+		// A name stays unset and reads as a guessed false, but a selector reads a declaration of the package or nothing.
 		if !found && ref_pkg == pkg do continue
 		consts[key] = &when_unknown
 		if !found || .Mutable in named.flags || .Fallback in named.flags do continue
-		consts[key] = fold_package_const(envs, named, ref_pkg) or_continue
+		// The guess of one constant marks only the conditions that read it.
+		outer := when_guessed
+		when_guessed = false
+		value, folded := fold_package_const(envs, named, ref_pkg)
+		guessed := when_guessed
+		when_guessed = outer
+		if folded do consts[key] = when_guess(value) if guessed else value
 	}
 	return resolve_when_expr(consts^, generic.expr)
 }
@@ -277,4 +347,68 @@ fold_package_const :: proc(envs: ^map[string]^map[string]When_Expr, symbol: Symb
 // rols: the key under which a fold of a package constant stores the value of `pkg.name`, where `pkg` is a full path.
 when_selector_key :: proc(pkg, name: string) -> string {
 	return strings.concatenate({pkg, ".", name}, context.temp_allocator)
+}
+
+// rols: set while a `when` evaluation reads a name that it does not know, such as an undeclared name, a builtin that
+// the editor does not seed or a constant that reads one. resolve_when_ident reads such a name as false, as upstream
+// OLS does, so the branch that the editor picks stays the same. when_condition_known reads the flag to tell that
+// guess from a known false. Each reader clears it before an evaluation and restores it after.
+@(thread_local)
+when_guessed: bool
+
+// The stored values of a constant whose fold is a guess, which `resolve_when_expr` reads back as one. Nothing
+// writes to them.
+@(private = "file")
+when_guess_false, when_guess_true: ast.Expr
+
+// The value to store for a constant whose fold is the guess `value`. A guess is a bool, since an unknown name reads
+// as false; any other value is stored as unknown.
+when_guess :: proc(value: When_Expr) -> When_Expr {
+	b, is_bool := value.(bool)
+	if !is_bool do return &when_unknown
+	return &when_guess_true if b else &when_guess_false
+}
+
+// The bool that `expr` stores when it is a guess from when_guess, which sets when_guessed.
+guessed_when_value :: proc(expr: ^ast.Expr) -> (When_Expr, bool) {
+	if expr != &when_guess_false && expr != &when_guess_true do return nil, false
+	when_guessed = true
+	return expr == &when_guess_true, true
+}
+
+// `left && right` or `left || right` for resolve_when_expr. An operand that folds to a known bool that decides the
+// result, false for `&&` and true for `||`, gives that result whatever the other one reads. Otherwise both operands
+// must fold to bools, and the result is a guess when either one is.
+when_logic :: proc(when_expr_map: map[string]When_Expr, expr: ^ast.Binary_Expr) -> (When_Expr, bool) {
+	outer := when_guessed
+	decider := expr.op.kind == .Cmp_Or
+	values, bools, guesses: [2]bool
+	for operand, i in ([2]^ast.Expr{expr.left, expr.right}) {
+		when_guessed = false
+		value, ok := resolve_when_expr(when_expr_map, operand)
+		values[i], bools[i] = value.(bool)
+		bools[i] &&= ok
+		guesses[i] = when_guessed
+	}
+	when_guessed = outer
+	for i in 0 ..< 2 {
+		if bools[i] && !guesses[i] && values[i] == decider do return decider, true
+	}
+	if !bools[0] || !bools[1] do return {}, false
+	when_guessed = outer || guesses[0] || guesses[1]
+	return values[0] || values[1] if decider else values[0] && values[1], true
+}
+
+// The value of the `when` condition cond as resolve_when_condition reads it, and whether that value is known: the
+// condition folds to a bool without a guess. A condition that is not known may hold on the build, whatever its
+// value reads.
+when_condition_known :: proc(cond: ^ast.Expr, when_expr_map: map[string]When_Expr) -> (value, known: bool) {
+	if cond == nil do return false, false
+	outer := when_guessed
+	when_guessed = false
+	folded, ok := resolve_when_expr(when_expr_map, cond)
+	guessed := when_guessed
+	when_guessed = outer
+	b, is_bool := folded.(bool)
+	return ok && is_bool && b, ok && is_bool && !guessed
 }

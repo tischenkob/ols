@@ -5,11 +5,12 @@ import "core:testing"
 
 import test "src:testing"
 
-// A package constant that keeps a `when` branch inactive on every target.
+// A package constant that keeps a `when` branch inactive in the editor, which does not seed ODIN_DEBUG, so a
+// build with `-debug` may still take it.
 @(private = "file")
 OFF_FILE :: `package test
 
-B_OFF :: false
+B_OFF :: ODIN_DEBUG
 
 when B_OFF {
 	Mode :: enum {

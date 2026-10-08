@@ -90,7 +90,7 @@ fallback_active :: proc() {}
 lint_calls_skip_inactive_when_target :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = "package test\n\nmain :: proc() {\n\ttwo(1)\n}\n",
-		files = {{"b.odin", "package test\n\nB_OFF :: false\n\nwhen B_OFF {\n\ttwo :: proc(a, b: int) {}\n}\n"}},
+		files = {{"b.odin", "package test\n\nB_OFF :: ODIN_DEBUG\n\nwhen B_OFF {\n\ttwo :: proc(a, b: int) {}\n}\n"}},
 		config = {enable_lint_call_arity = true},
 	}
 	test.expect_lint_diagnostics(t, &source, {})
@@ -335,7 +335,7 @@ lint_of_excluded_file_builds_index_for_host :: proc(t: ^testing.T) {
 @(test)
 reindex_restores_hidden_fallback :: proc(t: ^testing.T) {
 	active := test.File{"a.odin", "package test\n\nX :: 2\n"}
-	fallback := test.File{"c.odin", "package test\n\nC_OFF :: false\n\nwhen C_OFF {\n\tX :: 1\n}\n"}
+	fallback := test.File{"c.odin", "package test\n\nC_OFF :: ODIN_DEBUG\n\nwhen C_OFF {\n\tX :: 1\n}\n"}
 	orders := [2][2]test.File{{active, fallback}, {fallback, active}}
 	// Reindexing the hidden fallback's own file first drops it and hides it again.
 	saves := [2][]test.File{{{"a.odin", "package test\n"}}, {fallback, {"a.odin", "package test\n"}}}

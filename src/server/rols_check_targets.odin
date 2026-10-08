@@ -305,6 +305,40 @@ branch_possible_on :: proc(
 	return data.possible
 }
 
+// Whether target takes every `when` branch around offset in file: each condition on the way is known, as
+// branch_possible_on knows it, to hold for a body and to fail for an `else`.
+branch_taken_on :: proc(file: ast.File, offset: int, target: parser.Build_Target, consts: Gate_Consts = nil) -> bool {
+	Data :: struct {
+		offset: int,
+		target: parser.Build_Target,
+		consts: Gate_Consts,
+		taken:  bool,
+	}
+	data := Data{offset, target, consts, true}
+	visitor := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			data := (^Data)(visitor.data)
+			if node == nil || !data.taken || data.offset < node.pos.offset || data.offset >= node.end.offset {
+				return nil
+			}
+			if s, ok := node.derived.(^ast.When_Stmt); ok {
+				in_body := s.body != nil && s.body.pos.offset <= data.offset && data.offset < s.body.end.offset
+				in_else :=
+					s.else_stmt != nil && s.else_stmt.pos.offset <= data.offset && data.offset < s.else_stmt.end.offset
+				if in_body || in_else {
+					data.taken = condition_on(s.cond, data.target, data.consts) == (.True if in_body else .False)
+				}
+			}
+			return visitor
+		},
+	}
+	for decl in file.decls {
+		ast.walk(&visitor, decl)
+	}
+	return data.taken
+}
+
 // The first of GATE_TARGET_CANDIDATES that builds file and can take every `when` branch around offset, when base
 // cannot take one of them. A candidate of base's OS comes first, so an ODIN_ARCH branch keeps the OS. ok is false
 // when base can take them all or no candidate can. A condition reads the file-scope constants of file. A branch whose
