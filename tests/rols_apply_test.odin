@@ -675,6 +675,8 @@ apply_gate_targets_add_the_targets_a_when_names :: proc(t: ^testing.T) {
 	named_one(t, "when ODIN_OS == .Darwin {\n\tx :: 1\n} else {\n}\n", "")
 	named_one(t, "when ODIN_OS == .Darwin {\n\tA :: 1\n} else when ODIN_OS == .Linux {\n\tB :: 1\n}\n", "linux_amd64")
 	named_one(t, "when ODIN_OS == .Linux {\n\tA :: 1\n} else when ODIN_OS == .Darwin {\n\tB :: 1\n}\n", "linux_amd64")
+	// A target that takes no branch builds none of the chain, even when the current target's branch is unknown.
+	named_one(t, "FLAG :: #config(FLAG, false)\n\nwhen ODIN_OS == .Darwin && FLAG {\n\tx :: 1\n}\n", "")
 	named_one(t, "when ODIN_ARCH == .wasm32 {\n}\n", "js_wasm32")
 	// A branch without an else that the named target skips builds less there than on the current target.
 	named_one(t, "when ODIN_OS != .Freestanding {\n}\n", "")
