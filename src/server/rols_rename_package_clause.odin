@@ -20,7 +20,8 @@ package_clause_at :: proc(document: ^Document, position: common.Position) -> (ra
 }
 
 // Renames the package of document, as rename_package does, when position is on the name of its
-// `package` clause. found is false when position is elsewhere. reasons holds one cause per refusal.
+// `package` clause. found is false when position is elsewhere. reasons holds one cause per refusal, and
+// warnings holds the changes the rename left out, as rename_package reports them.
 // The rename is refused when the client cannot rename the package directory or sent no workspace folders.
 rename_package_clause :: proc(
 	document: ^Document,
@@ -31,6 +32,7 @@ rename_package_clause :: proc(
 ) -> (
 	edit: WorkspaceEdit,
 	reasons: []string,
+	warnings: []string,
 	found: bool,
 ) {
 	context.allocator = context.temp_allocator
@@ -38,15 +40,30 @@ rename_package_clause :: proc(
 	if !config.client_rename_file_support {
 		out := make([]string, 1)
 		out[0] = "the client cannot rename directories, so it cannot rename a package: run `ols query rename-package DIR NEW` instead"
-		return {}, out, true
+		return {}, out, {}, true
 	}
 	if len(files) == 0 && len(config.workspace_folders) == 0 {
 		// The walk for importers covers the workspace folders only, so it would find none.
 		out := make([]string, 1)
 		out[0] = "the client sent no workspace folders, so the rename cannot find the importers of the package"
-		return {}, out, true
+		return {}, out, {}, true
 	}
 	dir := filepath.dir(document.fullpath)
-	edit, _, reasons, _ = rename_package(dir, new_name, config, files)
-	return edit, reasons, true
+	edit, warnings, reasons, _ = rename_package(dir, new_name, config, files)
+	return edit, reasons, warnings, true
+}
+
+// Shows the warnings of an editor package rename in a window/showMessage, since the rename response
+// carries only the edit.
+show_rename_warnings :: proc(warnings: []string, writer: ^Writer) {
+	if len(warnings) == 0 {
+		return
+	}
+	message := strings.join(warnings, "\n", context.temp_allocator)
+	notification := Notification {
+		jsonrpc = "2.0",
+		method = "window/showMessage",
+		params = NotificationLoggingParams{type = .Warning, message = message},
+	}
+	send_notification(notification, writer)
 }

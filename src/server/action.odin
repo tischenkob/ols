@@ -359,7 +359,8 @@ add_missing_imports :: proc(
 		}
 		for collection, pkgs in build_cache.pkg_aliases {
 			for pkg in pkgs {
-				fullpath := path.join({config.collections[collection], pkg})
+				// rols: join in temp memory, the default allocator leaked on every request
+				fullpath := path.join({config.collections[collection], pkg}, context.temp_allocator)
 				found := false
 
 				for doc_pkg in ast_context.imports {
@@ -372,7 +373,8 @@ add_missing_imports :: proc(
 					continue
 				}
 
-				if pkg == name.name {
+				// rols: match the last path segment so nested packages such as mem/virtual are offered
+				if path.base(pkg) == name.name {
 					import_edit: TextEdit
 					if config.enable_add_import_to_bottom {
 						most_bottom_line, is_import := find_most_bottom_line_number(ast_context)

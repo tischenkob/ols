@@ -54,9 +54,13 @@ record_lint_verdict :: proc(ctx: ^LintContext, name: string, used: bool) {
 		// A copy: ranging over the map element dereferences it, and a missing key has none.
 		holders := words[name]
 		for i in holders do add_used_in(verdicts, siblings.files[i].fullpath)
-		return
+	} else {
+		for file in siblings.files do if contains_word(file.text, name) do add_used_in(verdicts, file.fullpath)
 	}
-	for file in siblings.files do if contains_word(file.text, name) do add_used_in(verdicts, file.fullpath)
+	// The files of importing packages, read when no file of the package used the name.
+	if ctx.importers != nil {
+		for file in ctx.importers.files do if contains_word(file.text, name) do add_used_in(verdicts, file.fullpath)
+	}
 }
 
 @(private = "file")
@@ -85,7 +89,8 @@ append_disk_change :: proc(changes: ^[dynamic]Changed_File, fullpath, text: stri
 }
 
 // Relints, once each, the open documents whose verdicts one of changes could change, and reports whether it relinted
-// any. A changed file relints only the other open documents of its directory.
+// any. A file of another directory counts as a possible importer only when its text names the package of the
+// document, so an import under another alias is seen only after the document changes.
 @(private = "package")
 relint_siblings :: proc(changes: []Changed_File, config: ^common.Config) -> (relinted: bool) {
 	if len(lint_verdicts) == 0 do return
@@ -94,7 +99,9 @@ relint_siblings :: proc(changes: []Changed_File, config: ^common.Config) -> (rel
 		verdicts := lint_verdicts[sibling.fullpath] or_continue
 		dir := filepath.dir(sibling.fullpath)
 		for change in changes {
-			if change.fullpath == sibling.fullpath || filepath.dir(change.fullpath) != dir do continue
+			if change.fullpath == sibling.fullpath do continue
+			same_package := filepath.dir(change.fullpath) == dir
+			if !same_package && !contains_word(change.text, sibling.ast.pkg_name) do continue
 			if verdict_may_change(verdicts, change.fullpath, change.text) {
 				run_lints(&sibling, config)
 				relinted = true
