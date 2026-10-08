@@ -27,6 +27,10 @@ When_Package :: struct {
 	imported:  map[string]^When_Package,
 	// For an imported package, its plain constants folded, in the temp allocator.
 	consts:    map[string]When_Expr,
+	// The file that declares each constant of plain, whose imports name the packages that its selectors read.
+	owners:    map[string]^ast.File,
+	// The constants of plain that read a selector, folded by package_const_literal, nil when they do not fold.
+	literals:  map[string]^ast.Expr,
 }
 
 // The value declarations of file in a `when` branch that the editor's target does not build. The conditions
@@ -71,6 +75,14 @@ inactive_when_decls :: proc(file: ^ast.File, pkg: ^When_Package = nil) -> map[^a
 				// A selector in another file names an import of that file, which may differ from this one's.
 				if name not_in plain && !has_when_selector(value) do plain[name] = value
 			}
+			// Such a constant that a condition reaches folds through the imports of its own file.
+			selectors := make([dynamic]^ast.Selector_Expr, context.temp_allocator)
+			missing := make([dynamic]string, context.temp_allocator)
+			collect_cond_selectors(file.decls[:], plain, &selectors, &missing)
+			for name in missing {
+				if name in plain || name not_in pkg.owners do continue
+				plain[name] = package_const_literal(pkg, name, 0) or_continue
+			}
 		}
 	}
 	// walk_when_decls trusts only the conditions whose when_kind is known, and the fold gives each constant that
@@ -109,6 +121,22 @@ add_selector_consts :: proc(
 	if len(file.imports) == 0 do return
 	selectors := make([dynamic]^ast.Selector_Expr, context.temp_allocator)
 	collect_cond_selectors(file.decls[:], plain^, &selectors)
+	fold_selectors(consts, plain, file, pkg, selectors[:], 0)
+}
+
+// Adds selectors, read by a file of a package depth imports away from the evaluated one, as add_selector_consts
+// does. A constant of the imported package that reads a selector of its own imports folds through
+// package_const_literal when depth is 0, so imports are followed one level further and no more.
+@(private = "file")
+fold_selectors :: proc(
+	consts: ^map[string]When_Expr,
+	plain: ^map[string]^ast.Expr,
+	file: ^ast.File,
+	pkg: ^When_Package,
+	selectors: []^ast.Selector_Expr,
+	depth: int,
+) {
+	if len(file.imports) == 0 do return
 	local: map[string]^When_Package
 	cache := &pkg.imported if pkg != nil else &local
 	allocator := pkg.allocator if pkg != nil else context.allocator
@@ -128,11 +156,43 @@ add_selector_consts :: proc(
 			cache[dir] = imported
 		}
 		value := imported.plain[selector.field.name] or_continue
+		if reads_selector(value, imported.plain) {
+			if depth > 0 do continue
+			value = package_const_literal(imported, selector.field.name, depth + 1) or_continue
+		}
 		if when_kind(value, imported.plain, 0) == .Unknown do continue
 		folded := resolve_when_expr(imported.consts, value) or_continue
 		consts[key] = folded
 		plain[key] = when_literal(folded, selector)
 	}
+}
+
+// The constant name of pkg as a literal of its value, with the selectors that it reads, directly or through the
+// constants of its own file, folded through the imports of that file by fold_selectors at depth. Other names read
+// the constants of its file, then those of pkg that read no selector. Cached in pkg.literals, in pkg.allocator.
+@(private = "file")
+package_const_literal :: proc(pkg: ^When_Package, name: string, depth: int) -> (literal: ^ast.Expr, ok: bool) {
+	if cached, done := pkg.literals[name]; done do return cached, cached != nil
+	// Also ends a cycle through another package.
+	pkg.literals[name] = nil
+	file := pkg.owners[name] or_return
+	mine := make(map[string]^ast.Expr, context.temp_allocator)
+	for other, value in pkg.plain {
+		if !has_when_selector(value) do mine[other] = value
+	}
+	add_plain_consts(&mine, file)
+	value := mine[name]
+	selectors := make([dynamic]^ast.Selector_Expr, context.temp_allocator)
+	collect_when_selectors(value, mine, &selectors, 0)
+	consts := seeded_when_consts()
+	fold_selectors(&consts, &mine, file, pkg, selectors[:], depth)
+	if when_kind(value, mine, 0) == .Unknown do return nil, false
+	fold_when_consts(&consts, mine)
+	folded := resolve_when_expr(consts, value) or_return
+	context.allocator = pkg.allocator
+	literal = when_literal(folded, value)
+	pkg.literals[name] = literal
+	return literal, true
 }
 
 // The directory of the package that file imports as alias: through a collection of set_when_target, or relative
@@ -178,50 +238,54 @@ when_literal :: proc(value: When_Expr, at: ^ast.Node) -> ^ast.Expr {
 }
 
 // Appends the selectors that the `when` conditions among stmts read, nested ones included, directly or through
-// the constants of plain.
+// the constants of plain, and to missing when given the names they read that plain lacks.
 @(private = "file")
 collect_cond_selectors :: proc(
 	stmts: []^ast.Stmt,
 	plain: map[string]^ast.Expr,
 	selectors: ^[dynamic]^ast.Selector_Expr,
+	missing: ^[dynamic]string = nil,
 ) {
 	for stmt in stmts {
 		if stmt == nil do continue
 		#partial switch s in stmt.derived {
 		case ^ast.Block_Stmt:
-			collect_cond_selectors(s.stmts[:], plain, selectors)
+			collect_cond_selectors(s.stmts[:], plain, selectors, missing)
 		case ^ast.Foreign_Block_Decl:
-			collect_cond_selectors({s.body}, plain, selectors)
+			collect_cond_selectors({s.body}, plain, selectors, missing)
 		case ^ast.When_Stmt:
-			collect_when_selectors(s.cond, plain, selectors, 0)
-			collect_cond_selectors({s.body, s.else_stmt}, plain, selectors)
+			collect_when_selectors(s.cond, plain, selectors, 0, missing)
+			collect_cond_selectors({s.body, s.else_stmt}, plain, selectors, missing)
 		}
 	}
 }
 
 // Appends the selectors pkg.NAME, with an identifier pkg, among the operands of expr that when_kind reads, and
 // among those of the constants of plain that expr names, so that only a selector that a condition can reach builds
-// a package.
+// a package. Appends to missing when given the names among them that plain lacks.
 @(private = "file")
 collect_when_selectors :: proc(
 	expr: ^ast.Expr,
 	plain: map[string]^ast.Expr,
 	selectors: ^[dynamic]^ast.Selector_Expr,
 	depth: int,
+	missing: ^[dynamic]string = nil,
 ) {
 	if expr == nil || depth > 8 do return
 	#partial switch e in expr.derived {
 	case ^ast.Paren_Expr:
-		collect_when_selectors(e.expr, plain, selectors, depth)
+		collect_when_selectors(e.expr, plain, selectors, depth, missing)
 	case ^ast.Ident:
-		collect_when_selectors(plain[e.name] or_else nil, plain, selectors, depth + 1)
+		value, is_plain := plain[e.name]
+		if !is_plain && missing != nil do append(missing, e.name)
+		collect_when_selectors(value, plain, selectors, depth + 1, missing)
 	case ^ast.Unary_Expr:
-		collect_when_selectors(e.expr, plain, selectors, depth)
+		collect_when_selectors(e.expr, plain, selectors, depth, missing)
 	case ^ast.Binary_Expr:
-		collect_when_selectors(e.left, plain, selectors, depth)
-		collect_when_selectors(e.right, plain, selectors, depth)
+		collect_when_selectors(e.left, plain, selectors, depth, missing)
+		collect_when_selectors(e.right, plain, selectors, depth, missing)
 	case ^ast.Call_Expr:
-		if len(e.args) == 2 do collect_when_selectors(e.args[1], plain, selectors, depth)
+		if len(e.args) == 2 do collect_when_selectors(e.args[1], plain, selectors, depth, missing)
 	case ^ast.Selector_Expr:
 		if _, is_ident := e.expr.derived.(^ast.Ident); is_ident do append(selectors, e)
 	}
@@ -230,8 +294,15 @@ collect_when_selectors :: proc(
 // Whether expr reads a selector among its own operands that when_kind reads.
 @(private = "file")
 has_when_selector :: proc(expr: ^ast.Expr) -> bool {
+	return reads_selector(expr, nil)
+}
+
+// Whether expr reads a selector that when_kind reads, among its own operands or those of the constants of plain
+// that it names.
+@(private = "file")
+reads_selector :: proc(expr: ^ast.Expr, plain: map[string]^ast.Expr) -> bool {
 	selectors := make([dynamic]^ast.Selector_Expr, context.temp_allocator)
-	collect_when_selectors(expr, nil, &selectors, 0)
+	collect_when_selectors(expr, plain, &selectors, 0)
 	return len(selectors) > 0
 }
 
@@ -343,6 +414,8 @@ build_when_package :: proc(pkg: ^When_Package, pkg_name: string) {
 	pkg.built = true
 	pkg.pkg_name = strings.clone(pkg_name)
 	pkg.plain = make(map[string]^ast.Expr)
+	pkg.owners = make(map[string]^ast.File)
+	pkg.literals = make(map[string]^ast.Expr)
 	target := host_target()
 	for path in pkg.files {
 		data, err := os.read_entire_file(path, context.allocator)
@@ -350,7 +423,14 @@ build_when_package :: proc(pkg: ^When_Package, pkg_name: string) {
 		file, ok := parse_syntax(path, string(data))
 		if !ok do continue
 		if pkg.pkg_name == "" && !strings.has_suffix(file.pkg_name, "_test") do pkg.pkg_name = file.pkg_name
-		if file.pkg_name == pkg.pkg_name do add_plain_consts(&pkg.plain, &file)
+		if file.pkg_name != pkg.pkg_name do continue
+		owner := new_clone(file)
+		mine := make(map[string]^ast.Expr, context.temp_allocator)
+		add_plain_consts(&mine, owner)
+		for name, value in mine {
+			pkg.plain[name] = value
+			pkg.owners[name] = owner
+		}
 	}
 }
 
