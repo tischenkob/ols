@@ -772,8 +772,7 @@ file_when_named_targets :: proc(file: ^ast.File, base: parser.Build_Target, plai
 				// which adds no error there.
 				target, _ := parse_target(name)
 				branch := chain_branch(s, target, data.plain)
-				known := branch != CHAIN_UNKNOWN && base_branch != CHAIN_UNKNOWN
-				if known && (branch == base_branch || branch == CHAIN_NONE) do continue
+				if branch == CHAIN_NONE || (branch != CHAIN_UNKNOWN && branch == base_branch) do continue
 				if !slice.contains(data.names[:], name) do append(&data.names, name)
 			}
 			return visitor
