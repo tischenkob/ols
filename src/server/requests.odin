@@ -124,7 +124,13 @@ thread_request_main :: proc(data: rawptr) {
 		spall.trace("request", fmt.tprint(method, id))
 
 		if method == "$/cancelRequest" {
-			append(&deletings, Request{id = id})
+			// rols: cancel the request that params.id names, the notification itself has no id
+			if cancelled, cancelled_ok := cancelled_request_id(root); cancelled_ok {
+				if name, is_string := cancelled.(string); is_string {
+					cancelled = strings.clone(name)
+				}
+				append(&deletings, Request{id = cancelled})
+			}
 			json.destroy_value(root)
 		} else {
 			request_sequence += 1
@@ -306,7 +312,8 @@ consume_requests :: proc(config: ^common.Config, writer: ^Writer) -> bool {
 	for d in deletings {
 		delete_index := -1
 		for request, i in requests {
-			if request.id == d.id {
+			// rols: a nil id is a notification, which a cancellation never removes
+			if d.id != nil && request.id == d.id {
 				// rols: assign the outer index instead of shadowing it
 				delete_index = i
 				break
@@ -316,6 +323,8 @@ consume_requests :: proc(config: ^common.Config, writer: ^Writer) -> bool {
 			cancel(requests[delete_index].value, requests[delete_index].id, writer, config)
 			ordered_remove(&requests, delete_index)
 		}
+		// rols: the reader thread cloned a string id
+		if name, is_string := d.id.(string); is_string do delete(name)
 	}
 	clear(&deletings)
 
