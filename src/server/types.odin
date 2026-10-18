@@ -560,6 +560,7 @@ OlsConfig :: struct {
 	enable_checker_strict_style:             Maybe(bool),
 	enable_workspace_gitignore:              Maybe(bool),
 	enable_excluded_file_targets:            Maybe(bool),
+	enable_postfix_completions:              Maybe(bool),
 	workspace_exclude:                       []string,
 	workspace_include:                       []string,
 	modernize_recipes:                       []common.Modernize_Recipe,

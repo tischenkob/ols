@@ -1123,6 +1123,9 @@ get_selector_completion :: proc(
 	}
 	is_arrow_access := is_arrow_selector_access(position_context)
 
+	// rols: keep the receiver for postfix completions before a call resolves to its result
+	receiver_symbol := selector
+
 	if s, ok := selector.value.(SymbolProcedureValue); ok {
 		if len(s.return_types) == 1 {
 			if selector, ok = resolve_type_expression(ast_context, s.return_types[0].type); !ok {
@@ -1473,6 +1476,11 @@ get_selector_completion :: proc(
 		if v.type == .String {
 			append_magic_array_like_completion(position_context, selector, results)
 		}
+	}
+
+	// rols: postfix templates and pseudo methods, after every upstream item so that upstream labels win
+	if !is_arrow_access {
+		rols_append_postfix_completions(ast_context, position_context, receiver_symbol, selector, results, config)
 	}
 
 	return is_incomplete

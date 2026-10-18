@@ -140,6 +140,7 @@ Config :: struct {
 	enable_checker_strict_style:             bool,
 	enable_workspace_gitignore:              bool,
 	enable_excluded_file_targets:            bool,
+	enable_postfix_completions:              bool,
 	workspace_exclude:                       []string,
 	workspace_include:                       []string,
 	modernize_recipes:                       []Modernize_Recipe,

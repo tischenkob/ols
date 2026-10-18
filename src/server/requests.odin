@@ -571,6 +571,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_workspace_gitignore.(bool) or_else config.enable_workspace_gitignore
 	config.enable_excluded_file_targets =
 		ols_config.enable_excluded_file_targets.(bool) or_else config.enable_excluded_file_targets
+	config.enable_postfix_completions =
+		ols_config.enable_postfix_completions.(bool) or_else config.enable_postfix_completions
 	if ols_config.workspace_exclude != nil {
 		config.workspace_exclude = common.clone_string_list(ols_config.workspace_exclude, context.allocator)
 	}
@@ -962,6 +964,8 @@ request_initialize :: proc(
 	config.enable_snippets &= client_snippet_supprot
 	config.enable_fake_method &= client_snippet_supprot
 	config.enable_procedure_snippet &= client_snippet_supprot
+	// rols: postfix templates are snippets
+	config.enable_postfix_completions &= client_snippet_supprot
 
 	config.signature_offset_support =
 		initialize_params.capabilities.textDocument.signatureHelp.signatureInformation.parameterInformation.labelOffsetSupport
@@ -1182,6 +1186,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_checker_strict_style = false
 	config.enable_workspace_gitignore = true
 	config.enable_excluded_file_targets = true
+	config.enable_postfix_completions = true
 }
 
 get_builtin_path :: proc(allocator := context.allocator) -> string {
