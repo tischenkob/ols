@@ -96,8 +96,106 @@ g :: proc() -> int {
 }
 
 f :: proc() {
-	x := g()
-	_ = x
+	_ = g()
+}
+`,
+	)
+}
+
+@(test)
+lint_fix_unused_variable_discard_typed :: proc(t: ^testing.T) {
+	typed := test.Source {
+		main = `package test
+
+calculate :: proc(x: int) -> int {
+	return x
+}
+
+main :: proc() {
+	result{*}: int = calculate(5)
+}
+`,
+		config = {enable_lint_unused_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&typed,
+		"Replace with `_`",
+		`package test
+
+calculate :: proc(x: int) -> int {
+	return x
+}
+
+main :: proc() {
+	_ = calculate(5)
+}
+`,
+	)
+
+	untyped_literal := test.Source {
+		main = `package test
+
+Point :: struct {
+	x: int,
+}
+
+g :: proc() -> int {
+	return 0
+}
+
+f :: proc() {
+	p{*}: Point = {x = g()}
+}
+`,
+		config = {enable_lint_unused_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&untyped_literal,
+		"Replace with `_`",
+		`package test
+
+Point :: struct {
+	x: int,
+}
+
+g :: proc() -> int {
+	return 0
+}
+
+f :: proc() {
+	_ = Point{x = g()}
+}
+`,
+	)
+}
+
+@(test)
+lint_fix_unused_variable_discard_keeps_attribute :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc() {
+	@(static)
+	counter{*} := 0
+}
+`,
+		config = {enable_lint_unused_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Replace with `_`",
+		`package test
+
+f :: proc() {
+	@(static)
+	counter := 0
+	_ = counter
 }
 `,
 	)
@@ -281,7 +379,7 @@ f :: proc() {
 	x{*} := g()
 }
 `,
-			"_ = x",
+			"_ = g()",
 		},
 	}
 

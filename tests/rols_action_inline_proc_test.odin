@@ -2245,3 +2245,345 @@ wait :: proc(x: int) -> int {
 	}
 	test.expect_action_missing_unsaved(t, &source, INLINE_PROC_ACTION, unsaved)
 }
+
+@(test)
+action_inline_proc_early_return_becomes_ternary :: proc(t: ^testing.T) {
+	expect_inline_proc(
+		t,
+		`package test
+
+main :: proc() {
+	result: int = calc{*}ulate(5)
+}
+
+calculate :: proc(x: int) -> int {
+	if !(x > 10) {
+		return 30
+	}
+	return 40
+}
+`,
+		`package test
+
+main :: proc() {
+	result: int = 30 if !(5 > 10) else 40
+}
+
+calculate :: proc(x: int) -> int {
+	if !(x > 10) {
+		return 30
+	}
+	return 40
+}
+`,
+	)
+}
+
+@(test)
+action_inline_proc_if_else_becomes_ternary :: proc(t: ^testing.T) {
+	expect_inline_proc(
+		t,
+		`package test
+
+pick :: proc(a, b: int) -> int {
+	if a > b {
+		return a
+	} else {
+		return b
+	}
+}
+
+main :: proc() {
+	x, y := 1, 2
+	m := pi{*}ck(x, y)
+}
+`,
+		`package test
+
+pick :: proc(a, b: int) -> int {
+	if a > b {
+		return a
+	} else {
+		return b
+	}
+}
+
+main :: proc() {
+	x, y := 1, 2
+	m := x if x > y else y
+}
+`,
+	)
+}
+
+@(test)
+action_inline_proc_else_if_chain_nests :: proc(t: ^testing.T) {
+	expect_inline_proc(
+		t,
+		`package test
+
+sign :: proc(x: int) -> int {
+	if x > 0 {
+		return 1
+	} else if x < 0 {
+		return -1
+	}
+	return 0
+}
+
+main :: proc() {
+	n := 3
+	s := si{*}gn(n)
+}
+`,
+		`package test
+
+sign :: proc(x: int) -> int {
+	if x > 0 {
+		return 1
+	} else if x < 0 {
+		return -1
+	}
+	return 0
+}
+
+main :: proc() {
+	n := 3
+	s := 1 if n > 0 else (-1 if n < 0 else 0)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_proc_ternary_in_binary_is_parenthesised :: proc(t: ^testing.T) {
+	expect_inline_proc(
+		t,
+		`package test
+
+calculate :: proc(x: int) -> int {
+	if x > 10 do return 30
+	return 40
+}
+
+main :: proc() {
+	n := 3
+	y := 2 * calc{*}ulate(n)
+}
+`,
+		`package test
+
+calculate :: proc(x: int) -> int {
+	if x > 10 do return 30
+	return 40
+}
+
+main :: proc() {
+	n := 3
+	y := 2 * (30 if n > 10 else 40)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_proc_ternary_arms_take_result_type :: proc(t: ^testing.T) {
+	expect_inline_proc(
+		t,
+		`package test
+
+Point :: struct {
+	x: int,
+}
+
+make_point :: proc(v: int) -> Point {
+	if v == 0 {
+		return {}
+	}
+	return {x = v}
+}
+
+main :: proc() {
+	n := 3
+	p := make_{*}point(n)
+}
+`,
+		`package test
+
+Point :: struct {
+	x: int,
+}
+
+make_point :: proc(v: int) -> Point {
+	if v == 0 {
+		return {}
+	}
+	return {x = v}
+}
+
+main :: proc() {
+	n := 3
+	p := Point{} if n == 0 else Point{x = n}
+}
+`,
+	)
+}
+
+@(test)
+action_inline_proc_call_argument_in_first_condition :: proc(t: ^testing.T) {
+	expect_inline_proc(
+		t,
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+positive :: proc(x: int) -> int {
+	if x > 0 {
+		return 1
+	}
+	return 0
+}
+
+main :: proc() {
+	y := posi{*}tive(g())
+}
+`,
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+positive :: proc(x: int) -> int {
+	if x > 0 {
+		return 1
+	}
+	return 0
+}
+
+main :: proc() {
+	y := 1 if g() > 0 else 0
+}
+`,
+	)
+}
+
+@(test)
+action_inline_proc_refused_call_argument_in_ternary_arm :: proc(t: ^testing.T) {
+	expect_no_inline_proc(
+		t,
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+choose :: proc(x: int, c: bool) -> int {
+	if c {
+		return x
+	}
+	return 0
+}
+
+main :: proc() {
+	y := cho{*}ose(g(), true)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_proc_refused_statement_before_return :: proc(t: ^testing.T) {
+	expect_no_inline_proc(
+		t,
+		`package test
+
+calculate :: proc(x: int) -> int {
+	y := x + 1
+	if y > 10 {
+		return 30
+	}
+	return 40
+}
+
+main :: proc() {
+	r := calc{*}ulate(5)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_proc_refused_if_with_init :: proc(t: ^testing.T) {
+	expect_no_inline_proc(
+		t,
+		`package test
+
+calculate :: proc(x: int) -> int {
+	if y := x + 1; y > 10 {
+		return 30
+	}
+	return 40
+}
+
+main :: proc() {
+	r := calc{*}ulate(5)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_proc_refused_if_without_return_on_every_path :: proc(t: ^testing.T) {
+	expect_no_inline_proc(
+		t,
+		`package test
+
+calculate :: proc(x: int) -> int {
+	if x > 10 {
+		if x > 20 {
+			return 30
+		}
+	}
+	return 40
+}
+
+main :: proc() {
+	r := calc{*}ulate(5)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_proc_ternary_in_ternary_is_parenthesised :: proc(t: ^testing.T) {
+	expect_inline_proc(
+		t,
+		`package test
+
+calculate :: proc(x: int) -> int {
+	if x > 10 do return 30
+	return 40
+}
+
+main :: proc() {
+	n, a := 3, true
+	v := calc{*}ulate(n) if a else 0
+}
+`,
+		`package test
+
+calculate :: proc(x: int) -> int {
+	if x > 10 do return 30
+	return 40
+}
+
+main :: proc() {
+	n, a := 3, true
+	v := (30 if n > 10 else 40) if a else 0
+}
+`,
+	)
+}
