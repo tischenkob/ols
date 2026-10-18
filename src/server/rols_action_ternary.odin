@@ -84,11 +84,19 @@ is_single_assign :: proc(assign: ^ast.Assign_Stmt) -> bool {
 // A ternary inside a generated ternary is parenthesised, since nesting binds right and reads badly.
 ternary_operand :: proc(src: string, expr: ^ast.Expr) -> string {
 	text := node_text(src, expr)
-	#partial switch _ in expr.derived {
-	case ^ast.Ternary_If_Expr, ^ast.Ternary_When_Expr, ^ast.Or_Else_Expr:
+	if needs_ternary_parens(expr) {
 		return strings.concatenate({"(", text, ")"}, context.temp_allocator)
 	}
 	return text
+}
+
+@(private = "package")
+needs_ternary_parens :: proc(expr: ^ast.Expr) -> bool {
+	#partial switch _ in expr.derived {
+	case ^ast.Ternary_If_Expr, ^ast.Ternary_When_Expr, ^ast.Or_Else_Expr:
+		return true
+	}
+	return false
 }
 
 add_to_if_else :: proc(ctx: ^ActionContext) {

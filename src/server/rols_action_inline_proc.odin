@@ -156,22 +156,69 @@ add_inline_proc_action :: proc(ctx: ^ActionContext) {
 		inline_statement(ctx, stmt, body, params[:], origin)
 		return
 	}
-	if len(field_types(callee.return_types)) != 1 || len(body.stmts) != 1 {
+	if len(field_types(callee.return_types)) != 1 {
 		return
 	}
-	ret, is_return := body.stmts[0].derived.(^ast.Return_Stmt)
-	if !is_return || len(ret.results) != 1 {
+	result := reduce_returns(body.stmts[:])
+	if result == nil {
 		return
 	}
-	// An untyped literal result is copied with the result type in front.
 	result_type: ^ast.Expr
-	if comp, is_comp := ret.results[0].derived.(^ast.Comp_Lit); is_comp && comp.type == nil {
-		if lit.type.results == nil || len(lit.type.results.list) != 1 || lit.type.results.list[0].type == nil {
-			return
-		}
+	if lit.type.results != nil && len(lit.type.results.list) == 1 {
 		result_type = lit.type.results.list[0].type
 	}
-	inline_expression(ctx, call, parent, ret.results[0], result_type, params[:], origin)
+	inline_expression(ctx, call, parent, result, result_type, params[:], origin)
+}
+
+// What a body that returns one value on every path reduces to: expr alone, or
+// `then if cond else otherwise`.
+Result :: struct {
+	expr:            ^ast.Expr,
+	cond:            ^ast.Expr,
+	then, otherwise: ^Result,
+}
+
+// The result of stmts, or nil when they do more than return. Two simplifications apply: the
+// statements after an `if` whose body returns join its else branch, and an `if` whose branches
+// both return becomes a ternary.
+reduce_returns :: proc(stmts: []^ast.Stmt) -> ^Result {
+	if len(stmts) == 0 {
+		return nil
+	}
+	#partial switch s in stmts[0].derived {
+	case ^ast.Return_Stmt:
+		if len(stmts) != 1 || len(s.results) != 1 {
+			return nil
+		}
+		return new_clone(Result{expr = s.results[0]}, context.temp_allocator)
+	case ^ast.If_Stmt:
+		if s.init != nil || s.label != nil || s.cond == nil || s.body == nil {
+			return nil
+		}
+		then_stmts, then_ok := branch_stmts(s.body)
+		else_stmts, else_ok := branch_stmts(s.else_stmt)
+		if !then_ok || !else_ok {
+			return nil
+		}
+		then := reduce_returns(then_stmts)
+		otherwise := reduce_returns(slice.concatenate([][]^ast.Stmt{else_stmts, stmts[1:]}, context.temp_allocator))
+		if then == nil || otherwise == nil {
+			return nil
+		}
+		return new_clone(Result{cond = s.cond, then = then, otherwise = otherwise}, context.temp_allocator)
+	}
+	return nil
+}
+
+// The statements of a block, or an `else if` alone. A missing else has none.
+branch_stmts :: proc(stmt: ^ast.Stmt) -> ([]^ast.Stmt, bool) {
+	if stmt == nil {
+		return nil, true
+	}
+	if block, is_block := stmt.derived.(^ast.Block_Stmt); is_block {
+		return block.stmts, block.label == nil
+	}
+	return slice.clone([]^ast.Stmt{stmt}, context.temp_allocator), true
 }
 
 // Where the copied text comes from: the callee's file and procedure literal, inlined at call.
@@ -197,86 +244,51 @@ copy_imports :: proc(ctx: ^ActionContext, origin: Copy, written: []^ast.Node) ->
 	return edits[:], true
 }
 
+// The state of inline_expression across the parts of a result. A use in a ternary arm marks its
+// parameter as read conditionally.
+Substitution :: struct {
+	ctx:         ^ActionContext,
+	params:      []Param,
+	origin:      Copy,
+	written:     ^[dynamic]^ast.Node,
+	counts:      []int,
+	conditional: []bool,
+}
+
 // Every parameter occurrence becomes its argument. An argument with a call is passed through
-// once or not at all, never duplicated or dropped. A non-nil result_type goes in front of expr,
-// an untyped compound literal.
+// once or not at all, never duplicated or dropped, and never only in a ternary arm. An untyped
+// compound literal result takes result_type in front.
 inline_expression :: proc(
 	ctx: ^ActionContext,
 	call: ^ast.Call_Expr,
 	parent: ^ast.Node,
-	expr: ^ast.Expr,
+	result: ^Result,
 	result_type: ^ast.Expr,
 	params: []Param,
 	origin: Copy,
 ) {
-	src := ctx.document.ast.src
-	callee := origin.callee
-	callee_src := callee.ast.src
 	written := make([dynamic]^ast.Node, context.temp_allocator)
-	append(&written, expr)
-	if result_type != nil do append(&written, result_type)
-	counts := make([]int, len(params), context.temp_allocator)
-
-	Replacement :: struct {
-		start, end: int,
-		text:       string,
+	s := Substitution {
+		ctx         = ctx,
+		params      = params,
+		origin      = origin,
+		written     = &written,
+		counts      = make([]int, len(params), context.temp_allocator),
+		conditional = make([]bool, len(params), context.temp_allocator),
 	}
-	replacements := make([dynamic]Replacement, context.temp_allocator)
-
-	for use in collect_ident_uses(expr) {
-		i, known := param_index(params, use, callee, origin)
-		if !known {
-			return
-		}
-		if i < 0 {
-			continue
-		}
-		for p in use.parents {
-			if _, is_proc := p.derived.(^ast.Proc_Lit); is_proc {
-				return
-			}
-		}
-		if len(use.parents) > 0 {
-			if unary, is_unary := use.parents[len(use.parents) - 1].derived.(^ast.Unary_Expr);
-			   is_unary && unary.op.kind == .And {
-				return
-			}
-		}
-		if default_blocks_inline(params[i]) {
-			return
-		}
-		counts[i] += 1
-		text := node_text(callee_src if params[i].defaulted else src, params[i].arg)
-		if params[i].defaulted do append(&written, params[i].arg)
-		if typed := typed_arg_text(params[i], text); typed != text {
-			text = typed
-			append(&written, params[i].type_expr)
-		}
-		if !is_atom(params[i].arg) {
-			text = strings.concatenate({"(", text, ")"}, context.temp_allocator)
-		}
-		append(&replacements, Replacement{use.ident.pos.offset, use.ident.end.offset, text})
+	sb := strings.builder_make(context.temp_allocator)
+	if !write_result(&s, &sb, result, result_type, false) {
+		return
 	}
 	for param, i in params {
-		if counts[i] != 1 && has_side_effect(param.arg) {
+		if (s.counts[i] != 1 || s.conditional[i]) && has_side_effect(param.arg) {
 			return
 		}
 	}
-
-	sb := strings.builder_make(context.temp_allocator)
-	if result_type != nil {
-		strings.write_string(&sb, node_text(callee_src, result_type))
-	}
-	at := expr.pos.offset
-	for r in replacements {
-		strings.write_string(&sb, callee_src[at:r.start])
-		strings.write_string(&sb, r.text)
-		at = r.end
-	}
-	strings.write_string(&sb, callee_src[at:expr.end.offset])
 	text := strings.to_string(sb)
 
-	if needs_parens(expr, parent, call) {
+	is_ternary := result.cond != nil
+	if is_ternary ? parent_needs_parens(nil, parent, call) : needs_parens(result.expr, parent, call) {
 		text = strings.concatenate({"(", text, ")"}, context.temp_allocator)
 	}
 	import_edits, fits := copy_imports(ctx, origin, written[:])
@@ -287,6 +299,97 @@ inline_expression :: proc(
 	append(&edits, ..import_edits)
 	append(&edits, TextEdit{range = range_of(ctx, call.pos.offset, call.end.offset), newText = text})
 	append(ctx.actions, make_code_action(ctx, "Inline procedure call", "refactor.inline", edits[:]))
+}
+
+// Writes result as `then if cond else otherwise`, with the arms read conditionally. A part of a
+// ternary that is itself a ternary, a `when` ternary or an `or_else` is parenthesised.
+write_result :: proc(
+	s: ^Substitution,
+	sb: ^strings.Builder,
+	result: ^Result,
+	result_type: ^ast.Expr,
+	conditional: bool,
+) -> bool {
+	if result.cond == nil {
+		if comp, is_comp := result.expr.derived.(^ast.Comp_Lit); is_comp && comp.type == nil {
+			if result_type == nil {
+				return false
+			}
+			strings.write_string(sb, node_text(s.origin.callee.ast.src, result_type))
+			append(s.written, result_type)
+		}
+		return write_substituted(s, sb, result.expr, conditional)
+	}
+	arm :: proc(s: ^Substitution, sb: ^strings.Builder, r: ^Result, result_type: ^ast.Expr) -> bool {
+		wrap := r.cond != nil || needs_ternary_parens(r.expr)
+		if wrap do strings.write_byte(sb, '(')
+		ok := write_result(s, sb, r, result_type, true)
+		if wrap do strings.write_byte(sb, ')')
+		return ok
+	}
+	if !arm(s, sb, result.then, result_type) {
+		return false
+	}
+	strings.write_string(sb, " if ")
+	wrap := needs_ternary_parens(result.cond)
+	if wrap do strings.write_byte(sb, '(')
+	if !write_substituted(s, sb, result.cond, conditional) {
+		return false
+	}
+	if wrap do strings.write_byte(sb, ')')
+	strings.write_string(sb, " else ")
+	return arm(s, sb, result.otherwise, result_type)
+}
+
+// Writes expr, from the callee's source, with every parameter it reads replaced by its argument.
+// False when a use cannot be replaced.
+write_substituted :: proc(s: ^Substitution, sb: ^strings.Builder, expr: ^ast.Expr, conditional: bool) -> bool {
+	src := s.ctx.document.ast.src
+	callee := s.origin.callee
+	callee_src := callee.ast.src
+	params := s.params
+	append(s.written, expr)
+
+	at := expr.pos.offset
+	for use in collect_ident_uses(expr) {
+		i, known := param_index(params, use, callee, s.origin)
+		if !known {
+			return false
+		}
+		if i < 0 {
+			continue
+		}
+		for p in use.parents {
+			if _, is_proc := p.derived.(^ast.Proc_Lit); is_proc {
+				return false
+			}
+		}
+		if len(use.parents) > 0 {
+			if unary, is_unary := use.parents[len(use.parents) - 1].derived.(^ast.Unary_Expr);
+			   is_unary && unary.op.kind == .And {
+				return false
+			}
+		}
+		if default_blocks_inline(params[i]) {
+			return false
+		}
+		s.counts[i] += 1
+		s.conditional[i] ||= conditional
+		text := node_text(callee_src if params[i].defaulted else src, params[i].arg)
+		if params[i].defaulted do append(s.written, params[i].arg)
+		if typed := typed_arg_text(params[i], text); typed != text {
+			text = typed
+			append(s.written, params[i].type_expr)
+		}
+		if !is_atom(params[i].arg) {
+			text = strings.concatenate({"(", text, ")"}, context.temp_allocator)
+		}
+		strings.write_string(sb, callee_src[at:use.ident.pos.offset])
+		strings.write_string(sb, text)
+		at = use.ident.end.offset
+	}
+	strings.write_string(sb, callee_src[at:expr.end.offset])
+	return true
 }
 
 // The body becomes a bare block, with a typed local per parameter the body reads. Passing a
@@ -675,6 +778,11 @@ needs_parens :: proc(expr: ^ast.Expr, parent: ^ast.Node, call: ^ast.Call_Expr) -
 	case:
 		return false
 	}
+	return parent_needs_parens(inner, parent, call)
+}
+
+// Whether parent binds tighter than inner, or than a ternary when inner is nil.
+parent_needs_parens :: proc(inner: ^ast.Binary_Expr, parent: ^ast.Node, call: ^ast.Call_Expr) -> bool {
 	#partial switch p in parent.derived {
 	case ^ast.Binary_Expr:
 		if inner == nil {
@@ -686,6 +794,9 @@ needs_parens :: proc(expr: ^ast.Expr, parent: ^ast.Node, call: ^ast.Call_Expr) -
 		return outer_prec > inner_prec || (outer_prec == inner_prec && p.right == call)
 	case ^ast.Unary_Expr, ^ast.Selector_Expr, ^ast.Index_Expr, ^ast.Deref_Expr, ^ast.Slice_Expr:
 		return true
+	case ^ast.Ternary_If_Expr, ^ast.Ternary_When_Expr, ^ast.Or_Else_Expr, ^ast.Type_Cast:
+		// A ternary binds right and looser than these: `a if c else b if d else e` nests in the else.
+		return inner == nil
 	}
 	return false
 }

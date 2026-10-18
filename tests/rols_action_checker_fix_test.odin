@@ -39,18 +39,12 @@ f :: proc(a: int) {
 
 	test.seed_check_diagnostic(&source, 3, 1, 2, "'x' declared but not used")
 
-	test.expect_action_applied(
-		t,
-		&source,
-		"Replace 'x' with _",
-		`package test
+	test.expect_action_applied(t, &source, "Replace 'x' with _", `package test
 
 f :: proc(a: int) {
-	x := a + 1
-	_ = x
+	_ = a + 1
 }
-`,
-	)
+`)
 }
 
 @(test)
@@ -100,8 +94,7 @@ g :: proc() {
 f :: proc() -> int { return 1 }
 
 g :: proc() {
-	x := f()
-	_ = x
+	_ = f()
 }
 `,
 	)

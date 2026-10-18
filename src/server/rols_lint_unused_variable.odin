@@ -84,14 +84,47 @@ unused_variable_fixes :: proc(
 		append(fixes, Lint_Fix{start, end, remove_title, "", "unused-variable/remove"})
 	}
 
-	// `_ := v` is not valid, so the value keeps its name and a discard follows it.
-	if len(decl.values) > 0 {
+	// `_ := v` is not valid, so the value is assigned to `_`. A typed value that has no type of
+	// its own takes the declared one in front.
+	if text, ok := discard_value(src, decl); ok {
+		append(fixes, Lint_Fix{decl.pos.offset, decl.end.offset, discard_title, text, "unused-variable/discard"})
+	} else if len(decl.values) > 0 {
+		// A constant may be a type, and `nil` or `---` cannot stand alone, so the name stays and a discard follows it.
 		indent := get_line_indentation(src, decl.pos.offset)
 		text := fmt.tprintf("%s\n%s_ = %s", node_text(src, decl), indent, ident.name)
 		append(fixes, Lint_Fix{decl.pos.offset, decl.end.offset, discard_title, text, "unused-variable/discard"})
 	} else {
 		append(fixes, Lint_Fix{ident.pos.offset, ident.end.offset, discard_title, "_", "unused-variable/discard"})
 	}
+}
+
+// `_ = v` for a variable declared with one value.
+@(private = "file")
+discard_value :: proc(src: string, decl: ^ast.Value_Decl) -> (string, bool) {
+	// An attribute must be followed by a declaration.
+	if !decl.is_mutable || len(decl.values) != 1 || len(decl.attributes) > 0 {
+		return "", false
+	}
+	value := decl.values[0]
+	text := node_text(src, value)
+	#partial switch v in value.derived {
+	case ^ast.Undef:
+		return "", false
+	case ^ast.Ident:
+		if v.name == "nil" {
+			return "", false
+		}
+	case ^ast.Comp_Lit:
+		if v.type == nil && decl.type != nil {
+			text = fmt.tprintf("%s%s", node_text(src, decl.type), text)
+		}
+	case ^ast.Implicit_Selector_Expr:
+		if decl.type == nil {
+			return "", false
+		}
+		text = fmt.tprintf("%s%s", node_text(src, decl.type), text)
+	}
+	return fmt.tprintf("_ = %s", text), true
 }
 
 @(private = "file")
