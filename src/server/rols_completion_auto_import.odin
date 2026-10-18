@@ -86,6 +86,12 @@ import_edit :: proc(ast_context: ^AstContext, found: Unimported_Package, config:
 	return TextEdit{range = {start = {line = line}, end = {line = line}}, newText = text}
 }
 
+// The import of the `core` package at `fullpath`, as auto-import completion adds it.
+@(private = "package")
+rols_core_import_edit :: proc(ast_context: ^AstContext, pkg, fullpath: string, config: ^common.Config) -> TextEdit {
+	return import_edit(ast_context, {"core", pkg, fullpath}, config)
+}
+
 // The package a selector names when its left side is an identifier that nothing resolves. Records the import in
 // `ast_context.auto_import_edit`.
 @(private = "package")
