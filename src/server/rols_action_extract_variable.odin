@@ -29,13 +29,6 @@ add_extract_variable_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 
-	expr, chain, ok := find_expr(stmt, start, end)
-	if !ok || !extractable(stmt, expr, chain) {
-		return
-	}
-
-	name := pick_name(ctx, expr)
-
 	line_start := stmt.pos.offset
 	for line_start > 0 && src[line_start - 1] != '\n' {
 		line_start -= 1
@@ -46,20 +39,33 @@ add_extract_variable_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 
-	edits := make([]TextEdit, 2, context.temp_allocator)
-	edits[0] = TextEdit {
-		range   = range_of(ctx, line_start, line_start),
-		newText = strings.concatenate(
-			{get_line_indentation(src, stmt.pos.offset), name, " := ", src[expr.pos.offset:expr.end.offset], "\n"},
-			context.temp_allocator,
-		),
-	}
-	edits[1] = TextEdit {
-		range   = range_of(ctx, expr.pos.offset, expr.end.offset),
-		newText = name,
-	}
+	count := 0
+	for candidate in find_exprs(stmt, start, end) {
+		if count == MAX_EXTRACT_WIDTHS {
+			break
+		}
+		expr := candidate.expr
+		if !extractable(stmt, expr, candidate.chain) {
+			continue
+		}
+		name := pick_name(ctx, expr)
 
-	append(ctx.actions, make_code_action(ctx, "Extract variable", "refactor.extract", edits))
+		edits := make([]TextEdit, 2, context.temp_allocator)
+		edits[0] = TextEdit {
+			range   = range_of(ctx, line_start, line_start),
+			newText = strings.concatenate(
+				{get_line_indentation(src, stmt.pos.offset), name, " := ", src[expr.pos.offset:expr.end.offset], "\n"},
+				context.temp_allocator,
+			),
+		}
+		edits[1] = TextEdit {
+			range   = range_of(ctx, expr.pos.offset, expr.end.offset),
+			newText = name,
+		}
+
+		append(ctx.actions, make_code_action(ctx, "Extract variable", "refactor.extract", edits))
+		count += 1
+	}
 }
 
 // Expressions that produce a value on their own. Literals and parenthesized expressions only count
@@ -90,20 +96,26 @@ is_value_expr :: proc(node: ^ast.Node, selected: bool) -> bool {
 	return false
 }
 
-// The selected expression (exact match) or the innermost value expression under the cursor, with
-// its ancestors from stmt down to its parent.
-find_expr :: proc(stmt: ^ast.Stmt, start, end: int) -> (expr: ^ast.Expr, chain: []^ast.Node, ok: bool) {
+Candidate :: struct {
+	expr:  ^ast.Expr,
+	// The ancestors from stmt down to the parent of expr.
+	chain: []^ast.Node,
+}
+
+// The selected expression (exact match), or every value expression under the cursor, innermost
+// first.
+find_exprs :: proc(stmt: ^ast.Stmt, start, end: int) -> []Candidate {
 	Data :: struct {
 		start, end: int,
 		stack:      [dynamic]^ast.Node,
-		expr:       ^ast.Expr,
-		chain:      []^ast.Node,
+		found:      [dynamic]Candidate,
 	}
 
 	data := Data {
 		start = start,
 		end   = end,
 		stack = make([dynamic]^ast.Node, context.temp_allocator),
+		found = make([dynamic]Candidate, context.temp_allocator),
 	}
 
 	visitor := ast.Visitor {
@@ -119,13 +131,13 @@ find_expr :: proc(stmt: ^ast.Stmt, start, end: int) -> (expr: ^ast.Expr, chain: 
 			}
 
 			selected := data.start != data.end
-			if selected && data.expr != nil {
+			if selected && len(data.found) > 0 {
 				return nil
 			}
 			exact := node.pos.offset == data.start && node.end.offset == data.end
 			if (!selected || exact) && is_value_expr(node, selected) {
-				data.expr = cast(^ast.Expr)node
-				data.chain = slice.clone(data.stack[:], context.temp_allocator)
+				chain := slice.clone(data.stack[:], context.temp_allocator)
+				append(&data.found, Candidate{cast(^ast.Expr)node, chain})
 				if selected {
 					return nil
 				}
@@ -137,7 +149,8 @@ find_expr :: proc(stmt: ^ast.Stmt, start, end: int) -> (expr: ^ast.Expr, chain: 
 	}
 
 	ast.walk(&visitor, stmt)
-	return data.expr, data.chain, data.expr != nil
+	slice.reverse(data.found[:])
+	return data.found[:]
 }
 
 extractable :: proc(stmt: ^ast.Stmt, expr: ^ast.Expr, chain: []^ast.Node) -> bool {

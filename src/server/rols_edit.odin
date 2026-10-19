@@ -1037,10 +1037,14 @@ package_import_path :: proc(ctx: ^ActionContext, dir: string) -> (string, bool) 
 	return rel, true
 }
 
+// The most enclosing expressions a cursor offers to an extract action, innermost first. Each gets
+// its own action, which make_titles_distinct tells apart by the replaced code.
+MAX_EXTRACT_WIDTHS :: 5
+
 // Drops an action whose title and edits equal an earlier one, as two providers can offer the same
 // fix, such as a lint quick fix and a refactoring. The kept action takes over isPreferred, and the
 // quickfix kind when either has it. Titles that still occur more than once get the first line of
-// the code the action replaces in this document, shortened. A title that is still shared after
+// the first code the action replaces in this document, shortened. A title that is still shared after
 // that gets its position among the equal ones. Unique titles stay as they are, so an editor shows
 // the usual text.
 make_titles_distinct :: proc(document: ^Document, actions: ^[dynamic]CodeAction) {
@@ -1074,10 +1078,15 @@ make_titles_distinct :: proc(document: ^Document, actions: ^[dynamic]CodeAction)
 	for action in actions do counts[action.title] += 1
 	for &action in actions {
 		if counts[action.title] < 2 do continue
-		edits := action.edit.changes[document.uri.uri]
-		if len(edits) == 0 do continue
-		range, ok := common.get_absolute_range(edits[0].range, text)
-		if !ok || range.start >= range.end do continue
+		range: common.AbsoluteRange
+		for edit in action.edit.changes[document.uri.uri] {
+			r, ok := common.get_absolute_range(edit.range, text)
+			if ok && r.start < r.end {
+				range = r
+				break
+			}
+		}
+		if range.start >= range.end do continue
 		snippet := string(text[range.start:range.end])
 		if newline := strings.index_byte(snippet, '\n'); newline >= 0 {
 			snippet = snippet[:newline]

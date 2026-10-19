@@ -37,43 +37,9 @@ add_introduce_param_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 
-	// The selection must match one expression; the cursor takes the outermost constant around it.
-	expr: ^ast.Expr
-	parent: ^ast.Node
-	for at in nodes_at({stmt}, start) {
-		if start != end && (at.node.pos.offset != start || at.node.end.offset != end) {
-			continue
-		}
-		if _, is_ident := at.node.derived.(^ast.Ident); is_ident && start == end {
-			continue
-		}
-		if is_constant(ctx, at.node) {
-			expr, parent = cast(^ast.Expr)at.node, at.parent
-			break
-		}
-	}
-	if expr == nil || parent == nil {
+	candidates := constants_at(ctx, stmt, start, end)
+	if len(candidates) == 0 {
 		return
-	}
-
-	base := strings.to_lower(const_name(ctx, expr, parent), context.temp_allocator)
-	if base == "constant" {
-		base = "value"
-	}
-	name := fresh_name(ctx, base, expr.pos)
-
-	type, type_ok := argument_param_type(ctx, expr, parent)
-	if !type_ok {
-		symbol, resolved := resolve_type_expression(ctx.ast_context, expr)
-		if !resolved {
-			return
-		}
-		// Untyped literals print as their default types only when marked mutable.
-		symbol.flags += {.Mutable}
-		type, type_ok = symbol_type_text(ctx.ast_context, symbol, name, require_import = true)
-		if !type_ok {
-			return
-		}
 	}
 
 	params := function.type.params
@@ -89,18 +55,42 @@ add_introduce_param_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 
-	changes := make(Changes, context.temp_allocator)
-	param := strings.concatenate({name, ": ", type}, context.temp_allocator)
-	append_list_item(&changes, ctx.document, params.list, close, param)
-	append_edit(&changes, ctx.document, expr.pos.offset, expr.end.offset, name)
-	value := node_text(src, expr)
-	for site in sites {
-		append_list_item(&changes, site.document, site.call.args, site.call.close.offset, value)
+	for candidate in candidates {
+		expr, parent := cast(^ast.Expr)candidate.node, candidate.parent
+
+		base := strings.to_lower(const_name(ctx, expr, parent), context.temp_allocator)
+		if base == "constant" {
+			base = "value"
+		}
+		name := fresh_name(ctx, base, expr.pos)
+
+		type, type_ok := argument_param_type(ctx, expr, parent)
+		if !type_ok {
+			symbol, resolved := resolve_type_expression(ctx.ast_context, expr)
+			if !resolved {
+				continue
+			}
+			// Untyped literals print as their default types only when marked mutable.
+			symbol.flags += {.Mutable}
+			type, type_ok = symbol_type_text(ctx.ast_context, symbol, name, require_import = true)
+			if !type_ok {
+				continue
+			}
+		}
+
+		changes := make(Changes, context.temp_allocator)
+		param := strings.concatenate({name, ": ", type}, context.temp_allocator)
+		append_list_item(&changes, ctx.document, params.list, close, param)
+		append_edit(&changes, ctx.document, expr.pos.offset, expr.end.offset, name)
+		value := node_text(src, expr)
+		for site in sites {
+			append_list_item(&changes, site.document, site.call.args, site.call.close.offset, value)
+		}
+		append(
+			ctx.actions,
+			CodeAction{title = "Introduce parameter", kind = "refactor.rewrite", edit = workspace_edit(changes)},
+		)
 	}
-	append(
-		ctx.actions,
-		CodeAction{title = "Introduce parameter", kind = "refactor.rewrite", edit = workspace_edit(changes)},
-	)
 }
 
 // The declared type of the parameter the expression is passed to. An untyped literal otherwise
