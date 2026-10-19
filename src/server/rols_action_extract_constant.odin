@@ -31,42 +31,57 @@ add_extract_constant_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 
-	// The selection must match one expression; the cursor takes the outermost constant around it.
-	expr: ^ast.Expr
-	parent: ^ast.Node
-	for at in nodes_at({stmt}, start) {
-		if start != end && (at.node.pos.offset != start || at.node.end.offset != end) {
-			continue
-		}
-		if _, is_ident := at.node.derived.(^ast.Ident); is_ident {
-			continue
-		}
-		if is_constant(ctx, at.node) {
-			expr, parent = cast(^ast.Expr)at.node, at.parent
-			break
-		}
-	}
-	if expr == nil || parent == nil {
-		return
-	}
-
-	name := fresh_name(ctx, const_name(ctx, expr, parent), expr.pos)
-
 	at := decl_start(ctx, stmt.pos.offset)
 	for at > 0 && src[at - 1] != '\n' {
 		at -= 1
 	}
 
-	edits := make([]TextEdit, 2, context.temp_allocator)
-	edits[0] = {
-		range   = range_of(ctx, at, at),
-		newText = strings.concatenate({name, " :: ", node_text(src, expr), "\n\n"}, context.temp_allocator),
+	for candidate in constants_at(ctx, stmt, start, end) {
+		if _, is_ident := candidate.node.derived.(^ast.Ident); is_ident {
+			continue
+		}
+		expr := cast(^ast.Expr)candidate.node
+		name := fresh_name(ctx, const_name(ctx, expr, candidate.parent), expr.pos)
+
+		edits := make([]TextEdit, 2, context.temp_allocator)
+		edits[0] = {
+			range   = range_of(ctx, at, at),
+			newText = strings.concatenate({name, " :: ", node_text(src, expr), "\n\n"}, context.temp_allocator),
+		}
+		edits[1] = {
+			range   = range_of(ctx, expr.pos.offset, expr.end.offset),
+			newText = name,
+		}
+		append(ctx.actions, make_code_action(ctx, "Extract constant", "refactor.extract", edits))
 	}
-	edits[1] = {
-		range   = range_of(ctx, expr.pos.offset, expr.end.offset),
-		newText = name,
+}
+
+// The selected constant expression, or the constant expressions around the cursor, innermost first.
+// A cursor skips names and parentheses, which repeat the expression inside them.
+@(private = "package")
+constants_at :: proc(ctx: ^ActionContext, stmt: ^ast.Stmt, start, end: int) -> []Node_At {
+	found := make([dynamic]Node_At, context.temp_allocator)
+	#reverse for at in nodes_at({stmt}, start) {
+		if len(found) == MAX_EXTRACT_WIDTHS {
+			break
+		}
+		if at.parent == nil {
+			continue
+		}
+		if start != end && (at.node.pos.offset != start || at.node.end.offset != end) {
+			continue
+		}
+		#partial switch _ in at.node.derived {
+		case ^ast.Ident, ^ast.Paren_Expr:
+			if start == end {
+				continue
+			}
+		}
+		if is_constant(ctx, at.node) {
+			append(&found, at)
+		}
 	}
-	append(ctx.actions, make_code_action(ctx, "Extract constant", "refactor.extract", edits))
+	return found[:]
 }
 
 @(private = "package")

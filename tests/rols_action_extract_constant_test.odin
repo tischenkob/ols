@@ -6,12 +6,12 @@ import test "src:testing"
 
 EXTRACT_CONSTANT_ACTION :: "Extract constant"
 
-expect_extract_constant :: proc(t: ^testing.T, main, expected: string) {
+expect_extract_constant :: proc(t: ^testing.T, main, expected: string, title := EXTRACT_CONSTANT_ACTION) {
 	source := test.Source {
 		main = main,
 		config = {enable_code_action_extract_constant = true},
 	}
-	test.expect_action_applied(t, &source, EXTRACT_CONSTANT_ACTION, expected)
+	test.expect_action_applied(t, &source, title, expected)
 }
 
 expect_no_extract_constant :: proc(t: ^testing.T, main: string, enabled := true) {
@@ -148,6 +148,7 @@ main :: proc() {
 	origin := ORIGIN
 }
 `,
+		"Extract constant (Vec2{1, 2})",
 	)
 }
 
@@ -399,4 +400,42 @@ main :: proc() {
 	speed := {*}5
 }
 `, enabled = false)
+}
+
+@(test)
+action_extract_constant_cursor_offers_each_width :: proc(t: ^testing.T) {
+	main := `package test
+
+main :: proc() {
+	x := f((1 + {*}2) * 3)
+}
+`
+	listed := test.Source {
+		main = main,
+		config = {enable_code_action_extract_constant = true},
+	}
+	test.expect_action(
+		t,
+		&listed,
+		{"Extract constant (2)", "Extract constant (1 + 2)", "Extract constant ((1 + 2) * 3)"},
+	)
+	missing := test.Source {
+		main = main,
+		config = {enable_code_action_extract_constant = true},
+	}
+	test.expect_action_missing(t, &missing, "Extract constant ((1 + 2))")
+
+	expect_extract_constant(
+		t,
+		main,
+		`package test
+
+CONSTANT :: (1 + 2) * 3
+
+main :: proc() {
+	x := f(CONSTANT)
+}
+`,
+		"Extract constant ((1 + 2) * 3)",
+	)
 }

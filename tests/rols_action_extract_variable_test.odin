@@ -99,7 +99,7 @@ main :: proc() {
 	test.expect_action_applied(
 		t,
 		&source,
-		EXTRACT_VARIABLE_ACTION,
+		"Extract variable (p.position)",
 		`package test
 
 Point :: struct {
@@ -527,6 +527,69 @@ main :: proc(s: []int) {
 main :: proc(s: []int) {
 	len2 := len(s)
 	bar(len2)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_cursor_offers_each_width :: proc(t: ^testing.T) {
+	main := `package test
+
+main :: proc() {
+	a, b, c := 1, 2, 3
+	foo(a + b * c{*})
+}
+`
+	listed := test.Source {
+		main = main,
+		config = {enable_code_action_extract_variable = true},
+	}
+	test.expect_action(t, &listed, {"Extract variable (b * c)", "Extract variable (a + b * c)"})
+
+	source := test.Source {
+		main = main,
+		config = {enable_code_action_extract_variable = true},
+	}
+	test.expect_action_applied(
+		t,
+		&source,
+		"Extract variable (a + b * c)",
+		`package test
+
+main :: proc() {
+	a, b, c := 1, 2, 3
+	value := a + b * c
+	foo(value)
+}
+`,
+	)
+}
+
+// The whole initializer is refused, so the one width left keeps the plain title.
+@(test)
+action_extract_variable_cursor_skips_refused_width :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+main :: proc() {
+	a, b, c := 1, 2, 3
+	x := a + b * c{*}
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_VARIABLE_ACTION,
+		`package test
+
+main :: proc() {
+	a, b, c := 1, 2, 3
+	value := b * c
+	x := a + value
 }
 `,
 	)

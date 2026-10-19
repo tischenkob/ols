@@ -6,12 +6,12 @@ import test "src:testing"
 
 INTRODUCE_PARAM_ACTION :: "Introduce parameter"
 
-expect_introduce_param :: proc(t: ^testing.T, main, expected: string) {
+expect_introduce_param :: proc(t: ^testing.T, main, expected: string, title := INTRODUCE_PARAM_ACTION) {
 	source := test.Source {
 		main = main,
 		config = {enable_code_action_introduce_param = true},
 	}
-	test.expect_action_applied_files(t, &source, INTRODUCE_PARAM_ACTION, {{"main.odin", expected}})
+	test.expect_action_applied_files(t, &source, title, {{"main.odin", expected}})
 }
 
 expect_no_introduce_param :: proc(t: ^testing.T, main: string, files: []test.File = {}, enabled := true) {
@@ -445,5 +445,45 @@ main :: proc() {
 }
 `,
 		{{"grow_windows.odin", "#+build windows\npackage test\n\ngrow :: proc(x: int) -> int {\n\treturn x * 2\n}\n"}},
+	)
+}
+
+@(test)
+action_introduce_param_cursor_offers_each_width :: proc(t: ^testing.T) {
+	main := `package test
+
+grow :: proc(x: int) -> int {
+	return x * (2 + {*}3)
+}
+
+main :: proc() {
+	a := grow(1)
+}
+`
+	listed := test.Source {
+		main = main,
+		config = {enable_code_action_introduce_param = true},
+	}
+	test.expect_action(t, &listed, {"Introduce parameter (3)", "Introduce parameter (2 + 3)"})
+	missing := test.Source {
+		main = main,
+		config = {enable_code_action_introduce_param = true},
+	}
+	test.expect_action_missing(t, &missing, "Introduce parameter ((2 + 3))")
+
+	expect_introduce_param(
+		t,
+		main,
+		`package test
+
+grow :: proc(x: int, value: int) -> int {
+	return x * (value)
+}
+
+main :: proc() {
+	a := grow(1, 2 + 3)
+}
+`,
+		"Introduce parameter (2 + 3)",
 	)
 }

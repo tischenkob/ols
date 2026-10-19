@@ -139,7 +139,7 @@ Options:
 
 - `enable_code_action_invert_if`: Enables the code actions to invert if statements and to rewrite them as early returns. Defaults to true.
 
-- `enable_code_action_extract_variable`: Enables the code action to extract an expression into a local variable. Defaults to true.
+- `enable_code_action_extract_variable`: Enables the code action to extract an expression into a local variable. With only a cursor, it offers one action for each enclosing expression. Defaults to true.
 
 - `enable_code_action_inline_variable`: Enables the code action to inline a local variable into its uses. Defaults to true.
 
@@ -169,11 +169,11 @@ Options:
 
 - `enable_code_action_defer_delete`: Enables the code action adding a `defer` that frees an allocation. Defaults to true.
 
-- `enable_code_action_extract_constant`: Enables the code action extracting a constant expression into a file-scope constant. Defaults to true.
+- `enable_code_action_extract_constant`: Enables the code action extracting a constant expression into a file-scope constant. With only a cursor, it offers one action for each enclosing expression. Defaults to true.
 
 - `enable_code_action_inline_proc`: Enables the code action inlining a procedure call. Defaults to true.
 
-- `enable_code_action_introduce_param`: Enables the code action turning a constant expression into a parameter passed by every caller. It is not offered when the procedure has platform variants. Defaults to true.
+- `enable_code_action_introduce_param`: Enables the code action turning a constant expression into a parameter passed by every caller. With only a cursor, it offers one action for each enclosing expression. It is not offered when the procedure has platform variants. Defaults to true.
 
 - `enable_code_action_remove_param`: Enables the code action removing an unused parameter from a procedure and its callers. A procedure with platform variants, as `rename` finds them, loses the parameter in every variant; the action is not offered when a variant cannot take the change (as for `reorder-params`) or reads that parameter. Defaults to true.
 
