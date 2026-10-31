@@ -209,11 +209,12 @@ marshal_to_writer :: proc(w: io.Writer, v: any, opt: ^Marshal_Options) -> (err: 
 		return .Unsupported_Type
 
 	case runtime.Type_Info_String:
+		// rols: Odin master dropped the for_json flag of io.write_quoted_string for json.write_quoted_json_string
 		switch s in a {
 		case string:
-			io.write_quoted_string(w, s, '"', nil, true) or_return
+			json.write_quoted_json_string(w, s) or_return
 		case cstring:
-			io.write_quoted_string(w, string(s), '"', nil, true) or_return
+			json.write_quoted_json_string(w, string(s)) or_return
 		}
 
 	case runtime.Type_Info_Boolean:

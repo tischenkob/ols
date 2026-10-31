@@ -451,7 +451,7 @@ main :: proc() {
 	errors := server.modernize_recipe_errors(&config)
 	expected := []string {
 		"recipe unbound: replace uses $y, which match does not bind",
-		"recipe syntax: match does not parse: line 2: expected an operand",
+		"recipe syntax: match does not parse: line 2: expected ')' after argument list, got '}'",
 		"recipe kind: where kind \"list\" is not slice, dynamic_array, fixed_array, map, string or pointer",
 		"recipe where-var: where names $y, which match does not bind",
 		"recipe lone: match is a lone name, which matches declarations and fields too",
