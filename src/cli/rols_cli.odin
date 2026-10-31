@@ -583,7 +583,7 @@ setup :: proc(root: string) {
 	server.find_all_package_aliases(config)
 }
 
-// Also called for a missing file: read_ols_initialize_options adds the core, base and vendor collections.
+// Also called for a missing file: resolve_default_collections adds the core, base and vendor collections.
 read_ols_json :: proc(file: string, uri: common.Uri) {
 	ols_config: server.OlsConfig
 	if data, err := os.read_entire_file(file, context.temp_allocator); err == nil {
@@ -592,6 +592,7 @@ read_ols_json :: proc(file: string, uri: common.Uri) {
 		}
 	}
 	server.read_ols_initialize_options(&common.config, ols_config, uri)
+	server.resolve_default_collections(&common.config, uri)
 }
 
 open :: proc(

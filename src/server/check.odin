@@ -83,8 +83,11 @@ Check_Overlay_File :: struct {
 	written: bool,
 }
 
+// rols: the heap allocator before create_and_start_check_worker sets it, as the CLI and the tests run no worker
 @(private = "file")
-checker: Checker
+checker := Checker {
+	allocator = {procedure = runtime.heap_allocator_proc},
+}
 
 queue_check_request :: proc(mode: Check_Mode, path: string, config: ^common.Config) {
 	if !config.enable_diagnostics {
@@ -441,11 +444,6 @@ check :: proc(
 	}
 
 	clear_diagnostics(.Check)
-
-	// rols: the CLI checks without the check worker, which sets the allocator
-	if checker.allocator.procedure == nil {
-		checker.allocator = runtime.heap_allocator()
-	}
 
 	command := config.odin_command
 	if command == "" {
@@ -862,4 +860,21 @@ start_check_process :: proc(
 			rerun = rerun,
 		},
 		true
+}
+
+// rols: drops the queued check requests, for the tests, which run no check worker
+discard_check_requests :: proc() {
+	sync.mutex_lock(&checker.mutex)
+	defer sync.mutex_unlock(&checker.mutex)
+	for request in checker.queue {
+		delete(request.path, checker.allocator)
+		delete_check_buffers(request.buffers)
+	}
+	delete(checker.queue)
+	checker.queue = nil
+	if changed, has_changed := checker.changed.?; has_changed {
+		delete(changed.path, checker.allocator)
+		delete_check_buffers(changed.buffers)
+		checker.changed = nil
+	}
 }

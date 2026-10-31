@@ -2,7 +2,6 @@ package tests
 
 import "core:encoding/json"
 import "core:fmt"
-import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -206,21 +205,6 @@ lint_refresh_open_does_not_relint_siblings :: proc(t: ^testing.T) {
 	)
 }
 
-// The tests run no checker thread, so a save cannot queue its check. Drops that one error and forwards the rest to
-// the logger that data points to.
-@(private = "file")
-without_check_queue_error :: proc(
-	data: rawptr,
-	level: log.Level,
-	text: string,
-	options: log.Options,
-	location := #caller_location,
-) {
-	if strings.has_prefix(text, "check queue full") do return
-	outer := (^log.Logger)(data)
-	outer.procedure(outer.data, level, text, options, location)
-}
-
 @(test)
 lint_refresh_save_relints_sibling :: proc(t: ^testing.T) {
 	with_package(
@@ -248,10 +232,9 @@ lint_refresh_save_relints_sibling :: proc(t: ^testing.T) {
 				allocator = context.temp_allocator,
 			)
 			if !testing.expectf(t, parse_err == .None, "failed to parse didSave params: %v", parse_err) do return
-			outer := context.logger
-			context.logger = {without_check_queue_error, &outer, outer.lowest_level, outer.options}
 			save_err := server.notification_did_save(params, i64(0), &pkg.config, nil)
-			context.logger = outer
+			// The tests run no checker thread, so the check that the save queued is dropped.
+			server.discard_check_requests()
 			if !testing.expectf(t, save_err == .None, "didSave failed: %v", save_err) do return
 			testing.expect_value(t, unused_parameters_of_a(pkg), 0)
 		},
