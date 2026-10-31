@@ -1572,6 +1572,25 @@ contains_comments_in_range :: proc(p: ^Printer, pos: tokenizer.Pos, end: tokeniz
 	return false
 }
 
+// rols: whether comments come before end and each one is a one-line block comment on line
+@(private)
+inline_block_comments_before :: proc(p: ^Printer, line: int, end: tokenizer.Pos) -> bool {
+	if !comment_before_position(p, end) {
+		return false
+	}
+	for i := p.latest_comment_index; i < len(p.comments) && p.comments[i].pos.offset < end.offset; i += 1 {
+		for c in p.comments[i].list {
+			if c.pos.line != line ||
+			   !strings.has_prefix(c.text, "/*") ||
+			   strings.contains_rune(c.text, '\n') ||
+			   c.pos.line in p.disabled_lines {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 @(private)
 contains_do_in_expression :: proc(p: ^Printer, expr: ^ast.Expr) -> bool {
 	found_do := false
@@ -2621,33 +2640,22 @@ visit_binary_expr :: proc(p: ^Printer, binary: ast.Binary_Expr, nested := false)
 		document = group(document)
 	}
 
-	document = cons_with_nopl(document, text_token(p, binary.op))
-
-	// rols: a line comment on the operator's line is the trailing comment of that line, not of the right operand's line
-	if binary.right != nil && comment_before_position(p, binary.right.pos) {
-		cg := p.comments[p.latest_comment_index]
-		first := cg.list[0]
-		if len(cg.list) == 1 &&
-		   first.pos.line == binary.op.pos.line &&
-		   strings.has_prefix(first.text, "//") &&
-		   first.pos.line not_in p.disabled_lines {
-			document = cons(document, line_suffix(first.text, alignable = true))
-			p.source_position = first.pos
+	// rols: block comments on the operator's line, before or after it, stay inline after the operator
+	if binary.right != nil && inline_block_comments_before(p, binary.op.pos.line, binary.right.pos) {
+		document = cons_with_nopl(document, text(binary.op.text))
+		for comment_before_position(p, binary.right.pos) {
+			for c in p.comments[p.latest_comment_index].list {
+				document = cons_with_nopl(document, text(c.text))
+			}
 			next_comment_group(p)
 		}
+		if b, ok := binary.right.derived.(^ast.Binary_Expr); ok {
+			return cons_with_opl(document, group(nest(visit_binary_expr(p, b^, true))))
+		}
+		return cons_with_opl(document, group(nest(visit_expr(p, binary.right, .Binary_Expr))))
 	}
 
-	// rols: comments on their own lines between the operator and the right operand keep those lines
-	if binary.right != nil && comment_before_position(p, binary.right.pos) &&
-	   p.comments[p.latest_comment_index].pos.line > binary.op.pos.line {
-		p.source_position = binary.op.pos
-		comments, _ := visit_comments(p, binary.right.pos)
-		right := binary.right
-		if b, ok := right.derived.(^ast.Binary_Expr); ok {
-			return cons(document, comments, newline(1), group(nest(visit_binary_expr(p, b^, true))))
-		}
-		return cons(document, comments, newline(1), group(nest(visit_expr(p, right, .Binary_Expr))))
-	}
+	document = cons_with_nopl(document, text_token(p, binary.op))
 
 	if binary.right != nil {
 		contains_comments := contains_comments_in_range(p, binary.op.pos, binary.right.pos)

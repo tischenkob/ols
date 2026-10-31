@@ -4,7 +4,9 @@ package odinfmt_test
 f :: proc() {
 	s := fmt.aprintf(
 		// first comment
-		A + "%i" + B +
+		A +
+		"%i" +
+		B +
 		// second comment
 		// third comment
 		"%s",
