@@ -5,6 +5,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
+import "core:time"
 
 import "src:common"
 
@@ -19,6 +20,9 @@ Check_Run :: struct {
 	error_files: map[string][dynamic]string,
 	windows_sdk: bool,
 }
+
+// The default wall-clock budget of one `check`, shared by all its jobs.
+CHECK_TIMEOUT :: 20 * time.Second
 
 // The failure of a check that ran out of its time budget.
 CHECK_TIMED_OUT :: "`odin check` timed out"
@@ -35,6 +39,11 @@ note_check_exit :: proc(process: os.Process, exit_code: int) {
 	if exit_code != 0 {
 		append(&failed_exits, process)
 	}
+}
+
+// Called by `check` before it checks again without `-workspace`: the exits of the probe run do not count.
+forget_check_exits :: proc() {
+	clear(&failed_exits)
 }
 
 // Called by `check` once its processes are done or killed. parsed counts the outputs that unmarshalled.

@@ -1,5 +1,6 @@
 package tests
 
+import "core:fmt"
 import "core:slice"
 import "core:testing"
 
@@ -7,18 +8,18 @@ import "src:common"
 import "src:server"
 
 @(test)
-check_command_drops_duplicate_entry_point_flag :: proc(t: ^testing.T) {
+finish_check_command_drops_duplicate_entry_point_flag :: proc(t: ^testing.T) {
 	config := common.Config {
 		checker_args = "-no-entry-point  -json-errors",
 	}
-	cmd := server.check_command("pkg/", nil, &config)
+	cmd := command("pkg/", nil, &config)
 	testing.expect_value(t, slice.count(cmd, "-no-entry-point"), 1)
 	testing.expect_value(t, slice.count(cmd, "-json-errors"), 1)
 	testing.expect(t, slice.equal(cmd[:3], []string{"odin", "check", "pkg/"}))
 }
 
 @(test)
-check_command_user_define_and_collection_win :: proc(t: ^testing.T) {
+finish_check_command_user_define_and_collection_win :: proc(t: ^testing.T) {
 	defines := make(map[string]string, context.temp_allocator)
 	defines["A"] = "profile"
 	defines["B"] = "keep"
@@ -26,7 +27,7 @@ check_command_user_define_and_collection_win :: proc(t: ^testing.T) {
 		profile = {defines = defines},
 		checker_args = "-define:A=user -collection:x=/user",
 	}
-	cmd := server.check_command("pkg/", {"-collection:x=/profile", "-collection:y=/y"}, &config)
+	cmd := command("pkg/", {"-collection:x=/profile", "-collection:y=/y"}, &config)
 	testing.expect(t, slice.contains(cmd, "-define:A=user"))
 	testing.expect(t, !slice.contains(cmd, "-define:A=profile"))
 	testing.expect(t, slice.contains(cmd, "-define:B=keep"))
@@ -36,21 +37,35 @@ check_command_user_define_and_collection_win :: proc(t: ^testing.T) {
 }
 
 @(test)
-check_command_vet_flag_in_args_and_config_is_one :: proc(t: ^testing.T) {
+finish_check_command_vet_flag_in_args_and_config_is_one :: proc(t: ^testing.T) {
 	config := common.Config {
 		enable_checker_vet_style = true,
 		checker_args             = "-vet-style",
 	}
-	cmd := server.check_command("pkg/", nil, &config)
+	cmd := command("pkg/", nil, &config)
 	testing.expect_value(t, slice.count(cmd, "-vet-style"), 1)
 }
 
 @(test)
-check_command_uses_file_flag_for_a_file :: proc(t: ^testing.T) {
-	config: common.Config
-	cmd := server.check_command("a.odin", nil, &config)
-	testing.expect_value(t, slice.count(cmd, "-file"), 1)
-	testing.expect_value(t, slice.count(cmd, "-no-entry-point"), 0)
+finish_check_command_checker_args_win_over_the_upstream_error_count :: proc(t: ^testing.T) {
+	config := common.Config {
+		checker_args = "-max-error-count:5",
+	}
+	base := []string {
+		"odin",
+		"check",
+		"a/",
+		"b/",
+		"-no-entry-point",
+		"-json-errors",
+		"-workspace",
+		"-max-error-count:1000",
+	}
+	cmd, _ := server.finish_check_command(base, &config)
+	testing.expect_value(t, slice.count(cmd, "-max-error-count:5"), 1)
+	testing.expect_value(t, slice.count(cmd, "-max-error-count:1000"), 0)
+	testing.expect(t, slice.contains(cmd, "a/") && slice.contains(cmd, "b/"), "every package path stays")
+	testing.expect_value(t, slice.count(cmd, "-workspace"), 1)
 }
 
 @(test)
@@ -66,7 +81,7 @@ gate_config_drops_vet_flags_and_asks_for_every_error :: proc(t: ^testing.T) {
 		checker_args                        = "-no-entry-point -vet-style",
 	}
 	gated := server.gate_config(config)
-	cmd := server.check_command("pkg/", nil, &gated)
+	cmd := command("pkg/", nil, &gated)
 	for flag in ([?]string{"-vet-shadowing", "-vet-unused-variables", "-vet-cast", "-vet-semicolon", "-vet-tabs", "-strict-style"}) {
 		testing.expect_value(t, slice.count(cmd, flag), 0)
 	}
@@ -85,7 +100,7 @@ gate_config_keeps_the_max_error_count_of_the_user :: proc(t: ^testing.T) {
 		checker_args = "-max-error-count:5",
 	}
 	gated := server.gate_config(config)
-	cmd := server.check_command("pkg/", nil, &gated)
+	cmd := command("pkg/", nil, &gated)
 	testing.expect_value(t, slice.count(cmd, "-max-error-count:5"), 1)
 	testing.expect_value(t, slice.count(cmd, server.GATE_MAX_ERROR_COUNT), 0)
 }
@@ -102,11 +117,11 @@ test_command_drops_duplicate_flags :: proc(t: ^testing.T) {
 }
 
 @(test)
-check_command_keeps_repeatable_flags :: proc(t: ^testing.T) {
+finish_check_command_keeps_repeatable_flags :: proc(t: ^testing.T) {
 	config := common.Config {
 		checker_args = "-custom-attribute:a -custom-attribute:b -sanitize:address -sanitize:memory",
 	}
-	cmd := server.check_command("pkg/", nil, &config)
+	cmd := command("pkg/", nil, &config)
 	testing.expect_value(t, slice.count(cmd, "-custom-attribute:a"), 1)
 	testing.expect_value(t, slice.count(cmd, "-custom-attribute:b"), 1)
 	testing.expect_value(t, slice.count(cmd, "-sanitize:address"), 1)
@@ -136,11 +151,11 @@ split_checker_args_splits_on_whitespace_without_a_closed_group :: proc(t: ^testi
 }
 
 @(test)
-check_command_passes_a_quoted_collection_path_as_one_argument :: proc(t: ^testing.T) {
+finish_check_command_passes_a_quoted_collection_path_as_one_argument :: proc(t: ^testing.T) {
 	config := common.Config {
 		checker_args = `-collection:x="/my path"`,
 	}
-	cmd := server.check_command("pkg/", nil, &config)
+	cmd := command("pkg/", nil, &config)
 	testing.expect_value(t, slice.count(cmd, "-collection:x=/my path"), 1)
 }
 
@@ -149,4 +164,19 @@ split_checker_args_keeps_quotes_without_whitespace :: proc(t: ^testing.T) {
 	words := server.split_checker_args(`-define:T="hello" -define:U='x' "" -define:V="a b"`)
 	want := []string{`-define:T="hello"`, `-define:U='x'`, `""`, "-define:V=a b"}
 	testing.expect(t, slice.equal(words, want), "quotes around text without whitespace must stay")
+}
+
+// The command line of start_check_process for path: a stand-in for the part that upstream builds before the
+// checker_args, then finish_check_command.
+@(private = "file")
+command :: proc(path: string, collections: []string, config: ^common.Config) -> []string {
+	base := make([dynamic]string, context.temp_allocator)
+	append(&base, "odin", "check", path)
+	append(&base, ..collections)
+	for k, v in config.profile.defines {
+		append(&base, fmt.tprintf("-define:%s=%s", k, v))
+	}
+	append(&base, "-no-entry-point", "-json-errors")
+	cmd, _ := server.finish_check_command(base[:], config)
+	return cmd
 }

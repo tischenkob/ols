@@ -736,7 +736,15 @@ check_errors_for :: proc(
 
 	server.check_run = {}
 	// 20 s per batch of core-count packages, capped at GATE_TIMEOUT_CAP.
-	server.check(.Saved, paths, config, server.gate_check_timeout(len(paths), os.get_processor_core_count()))
+	// One process per package, so the error files of each directory are known.
+	server.check(
+		.Saved,
+		paths,
+		nil,
+		config,
+		server.gate_check_timeout(len(paths), os.get_processor_core_count()),
+		per_package = true,
+	)
 	if !server.check_run.ran {
 		return {}, "`odin check` did not run", false
 	}

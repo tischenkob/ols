@@ -1,7 +1,5 @@
 package server
 
-import "core:fmt"
-import "core:path/filepath"
 import "core:strings"
 
 import "src:common"
@@ -10,17 +8,20 @@ import "src:common"
 // different subset on each run, so the gate asks for all of them.
 GATE_MAX_ERROR_COUNT :: "-max-error-count:100000"
 
-// The `odin check` command line for check_path: the collections, the profile defines, the entry point
-// flag, -json-errors, the vet flags of the config and then the checker_args. odin rejects a flag that
-// appears twice, so dedupe_flags drops the earlier copy and checker_args wins.
-check_command :: proc(check_path: string, collections: []string, config: ^common.Config) -> []string {
+// The command line that start_check_process runs: base, the command line that upstream builds before the
+// checker_args, then the vet flags of the config and the checker_args words. odin rejects a flag that appears
+// twice, so dedupe_flags drops the earlier copy and checker_args wins. style tells that the line has a flag that
+// turns a style slip into a Syntax Error, and the rerun drops those flags.
+finish_check_command :: proc(
+	base: []string,
+	config: ^common.Config,
+	rerun := false,
+) -> (
+	command_line: []string,
+	style: bool,
+) {
 	cmd := make([dynamic]string, context.temp_allocator)
-	append(&cmd, config.odin_command if config.odin_command != "" else "odin", "check", check_path)
-	append(&cmd, ..collections)
-	for k, v in config.profile.defines {
-		append(&cmd, fmt.tprintf("-define:%s=%s", k, v))
-	}
-	append(&cmd, "-file" if filepath.ext(check_path) == ".odin" else "-no-entry-point", "-json-errors")
+	append(&cmd, ..base)
 	if config.enable_checker_vet_shadowing {
 		append(&cmd, "-vet-shadowing")
 	}
@@ -43,7 +44,12 @@ check_command :: proc(check_path: string, collections: []string, config: ^common
 		append(&cmd, "-strict-style")
 	}
 	append(&cmd, ..split_checker_args(config.checker_args))
-	return dedupe_flags(cmd[:])
+	command_line = dedupe_flags(cmd[:])
+	style = style_flags_on(command_line)
+	if rerun {
+		command_line = without_style_flags(command_line)
+	}
+	return command_line, style
 }
 
 // The checker_args words. Whitespace separates words. A double or single quote opens a group only at the

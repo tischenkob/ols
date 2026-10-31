@@ -17,8 +17,14 @@ Hard_Unused :: struct {
 
 // The severity of a checker error. A `declared but not used` message is a hard error for the only
 // declaration of an `if`, `else`, `for` body, and a -vet-unused-variables finding anywhere else, so the
-// source decides. A file that cannot be read or parsed keeps the error.
-check_error_severity :: proc(error: Json_Error, message: string, cache: ^Hard_Unused_Cache) -> DiagnosticSeverity {
+// source decides: the text of sources that odin checked, else the file. A file that cannot be read or parsed
+// keeps the error.
+check_error_severity :: proc(
+	error: Json_Error,
+	message: string,
+	cache: ^Hard_Unused_Cache,
+	sources: []Check_Buffer = nil,
+) -> DiagnosticSeverity {
 	// A style Syntax Error of the first run that the rerun without the style flags did not report.
 	if error.type == STYLE_ERROR_TYPE {
 		return .Warning
@@ -29,12 +35,47 @@ check_error_severity :: proc(error: Json_Error, message: string, cache: ^Hard_Un
 	}
 	hard, found := cache[error.pos.file]
 	if !found {
-		if data, err := os.read_entire_file(error.pos.file, context.temp_allocator); err == nil {
-			hard.offsets, hard.parsed = hard_unused_offsets(string(data))
+		if text, ok := check_source(error.pos.file, sources); ok {
+			hard.offsets, hard.parsed = hard_unused_offsets(text)
 		}
 		cache[error.pos.file] = hard
 	}
 	return .Error if !hard.parsed || slice.contains(hard.offsets, error.pos.offset) else .Warning
+}
+
+// The text of the file at path as odin checked it: its buffer among sources, the overlay of the check, else the
+// file on disk.
+check_source :: proc(path: string, sources: []Check_Buffer) -> (text: string, ok: bool) {
+	for b in sources {
+		if b.path == path {
+			return string(b.text), true
+		}
+	}
+	data, err := os.read_entire_file(path, context.temp_allocator)
+	return string(data), err == nil
+}
+
+// Vet findings report as warnings, and syntax errors as errors whatever their type.
+map_diagnostic_severity :: proc(type: string, message: string) -> DiagnosticSeverity {
+	// -json-errors types some syntax errors as warnings, such as an import path that does not exist.
+	if strings.has_prefix(message, "Syntax Error") {
+		return .Error
+	}
+	if strings.equal_fold(type, "warning") {
+		return .Warning
+	}
+
+	// The shadowing and cast vet flags are ours, not the user's build, so their errors show as warnings. The
+	// "declared but not used" message stays an error here: odin prints the same text, without a vet flag, for
+	// `if c { x := 1 }`, which is a compile error. check_error_severity reads the source to tell them apart.
+	vet_messages := [?]string{"shadows declaration", "Unneeded cast", "Unneeded transmute"}
+	for m in vet_messages {
+		if strings.contains(message, m) {
+			return .Warning
+		}
+	}
+
+	return .Error
 }
 
 @(private = "file")

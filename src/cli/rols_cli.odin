@@ -683,6 +683,7 @@ check :: proc(targets: []string) -> int {
 	server.check(
 		.Saved,
 		check_paths,
+		nil,
 		&common.config,
 		server.gate_check_timeout(len(targets), os.get_processor_core_count()),
 	)

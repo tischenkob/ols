@@ -1,6 +1,5 @@
 package server
 
-import "core:os"
 import "core:slice"
 import "core:strings"
 
@@ -45,9 +44,9 @@ has_stopping_error :: proc(result: Json_Errors) -> bool {
 }
 
 // Whether a file that a Syntax Error of result names has a syntax error without the style flags: rols' parser
-// finds one there. A rerun without the style flags would then stop at it too, so `check` skips the rerun. A file
-// that cannot be read counts as clean, which keeps the rerun.
-has_real_syntax_error :: proc(result: Json_Errors) -> bool {
+// finds one there, in the text of sources that odin checked, else the file. A rerun without the style flags would
+// then stop at it too, so `check` skips the rerun. A file that cannot be read counts as clean, which keeps the rerun.
+has_real_syntax_error :: proc(result: Json_Errors, sources: []Check_Buffer = nil) -> bool {
 	seen := make([dynamic]string, context.temp_allocator)
 	for error in result.errors {
 		if len(error.msgs) == 0 || !strings.has_prefix(error.msgs[0], "Syntax Error") || error.pos.file == "" {
@@ -57,12 +56,12 @@ has_real_syntax_error :: proc(result: Json_Errors) -> bool {
 			continue
 		}
 		append(&seen, error.pos.file)
-		data, err := os.read_entire_file(error.pos.file, context.temp_allocator)
-		if err != nil {
+		text, ok := check_source(error.pos.file, sources)
+		if !ok {
 			continue
 		}
 		context.allocator = context.temp_allocator
-		if _, parsed := parse_syntax(error.pos.file, string(data)); !parsed {
+		if _, parsed := parse_syntax(error.pos.file, text); !parsed {
 			return true
 		}
 	}

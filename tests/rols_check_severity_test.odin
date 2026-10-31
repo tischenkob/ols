@@ -32,6 +32,23 @@ check_unused_variable_is_an_error_without_a_known_source :: proc(t: ^testing.T) 
 	)
 }
 
+@(test)
+check_unused_variable_reads_the_overlay_buffer :: proc(t: ^testing.T) {
+	// odin checked the unsaved text of an open document, which is not on disk: that text decides.
+	src := "package p\n\nf :: proc() {\n\tx := 1\n\ty := 2\n}\n"
+	sources := []server.Check_Buffer{{path = "unsaved.odin", text = transmute([]u8)src}}
+	cache := make(server.Hard_Unused_Cache, context.temp_allocator)
+	error := server.Json_Error {
+		type = "error",
+		pos = {file = "unsaved.odin", offset = strings.index(src, "x :=")},
+	}
+	testing.expect_value(
+		t,
+		server.check_error_severity(error, "'x' declared but not used", &cache, sources),
+		server.DiagnosticSeverity.Warning,
+	)
+}
+
 // Names that odin rejects without any vet flag (checked with plain `odin check`), then the names that only
 // -vet-unused-variables reports.
 @(private = "file")

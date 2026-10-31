@@ -206,6 +206,9 @@ add_to_check_batch :: proc(batch: ^Check_Batch, request: Check_Request) {
 
 run_check_consumer :: proc(c: Consumer) {
 	context.logger = c.logger
+	// rols: the check failure last shown to the user
+	shown: string
+	defer delete(shown, runtime.heap_allocator())
 	for {
 		batch := Check_Batch {
 			paths = make([dynamic]string, allocator = context.temp_allocator),
@@ -244,6 +247,8 @@ run_check_consumer :: proc(c: Consumer) {
 		sync.mutex_unlock(&checker.mutex)
 
 		semantics := check(batch.mode, batch.paths[:], batch.buffers, &common.config)
+		// rols: show a check that did not run, such as odin refusing a Windows target on another host
+		report_check_failure(c.w, &shown)
 
 		// NOTE(bill): This is loaded first as it adds the hints for the untaken branches of `when` statements
 		if common.config.enable_compiler_semantics {
@@ -265,7 +270,9 @@ fallback_find_odin_directories :: proc(config: ^common.Config) -> []string {
 
 	for workspace in config.workspace_folders {
 		uri := common.parse_uri(workspace.uri, context.temp_allocator) or_continue
-		append_packages(uri.path, &data, config.checker_skip_packages, context.temp_allocator)
+		// rols: skip git-ignored and excluded paths, one filter per root
+		filter := common.workspace_filter_make(uri.path, config, context.temp_allocator)
+		append_packages(uri.path, &data, config.checker_skip_packages, context.temp_allocator, filter = &filter)
 	}
 
 	return data[:]
@@ -352,9 +359,30 @@ CheckProcess :: struct {
 	reader:   ^os.File,
 	finished: bool,
 	buffer:   [dynamic]u8,
+	// rols: the reruns: the job's paths and semantics file, whether the command has style flags, whether this is
+	// the rerun without them, the errors of the first run that the rerun merges with, whether this run restarts
+	// one that a signal killed with no output, and whether this run crashed so and was restarted
+	paths:     []string,
+	semantics: string,
+	style:     bool,
+	rerun:     bool,
+	first:     Json_Errors,
+	retry:     bool,
+	crashed:   bool,
 }
 
-check :: proc(mode: Check_Mode, check_paths: []string, buffers: []Check_Buffer, config: ^common.Config) -> (semantics: []string) {
+// rols: timeout, the budget of the whole run, is scaled by the CLI; per_package runs one process per path, so
+// the CLI compile gate knows which package an error came from
+check :: proc(
+	mode: Check_Mode,
+	check_paths: []string,
+	buffers: []Check_Buffer,
+	config: ^common.Config,
+	timeout := CHECK_TIMEOUT,
+	per_package := false,
+) -> (
+	semantics: []string,
+) {
 	write_overlay :: proc(o: ^Check_Overlay, buffers: []Check_Buffer) -> string {
 		dir := checker_dir()
 		if len(buffers) == 0 || dir == "" {
@@ -414,6 +442,11 @@ check :: proc(mode: Check_Mode, check_paths: []string, buffers: []Check_Buffer, 
 
 	clear_diagnostics(.Check)
 
+	// rols: the CLI checks without the check worker, which sets the allocator
+	if checker.allocator.procedure == nil {
+		checker.allocator = runtime.heap_allocator()
+	}
+
 	command := config.odin_command
 	if command == "" {
 		command = "odin"
@@ -425,12 +458,14 @@ check :: proc(mode: Check_Mode, check_paths: []string, buffers: []Check_Buffer, 
 		if k == "" || k == "core" || k == "vendor" || k == "base" {
 			continue
 		}
-		append(&collections, fmt.aprintf("-collection:%v=%v", k, v))
+		// rols: temp memory: the argument list dies with the check
+		append(&collections, fmt.tprintf("-collection:%v=%v", k, v))
 	}
 
 	jobs := make([dynamic][]string, 0, len(paths), context.temp_allocator)
 	overlay := ""
-	use_workspace := command != checker.odin_without_workspace
+	// rols: and not per_package
+	use_workspace := command != checker.odin_without_workspace && !per_package
 	if use_workspace {
 		overlay = write_overlay(&checker.overlay, buffers)
 
@@ -462,7 +497,8 @@ check :: proc(mode: Check_Mode, check_paths: []string, buffers: []Check_Buffer, 
 	}
 
 	max_concurrent_checks := max(1, os.get_processor_core_count())
-	processes := make([dynamic]CheckProcess, 0, len(jobs))
+	// rols: temp memory, freed with the check
+	processes := make([dynamic]CheckProcess, 0, len(jobs), context.temp_allocator)
 
 	errors   := make([dynamic]Json_Errors, 0, len(jobs), context.temp_allocator)
 	exported := make([dynamic]string, 0, len(jobs), context.temp_allocator)
@@ -471,8 +507,38 @@ check :: proc(mode: Check_Mode, check_paths: []string, buffers: []Check_Buffer, 
 	next_index := 0
 	running_count := 0
 	start := time.now()
+	// rols: a Syntax Error of a style flag stops checking, so the job runs again without the flags, and the
+	// budget doubles once for all reruns. A run that a signal killed before it printed anything runs once more in
+	// the same budget. parsed counts the outputs that unmarshalled. The source of a file decides the severity of
+	// an unused variable, and odin reads the overlay buffers only with an overlay. error_files holds the files
+	// that each one-path job's errors name, for the CLI compile gate.
+	pending_reruns := make([dynamic]CheckProcess, context.temp_allocator)
+	parsed := 0
+	budget := timeout
+	sources := buffers if overlay != "" else nil
+	hard_unused := make(Hard_Unused_Cache, context.temp_allocator)
+	check_run.error_files = make(map[string][dynamic]string, context.temp_allocator)
 
-	for running_count > 0 || next_index < len(jobs) {
+	for running_count > 0 || next_index < len(jobs) || len(pending_reruns) > 0 {
+		// rols: start the queued style reruns and crash restarts
+		for first in pending_reruns {
+			if first.semantics != "" {
+				_ = os.remove(first.semantics)
+			}
+			p, ok := start_check_process(command, first.paths, collections[:], overlay, first.semantics, config, first.rerun)
+			if ok {
+				p.first = first.first
+				p.retry = first.retry
+				append(&processes, p)
+				running_count += 1
+				if !first.retry {
+					budget = 2 * timeout
+				}
+			} else {
+				append(&errors, first.first)
+			}
+		}
+		clear(&pending_reruns)
 		for running_count < max_concurrent_checks && next_index < len(jobs) {
 			semantics_file := ""
 			if config.enable_compiler_semantics && use_workspace && checker_dir() != "" {
@@ -491,12 +557,16 @@ check :: proc(mode: Check_Mode, check_paths: []string, buffers: []Check_Buffer, 
 			running_count += 1
 		}
 
-		if time.since(start) > 20 * time.Second {
+		// rols: the caller's budget
+		if time.since(start) > budget {
 			log.error("`odin check` timed out")
 			for &p in processes {
 				if !p.finished {
+					// rols: reap the process we killed
 					if err := os.process_kill(p.process); err != nil {
-						log.error("Failed to kill `odin check` process: %v", err)
+						log.errorf("Failed to kill `odin check` process: %v", err)
+					} else {
+						_, _ = os.process_wait(p.process)
 					}
 				}
 			}
@@ -508,10 +578,24 @@ check :: proc(mode: Check_Mode, check_paths: []string, buffers: []Check_Buffer, 
 				continue
 			}
 
-			buf: [1024]u8
-			n, _ := os.read(p.reader, buf[:])
-			if n > 0 {
+			// rols: drain the pipe: one read leaves the rest for the next poll
+			buf: [4096]u8
+			for {
+				has_data, _ := os.pipe_has_data(p.reader)
+				if !has_data {
+					break
+				}
+				n, _ := os.read(p.reader, buf[:])
+				if n <= 0 {
+					break
+				}
 				_, _ = append(&p.buffer, ..buf[:n])
+			}
+
+			// rols: the signal that killed the child, read before process_wait reaps it
+			signal, exited := child_exit_signal(p.process)
+			if !exited {
+				continue
 			}
 
 			state, err := os.process_wait(p.process, 0)
@@ -551,6 +635,19 @@ check :: proc(mode: Check_Mode, check_paths: []string, buffers: []Check_Buffer, 
 				}
 			}
 
+			// rols: a run that a signal killed before it printed anything runs once more
+			if signal != 0 && len(p.buffer) == 0 {
+				log.errorf("`odin check %v` was killed by signal %d before it printed anything", p.paths, signal)
+				if !p.retry {
+					p.crashed = true
+					append(
+						&pending_reruns,
+						CheckProcess{paths = p.paths, semantics = p.semantics, first = p.first, rerun = p.rerun, retry = true},
+					)
+					continue
+				}
+			}
+
 			if len(p.buffer) > 0 {
 				json_errors: Json_Errors
 				if res := json.unmarshal(
@@ -560,9 +657,32 @@ check :: proc(mode: Check_Mode, check_paths: []string, buffers: []Check_Buffer, 
 					context.temp_allocator,
 				); res != nil {
 					log.errorf("Failed to unmarshal check results: %v, %v", res, string(p.buffer[:]))
+					// rols: a rerun that cannot be read leaves the first run
+					if p.rerun {
+						append(&errors, p.first)
+					}
+					continue
+				}
+				// rols: record the files that a one-path job's errors name; the rerun merges with the first run, and a
+				// Syntax Error of a style check starts the rerun unless a file that a stopping error names has a
+				// syntax error of its own
+				parsed += 1
+				if len(p.paths) == 1 {
+					note_error_files(p.paths[0], json_errors)
+				}
+				if p.rerun {
+					json_errors = merge_style_rerun(p.first, json_errors)
+				} else if p.style && has_stopping_error(json_errors) && !has_real_syntax_error(json_errors, sources) {
+					append(
+						&pending_reruns,
+						CheckProcess{paths = p.paths, semantics = p.semantics, first = json_errors, rerun = true},
+					)
 					continue
 				}
 				append(&errors, json_errors)
+			} else if p.rerun {
+				// rols: a rerun that exits with 0 and prints nothing found no error, and one that fails left the first run
+				append(&errors, merge_style_rerun(p.first, {}) if state.exit_code == 0 else p.first)
 			}
 		}
 
@@ -571,8 +691,12 @@ check :: proc(mode: Check_Mode, check_paths: []string, buffers: []Check_Buffer, 
 		}
 	}
 
-	// rols: record whether every package check ran to a parsed result
-	record_check_run(len(paths), processes[:], len(errors))
+	// rols: a rerun that the timeout cut short leaves the first run
+	for p in processes {
+		if p.rerun && !p.finished {
+			append(&errors, p.first)
+		}
+	}
 
 	for p in processes {
 		os.close(p.reader)
@@ -582,8 +706,13 @@ check :: proc(mode: Check_Mode, check_paths: []string, buffers: []Check_Buffer, 
 		log.infof("`%s` has no `-workspace` or `-overlay`, so packages are checked one at a time from disk", command)
 		delete(checker.odin_without_workspace, checker.allocator)
 		checker.odin_without_workspace = strings.clone(command, checker.allocator)
-		return check(mode, check_paths, buffers, config)
+		// rols: forget the probe's exits, and pass timeout and per_package on
+		forget_check_exits()
+		return check(mode, check_paths, buffers, config, timeout, per_package)
 	}
+
+	// rols: record whether every job ran to a parsed result
+	record_check_run(len(jobs), processes[:], parsed)
 
 	DiagnosticKey :: struct {
 		path:    string,
@@ -630,17 +759,13 @@ check :: proc(mode: Check_Mode, check_paths: []string, buffers: []Check_Buffer, 
 
 			uri := common.create_uri(path, context.temp_allocator)
 
-			diagnostic_severity := DiagnosticSeverity.Error
-			if strings.equal_fold(error.type, "warning") {
-				diagnostic_severity = .Warning
-			}
-
 			add_diagnostics(
 				.Check,
 				uri.uri,
 				Diagnostic {
 					code = "checker",
-					severity = diagnostic_severity,
+					// rols: the message and the source decide whether a vet error is a warning
+					severity = check_error_severity(error, message, &hard_unused, sources),
 					range = {
 						// odin will sometimes report errors on column 0, so we ensure we don't provide a negative column/line to the client
 						start = {character = max(error.pos.column - 1, 0), line = max(error.pos.line - 1, 0)},
@@ -667,6 +792,8 @@ start_check_process :: proc(
 	overlay:     string,
 	semantics:   string,
 	config:      ^common.Config,
+	// rols: the rerun leaves out the style flags
+	rerun := false,
 ) -> (
 	CheckProcess,
 	bool,
@@ -696,12 +823,12 @@ start_check_process :: proc(
 	if semantics != "" {
 		append(&cmd, "-export-semantics:cbor", fmt.tprintf("-export-semantics-file:%s", semantics))
 	}
-	args, _ := strings.split(config.checker_args, " ", context.temp_allocator)
-	for arg in args {
-		if arg != "" {
-			append(&cmd, arg)
-		}
-	}
+	// rols: the vet flags and the checker_args without repeated flags, and without the style flags in the rerun
+	command_line, style := finish_check_command(cmd[:], config, rerun)
+
+	// rols: spawn lock from pipe creation until the deferred close of the write end
+	common.process_spawn_lock()
+	defer common.process_spawn_unlock()
 
 	r, w, err := os.pipe()
 	if err != nil {
@@ -711,7 +838,7 @@ start_check_process :: proc(
 	defer os.close(w)
 
 	desc := os.Process_Desc {
-		command = cmd[:],
+		command = command_line,
 		stdout  = w,
 		stderr  = w,
 	}
@@ -724,5 +851,15 @@ start_check_process :: proc(
 	}
 
 	buffer := make([dynamic]u8, 0, mem.Kilobyte * 200, context.temp_allocator)
-	return CheckProcess{process = p, reader = r, buffer = buffer}, true
+	// rols: the rerun fields
+	return CheckProcess {
+			process = p,
+			reader = r,
+			buffer = buffer,
+			paths = check_paths,
+			semantics = semantics,
+			style = style,
+			rerun = rerun,
+		},
+		true
 }

@@ -240,6 +240,8 @@ load_semantics :: proc(paths: []string, buffers: []Check_Buffer, workspace: bool
 						message  = "inactive `when` branch",
 						tags     = {.Unnecessary},
 					},
+					// rols: the config gates the store
+					&common.config,
 				)
 			}
 		}

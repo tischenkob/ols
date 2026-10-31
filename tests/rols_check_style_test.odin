@@ -74,14 +74,18 @@ rerun_command_drops_only_the_style_flags :: proc(t: ^testing.T) {
 		enable_checker_vet_cast      = true,
 		checker_args                 = "-strict-style -vet",
 	}
-	cmd := server.check_command("pkg/", nil, &config)
-	testing.expect(t, server.style_flags_on(cmd))
-	rerun := server.without_style_flags(cmd)
+	base := []string{"odin", "check", "pkg/", "-no-entry-point", "-json-errors"}
+	cmd, style := server.finish_check_command(base, &config)
+	testing.expect(t, style)
+	testing.expect(t, slice.contains(cmd, "-strict-style"))
+	rerun, rerun_style := server.finish_check_command(base, &config, rerun = true)
+	testing.expect(t, rerun_style, "the rerun still knows its job had style flags")
 	testing.expect(t, !server.style_flags_on(rerun))
 	testing.expect(t, slice.contains(rerun, "-vet-cast"))
 	testing.expect(t, slice.contains(rerun, "-vet"))
 	testing.expect(t, slice.contains(rerun, "-json-errors"))
-	testing.expect(t, !server.style_flags_on(server.check_command("pkg/", nil, &common.Config{})))
+	_, plain_style := server.finish_check_command(base, &common.Config{})
+	testing.expect(t, !plain_style)
 }
 
 @(test)
@@ -117,4 +121,14 @@ real_syntax_error_skips_the_style_rerun :: proc(t: ^testing.T) {
 	gone, _ := filepath.join({dir, "gone.odin"}, context.temp_allocator)
 	missing := at(gone, "Syntax Error: x")
 	testing.expect(t, !server.has_real_syntax_error({1, {missing}}), "an unreadable file keeps the rerun")
+	// odin checked the unsaved text of an open document: a syntax error there skips the rerun, and a clean
+	// buffer over a broken file keeps it.
+	unsaved := "package p\n\nf :: proc() {\n\tx := (1 +\n"
+	in_buffer := at(gone, "Syntax Error: Expected an operand")
+	sources := []server.Check_Buffer{{path = gone, text = transmute([]u8)unsaved}}
+	testing.expect(t, server.has_real_syntax_error({1, {in_buffer}}, sources), "the buffer has the syntax error")
+	fixed := "package p\n\nf :: proc() {\n\tx := (1 + 2)\n\t_ = x\n}\n"
+	over_broken := at(broken, "Syntax Error: Expected an operand")
+	clean := []server.Check_Buffer{{path = broken, text = transmute([]u8)fixed}}
+	testing.expect(t, !server.has_real_syntax_error({1, {over_broken}}, clean), "the buffer wins over the file")
 }
