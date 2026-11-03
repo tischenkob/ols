@@ -152,15 +152,6 @@ visit :: proc(m: ^Migrator, node: ^ast.Node) {
 	}
 }
 
-// The text before offset on its line, with trailing spaces trimmed: start is the line start and
-// end the offset after the last non-space byte. Scans for a directive stay in this range, so they
-// never reach a line comment on an earlier line.
-before_on_line :: proc(src: string, offset: int) -> (start, end: int) {
-	start = strings.last_index_byte(src[:offset], '\n') + 1
-	end = start + len(strings.trim_right_space(src[start:offset]))
-	return
-}
-
 // `core:runtime`, `core:intrinsics` and `core:builtin` become `base:`; `core:os/os2` becomes
 // `core:os` under the name os2, so the code that names it still compiles. A file that already
 // imports the target is left alone, since a second import of one package is an error.
@@ -280,37 +271,11 @@ strconv_fixes :: proc(m: ^Migrator) {
 // typed dynamic literals with elements, after the file's last tag, else before the package docs.
 feature_tags :: proc(m: ^Migrator) {
 	if !m.needs_using && !m.needs_dynamic do return
-	for tag in m.document.ast.tags {
-		if !strings.has_prefix(tag.text, "#+feature") do continue
-		for name in strings.fields(tag.text[len("#+feature"):], context.temp_allocator) {
-			name := strings.trim(name, ",")
-			if name == "using-stmt" do m.needs_using = false
-			if name == "dynamic-literals" do m.needs_dynamic = false
-		}
-	}
+	if file_has_feature(m.document, "using-stmt") do m.needs_using = false
+	if file_has_feature(m.document, "dynamic-literals") do m.needs_dynamic = false
 	if !m.needs_using && !m.needs_dynamic do return
 
-	file := m.document.ast
-	offset := 0
-	if len(file.tags) > 0 {
-		last := file.tags[len(file.tags) - 1]
-		offset = last.pos.offset + len(last.text)
-		if newline := strings.index_byte(m.src[offset:], '\n'); newline >= 0 {
-			offset += newline + 1
-		} else {
-			offset = len(m.src)
-		}
-	} else if file.pkg_decl != nil {
-		offset = file.pkg_decl.pos.offset
-		if file.pkg_decl.docs != nil do offset = file.pkg_decl.docs.pos.offset
-		offset, _ = before_on_line(m.src, offset)
-		// A block comment that ends on the package line starts on an earlier one.
-		for group in file.comments {
-			if group.pos.offset < offset && offset < group.end.offset {
-				offset, _ = before_on_line(m.src, group.pos.offset)
-			}
-		}
-	}
+	offset := file_tag_offset(m.document, m.src)
 
 	b := strings.builder_make(context.temp_allocator)
 	if offset == len(m.src) && !strings.has_suffix(m.src, "\n") do strings.write_byte(&b, '\n')

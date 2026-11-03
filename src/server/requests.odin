@@ -501,6 +501,8 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_expand.(bool) or_else config.enable_code_action_expand
 	config.enable_code_action_checker_fix =
 		ols_config.enable_code_action_checker_fix.(bool) or_else config.enable_code_action_checker_fix
+	config.enable_code_action_lift_using =
+		ols_config.enable_code_action_lift_using.(bool) or_else config.enable_code_action_lift_using
 	config.enable_code_action_merge_cases =
 		ols_config.enable_code_action_merge_cases.(bool) or_else config.enable_code_action_merge_cases
 	config.enable_code_action_loop_label =
@@ -1150,6 +1152,7 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_generate_test = true
 	config.enable_code_action_expand = true
 	config.enable_code_action_checker_fix = true
+	config.enable_code_action_lift_using = true
 	config.enable_code_action_merge_cases = true
 	config.enable_code_action_loop_label = true
 	config.enable_code_action_literal = true

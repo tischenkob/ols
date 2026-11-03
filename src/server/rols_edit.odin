@@ -147,6 +147,68 @@ collect_ident_uses :: proc(root: ^ast.Node, allocator := context.temp_allocator)
 	return data.uses[:]
 }
 
+// A field, enum member or argument name, which the resolver does not record on its own.
+is_member_name :: proc(use: IdentUse) -> bool {
+	if len(use.parents) == 0 {
+		return false
+	}
+	#partial switch p in use.parents[len(use.parents) - 1].derived {
+	case ^ast.Selector_Expr:
+		return p.field == use.ident
+	case ^ast.Implicit_Selector_Expr:
+		return p.field == use.ident
+	case ^ast.Field_Value:
+		return p.field == use.ident
+	}
+	return false
+}
+
+// The text before offset on its line, with trailing spaces trimmed: start is the line start and
+// end the offset after the last non-space byte. Scans for a directive stay in this range, so they
+// never reach a line comment on an earlier line.
+before_on_line :: proc(src: string, offset: int) -> (start, end: int) {
+	start = strings.last_index_byte(src[:offset], '\n') + 1
+	end = start + len(strings.trim_right_space(src[start:offset]))
+	return
+}
+
+// Whether a `#+feature` tag of the file names feature.
+file_has_feature :: proc(document: ^Document, feature: string) -> bool {
+	for tag in document.ast.tags {
+		if !strings.has_prefix(tag.text, "#+feature") do continue
+		for name in strings.fields(tag.text[len("#+feature"):], context.temp_allocator) {
+			if strings.trim(name, ",") == feature do return true
+		}
+	}
+	return false
+}
+
+// Where a new file tag line goes: after the file's last tag, else before the package docs.
+file_tag_offset :: proc(document: ^Document, src: string) -> int {
+	file := document.ast
+	offset := 0
+	if len(file.tags) > 0 {
+		last := file.tags[len(file.tags) - 1]
+		offset = last.pos.offset + len(last.text)
+		if newline := strings.index_byte(src[offset:], '\n'); newline >= 0 {
+			offset += newline + 1
+		} else {
+			offset = len(src)
+		}
+	} else if file.pkg_decl != nil {
+		offset = file.pkg_decl.pos.offset
+		if file.pkg_decl.docs != nil do offset = file.pkg_decl.docs.pos.offset
+		offset, _ = before_on_line(src, offset)
+		// A block comment that ends on the package line starts on an earlier one.
+		for group in file.comments {
+			if group.pos.offset < offset && offset < group.end.offset {
+				offset, _ = before_on_line(src, group.pos.offset)
+			}
+		}
+	}
+	return offset
+}
+
 // Assignment, address-of and `using` targets count as writes, also through the base of a
 // selector, index, slice or deref: `x.y = 1` and `&x[i]` write x.
 is_write :: proc(use: IdentUse) -> bool {

@@ -792,22 +792,6 @@ is_address_of :: proc(expr: ^ast.Expr) -> bool {
 	return ok && unary.op.kind == .And
 }
 
-// A field, enum member or argument name, which the resolver does not record on its own.
-is_member_name :: proc(use: IdentUse) -> bool {
-	if len(use.parents) == 0 {
-		return false
-	}
-	#partial switch p in use.parents[len(use.parents) - 1].derived {
-	case ^ast.Selector_Expr:
-		return p.field == use.ident
-	case ^ast.Implicit_Selector_Expr:
-		return p.field == use.ident
-	case ^ast.Field_Value:
-		return p.field == use.ident
-	}
-	return false
-}
-
 is_callee :: proc(use: IdentUse) -> bool {
 	if len(use.parents) == 0 {
 		return false
