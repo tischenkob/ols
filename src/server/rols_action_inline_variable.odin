@@ -15,35 +15,35 @@ add_inline_variable_action :: proc(ctx: ^ActionContext) {
 	}
 
 	function := ctx.position_context.function
-	decl := ctx.position_context.value_decl
-	if function == nil || function.body == nil || decl == nil {
-		return
-	}
-	if decl.pos.offset < function.body.pos.offset || function.body.end.offset < decl.end.offset {
-		return
-	}
-	if len(decl.names) != 1 || len(decl.values) != 1 || decl.is_using || decl.type != nil {
-		return
-	}
-	name, is_ident := decl.names[0].derived.(^ast.Ident)
-	if !is_ident || name.name == "_" {
-		return
-	}
-	if ctx.range.start < name.pos.offset || name.end.offset < ctx.range.start {
-		return
-	}
-	value := decl.values[0]
-	if _, is_proc := value.derived.(^ast.Proc_Lit); is_proc {
+	if function == nil || function.body == nil {
 		return
 	}
 
-	src := ctx.document.ast.src
-	if !alone_on_line(src, decl) {
-		return
-	}
-
-	symbols := resolve_entire_file_for_references(ctx.document, context.temp_allocator, .Identifier, "")
 	all_uses := collect_ident_uses(function.body)
+	at: ^ast.Ident
+	for use in all_uses {
+		if use.ident.pos.offset <= ctx.range.start && ctx.range.start <= use.ident.end.offset && !is_member_name(use) {
+			at = use.ident
+			break
+		}
+	}
+	if at == nil || at.name == "_" {
+		return
+	}
+
+	// Most identifiers name no such declaration, so this comes before the whole-file resolve.
+	candidates := inline_candidates(function.body, at.name, ctx.document.ast.src)
+	if len(candidates) == 0 {
+		return
+	}
+	symbols := resolve_entire_file_for_references(ctx.document, context.temp_allocator, .Identifier, "")
+	decl := target_decl(ctx, symbols, candidates, at)
+	if decl == nil {
+		return
+	}
+	name := decl.names[0].derived.(^ast.Ident)
+	value := decl.values[0]
+	src := ctx.document.ast.src
 
 	uses := make([dynamic]IdentUse, context.temp_allocator)
 	for use in all_uses {
@@ -129,22 +129,261 @@ add_inline_variable_action :: proc(ctx: ^ActionContext) {
 		}
 	}
 
+	// An identifier of the initializer or the type must still mean the same thing at each use.
+	if name_captured(ctx, symbols, all_uses, value, decl.end.offset, last_use.end.offset) {
+		return
+	}
+	if decl.type != nil && name_captured(ctx, symbols, all_uses, decl.type, decl.end.offset, last_use.end.offset) {
+		return
+	}
+
 	text := src[value.pos.offset:value.end.offset]
+	if decl.type != nil {
+		typed_value, ok := restate_with_type(typed, decl.type, value, src)
+		if !ok {
+			return
+		}
+		text = typed_value
+	}
 	paren_text := strings.concatenate({"(", text, ")"}, context.temp_allocator)
+	has_literal := contains_comp_lit(value)
 
 	edits := make([dynamic]TextEdit, 0, len(uses) + 1, context.temp_allocator)
 	append(&edits, delete_lines_edit(ctx, decl.pos.line - 1, decl.end.line - 1))
+	this_use: []TextEdit
 	for use in uses {
+		wrap := decl.type == nil && needs_parens(value, use) || has_literal && literal_needs_parens(use)
 		append(
 			&edits,
 			TextEdit {
 				range = range_of(ctx, use.ident.pos.offset, use.ident.end.offset),
-				newText = needs_parens(value, use) ? paren_text : text,
+				newText = wrap ? paren_text : text,
 			},
 		)
+		if use.ident == at {
+			this_use = edits[len(edits) - 1:]
+		}
 	}
 
 	append(ctx.actions, make_code_action(ctx, "Inline variable", "refactor.inline", edits[:]))
+	// With one use the action above does the same. With more, the checks above already require an
+	// initializer that can run again: no call, no global read, no literal.
+	if len(uses) > 1 && this_use != nil {
+		append(ctx.actions, make_code_action(ctx, "Inline this use", "refactor.inline", this_use))
+	}
+}
+
+// Whether an identifier between after and until shares a name with one in root and means something
+// else, so a copy of root placed there could read the wrong thing. Sibling scopes count too, which
+// only refuses more.
+name_captured :: proc(
+	ctx: ^ActionContext,
+	symbols: SymbolAndNodeMap,
+	all_uses: []IdentUse,
+	root: ^ast.Node,
+	after, until: int,
+) -> bool {
+	for read in collect_ident_uses(root) {
+		if is_member_name(read) {
+			continue
+		}
+		read_decl, read_local := local_decl_offset(ctx, symbols, read.ident)
+		for other in all_uses {
+			if other.ident.name != read.ident.name || is_member_name(other) {
+				continue
+			}
+			if other.ident.pos.offset < after || until < other.ident.pos.offset {
+				continue
+			}
+			other_decl, other_local := local_decl_offset(ctx, symbols, other.ident)
+			if other_local != read_local || other_local && other_decl != read_decl {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// A composite literal does not parse at the start of a statement, and in the header of these
+// statements it would parse as the start of the body.
+literal_needs_parens :: proc(use: IdentUse) -> bool {
+	for parent, i in use.parents {
+		child: ^ast.Node = i + 1 < len(use.parents) ? use.parents[i + 1] : use.ident
+		#partial switch p in parent.derived {
+		case ^ast.Expr_Stmt:
+			if p.pos.offset == use.ident.pos.offset do return true
+		case ^ast.Assign_Stmt:
+			for target in p.lhs {
+				if target.pos.offset == use.ident.pos.offset do return true
+			}
+		case ^ast.If_Stmt:
+			if child != p.body && child != p.else_stmt do return true
+		case ^ast.When_Stmt:
+			if child != p.body && child != p.else_stmt do return true
+		case ^ast.For_Stmt:
+			if child != p.body do return true
+		case ^ast.Range_Stmt:
+			if child != p.body do return true
+		case ^ast.Unroll_Range_Stmt:
+			if child != p.body do return true
+		case ^ast.Switch_Stmt:
+			if child != p.body do return true
+		case ^ast.Type_Switch_Stmt:
+			if child != p.body do return true
+		}
+	}
+	return false
+}
+
+// The declarations in body that name could refer to and the action can inline. A value of `---`
+// exists only in a declaration.
+inline_candidates :: proc(body: ^ast.Stmt, name: string, src: string) -> []^ast.Value_Decl {
+	Data :: struct {
+		name:  string,
+		src:   string,
+		decls: [dynamic]^ast.Value_Decl,
+	}
+
+	data := Data {
+		name  = name,
+		src   = src,
+		decls = make([dynamic]^ast.Value_Decl, context.temp_allocator),
+	}
+	visitor := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil {
+				return nil
+			}
+			data := (^Data)(visitor.data)
+			if decl, is_decl := node.derived.(^ast.Value_Decl); is_decl {
+				if len(decl.names) == 1 && len(decl.values) == 1 && !decl.is_using && can_restate_type(decl.type) {
+					ident, is_ident := decl.names[0].derived.(^ast.Ident)
+					#partial switch _ in decl.values[0].derived {
+					case ^ast.Proc_Lit, ^ast.Undef:
+						is_ident = false
+					}
+					if is_ident && ident.name == data.name && alone_on_line(data.src, decl) {
+						append(&data.decls, decl)
+					}
+				}
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, body)
+	return data.decls[:]
+}
+
+// The candidate that at names or refers to. Resolving keeps a shadowed declaration apart.
+target_decl :: proc(
+	ctx: ^ActionContext,
+	symbols: SymbolAndNodeMap,
+	candidates: []^ast.Value_Decl,
+	at: ^ast.Ident,
+) -> ^ast.Value_Decl {
+	for candidate in candidates {
+		if candidate.names[0] == at {
+			return candidate
+		}
+	}
+	offset, ok := local_decl_offset(ctx, symbols, at)
+	if !ok {
+		return nil
+	}
+	for candidate in candidates {
+		if candidate.names[0].pos.offset == offset {
+			return candidate
+		}
+	}
+	return nil
+}
+
+// Whether a use can state the declared type. An `any` stores the address of its value, `typeid(int)`
+// does not compile, and each spelling of an inline or distinct type is a new type.
+can_restate_type :: proc(type: ^ast.Expr) -> bool {
+	if type == nil {
+		return true
+	}
+	if names_any(type) {
+		return false
+	}
+	found: bool
+	visitor := ast.Visitor {
+		data = &found,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil {
+				return nil
+			}
+			#partial switch _ in node.derived {
+			case ^ast.Struct_Type,
+			     ^ast.Union_Type,
+			     ^ast.Enum_Type,
+			     ^ast.Bit_Field_Type,
+			     ^ast.Distinct_Type,
+			     ^ast.Typeid_Type:
+				(^bool)(visitor.data)^ = true
+				return nil
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, type)
+	return !found
+}
+
+// The initializer of a typed declaration with its type stated: `f32(1)`, `(^int)(nil)`, `Color.Red`
+// or `Foo{a = 1}`. These forms bind tighter than any operator at a use. Fails on an untyped literal
+// for a union, since `x: Maybe(Foo) = {a = 1}` compiles and `Maybe(Foo){a = 1}` does not.
+restate_with_type :: proc(
+	typed: SymbolAndNodeMap,
+	type: ^ast.Expr,
+	value: ^ast.Expr,
+	src: string,
+) -> (
+	text: string,
+	ok: bool,
+) {
+	type_text := src[type.pos.offset:type.end.offset]
+	value_text := src[value.pos.offset:value.end.offset]
+
+	named := false
+	#partial switch _ in type.derived {
+	case ^ast.Ident, ^ast.Selector_Expr, ^ast.Call_Expr:
+		named = true
+	}
+	type_value: SymbolValue
+	resolved, found := typed[uintptr(type)]
+	found = found && !resolved.is_unresolved
+	if found {
+		type_value = resolved.symbol.value
+	}
+	// An alias of a type that can_restate_type refuses by its spelling.
+	if basic, is_basic := type_value.(SymbolBasicValue); is_basic && basic.ident != nil {
+		if basic.ident.name == "typeid" || basic.ident.name == "any" {
+			return "", false
+		}
+	}
+
+	#partial switch v in value.derived {
+	case ^ast.Implicit_Selector_Expr:
+		if _, is_enum := type_value.(SymbolEnumValue); is_enum {
+			return strings.concatenate({type_text, value_text}, context.temp_allocator), true
+		}
+	case ^ast.Comp_Lit:
+		if v.type == nil {
+			_, is_union := type_value.(SymbolUnionValue)
+			if named && (!found || is_union) {
+				return "", false
+			}
+			return strings.concatenate({type_text, value_text}, context.temp_allocator), true
+		}
+	}
+
+	if named {
+		return strings.concatenate({type_text, "(", value_text, ")"}, context.temp_allocator), true
+	}
+	return strings.concatenate({"(", type_text, ")(", value_text, ")"}, context.temp_allocator), true
 }
 
 @(private = "package")

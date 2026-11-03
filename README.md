@@ -149,7 +149,7 @@ Options:
 
 - `enable_code_action_extract_variable`: Enables the code action to extract an expression into a local variable. With only a cursor, it offers one action for each enclosing expression. Defaults to true.
 
-- `enable_code_action_inline_variable`: Enables the code action to inline a local variable into its uses. Defaults to true.
+- `enable_code_action_inline_variable`: Enables the code action to inline a local variable into its uses, with the cursor on the declaration's name or on any use. With the cursor on one of several uses, a second action inlines only that use and keeps the declaration. A typed declaration keeps its type at each use: `x: f32 = 1` inlines as `f32(1)`. Defaults to true.
 
 - `enable_code_action_extract_procedure`: Enables the code action to extract selected statements into a new procedure. Defaults to true.
 

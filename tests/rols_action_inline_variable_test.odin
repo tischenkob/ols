@@ -418,14 +418,23 @@ main :: proc() {
 }
 
 @(test)
-action_inline_variable_refused_typed_decl :: proc(t: ^testing.T) {
-	expect_no_inline_variable(t, `package test
+action_inline_variable_typed_decl_casts :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
 
 main :: proc() {
 	x{*}: f32 = 1
 	y := x / 2
 }
-`)
+`,
+		`package test
+
+main :: proc() {
+	y := f32(1) / 2
+}
+`,
+	)
 }
 
 @(test)
@@ -1242,6 +1251,1242 @@ f :: proc() -> int {
 	take(n)
 	x := n + bump()
 	return x
+}
+`,
+	)
+}
+
+INLINE_THIS_USE_ACTION :: "Inline this use"
+
+expect_inline_this_use :: proc(t: ^testing.T, main, expected: string) {
+	source := test.Source {
+		main = main,
+		config = {enable_code_action_inline_variable = true},
+	}
+	test.expect_action_applied(t, &source, INLINE_THIS_USE_ACTION, expected)
+}
+
+expect_no_inline_this_use :: proc(t: ^testing.T, main: string) {
+	source := test.Source {
+		main = main,
+		config = {enable_code_action_inline_variable = true},
+	}
+	test.expect_action_missing(t, &source, INLINE_THIS_USE_ACTION)
+}
+
+@(test)
+action_inline_variable_cursor_at_end_of_use :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	x := 5
+	foo(x{*})
+	bar(x + 1)
+}
+`,
+		`package test
+
+main :: proc() {
+	foo(5)
+	bar(5 + 1)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_cursor_inside_use :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	value := 5
+	foo(val{*}ue)
+}
+`,
+		`package test
+
+main :: proc() {
+	foo(5)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_cursor_at_start_of_use :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	x := 5
+	foo({*}x)
+}
+`,
+		`package test
+
+main :: proc() {
+	foo(5)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_selection_of_use :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	x := 5
+	foo({[x]})
+}
+`,
+		`package test
+
+main :: proc() {
+	foo(5)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_use_inside_other_declaration :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	x := 5
+	y := x{*} + 1
+	foo(y)
+}
+`,
+		`package test
+
+main :: proc() {
+	y := 5 + 1
+	foo(y)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_use_in_nested_block :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	x := 5
+	if cond() {
+		foo(x{*})
+	}
+}
+`,
+		`package test
+
+main :: proc() {
+	if cond() {
+		foo(5)
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_use_picks_shadowing_declaration :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	x := 5
+	{
+		x := 6
+		foo(x{*})
+	}
+	foo(x)
+}
+`,
+		`package test
+
+main :: proc() {
+	x := 5
+	{
+		foo(6)
+	}
+	foo(x)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_use_picks_shadowed_declaration :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	x := 5
+	{
+		x := 6
+		foo(x)
+	}
+	foo(x{*})
+}
+`,
+		`package test
+
+main :: proc() {
+	{
+		x := 6
+		foo(x)
+	}
+	foo(5)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_on_field_named_like_local :: proc(t: ^testing.T) {
+	expect_no_inline_variable(
+		t,
+		`package test
+
+Foo :: struct {
+	x: int,
+}
+
+main :: proc() {
+	x := 5
+	p: Foo
+	foo(x, p.x{*})
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_on_written_use :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	x := 5
+	x{*} = 2
+	foo(x)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_on_use_of_multi_name :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	x, y := 1, 2
+	foo(x{*}, y)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_on_parameter :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+f :: proc(x: int) {
+	foo(x{*})
+}
+`)
+}
+
+@(test)
+action_inline_variable_typed_from_use :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	x: f32 = 1
+	y := x{*} / 2
+	foo(y)
+}
+`,
+		`package test
+
+main :: proc() {
+	y := f32(1) / 2
+	foo(y)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_typed_instantiated :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	x{*}: Maybe(int) = 5
+	foo(x)
+}
+`,
+		`package test
+
+main :: proc() {
+	foo(Maybe(int)(5))
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_typed_qualified :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+import "core:time"
+
+main :: proc() {
+	x{*}: time.Duration = 5
+	foo(x)
+}
+`,
+		`package test
+
+import "core:time"
+
+main :: proc() {
+	foo(time.Duration(5))
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_typed_pointer_wraps_type :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	x{*}: ^int = nil
+	foo(x)
+}
+`,
+		`package test
+
+main :: proc() {
+	foo((^int)(nil))
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_typed_array_wraps_type :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	x{*}: [3]int = 1
+	foo(x)
+}
+`,
+		`package test
+
+main :: proc() {
+	foo(([3]int)(1))
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_typed_implicit_selector :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+Color :: enum {
+	Red,
+}
+
+main :: proc() {
+	x{*}: Color = .Red
+	foo(x)
+}
+`,
+		`package test
+
+Color :: enum {
+	Red,
+}
+
+main :: proc() {
+	foo(Color.Red)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_typed_composite_literal :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+main :: proc() {
+	x{*}: Foo = {a = 1}
+	foo(x)
+}
+`,
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+main :: proc() {
+	foo(Foo{a = 1})
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_typed_composite_literal_with_own_type :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+main :: proc() {
+	x{*}: Foo = Foo{a = 1}
+	foo(x)
+}
+`,
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+main :: proc() {
+	foo(Foo(Foo{a = 1}))
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_typed_constant :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	x{*}: f32 : 1
+	foo(x)
+}
+`,
+		`package test
+
+main :: proc() {
+	foo(f32(1))
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_typed_binary_initializer :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	a, b: f32
+	x{*}: f32 = a + b
+	y := x * 2
+	foo(y)
+}
+`,
+		`package test
+
+main :: proc() {
+	a, b: f32
+	y := f32(a + b) * 2
+	foo(y)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_typed_implicit_selector_through_alias :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+Color :: enum {
+	Red,
+}
+Alias :: Color
+
+main :: proc() {
+	x{*}: Alias = .Red
+	foo(x)
+}
+`,
+		`package test
+
+Color :: enum {
+	Red,
+}
+Alias :: Color
+
+main :: proc() {
+	foo(Alias.Red)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_typed_implicit_selector_for_union_casts :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+Color :: enum {
+	Red,
+}
+Holder :: union {
+	Color,
+}
+
+main :: proc() {
+	x{*}: Holder = .Red
+	foo(x)
+}
+`,
+		`package test
+
+Color :: enum {
+	Red,
+}
+Holder :: union {
+	Color,
+}
+
+main :: proc() {
+	foo(Holder(.Red))
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_typed_implicit_selector_for_array_casts :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+Color :: enum {
+	Red,
+}
+
+main :: proc() {
+	x{*}: [2]Color = .Red
+	foo(x)
+}
+`,
+		`package test
+
+Color :: enum {
+	Red,
+}
+
+main :: proc() {
+	foo(([2]Color)(.Red))
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_literal_for_union :: proc(t: ^testing.T) {
+	expect_no_inline_variable(
+		t,
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+Holder :: union {
+	Foo,
+}
+
+main :: proc() {
+	x{*}: Holder = {a = 1}
+	foo(x)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_literal_for_maybe :: proc(t: ^testing.T) {
+	expect_no_inline_variable(
+		t,
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+main :: proc() {
+	x{*}: Maybe(Foo) = {a = 1}
+	foo(x)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_typed_literal_for_slice :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	x{*}: []int = {1, 2}
+	foo(x)
+}
+`,
+		`package test
+
+main :: proc() {
+	foo([]int{1, 2})
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_any_type :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	n := 1
+	x{*}: any = n
+	foo(x)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_typeid_type :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	x{*}: typeid = int
+	foo(x)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_inline_struct_type :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	x{*}: struct {
+		a: int,
+	} = {a = 1}
+	foo(x)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_no_initializer :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	x: int
+	foo(x{*})
+}
+`)
+}
+
+@(test)
+action_inline_this_use_keeps_declaration :: proc(t: ^testing.T) {
+	expect_inline_this_use(
+		t,
+		`package test
+
+main :: proc() {
+	a, b := 1, 2
+	x := a + b
+	y := x{*} * 2
+	foo(x, y)
+}
+`,
+		`package test
+
+main :: proc() {
+	a, b := 1, 2
+	x := a + b
+	y := (a + b) * 2
+	foo(x, y)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_this_use_typed_casts :: proc(t: ^testing.T) {
+	expect_inline_this_use(
+		t,
+		`package test
+
+main :: proc() {
+	x: f32 = 1
+	foo(x)
+	bar(x{*})
+}
+`,
+		`package test
+
+main :: proc() {
+	x: f32 = 1
+	foo(x)
+	bar(f32(1))
+}
+`,
+	)
+}
+
+@(test)
+action_inline_this_use_missing_on_declaration :: proc(t: ^testing.T) {
+	expect_no_inline_this_use(t, `package test
+
+main :: proc() {
+	x{*} := 5
+	foo(x)
+	bar(x)
+}
+`)
+}
+
+@(test)
+action_inline_this_use_missing_on_single_use :: proc(t: ^testing.T) {
+	expect_no_inline_this_use(t, `package test
+
+main :: proc() {
+	x := 5
+	foo(x{*})
+}
+`)
+}
+
+@(test)
+action_inline_this_use_missing_for_call_initializer :: proc(t: ^testing.T) {
+	expect_no_inline_this_use(
+		t,
+		`package test
+
+make_it :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	x := make_it()
+	foo(x{*})
+	bar(x)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_undef :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	x{*}: int = ---
+	foo(x)
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_typeid_alias :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+Tid :: typeid
+
+main :: proc() {
+	x{*}: Tid = int
+	foo(x)
+}
+`)
+}
+
+@(test)
+action_inline_variable_literal_in_range_header :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	x{*}: []int = {1, 2}
+	for v in x {
+		foo(v)
+	}
+}
+`,
+		`package test
+
+main :: proc() {
+	for v in ([]int{1, 2}) {
+		foo(v)
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_literal_in_if_header :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+main :: proc() {
+	x{*} := Foo{a = 1}
+	if x.a > 0 {
+	}
+}
+`,
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+main :: proc() {
+	if (Foo{a = 1}).a > 0 {
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_literal_in_switch_header :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+main :: proc() {
+	x{*}: Foo = {a = 1}
+	switch x.a {
+	}
+}
+`,
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+main :: proc() {
+	switch (Foo{a = 1}).a {
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_literal_in_if_body_has_no_parens :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+main :: proc() {
+	x{*}: Foo = {a = 1}
+	if cond() {
+		foo(x)
+	}
+}
+`,
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+main :: proc() {
+	if cond() {
+		foo(Foo{a = 1})
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_read_local_shadowed_at_use :: proc(t: ^testing.T) {
+	expect_no_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	a := 1
+	x{*} := a + 1
+	{
+		a := 2
+		foo(x)
+		foo(a)
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_read_local_shadowed_by_unused_declaration :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+main :: proc() {
+	a := 1
+	x{*} := a + 1
+	{
+		a := 2
+		foo(x)
+	}
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_read_local_shadowed_by_loop_value :: proc(t: ^testing.T) {
+	expect_no_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	a := 1
+	x{*} := a + 1
+	for a in 0 ..< 3 {
+		foo(x)
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_constant_shadowed_at_use :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+N :: 1
+
+main :: proc() {
+	x{*} := N + 1
+	{
+		N := 2
+		foo(x)
+	}
+}
+`)
+}
+
+@(test)
+action_inline_variable_refused_type_shadowed_at_use :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+T :: int
+
+main :: proc() {
+	x{*}: T = 1
+	{
+		T := 2
+		foo(x)
+	}
+}
+`)
+}
+
+@(test)
+action_inline_this_use_refused_read_local_shadowed_at_use :: proc(t: ^testing.T) {
+	expect_no_inline_this_use(
+		t,
+		`package test
+
+main :: proc() {
+	a := 1
+	x := a + 1
+	foo(x)
+	{
+		a := 2
+		foo(x{*})
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_read_local_reused_later_is_kept :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+foo :: proc(v: int) {
+}
+
+main :: proc() {
+	a := 1
+	x{*} := a + 1
+	foo(x)
+	foo(a)
+}
+`,
+		`package test
+
+foo :: proc(v: int) {
+}
+
+main :: proc() {
+	a := 1
+	foo(a + 1)
+	foo(a)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_refused_any_alias :: proc(t: ^testing.T) {
+	expect_no_inline_variable(t, `package test
+
+Boxed :: any
+
+main :: proc() {
+	n := 1
+	x{*}: Boxed = n
+	foo(x)
+}
+`)
+}
+
+@(test)
+action_inline_variable_same_name_after_last_use_is_kept :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+main :: proc() {
+	for i in 0 ..< 3 {
+		y{*} := i * 2
+		foo(y)
+	}
+	for i in 0 ..< 3 {
+		bar(i)
+	}
+}
+`,
+		`package test
+
+main :: proc() {
+	for i in 0 ..< 3 {
+		foo(i * 2)
+	}
+	for i in 0 ..< 3 {
+		bar(i)
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_literal_at_statement_start :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+Handler :: struct {
+	run: proc(v: int),
+}
+
+go_on :: proc(v: int) {
+}
+
+main :: proc() {
+	h{*}: Handler = {run = go_on}
+	h.run(1)
+}
+`,
+		`package test
+
+Handler :: struct {
+	run: proc(v: int),
+}
+
+go_on :: proc(v: int) {
+}
+
+main :: proc() {
+	(Handler{run = go_on}).run(1)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_untyped_literal_at_deferred_statement_start :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+Handler :: struct {
+	run: proc(v: int),
+}
+
+go_on :: proc(v: int) {
+}
+
+main :: proc() {
+	h{*} := Handler{run = go_on}
+	defer h.run(1)
+}
+`,
+		`package test
+
+Handler :: struct {
+	run: proc(v: int),
+}
+
+go_on :: proc(v: int) {
+}
+
+main :: proc() {
+	defer (Handler{run = go_on}).run(1)
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_literal_at_assignment_target_start :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+Handler :: struct {
+	get: proc(v: int) -> ^int,
+}
+
+fetch :: proc(v: int) -> ^int {
+	return nil
+}
+
+main :: proc() {
+	h{*}: Handler = {get = fetch}
+	h.get(1)^ = 2
+}
+`,
+		`package test
+
+Handler :: struct {
+	get: proc(v: int) -> ^int,
+}
+
+fetch :: proc(v: int) -> ^int {
+	return nil
+}
+
+main :: proc() {
+	(Handler{get = fetch}).get(1)^ = 2
+}
+`,
+	)
+}
+
+@(test)
+action_inline_variable_literal_at_second_assignment_target :: proc(t: ^testing.T) {
+	expect_inline_variable(
+		t,
+		`package test
+
+Handler :: struct {
+	get: proc(v: int) -> ^int,
+}
+
+fetch :: proc(v: int) -> ^int {
+	return nil
+}
+
+main :: proc() {
+	y := 0
+	h{*}: Handler = {get = fetch}
+	y, h.get(1)^ = 1, 2
+	bar(y)
+}
+`,
+		`package test
+
+Handler :: struct {
+	get: proc(v: int) -> ^int,
+}
+
+fetch :: proc(v: int) -> ^int {
+	return nil
+}
+
+main :: proc() {
+	y := 0
+	y, (Handler{get = fetch}).get(1)^ = 1, 2
+	bar(y)
 }
 `,
 	)
