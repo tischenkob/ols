@@ -125,7 +125,6 @@ has_drive_letter :: proc(s: string) -> bool {
 
 // home and, unless private, the other files of its package that mention name, read through h. A file of another
 // package or with `#+build ignore` is left out.
-@(private = "file")
 package_documents :: proc(h: ^Call_Hierarchy, home: ^Document, name: string, private: bool) -> []^Document {
 	paths := make([dynamic]string, context.temp_allocator)
 	append(&paths, home.fullpath)

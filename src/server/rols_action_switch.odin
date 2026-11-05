@@ -111,7 +111,8 @@ add_if_to_switch_action :: proc(ctx: ^ActionContext) {
 // Breaks inside a nested loop or switch belong to it. Nested proc literals keep their own control flow.
 // An `or_break` in a nested header targets the outer loop, except in a `for` init or condition (checked with
 // `odin run` on 2026-10-06; the `for` post statement and a range loop's init target the outer loop too).
-breaks_enclosing :: proc(body: ^ast.Block_Stmt) -> bool {
+@(private = "package")
+breaks_enclosing :: proc(body: ^ast.Node) -> bool {
 	found := false
 	visitor := ast.Visitor {
 		data = &found,
@@ -153,6 +154,7 @@ breaks_enclosing :: proc(body: ^ast.Block_Stmt) -> bool {
 }
 
 // Statements of an if body sit one level below the if, which is where case statements sit too.
+@(private = "package")
 write_case_body :: proc(sb: ^strings.Builder, src: string, body: ^ast.Block_Stmt, ind: string) {
 	unit := indent_unit(src, ind, body.stmts[0] if len(body.stmts) > 0 else nil)
 	if inner := block_lines(src, body, ind, unit); len(inner) > 0 {

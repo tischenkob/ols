@@ -88,3 +88,17 @@ expect_action_missing_unsaved :: proc(t: ^testing.T, src: ^Source, action_name: 
 		testing.expectf(t, action.title != action_name, "Expected action '%s' to be missing: %v", action_name, actions)
 	}
 }
+
+// That the code actions at the cursor do not resolve the whole file: only the actions that src.config enables run.
+expect_no_whole_file_resolve :: proc(t: ^testing.T, src: ^Source) {
+	input_range := source_remove_selection(src)
+
+	setup(src)
+	defer teardown(src)
+
+	src.document.symbols = nil
+	_, ok := server.get_code_actions(src.document, {}, input_range, &src.config, package_files(src))
+	testing.expect(t, ok, "Failed to find actions")
+	_, resolved := src.document.symbols.?
+	testing.expect(t, !resolved, "The code actions resolved the whole file")
+}

@@ -126,6 +126,537 @@ expect actions-apply "main.odin" "$OLS" query actions "$dir/main.odin:10:11-10:2
 grep -q "value \* 3" "$dir/main.odin" && grep -q "total := .* + 1" "$dir/main.odin"
 odin check "$dir" -no-entry-point
 echo "ok actions-apply check"
+# Each range loop, surround and replace-all action, from a fresh copy, through the compile gate and odin check.
+mkdir "$dir/loops"
+echo '{}' > "$dir/loops/ols.json"
+apply_loops() {
+	local title="$1" at="$2"
+	cat > "$dir/loops/loops.odin" <<'ODIN'
+package loops
+
+main :: proc() {
+	xs := []int{1, 2}
+	for x in xs {
+		_ = x
+	}
+	for &z in xs {
+		_ = z
+	}
+	#reverse for w in xs {
+		_ = w
+	}
+	for y in 0..<3 {
+		_ = y
+	}
+	for v in 0..=2 {
+		_ = v
+	}
+	a, b := 2, 3
+	p := a * b
+	q := a * b
+	_, _ = p, q
+}
+ODIN
+	expect "loops-$title" "loops.odin" "$OLS" query actions "$dir/loops/loops.odin:$at" --apply "$title" --root "$dir/loops"
+	odin check "$dir/loops" >/dev/null
+	echo "ok loops-$title check"
+}
+apply_loops "Add index" 5:2
+apply_loops "Iterate by reference" 5:2
+apply_loops "Iterate by value" 8:2
+apply_loops "Toggle #reverse" 5:2
+apply_loops "Toggle #reverse" 11:2
+apply_loops "Convert to ..= range" 14:2
+apply_loops "Convert to ..< range" 17:2
+apply_loops "Surround with block" 23:2
+apply_loops "Surround with if" 23:2
+apply_loops "Surround with for" 23:2
+apply_loops "Surround with #no_bounds_check" 23:2
+apply_loops "Surround with defer" 5:2
+apply_loops "Surround with when" 21:2
+apply_loops "Extract variable (replace all 2)" 21:7-21:12
+rm -rf "$dir/loops"
+# Expand using, the named forms and the qualified forms, from a fresh copy, through the compile gate and odin check.
+mkdir "$dir/forms"
+echo '{}' > "$dir/forms/ols.json"
+apply_forms() {
+	local title="$1" at="$2"
+	cat > "$dir/forms/forms.odin" <<'ODIN'
+#+feature using-stmt
+package forms
+
+Base :: struct {
+	n: int,
+}
+
+Derived :: struct {
+	using base: Base,
+	own:        int,
+}
+
+P :: struct {
+	x, y: int,
+}
+
+Kind :: enum {
+	A,
+	B,
+}
+
+Holder :: struct {
+	p: P,
+	k: Kind,
+}
+
+two :: proc(a, b: int) -> int {
+	return a + b
+}
+
+take :: proc(p: P, k: Kind) -> P {
+	return p
+}
+
+back :: proc() -> P {
+	return P{1, 2}
+}
+
+main :: proc() {
+	s: P
+	using s
+	x = 1
+	_ = two(x, y)
+	_ = two(a = 1, b = 2)
+	v := P{1, 2}
+	w := P{x = 1, y = 2}
+	d: P = P{1, 2}
+	e: P = {1, 2}
+	k: Kind = .A
+	m: Kind = Kind.B
+	h := Holder{p = {1, 2}, k = .A}
+	i := Holder{p = P{1, 2}, k = Kind.A}
+	_ = take({1, 2}, .B)
+	_ = take(P{1, 2}, Kind.B)
+	_, _, _, _, _, _, _, _ = v, w, d, e, k, m, h, i
+	own: Derived
+	_ = own.base.n
+}
+ODIN
+	expect "forms-$title" "forms.odin" "$OLS" query actions "$dir/forms/forms.odin:$at" --apply "$title" --root "$dir/forms"
+	odin check "$dir/forms" >/dev/null
+	echo "ok forms-$title check"
+}
+apply_forms "Expand using" 41:2
+apply_forms "Convert using to #subtype" 9:2
+apply_forms "Convert to named arguments" 43:6
+apply_forms "Convert to positional arguments" 44:6
+apply_forms "Convert to named fields" 45:9
+apply_forms "Convert to positional fields" 46:9
+apply_forms "Drop literal type" 47:9
+apply_forms "Add literal type" 48:9
+apply_forms "Qualify enum member" 49:13
+apply_forms "Drop enum type" 50:17
+apply_forms "Add literal type" 51:18
+apply_forms "Qualify enum member" 51:31
+apply_forms "Drop literal type" 52:18
+apply_forms "Drop enum type" 52:36
+apply_forms "Add literal type" 53:11
+apply_forms "Qualify enum member" 53:20
+apply_forms "Drop literal type" 54:12
+apply_forms "Drop enum type" 54:25
+apply_forms "Drop literal type" 36:9
+rm -rf "$dir/forms"
+# Fill missing keys, the type switch forms, the cast forms, the bit set forms and Evaluate constant, from a fresh copy, through the compile gate and odin check.
+mkdir "$dir/kinds"
+echo '{}' > "$dir/kinds/ols.json"
+apply_kinds() {
+	local title="$1" at="$2"
+	cat > "$dir/kinds/kinds.odin" <<'ODIN'
+package kinds
+
+Kind :: enum {
+	A,
+	B,
+}
+
+T :: struct {
+	x: int,
+}
+
+U :: union {
+	int,
+	string,
+	T,
+}
+
+Set :: bit_set[Kind]
+
+take :: proc(a: f32) {}
+
+main :: proc() {
+	u: U
+	f: f32 = 1
+	n := 1
+	p := &n
+	fl: Set
+	a := [Kind]int{}
+	b := #partial [Kind]int{.A = 1}
+	if v, ok := u.(int); ok {
+		_ = v
+	} else if _, ok := u.(string); ok {
+		_ = 1
+	} else {
+		_ = 2
+	}
+	switch v in u {
+	case int:
+		_ = v
+	case string:
+		_ = 1
+	case T:
+		_ = v
+	}
+	#partial switch v in u {
+	case int:
+		_ = v
+	}
+	c := cast(int)f
+	d := int(f)
+	e: int = cast(int)f
+	g: int = auto_cast f
+	take(cast(f32)n)
+	h := cast(^f32)p
+	i := transmute(^f32)p
+	j := (^f32)(p)
+	k := (cast(^T)p).x
+	m := (^T)(p).x
+	q := .A in fl
+	r := .A not_in fl
+	s := fl & {.A} != {}
+	w := fl & {.A} == {}
+	x := 1 + 2 * (3 << 2)
+	y := n - (1 - 2)
+	_, _, _, _, _, _, _, _, _, _ = a, b, c, d, e, g, h, i, j, k
+	_, _, _, _, _, _, _, _ = m, q, r, s, w, x, y, n
+	#partial switch v in u {
+	case int:
+		_ = v
+	case string:
+	case T:
+	}
+}
+ODIN
+	expect "kinds-$title" "kinds.odin" "$OLS" query actions "$dir/kinds/kinds.odin:$at" --apply "$title" --root "$dir/kinds"
+	odin check "$dir/kinds" >/dev/null
+	echo "ok kinds-$title check"
+}
+apply_kinds "Fill missing keys" 28:17
+apply_kinds "Fill missing keys" 29:27
+apply_kinds "Convert to type switch" 30:2
+apply_kinds "Convert to type switch" 32:12
+apply_kinds "Convert to if chain" 37:2
+apply_kinds "Add default case" 37:2
+apply_kinds "Add #partial" 37:2
+apply_kinds "Convert to if chain" 45:11
+apply_kinds "Add default case" 45:11
+apply_kinds "Remove #partial" 67:2
+apply_kinds "Convert to T(x)" 49:7
+apply_kinds "Convert to cast(T)x" 50:7
+apply_kinds "Convert to auto_cast" 51:11
+apply_kinds "Convert to cast(T)x" 52:11
+apply_kinds "Convert to auto_cast" 53:7
+apply_kinds "Convert to T(x)" 54:7
+apply_kinds "Convert to transmute" 54:7
+apply_kinds "Convert to cast(T)x" 55:7
+apply_kinds "Convert to cast(T)x" 56:7
+apply_kinds "Convert to transmute" 56:7
+apply_kinds "Convert to cast(T)x" 58:9
+apply_kinds "Convert to set intersection" 59:7
+apply_kinds "Convert to empty intersection" 60:7
+apply_kinds "Convert to in" 61:10
+apply_kinds "Convert to not_in" 62:10
+apply_kinds "Evaluate constant" 63:7
+apply_kinds "Evaluate constant" 64:14
+rm -rf "$dir/kinds"
+# The create actions, each on a fresh package with one unresolved name, through the compile gate and odin check.
+mkdir "$dir/create"
+echo '{}' > "$dir/create/ols.json"
+cat > "$dir/create/other.odin" <<'ODIN'
+package create
+
+Item :: struct {
+	a: int,
+}
+ODIN
+apply_create() {
+	local title="$1" at="$2" body="$3"
+	cat > "$dir/create/create.odin" <<ODIN
+package create
+
+Foo :: struct {
+	a: int,
+}
+
+Kind :: enum {A, B}
+
+take :: proc(v: []f32) {}
+
+main :: proc() {
+	k: Kind
+	f: Foo
+	i: Item
+	_, _, _ = k, f, i
+	$body
+}
+ODIN
+	expect "create-$title" "\.odin" "$OLS" query actions "$dir/create/create.odin:$at" --apply "$title" --root "$dir/create"
+	odin check "$dir/create" >/dev/null
+	echo "ok create-$title check"
+	cat > "$dir/create/other.odin" <<'ODIN'
+package create
+
+Item :: struct {
+	a: int,
+}
+ODIN
+}
+apply_create "Create field foo" 16:5 'f.foo = "s"'
+apply_create "Create field foo" 16:10 'take(f.foo)'
+apply_create "Create field foo" 16:5 'i.foo = 1.5'
+apply_create "Create enum member Foo" 16:8 'k = .Foo'
+apply_create "Create enum member Foo" 16:12 '_ = k == .Foo'
+apply_create "Create local variable x" 16:2 'x = "s"'
+apply_create "Create local variable x" 16:7 'take(x)'
+apply_create "Create global variable x" 16:7 'take(x)'
+apply_create "Create global variable x" 16:2 'x = 2'
+apply_create "Create constant x" 16:2 'x = 1 + 2'
+apply_create "Create struct Bar" 16:7 '_ = Bar{a = 1, b = "t", c = f}'
+# A struct and an enum outside the workspace, here of the core collection, take no new member.
+cat > "$dir/create/create.odin" <<'ODIN'
+package create
+
+import "core:strings"
+import "core:mem"
+
+main :: proc() {
+	b: strings.Builder
+	b.foo = 1
+	m: mem.Allocator_Mode
+	m = .Foo
+}
+ODIN
+out="$("$OLS" query actions "$dir/create/create.odin:8:5" --root "$dir/create")"
+[[ "$out" != *"Create field"* ]] || { echo "FAIL create-field-outside-workspace: $out"; exit 1; }
+out="$("$OLS" query actions "$dir/create/create.odin:10:8" --root "$dir/create")"
+[[ "$out" != *"Create enum member"* ]] || { echo "FAIL create-enum-outside-workspace: $out"; exit 1; }
+echo "ok create-outside-workspace"
+rm -rf "$dir/create"
+# The generate actions on a struct and on enums, each on a fresh copy, through the compile gate and odin check.
+mkdir "$dir/generate"
+echo '{}' > "$dir/generate/ols.json"
+apply_generate() {
+	local title="$1" at="$2"
+	cat > "$dir/generate/generate.odin" <<'ODIN'
+package generate
+
+Item :: struct {
+	a: int,
+}
+
+Foo :: struct {
+	items:  [dynamic]Item,
+	lookup: map[string]int,
+	tags:   []string,
+	name:   string,
+	next:   ^Foo,
+}
+
+Flag :: enum {
+	A,
+	B,
+	C = B,
+}
+
+Code :: enum u8 {
+	Ok = 1,
+	Not_Found = 4,
+}
+
+main :: proc() {}
+ODIN
+	expect "generate-$title" "\.odin" "$OLS" query actions "$dir/generate/generate.odin:$at" --apply "$title" --root "$dir/generate"
+	odin check "$dir/generate" >/dev/null
+	echo "ok generate-$title check"
+}
+apply_generate "Generate destroy_foo" 7:1
+apply_generate "Generate init_foo" 7:1
+apply_generate "Generate bit_set" 15:1
+apply_generate "Generate name table" 15:1
+apply_generate "Generate bit_set" 21:1
+apply_generate "Generate name table" 21:1
+grep -q "^CODE_NAMES := #sparse\[Code\]string {" "$dir/generate/generate.odin"
+echo "ok generate-sparse-table"
+rm -rf "$dir/generate"
+# The signature actions, each on a fresh copy of a two-package project, through the compile gate and odin check.
+mkdir "$dir/signature"
+echo '{}' > "$dir/signature/ols.json"
+apply_signature() {
+	local title="$1" at="$2"
+	rm -rf "$dir/signature/geo"
+	mkdir "$dir/signature/geo"
+	cat > "$dir/signature/main.odin" <<'ODIN'
+package signature
+
+import "geo"
+
+grow :: proc(n: int) -> []int {
+	xs := make([]int, n)
+	d: [dynamic]int
+	append(&d, 1)
+	delete(d)
+	return xs
+}
+
+build :: proc(n: int, allocator := context.allocator) -> []int {
+	return grow(n)
+}
+
+area :: proc(p: geo.Point, scale: f32) -> f32 {
+	return p.x * p.y * scale
+}
+
+draw_int :: proc(v: int) {}
+draw_str :: proc(s: string) {}
+
+main :: proc() {
+	pt := geo.Point{1, 2}
+	_ = area(pt, 2)
+	_ = geo.shift(&pt, 1)
+	_ = geo.mix(1, 2, 3)
+	delete(build(3))
+	draw_int(1)
+	draw_str("a")
+}
+ODIN
+	cat > "$dir/signature/geo/geo.odin" <<'ODIN'
+package geo
+
+Point :: struct {
+	x, y: f32,
+}
+
+shift :: proc(p: ^Point, d: f32) -> f32 {
+	return p^.x + p.y + d
+}
+
+mix :: proc(a: int, b: int, c: int) -> int {
+	return a + b * c
+}
+
+helper :: proc() -> int {
+	return mix(4, 5, 6)
+}
+
+scale :: proc{scale_int}
+
+scale_int :: proc(v: int) {}
+scale_f32 :: proc(f: f32) {}
+ODIN
+	expect "signature-$title" "\.odin" "$OLS" query actions "$at" --apply "$title" --root "$dir/signature"
+	odin check "$dir/signature" >/dev/null
+	echo "ok signature-$title check"
+}
+apply_signature "Add allocator parameter" "$dir/signature/main.odin:5:1"
+grep -q "xs := make(\[\]int, n, allocator = allocator)" "$dir/signature/main.odin"
+grep -q "append(&d, 1)$" "$dir/signature/main.odin"
+grep -q "return grow(n, allocator = allocator)" "$dir/signature/main.odin"
+echo "ok signature-allocator-threaded"
+apply_signature "Add caller location" "$dir/signature/main.odin:5:1"
+apply_signature "Pass by pointer" "$dir/signature/main.odin:17:14"
+apply_signature "Pass by value" "$dir/signature/geo/geo.odin:7:15"
+apply_signature "Introduce parameter object" "$dir/signature/geo/geo.odin:11:13-11:22"
+grep -q "geo.mix(geo.Mix_Params{a = 1, b = 2}, 3)" "$dir/signature/main.odin"
+echo "ok signature-object-qualified"
+apply_signature "Make group draw" "$dir/signature/main.odin:21:1"
+apply_signature "Add to group scale" "$dir/signature/geo/geo.odin:22:1"
+grep -q "^scale :: proc{scale_int, scale_f32}" "$dir/signature/geo/geo.odin"
+echo "ok signature-group-added"
+rm -rf "$dir/signature"
+# The type, field order and procedure tag actions, each on a fresh copy, through the compile gate and odin check.
+mkdir "$dir/layout"
+echo '{}' > "$dir/layout/ols.json"
+apply_layout() {
+	local title="$1" at="$2"
+	rm -rf "$dir/layout/geo"
+	mkdir "$dir/layout/geo"
+	cat > "$dir/layout/main.odin" <<'ODIN'
+package layout
+
+import "core:fmt"
+import "geo"
+
+Count :: int
+
+Foo :: struct {
+	a: u8, // first
+	b: i64,
+	c: u8,
+}
+
+Config :: struct {
+	opts: struct {
+		x: int,
+		y: bool,
+	},
+	cb:   proc(a: int) -> int,
+}
+
+helper :: proc "contextless" (x: int) -> int {
+	return x + len("ab")
+}
+
+calc :: proc(x: Count) -> Count {
+	return Count(helper(x))
+}
+
+main :: proc() {
+	f: Foo
+	f.a = 1
+	c: Config
+	p: geo.Pt = geo.origin()
+	fmt.println(size_of(Foo), calc(2), c.opts.x, f.a, p.x)
+}
+ODIN
+	cat > "$dir/layout/geo/geo.odin" <<'ODIN'
+package geo
+
+Point :: struct {
+	x, y: f32,
+}
+
+Pt :: Point
+
+origin :: proc() -> Pt {
+	return Pt{}
+}
+ODIN
+	expect "layout-$title" "\.odin" "$OLS" query actions "$at" --apply "$title" --root "$dir/layout"
+	odin check "$dir/layout" >/dev/null
+	echo "ok layout-$title check"
+}
+apply_layout "Inline type alias" "$dir/layout/main.odin:6:1"
+apply_layout "Inline type alias" "$dir/layout/geo/geo.odin:7:1"
+grep -q "p: geo.Point = geo.origin()" "$dir/layout/main.odin"
+echo "ok layout-alias-qualified"
+apply_layout "Reorder fields to reduce padding (24 to 16 bytes)" "$dir/layout/main.odin:8:1"
+[ "$(odin run "$dir/layout" | cut -d' ' -f1)" = 16 ]
+echo "ok layout-reorder-size"
+apply_layout "Extract type" "$dir/layout/main.odin:15:10"
+apply_layout "Extract type" "$dir/layout/main.odin:19:10"
+apply_layout "Remove \"contextless\"" "$dir/layout/main.odin:22:1"
+apply_layout "Add \"contextless\"" "$dir/layout/main.odin:26:1"
+apply_layout "Add #force_inline" "$dir/layout/main.odin:26:1"
+apply_layout "Add #force_no_inline" "$dir/layout/main.odin:26:1"
+rm -rf "$dir/layout"
 expect generate-test "util_test.odin" "$OLS" query actions "$dir/util.odin:3:1" --apply "Generate test for add"
 grep -q "^test_add :: proc(t: ^testing.T)" "$dir/util_test.odin" && grep -q 'import "core:testing"' "$dir/util_test.odin"
 odin check "$dir" -no-entry-point

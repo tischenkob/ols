@@ -18,7 +18,16 @@ add_remove_param_action :: proc(ctx: ^ActionContext) {
 	params := param_names(function)
 	index := -1
 	for param, i in params {
-		if param.name != nil && param.name.pos.offset <= ctx.range.start && ctx.range.start <= param.name.end.offset {
+		if param.name == nil {
+			continue
+		}
+		if node_holds(param.name, ctx.range.start) {
+			index = i
+		}
+		// In `a, b: int` the type belongs to both names and selects neither.
+		field := param.field
+		if len(field.names) == 1 &&
+		   (node_holds(field.type, ctx.range.start) || node_holds(field.default_value, ctx.range.start)) {
 			index = i
 		}
 	}
@@ -76,6 +85,10 @@ add_remove_param_action :: proc(ctx: ^ActionContext) {
 			edit = workspace_edit(changes),
 		},
 	)
+}
+
+node_holds :: proc(node: ^ast.Node, offset: int) -> bool {
+	return node != nil && node.pos.offset <= offset && offset <= node.end.offset
 }
 
 // Removes the parameter at index from the parameter list of lit in document.

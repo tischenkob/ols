@@ -48,6 +48,41 @@ trim_range :: proc(src: string, start, end: int) -> (int, int) {
 	return start, end
 }
 
+// trim_range, and also a trailing `,` or `;` that a selection swept up.
+trim_selection :: proc(src: string, start, end: int) -> (int, int) {
+	start, end := trim_range(src, start, end)
+	if end > start && (src[end - 1] == ',' || src[end - 1] == ';') {
+		return trim_range(src, start, end - 1)
+	}
+	return start, end
+}
+
+// A same-line range of one code point is a cursor, as some clients send one for a plain cursor. A cursor in the
+// indentation of a line that holds code moves to the first token of that line.
+normalize_cursor_range :: proc(text: []u8, range: common.Range) -> common.Range {
+	absolute, ok := common.get_absolute_range(range, text)
+	if !ok || range.start.line != range.end.line || utf8.rune_count(text[absolute.start:absolute.end]) > 1 {
+		return range
+	}
+	for i := absolute.start - 1; i >= 0 && text[i] != '\n'; i -= 1 {
+		if text[i] != ' ' && text[i] != '\t' {
+			return {range.start, range.start}
+		}
+	}
+	first := absolute.start
+	for first < len(text) && (text[first] == ' ' || text[first] == '\t') {
+		first += 1
+	}
+	if first == len(text) || text[first] == '\n' || text[first] == '\r' {
+		return {range.start, range.start}
+	}
+	cursor := common.Position {
+		line      = range.start.line,
+		character = range.start.character + first - absolute.start,
+	}
+	return {cursor, cursor}
+}
+
 StmtListAt :: struct {
 	stmts:       []^ast.Stmt,
 	first, last: int,
@@ -107,6 +142,25 @@ find_stmt_list_at :: proc(root: ^ast.Node, start, end: int) -> (StmtListAt, bool
 
 	ast.walk(&visitor, root)
 	return data.result, data.found
+}
+
+// The statement around the range in the innermost statement list of the procedure at the cursor: the list and
+// the statement's index in it. Fails when the range is outside one statement.
+stmt_at_range :: proc(ctx: ^ActionContext) -> (stmts: []^ast.Stmt, index: int, ok: bool) {
+	function := ctx.position_context.function
+	if function == nil || function.body == nil {
+		return
+	}
+	start, end := trim_selection(ctx.document.ast.src, ctx.range.start, ctx.range.end)
+	list, found := find_stmt_list_at(function.body, start, end)
+	if !found || list.first != list.last {
+		return
+	}
+	stmt := list.stmts[list.first]
+	if stmt.pos.offset > start || end > stmt.end.offset {
+		return
+	}
+	return list.stmts, list.first, true
 }
 
 IdentUse :: struct {
@@ -170,6 +224,25 @@ before_on_line :: proc(src: string, offset: int) -> (start, end: int) {
 	start = strings.last_index_byte(src[:offset], '\n') + 1
 	end = start + len(strings.trim_right_space(src[start:offset]))
 	return
+}
+
+// Whether a label, a directive or an attribute on a line above a statement starting at offset belongs to it. Blank and
+// comment lines do not count. A `#assert` above counts as well, which only withholds an action.
+marked_by_line_above :: proc(src: string, offset: int) -> bool {
+	line_start, _ := before_on_line(src, offset)
+	for line_start > 0 {
+		previous := strings.last_index_byte(src[:line_start - 1], '\n') + 1
+		line := strings.trim_space(src[previous:line_start - 1])
+		line_start = previous
+		if line == "" || strings.has_prefix(line, "//") {
+			continue
+		}
+		if line[0] == '@' || line[0] == '#' {
+			return true
+		}
+		return strings.has_suffix(line, ":") && line != "case:" && !strings.contains_any(line, " \t")
+	}
+	return false
 }
 
 // Whether a `#+feature` tag of the file names feature.
@@ -310,6 +383,32 @@ get_line_indentation :: proc(src: string, offset: int) -> string {
 	}
 
 	return src[line_start:indent_end]
+}
+
+// Gathers the locals up to offset, as they are otherwise gathered up to the cursor only. The later actions share them,
+// so the caller restores the cursor gathering with restore_locals.
+gather_locals_at :: proc(ctx: ^ActionContext, offset: int) {
+	pc := ctx.position_context^
+	pc.position = offset
+	pc.nested_position = offset
+	clear_locals(ctx.ast_context)
+	get_locals(ctx.ast_context, &pc)
+}
+
+// gather_locals_at for an offset in function, which need not hold the cursor.
+gather_locals_in :: proc(ctx: ^ActionContext, function: ^ast.Proc_Lit, offset: int) {
+	pc := ctx.position_context^
+	pc.function = function
+	pc.position = offset
+	pc.nested_position = offset
+	reset_ast_context(ctx.ast_context)
+	clear_locals(ctx.ast_context)
+	get_locals(ctx.ast_context, &pc)
+}
+
+restore_locals :: proc(ctx: ^ActionContext) {
+	clear_locals(ctx.ast_context)
+	get_locals(ctx.ast_context, ctx.position_context)
 }
 
 // Type of a local as Odin source, resolved with locals gathered up to the current position.
@@ -466,6 +565,25 @@ nodes_at :: proc(roots: []^ast.Stmt, pos: int) -> []Node_At {
 		ast.walk(&visitor, root)
 	}
 	return data.found[:]
+}
+
+// The smallest node containing [start, end].
+smallest_node_at :: proc(roots: []^ast.Stmt, start, end: int) -> (Node_At, bool) {
+	#reverse for at in nodes_at(roots, start) {
+		if end <= at.node.end.offset {
+			return at, true
+		}
+	}
+	return {}, false
+}
+
+// Whether the selection covers exactly the smallest node containing it. An empty range never does.
+selects_exact_node :: proc(stmt: ^ast.Stmt, start, end: int) -> bool {
+	if start == end {
+		return false
+	}
+	at, ok := smallest_node_at({stmt}, start, end)
+	return ok && at.node.pos.offset == start && at.node.end.offset == end
 }
 
 // Whitespace inside string and rune literals is part of the value and stays.
@@ -1032,7 +1150,6 @@ write_requalified_fields :: proc(
 	return true
 }
 
-@(private = "file")
 document_imports_alias :: proc(document: ^Document, alias: string) -> bool {
 	for imp in document.imports {
 		if imp.base == alias {

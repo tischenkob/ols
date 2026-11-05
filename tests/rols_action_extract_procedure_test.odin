@@ -316,8 +316,9 @@ main :: proc() {
 	test.expect_action_missing(t, &source, EXTRACT_PROCEDURE_ACTION)
 }
 
+// A partial selection means the whole statement it touches.
 @(test)
-action_extract_procedure_refused_partial_statement :: proc(t: ^testing.T) {
+action_extract_procedure_partial_statement :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test
 
@@ -333,7 +334,25 @@ main :: proc() {
 		config = {enable_code_action_extract_procedure = true},
 	}
 
-	test.expect_action_missing(t, &source, EXTRACT_PROCEDURE_ACTION)
+	test.expect_action_applied(
+		t,
+		&source,
+		EXTRACT_PROCEDURE_ACTION,
+		`package test
+
+foo :: proc(a: int, b: int) {
+}
+
+main :: proc() {
+	a, b := 1, 2
+	extracted(a, b)
+}
+
+extracted :: proc(a: int, b: int) {
+	foo(a, b)
+}
+`,
+	)
 }
 
 @(test)

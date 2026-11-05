@@ -301,6 +301,7 @@ target_decl :: proc(
 
 // Whether a use can state the declared type. An `any` stores the address of its value, `typeid(int)`
 // does not compile, and each spelling of an inline or distinct type is a new type.
+@(private = "package")
 can_restate_type :: proc(type: ^ast.Expr) -> bool {
 	if type == nil {
 		return true
@@ -425,6 +426,7 @@ has_side_effect :: proc(value: ^ast.Expr) -> bool {
 // Uses of locals mapped to true when the address of the local is never taken, aliased, passed to
 // a `->` call or passed as an `any` or `#by_ptr` argument, so no call can change it. Uses of a
 // `@(static)` local map to false: a recursive call writes the same variable, so it counts as a global.
+@(private = "package")
 stable_locals :: proc(
 	ctx: ^ActionContext,
 	symbols: SymbolAndNodeMap,
@@ -545,6 +547,7 @@ evaluated_in_place :: proc(
 	return inside_next && !reads_state(typed, stable, next, use.ident.pos.offset, false)
 }
 
+@(private = "package")
 Builtin_Call :: enum {
 	Other,
 	Pure, // reads only its arguments
@@ -553,6 +556,7 @@ Builtin_Call :: enum {
 
 // How a call of a runtime builtin reads state. len or cap of a pointer or a cstring reads through it,
 // so it counts as .Other.
+@(private = "package")
 builtin_call :: proc(typed: SymbolAndNodeMap, call: ^ast.Call_Expr) -> Builtin_Call {
 	callee, is_ident := call.expr.derived.(^ast.Ident)
 	if !is_ident {
@@ -685,6 +689,7 @@ reads_state :: proc(
 }
 
 // Parameters count: one can be a pointer, and reads through it see writes made elsewhere.
+@(private = "package")
 is_variable :: proc(typed: SymbolAndNodeMap, node: ^ast.Node) -> bool {
 	resolved, ok := typed[uintptr(node)]
 	return ok && (.Mutable in resolved.symbol.flags || .Parameter in resolved.symbol.flags)
@@ -704,6 +709,7 @@ is_plain_target :: proc(use: IdentUse) -> bool {
 }
 
 // `x[:]` or `for &e in x` lets writes change x without naming it.
+@(private = "package")
 aliases :: proc(use: IdentUse) -> bool {
 	target: rawptr = use.ident
 	#reverse for parent in use.parents {
@@ -773,6 +779,7 @@ passes_address :: proc(typed: SymbolAndNodeMap, use: IdentUse) -> bool {
 }
 
 // `any` or `..any`.
+@(private = "package")
 names_any :: proc(type: ^ast.Expr) -> bool {
 	if type == nil {
 		return false
@@ -784,6 +791,7 @@ names_any :: proc(type: ^ast.Expr) -> bool {
 	return is_ident && ident.name == "any"
 }
 
+@(private = "package")
 is_address_of :: proc(expr: ^ast.Expr) -> bool {
 	if expr == nil {
 		return false

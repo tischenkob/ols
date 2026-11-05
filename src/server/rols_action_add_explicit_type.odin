@@ -17,7 +17,12 @@ add_explicit_type_action :: proc(ctx: ^ActionContext) {
 	}
 	name, is_ident := decl.names[0].derived.(^ast.Ident)
 	value := decl.values[0]
-	if !is_ident || name.name == "_" || ctx.range.start < decl.pos.offset || value.pos.offset < ctx.range.end {
+	if !is_ident || name.name == "_" || ctx.range.start < decl.pos.offset || value.end.offset < ctx.range.end {
+		return
+	}
+	// A cursor inside a procedure literal in the value is about that procedure's statements.
+	function := ctx.position_context.function
+	if function != nil && value.pos.offset <= function.pos.offset && function.end.offset <= value.end.offset {
 		return
 	}
 

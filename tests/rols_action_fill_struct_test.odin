@@ -2,6 +2,7 @@
 
 package tests
 
+import "core:strings"
 import "core:testing"
 
 import test "src:testing"
@@ -454,4 +455,82 @@ main :: proc() {
 }
 `,
 	)
+}
+
+FILL_KEYS_ACTION :: "Fill missing keys"
+
+FILL_KEYS_PRELUDE :: "package test\n\nKind :: enum {\n\tA,\n\tB,\n}\n\nAl :: enum {\n\tA,\n\tB,\n\tC = A,\n}\n\nArr :: [Kind]string\n\nmain :: proc() {\n\t"
+
+expect_fill_keys :: proc(t: ^testing.T, body, expected: string) {
+	source := test.Source {
+		main = strings.concatenate({FILL_KEYS_PRELUDE, body, "\n}\n"}, context.temp_allocator),
+		config = {enable_code_action_fill_struct = true},
+	}
+	test.expect_action_applied(
+		t,
+		&source,
+		FILL_KEYS_ACTION,
+		strings.concatenate({FILL_KEYS_PRELUDE, expected, "\n}\n"}, context.temp_allocator),
+	)
+}
+
+expect_no_fill_keys :: proc(t: ^testing.T, body: string, enabled := true) {
+	source := test.Source {
+		main = strings.concatenate({FILL_KEYS_PRELUDE, body, "\n}\n"}, context.temp_allocator),
+		config = {enable_code_action_fill_struct = enabled},
+	}
+	test.expect_action_missing(t, &source, FILL_KEYS_ACTION)
+}
+
+@(test)
+fill_keys_of_an_empty_literal :: proc(t: ^testing.T) {
+	expect_fill_keys(t, "x := [Kind]int{{*}}\n\t_ = x", "x := [Kind]int{\n\t\t.A = 0,\n\t\t.B = 0,\n\t}\n\t_ = x")
+}
+
+@(test)
+fill_keys_keeps_what_is_written :: proc(t: ^testing.T) {
+	expect_fill_keys(
+		t,
+		"x := [Kind]int{.A = {*}1}\n\t_ = x",
+		"x := [Kind]int{\n\t\t.A = 1,\n\t\t.B = 0,\n\t}\n\t_ = x",
+	)
+	expect_fill_keys(
+		t,
+		"x := [Kind]int{Kind.B = {*}1}\n\t_ = x",
+		"x := [Kind]int{\n\t\tKind.B = 1,\n\t\t.A = 0,\n\t}\n\t_ = x",
+	)
+	expect_fill_keys(
+		t,
+		"x := [Kind]int{\n\t\t.A = {*}1,\n\t}\n\t_ = x",
+		"x := [Kind]int{\n\t\t.A = 1,\n\t\t.B = 0,\n\t}\n\t_ = x",
+	)
+}
+
+@(test)
+fill_keys_takes_the_zero_of_the_element :: proc(t: ^testing.T) {
+	expect_fill_keys(t, "x := Arr{{*}}\n\t_ = x", "x := Arr{\n\t\t.A = \"\",\n\t\t.B = \"\",\n\t}\n\t_ = x")
+	expect_fill_keys(
+		t,
+		"x := [Kind]^int{{*}}\n\t_ = x",
+		"x := [Kind]^int{\n\t\t.A = nil,\n\t\t.B = nil,\n\t}\n\t_ = x",
+	)
+}
+
+@(test)
+fill_keys_writes_one_line_per_value :: proc(t: ^testing.T) {
+	expect_fill_keys(t, "x := [Al]int{{*}}\n\t_ = x", "x := [Al]int{\n\t\t.A = 0,\n\t\t.B = 0,\n\t}\n\t_ = x")
+	expect_fill_keys(t, "x := [Al]int{.C = {*}1}\n\t_ = x", "x := [Al]int{\n\t\t.C = 1,\n\t\t.B = 0,\n\t}\n\t_ = x")
+}
+
+@(test)
+fill_keys_refuses :: proc(t: ^testing.T) {
+	// A positional literal, a range key, and nothing left to fill.
+	expect_no_fill_keys(t, "x := [Kind]int{{*}1, 2}\n\t_ = x")
+	expect_no_fill_keys(t, "x := [Kind]int{.A ..= .B = {*}1}\n\t_ = x")
+	expect_no_fill_keys(t, "x := [Kind]int{.A = {*}1, .B = 2}\n\t_ = x")
+	// A key that is no member.
+	expect_no_fill_keys(t, "x := [Kind]int{.Z = {*}1}\n\t_ = x")
+	// A fixed array has no keys.
+	expect_no_fill_keys(t, "x := [2]int{{*}}\n\t_ = x")
+	expect_no_fill_keys(t, "x := [Kind]int{{*}}\n\t_ = x", enabled = false)
 }

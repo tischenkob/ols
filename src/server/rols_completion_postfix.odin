@@ -122,6 +122,7 @@ log_levels := [][2]string {
 }
 // odinfmt: enable
 
+@(private = "package")
 Postfix_Context :: struct {
 	ast_context:      ^AstContext,
 	position_context: ^DocumentPositionContext,
@@ -541,6 +542,7 @@ is_nil_comparable :: proc(symbol: Symbol, enums := false) -> bool {
 
 // How the compiler addresses `expr`. A map index can have its address taken as a whole, `&m[k]`, but a field
 // or element of it is a value, as is any part of a value. Slicing a fixed array needs a variable.
+@(private = "package")
 Addressing :: enum {
 	None,
 	Map_Index,
@@ -549,6 +551,7 @@ Addressing :: enum {
 
 // Parameters, range and type-switch values, constants, call results, string bytes, `context` and fields of a
 // bit_field are not addressable.
+@(private = "package")
 addressing :: proc(pc: ^Postfix_Context, expr: ^ast.Expr) -> Addressing {
 	ast_context := pc.ast_context
 	#partial switch e in expr.derived {

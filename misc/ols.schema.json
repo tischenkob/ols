@@ -295,6 +295,131 @@
 			"description": "Enables the code action lifting a selector path into a using statement and removing the path from its uses in the block.",
 			"default": true
 		},
+		"enable_code_action_attr": {
+			"type": "boolean",
+			"description": "Enables the code actions adding and removing the require_results, private and test attributes of the top-level declaration at the cursor.",
+			"default": true
+		},
+		"enable_code_action_swap_param": {
+			"type": "boolean",
+			"description": "Enables the code actions moving the parameter at the cursor one place left or right, across the procedure and its calls.",
+			"default": true
+		},
+		"enable_code_action_add_allocator": {
+			"type": "boolean",
+			"description": "Enables the code actions adding an allocator or a caller location parameter to a procedure and passing it to the calls in its body.",
+			"default": true
+		},
+		"enable_code_action_param_pointer": {
+			"type": "boolean",
+			"description": "Enables the code actions passing a parameter by pointer or by value, across the procedure and its calls.",
+			"default": true
+		},
+		"enable_code_action_param_object": {
+			"type": "boolean",
+			"description": "Enables the code action replacing adjacent parameters with a struct parameter, across the procedure and its calls.",
+			"default": true
+		},
+		"enable_code_action_proc_group": {
+			"type": "boolean",
+			"description": "Enables the code actions making a procedure group from procedures that share a name prefix, and adding a procedure to a group.",
+			"default": true
+		},
+		"enable_code_action_extract_type": {
+			"type": "boolean",
+			"description": "Enables the code actions naming an inline type as a top-level type, and inlining a type alias across the workspace.",
+			"default": true
+		},
+		"enable_code_action_reorder_fields": {
+			"type": "boolean",
+			"description": "Enables the code action reordering the fields of a struct by descending alignment when that reduces its size.",
+			"default": true
+		},
+		"enable_code_action_proc_tags": {
+			"type": "boolean",
+			"description": "Enables the code actions adding and removing #force_inline, #force_no_inline and \"contextless\" on a procedure.",
+			"default": true
+		},
+		"enable_code_action_init_move": {
+			"type": "boolean",
+			"description": "Enables the code actions moving a declaration into the init of the if, switch or for after it, and moving an init out above its statement.",
+			"default": true
+		},
+		"enable_code_action_split_decl": {
+			"type": "boolean",
+			"description": "Enables the code actions splitting a local declaration from its assignment, joining them, and splitting a multi-name declaration.",
+			"default": true
+		},
+		"enable_code_action_const_var": {
+			"type": "boolean",
+			"description": "Enables the code actions converting a local variable to a constant and back, where every use keeps its meaning.",
+			"default": true
+		},
+		"enable_code_action_range_loop": {
+			"type": "boolean",
+			"description": "Enables the code actions editing a range loop header: add an index, iterate by reference or by value, toggle #reverse, and convert between ..< and ..= with an integer literal end.",
+			"default": true
+		},
+		"enable_code_action_surround": {
+			"type": "boolean",
+			"description": "Enables the code actions surrounding the statements at the cursor with a block, if, for, when, defer or #no_bounds_check.",
+			"default": true
+		},
+		"enable_code_action_expand_using": {
+			"type": "boolean",
+			"description": "Enables the code actions removing a using statement by qualifying each promoted name, and converting a using struct field to #subtype when nothing uses its promoted members.",
+			"default": true
+		},
+		"enable_code_action_named_form": {
+			"type": "boolean",
+			"description": "Enables the code actions converting a struct literal or a call between positional and named forms.",
+			"default": true
+		},
+		"enable_code_action_qualify": {
+			"type": "boolean",
+			"description": "Enables the code actions converting between .A and Enum.A, and adding or dropping the type of a literal where the context supplies it.",
+			"default": true
+		},
+		"enable_code_action_type_switch": {
+			"type": "boolean",
+			"description": "Enables the code actions converting between an if chain of type assertions and a type switch, adding or removing #partial, and adding a default case.",
+			"default": true
+		},
+		"enable_code_action_cast": {
+			"type": "boolean",
+			"description": "Enables the code actions converting between cast(T)x and T(x), to and from auto_cast where the place expects T, and to and from transmute between pointer types.",
+			"default": true
+		},
+		"enable_code_action_bit_set": {
+			"type": "boolean",
+			"description": "Enables the code actions converting between .A in flags and flags & {.A} != {}, and between .A not_in flags and flags & {.A} == {}.",
+			"default": true
+		},
+		"enable_code_action_evaluate": {
+			"type": "boolean",
+			"description": "Enables the code action replacing an expression of integer literals with its value.",
+			"default": true
+		},
+		"enable_code_action_create_member": {
+			"type": "boolean",
+			"description": "Enables the code actions creating a struct field from an unresolved x.foo and an enum member from an unresolved .Foo.",
+			"default": true
+		},
+		"enable_code_action_create_decl": {
+			"type": "boolean",
+			"description": "Enables the code actions creating a local variable, a global variable or a constant from an unresolved name, and a struct from an unresolved Foo{a = 1}.",
+			"default": true
+		},
+		"enable_code_action_generate_lifetime": {
+			"type": "boolean",
+			"description": "Enables the code actions generating destroy_foo and init_foo procedures on the name of a struct Foo with [dynamic] or map fields.",
+			"default": true
+		},
+		"enable_code_action_generate_enum": {
+			"type": "boolean",
+			"description": "Enables the code actions generating a bit_set type and a table of member names on the name of an enum.",
+			"default": true
+		},
 		"enable_code_action_loop_label": {
 			"type": "boolean",
 			"description": "Enables the code action adding a label to the loop at the cursor.",

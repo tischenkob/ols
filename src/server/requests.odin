@@ -503,6 +503,56 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_checker_fix.(bool) or_else config.enable_code_action_checker_fix
 	config.enable_code_action_lift_using =
 		ols_config.enable_code_action_lift_using.(bool) or_else config.enable_code_action_lift_using
+	config.enable_code_action_attr =
+		ols_config.enable_code_action_attr.(bool) or_else config.enable_code_action_attr
+	config.enable_code_action_swap_param =
+		ols_config.enable_code_action_swap_param.(bool) or_else config.enable_code_action_swap_param
+	config.enable_code_action_init_move =
+		ols_config.enable_code_action_init_move.(bool) or_else config.enable_code_action_init_move
+	config.enable_code_action_split_decl =
+		ols_config.enable_code_action_split_decl.(bool) or_else config.enable_code_action_split_decl
+	config.enable_code_action_const_var =
+		ols_config.enable_code_action_const_var.(bool) or_else config.enable_code_action_const_var
+	config.enable_code_action_range_loop =
+		ols_config.enable_code_action_range_loop.(bool) or_else config.enable_code_action_range_loop
+	config.enable_code_action_surround =
+		ols_config.enable_code_action_surround.(bool) or_else config.enable_code_action_surround
+	config.enable_code_action_expand_using =
+		ols_config.enable_code_action_expand_using.(bool) or_else config.enable_code_action_expand_using
+	config.enable_code_action_named_form =
+		ols_config.enable_code_action_named_form.(bool) or_else config.enable_code_action_named_form
+	config.enable_code_action_qualify =
+		ols_config.enable_code_action_qualify.(bool) or_else config.enable_code_action_qualify
+	config.enable_code_action_type_switch =
+		ols_config.enable_code_action_type_switch.(bool) or_else config.enable_code_action_type_switch
+	config.enable_code_action_cast =
+		ols_config.enable_code_action_cast.(bool) or_else config.enable_code_action_cast
+	config.enable_code_action_bit_set =
+		ols_config.enable_code_action_bit_set.(bool) or_else config.enable_code_action_bit_set
+	config.enable_code_action_evaluate =
+		ols_config.enable_code_action_evaluate.(bool) or_else config.enable_code_action_evaluate
+	config.enable_code_action_create_member =
+		ols_config.enable_code_action_create_member.(bool) or_else config.enable_code_action_create_member
+	config.enable_code_action_create_decl =
+		ols_config.enable_code_action_create_decl.(bool) or_else config.enable_code_action_create_decl
+	config.enable_code_action_generate_lifetime =
+		ols_config.enable_code_action_generate_lifetime.(bool) or_else config.enable_code_action_generate_lifetime
+	config.enable_code_action_generate_enum =
+		ols_config.enable_code_action_generate_enum.(bool) or_else config.enable_code_action_generate_enum
+	config.enable_code_action_add_allocator =
+		ols_config.enable_code_action_add_allocator.(bool) or_else config.enable_code_action_add_allocator
+	config.enable_code_action_param_pointer =
+		ols_config.enable_code_action_param_pointer.(bool) or_else config.enable_code_action_param_pointer
+	config.enable_code_action_param_object =
+		ols_config.enable_code_action_param_object.(bool) or_else config.enable_code_action_param_object
+	config.enable_code_action_proc_group =
+		ols_config.enable_code_action_proc_group.(bool) or_else config.enable_code_action_proc_group
+	config.enable_code_action_extract_type =
+		ols_config.enable_code_action_extract_type.(bool) or_else config.enable_code_action_extract_type
+	config.enable_code_action_reorder_fields =
+		ols_config.enable_code_action_reorder_fields.(bool) or_else config.enable_code_action_reorder_fields
+	config.enable_code_action_proc_tags =
+		ols_config.enable_code_action_proc_tags.(bool) or_else config.enable_code_action_proc_tags
 	config.enable_code_action_merge_cases =
 		ols_config.enable_code_action_merge_cases.(bool) or_else config.enable_code_action_merge_cases
 	config.enable_code_action_loop_label =
@@ -1153,6 +1203,31 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_expand = true
 	config.enable_code_action_checker_fix = true
 	config.enable_code_action_lift_using = true
+	config.enable_code_action_attr = true
+	config.enable_code_action_swap_param = true
+	config.enable_code_action_init_move = true
+	config.enable_code_action_split_decl = true
+	config.enable_code_action_const_var = true
+	config.enable_code_action_range_loop = true
+	config.enable_code_action_surround = true
+	config.enable_code_action_expand_using = true
+	config.enable_code_action_named_form = true
+	config.enable_code_action_qualify = true
+	config.enable_code_action_type_switch = true
+	config.enable_code_action_cast = true
+	config.enable_code_action_bit_set = true
+	config.enable_code_action_evaluate = true
+	config.enable_code_action_create_member = true
+	config.enable_code_action_create_decl = true
+	config.enable_code_action_generate_lifetime = true
+	config.enable_code_action_generate_enum = true
+	config.enable_code_action_add_allocator = true
+	config.enable_code_action_param_pointer = true
+	config.enable_code_action_param_object = true
+	config.enable_code_action_proc_group = true
+	config.enable_code_action_extract_type = true
+	config.enable_code_action_reorder_fields = true
+	config.enable_code_action_proc_tags = true
 	config.enable_code_action_merge_cases = true
 	config.enable_code_action_loop_label = true
 	config.enable_code_action_literal = true

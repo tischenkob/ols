@@ -69,7 +69,7 @@ redundant_partial :: proc(
 }
 
 // The switch statement starts at the `switch` token, so `#partial` is found by scanning back.
-@(private = "file")
+@(private = "package")
 partial_start :: proc(src: string, switch_offset: int) -> (int, bool) {
 	end := switch_offset
 	for end > 0 && (src[end - 1] == ' ' || src[end - 1] == '\t') do end -= 1
