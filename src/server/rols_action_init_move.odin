@@ -231,7 +231,9 @@ move_out_of_init :: proc(ctx: ^ActionContext, stmts: []^ast.Stmt, stmt: ^ast.Stm
 }
 
 movable_decl :: proc(decl: ^ast.Value_Decl) -> bool {
-	if !decl.is_mutable || decl.is_using || len(decl.attributes) > 0 {
+	// `if x: int; x == 0 {` compiles, but `x: int` above an `if` has no reverse: "Move into if init" takes the form that
+	// sets a value.
+	if !decl.is_mutable || decl.is_using || len(decl.attributes) > 0 || len(decl.values) == 0 {
 		return false
 	}
 	for name in decl.names {

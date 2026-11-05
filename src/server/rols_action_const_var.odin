@@ -128,10 +128,17 @@ keeps_meaning :: proc(checker: ^Use_Checker, parents: []^ast.Node, expr: ^ast.Ex
 	case ^ast.Unary_Expr:
 		return p.op.kind == .Not && type == "bool" && keeps_meaning(checker, rest, p, type)
 	case ^ast.Value_Decl:
-		return p.is_mutable && slice.contains(p.values, expr) && (p.type == nil || node_text(src, p.type) == type)
+		// `@(static) y := x` needs a constant.
+		return(
+			p.is_mutable &&
+			len(p.attributes) == 0 &&
+			slice.contains(p.values, expr) &&
+			(p.type == nil || node_text(src, p.type) == type) \
+		)
 	case ^ast.Assign_Stmt:
+		// `y /= x` can stop compiling as a constant, as `y / x` can.
 		index, found := slice.linear_search(p.rhs, expr)
-		return found && len(p.lhs) == len(p.rhs) && has_type(checker, p.lhs[index], type)
+		return p.op.kind == .Eq && found && len(p.lhs) == len(p.rhs) && has_type(checker, p.lhs[index], type)
 	case ^ast.If_Stmt:
 		return type == "bool" && p.cond == expr
 	case ^ast.For_Stmt:

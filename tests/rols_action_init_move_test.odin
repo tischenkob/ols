@@ -1716,3 +1716,43 @@ main :: proc() {
 `,
 	)
 }
+
+@(test)
+init_move_out_refuses_an_init_without_a_value :: proc(t: ^testing.T) {
+	expect_missing(t, "Move out of init", `package test
+
+main :: proc() {
+	if x{*}: int; x == 0 {
+		_ = x
+	}
+}
+`)
+}
+
+@(test)
+init_move_out_refuses_a_for_init_without_a_value :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Move out of init",
+		`package test
+
+main :: proc() {
+	for x{*}: int; x < 3; x += 1 {
+		_ = x
+	}
+}
+`,
+	)
+}
+
+@(test)
+init_move_out_refuses_a_switch_init_without_a_value :: proc(t: ^testing.T) {
+	expect_missing(t, "Move out of init", `package test
+
+main :: proc() {
+	switch x{*}: int; x {
+	case 0:
+	}
+}
+`)
+}

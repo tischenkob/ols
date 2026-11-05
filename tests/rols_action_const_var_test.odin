@@ -1746,3 +1746,70 @@ main :: proc() {
 `,
 	)
 }
+
+@(test)
+const_var_variable_refuses_a_static_value :: proc(t: ^testing.T) {
+	expect_missing(t, "Convert to variable", `package test
+
+main :: proc() {
+	K{*} :: 5
+	@(static) y := K
+	_ = y
+}
+`)
+}
+
+@(test)
+const_var_variable_refuses_a_thread_local_value :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Convert to variable",
+		`package test
+
+main :: proc() {
+	K{*} :: 5
+	@(thread_local) y: int = K
+	_ = y
+}
+`,
+	)
+}
+
+@(test)
+const_var_constant_refuses_a_compound_division :: proc(t: ^testing.T) {
+	expect_missing(t, "Convert to constant", `package test
+
+main :: proc() {
+	x{*} := 0
+	y := 1
+	y /= x
+	_ = y
+}
+`)
+}
+
+@(test)
+const_var_constant_refuses_a_compound_remainder :: proc(t: ^testing.T) {
+	expect_missing(t, "Convert to constant", `package test
+
+main :: proc() {
+	x{*} := 0
+	y := 1
+	y %= x
+	_ = y
+}
+`)
+}
+
+@(test)
+const_var_variable_refuses_a_compound_assignment :: proc(t: ^testing.T) {
+	expect_missing(t, "Convert to variable", `package test
+
+main :: proc() {
+	K{*} :: 2
+	y := 1
+	y /= K
+	_ = y
+}
+`)
+}

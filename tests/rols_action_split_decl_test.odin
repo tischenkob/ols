@@ -1,5 +1,6 @@
 package tests
 
+import "core:fmt"
 import "core:testing"
 
 import test "src:testing"
@@ -1734,4 +1735,633 @@ main :: proc() {
 	_ = x
 }
 `)
+}
+
+@(private = "file")
+FOREIGN_PACKAGE := []test.Package {
+	{
+		pkg = "other",
+		source = `package other
+
+Item :: struct {
+	a: int,
+}
+
+Arr :: [3]int
+
+N :: 4
+
+Holder :: struct {
+	buf:   [dynamic]byte,
+	items: []Item,
+	Arr:   [2]int,
+	sized: [N]int,
+	inner: Inner,
+}
+
+Inner :: struct {
+	bytes: []byte,
+}
+
+table: [3]int
+names: []Item
+arrv: Arr
+`,
+	},
+}
+
+// The first line of the split, for a value that main declares in the file with the package `other` imported.
+@(private = "file")
+expect_foreign_split :: proc(t: ^testing.T, before, value, type: string) {
+	src := fmt.tprintf(
+		"package test\n\nimport \"other\"\n\nmain :: proc() {{\n%s\tx{{*}} := %s\n\t_ = x\n}}\n",
+		before,
+		value,
+	)
+	expected := fmt.tprintf(
+		"package test\n\nimport \"other\"\n\nmain :: proc() {{\n%s\tx: %s\n\tx = %s\n\t_ = x\n}}\n",
+		before,
+		type,
+		value,
+	)
+	source := test.Source {
+		main = src,
+		packages = FOREIGN_PACKAGE,
+		config = {enable_code_action_split_decl = true},
+	}
+	test.expect_action_applied(t, &source, "Split declaration", expected)
+}
+
+@(private = "file")
+expect_foreign_refusal :: proc(t: ^testing.T, before, value: string) {
+	src := fmt.tprintf(
+		"package test\n\nimport \"other\"\n\nmain :: proc() {{\n%s\tx{{*}} := %s\n\t_ = x\n}}\n",
+		before,
+		value,
+	)
+	source := test.Source {
+		main = src,
+		packages = FOREIGN_PACKAGE,
+		config = {enable_code_action_split_decl = true},
+	}
+	test.expect_action_missing(t, &source, "Split declaration")
+}
+
+// A value that main reads from `box`, with Box declared as fields.
+@(private = "file")
+expect_field_split :: proc(t: ^testing.T, decls, before, value, type: string) {
+	src := fmt.tprintf("package test\n\n%s\nmain :: proc() {{\n%s\tx{{*}} := %s\n\t_ = x\n}}\n", decls, before, value)
+	expected := fmt.tprintf(
+		"package test\n\n%s\nmain :: proc() {{\n%s\tx: %s\n\tx = %s\n\t_ = x\n}}\n",
+		decls,
+		before,
+		type,
+		value,
+	)
+	expect_applied(t, "Split declaration", src, expected)
+}
+
+@(test)
+split_decl_field_named_like_a_builtin :: proc(t: ^testing.T) {
+	expect_field_split(t, "Box :: struct {\n\tmin, max: [3]f32,\n}\n", "\tbox: Box\n", "box.min", "[3]f32")
+}
+
+@(test)
+split_decl_field_named_like_a_builtin_through_a_pointer :: proc(t: ^testing.T) {
+	expect_field_split(t, "Box :: struct {\n\tmin, max: [3]f32,\n}\n", "\tbox: ^Box\n", "box.max", "[3]f32")
+}
+
+@(test)
+split_decl_copy_of_a_field_named_like_a_builtin :: proc(t: ^testing.T) {
+	expect_field_split(t, "Box :: struct {\n\tmin, max: [3]f32,\n}\n", "\tbox: Box\n\ty := box.min\n", "y", "[3]f32")
+}
+
+@(test)
+split_decl_copy_of_a_copy_of_a_field_named_like_a_builtin :: proc(t: ^testing.T) {
+	expect_field_split(
+		t,
+		"Box :: struct {\n\tmin, max: [3]f32,\n}\n",
+		"\tbox: Box\n\ty := box.min\n\tz := y\n",
+		"z",
+		"[3]f32",
+	)
+}
+
+@(test)
+split_decl_field_named_like_a_procedure :: proc(t: ^testing.T) {
+	expect_field_split(
+		t,
+		"helper :: proc() {}\n\nBox :: struct {\n\thelper: []int,\n}\n",
+		"\tbox: Box\n",
+		"box.helper",
+		"[]int",
+	)
+}
+
+@(test)
+split_decl_field_named_like_a_type :: proc(t: ^testing.T) {
+	expect_field_split(
+		t,
+		"Foo :: struct {\n\ta: int,\n}\n\nBox :: struct {\n\tFoo: []int,\n}\n",
+		"\tbox: Box\n",
+		"box.Foo",
+		"[]int",
+	)
+}
+
+@(test)
+split_decl_field_named_like_a_type_of_the_same_kind :: proc(t: ^testing.T) {
+	expect_field_split(t, "Sl :: []string\n\nBox :: struct {\n\tSl: []int,\n}\n", "\tbox: Box\n", "box.Sl", "[]int")
+}
+
+@(test)
+split_decl_field_named_like_a_type_with_the_same_text :: proc(t: ^testing.T) {
+	expect_field_split(
+		t,
+		"Sl :: distinct []int\n\nBox :: struct {\n\tSl: []int,\n}\n",
+		"\tbox: Box\n",
+		"box.Sl",
+		"[]int",
+	)
+}
+
+@(test)
+split_decl_copy_of_a_field_named_like_a_type :: proc(t: ^testing.T) {
+	expect_field_split(
+		t,
+		"Foo :: struct {\n\ta: int,\n}\n\nBox :: struct {\n\tFoo: []int,\n}\n",
+		"\tbox: Box\n\ty := box.Foo\n",
+		"y",
+		"[]int",
+	)
+}
+
+@(test)
+split_decl_field_named_like_a_builtin_type :: proc(t: ^testing.T) {
+	expect_field_split(t, "Box :: struct {\n\tint: []u8,\n}\n", "\tbox: Box\n", "box.int", "[]u8")
+}
+
+@(test)
+split_decl_pointer_field_of_an_unnamed_type :: proc(t: ^testing.T) {
+	expect_field_split(t, "Box :: struct {\n\tmin: ^[3]f32,\n}\n", "\tbox: Box\n", "box.min", "^[3]f32")
+}
+
+@(test)
+split_decl_field_of_a_named_type_keeps_the_name :: proc(t: ^testing.T) {
+	expect_field_split(t, "Arr :: [3]int\n\nBox :: struct {\n\ta: Arr,\n}\n", "\tbox: Box\n", "box.a", "Arr")
+}
+
+@(test)
+split_decl_refuses_an_inline_distinct_field :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Split declaration",
+		`package test
+
+Box :: struct {
+	d: distinct [3]int,
+}
+
+main :: proc() {
+	box: Box
+	x{*} := box.d
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_refuses_a_type_a_local_shadows :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Split declaration",
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+main :: proc() {
+	v: Foo
+	Foo := 1
+	_ = Foo
+	x{*} := v
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_refuses_an_element_type_a_local_shadows :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Split declaration",
+		`package test
+
+Item :: struct {
+	a: int,
+}
+
+Box :: struct {
+	items: []Item,
+}
+
+main :: proc() {
+	box: Box
+	Item := 1
+	_ = Item
+	x{*} := box.items
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_field_named_like_a_builtin_back :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Join declaration with inferred type",
+		`package test
+
+Box :: struct {
+	min, max: [3]f32,
+}
+
+main :: proc() {
+	box: Box
+	x{*}: [3]f32
+	x = box.min
+	_ = x
+}
+`,
+		`package test
+
+Box :: struct {
+	min, max: [3]f32,
+}
+
+main :: proc() {
+	box: Box
+	x := box.min
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_foreign_field_of_an_unnamed_type :: proc(t: ^testing.T) {
+	expect_foreign_split(t, "\th: other.Holder\n", "h.buf", "[dynamic]byte")
+}
+
+@(test)
+split_decl_copy_of_a_foreign_field_of_an_unnamed_type :: proc(t: ^testing.T) {
+	expect_foreign_split(t, "\th: other.Holder\n\ty := h.buf\n", "y", "[dynamic]byte")
+}
+
+@(test)
+split_decl_foreign_field_named_like_a_foreign_type :: proc(t: ^testing.T) {
+	expect_foreign_split(t, "\th: other.Holder\n", "h.Arr", "[2]int")
+}
+
+@(test)
+split_decl_foreign_nested_field :: proc(t: ^testing.T) {
+	expect_foreign_split(t, "\th: other.Holder\n", "h.inner.bytes", "[]byte")
+}
+
+@(test)
+split_decl_foreign_field_of_a_named_type_keeps_the_name :: proc(t: ^testing.T) {
+	expect_foreign_split(t, "\th: other.Holder\n", "h.inner", "other.Inner")
+}
+
+@(test)
+split_decl_foreign_variable_of_a_named_type_keeps_the_name :: proc(t: ^testing.T) {
+	expect_foreign_split(t, "", "other.arrv", "other.Arr")
+}
+
+@(test)
+split_decl_refuses_a_foreign_element_type :: proc(t: ^testing.T) {
+	expect_foreign_refusal(t, "\th: other.Holder\n", "h.items")
+}
+
+@(test)
+split_decl_refuses_a_foreign_element_type_with_a_local_namesake :: proc(t: ^testing.T) {
+	expect_foreign_refusal(t, "\tItem :: struct {}\n\th: other.Holder\n", "h.items")
+}
+
+@(test)
+split_decl_refuses_a_foreign_array_length_name :: proc(t: ^testing.T) {
+	expect_foreign_refusal(t, "\th: other.Holder\n", "h.sized")
+}
+
+@(test)
+split_decl_refuses_a_foreign_variable_with_a_foreign_element_type :: proc(t: ^testing.T) {
+	expect_foreign_refusal(t, "", "other.names")
+}
+
+@(test)
+split_decl_refuses_a_foreign_alias_under_a_builtin_name :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "other"
+
+main :: proc() {
+	h: other.Holder
+	x{*} := h.pair
+	_ = x
+}
+`,
+		packages = {
+			{pkg = "other", source = "package other\n\nint :: i32\n\nHolder :: struct {\n\tpair: [2]int,\n}\n"},
+		},
+		config = {enable_code_action_split_decl = true},
+	}
+	test.expect_action_missing(t, &source, "Split declaration")
+}
+
+@(test)
+split_decl_refuses_a_soa_field :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Split declaration",
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+Box :: struct {
+	items: #soa[]Foo,
+}
+
+main :: proc() {
+	box: Box
+	x{*} := box.items
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_refuses_a_builtin_type_a_local_shadows :: proc(t: ^testing.T) {
+	expect_missing(t, "Split declaration", `package test
+
+main :: proc() {
+	int := 5
+	_ = int
+	x{*} := 1
+	_ = x
+}
+`)
+}
+
+@(test)
+split_decl_refuses_a_builtin_type_a_global_shadows :: proc(t: ^testing.T) {
+	expect_missing(t, "Split declaration", `package test
+
+int :: i32
+
+main :: proc() {
+	x{*} := 1
+	_ = x
+}
+`)
+}
+
+@(test)
+split_decl_refuses_an_element_type_a_local_shadows_as_a_builtin :: proc(t: ^testing.T) {
+	expect_foreign_refusal(t, "\tbyte := 5\n\t_ = byte\n\th: other.Holder\n", "h.buf")
+}
+
+@(test)
+split_decl_keeps_a_builtin_type_a_later_local_shadows :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Split declaration",
+		`package test
+
+main :: proc() {
+	n: int
+	x{*} := n
+	_ = x
+	int := 5
+	_ = int
+}
+`,
+		`package test
+
+main :: proc() {
+	n: int
+	x: int
+	x = n
+	_ = x
+	int := 5
+	_ = int
+}
+`,
+	)
+}
+
+@(test)
+split_decl_refuses_an_element_type_a_local_of_a_struct_shadows :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Split declaration",
+		`package test
+
+Item :: struct {
+	a: int,
+}
+
+Foo :: struct {
+	a: int,
+}
+
+Box :: struct {
+	items: []Item,
+}
+
+main :: proc() {
+	box: Box
+	Item := Foo{}
+	_ = Item
+	x{*} := box.items
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_refuses_an_element_type_a_local_procedure_shadows :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Split declaration",
+		`package test
+
+Item :: struct {
+	a: int,
+}
+
+Box :: struct {
+	items: []Item,
+}
+
+main :: proc() {
+	box: Box
+	Item :: proc() {}
+	x{*} := box.items
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_refuses_a_package_a_local_type_shadows :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "other"
+
+Box :: struct {
+	items: []other.Item,
+}
+
+main :: proc() {
+	box: Box
+	other :: struct {
+		a: int,
+	}
+	x{*} := box.items
+	_ = x
+}
+`,
+		packages = FOREIGN_PACKAGE,
+		config = {enable_code_action_split_decl = true},
+	}
+	test.expect_action_missing(t, &source, "Split declaration")
+}
+
+@(test)
+split_decl_keeps_a_qualified_element_type :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+import "other"
+
+Box :: struct {
+	items: []other.Item,
+}
+
+main :: proc() {
+	box: Box
+	x{*} := box.items
+	_ = x
+}
+`,
+		packages = FOREIGN_PACKAGE,
+		config = {enable_code_action_split_decl = true},
+	}
+	test.expect_action_applied(
+		t,
+		&source,
+		"Split declaration",
+		`package test
+
+import "other"
+
+Box :: struct {
+	items: []other.Item,
+}
+
+main :: proc() {
+	box: Box
+	x: []other.Item
+	x = box.items
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_refuses_a_copy_of_a_type_under_the_type_name :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Split declaration",
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+main :: proc() {
+	Foo := Foo{}
+	x{*} := Foo
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_refuses_an_element_type_a_parameter_shadows :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Split declaration",
+		`package test
+
+Item :: struct {
+	a: int,
+}
+
+Foo :: struct {
+	a: int,
+}
+
+Box :: struct {
+	items: []Item,
+}
+
+f :: proc(box: Box, Item: Foo) {
+	x{*} := box.items
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_refuses_a_parameter_under_the_type_name :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Split declaration",
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+f :: proc(Foo: Foo) {
+	x{*} := Foo
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_copy_of_a_foreign_variable_of_an_unnamed_type :: proc(t: ^testing.T) {
+	expect_foreign_split(t, "\ty := other.table\n", "y", "[3]int")
+}
+
+@(test)
+split_decl_refuses_a_copy_of_a_foreign_variable_with_a_foreign_element_type :: proc(t: ^testing.T) {
+	expect_foreign_refusal(t, "\ty := other.names\n", "y")
 }
