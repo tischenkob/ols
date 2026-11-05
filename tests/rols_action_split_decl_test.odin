@@ -1265,3 +1265,473 @@ main :: proc() {
 `,
 	)
 }
+
+@(test)
+split_decl_inferred_named_constant :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Split declaration",
+		`package test
+
+MAX :: 5
+
+main :: proc() {
+	x{*} := MAX
+	_ = x
+}
+`,
+		`package test
+
+MAX :: 5
+
+main :: proc() {
+	x: int
+	x = MAX
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_inferred_named_constant_back :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Join declaration with inferred type",
+		`package test
+
+MAX :: 5
+
+main :: proc() {
+	x{*}: int
+	x = MAX
+	_ = x
+}
+`,
+		`package test
+
+MAX :: 5
+
+main :: proc() {
+	x := MAX
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_inferred_arithmetic_on_a_named_constant :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Split declaration",
+		`package test
+
+MAX :: 5
+
+main :: proc() {
+	x{*} := MAX + 1
+	_ = x
+}
+`,
+		`package test
+
+MAX :: 5
+
+main :: proc() {
+	x: int
+	x = MAX + 1
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_inferred_arithmetic_on_a_named_constant_back :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Join declaration with inferred type",
+		`package test
+
+MAX :: 5
+
+main :: proc() {
+	x{*}: int
+	x = MAX + 1
+	_ = x
+}
+`,
+		`package test
+
+MAX :: 5
+
+main :: proc() {
+	x := MAX + 1
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_inferred_comparison_of_a_call :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Split declaration",
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	x{*} := g() > 0
+	_ = x
+}
+`,
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	x: bool
+	x = g() > 0
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_inferred_comparison_of_a_call_back :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Join declaration with inferred type",
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	x{*}: bool
+	x = g() > 0
+	_ = x
+}
+`,
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	x := g() > 0
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_inferred_arithmetic_on_a_call :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Split declaration",
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	x{*} := g() + 1
+	_ = x
+}
+`,
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	x: int
+	x = g() + 1
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_inferred_arithmetic_on_a_call_back :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Join declaration with inferred type",
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	x{*}: int
+	x = g() + 1
+	_ = x
+}
+`,
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	x := g() + 1
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_inferred_bool :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Split declaration",
+		`package test
+
+main :: proc() {
+	x{*} := true
+	_ = x
+}
+`,
+		`package test
+
+main :: proc() {
+	x: bool
+	x = true
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_inferred_bool_back :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Join declaration with inferred type",
+		`package test
+
+main :: proc() {
+	x{*}: bool
+	x = true
+	_ = x
+}
+`,
+		`package test
+
+main :: proc() {
+	x := true
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_inferred_copy_of_an_unnamed_type :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Split declaration",
+		`package test
+
+main :: proc() {
+	arr := [3]int{1, 2, 3}
+	x{*} := arr
+	_ = x
+}
+`,
+		`package test
+
+main :: proc() {
+	arr := [3]int{1, 2, 3}
+	x: [3]int
+	x = arr
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_inferred_copy_of_an_unnamed_type_back :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Join declaration with inferred type",
+		`package test
+
+main :: proc() {
+	arr := [3]int{1, 2, 3}
+	x{*}: [3]int
+	x = arr
+	_ = x
+}
+`,
+		`package test
+
+main :: proc() {
+	arr := [3]int{1, 2, 3}
+	x := arr
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_inferred_field_of_an_unnamed_type :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Split declaration",
+		`package test
+
+Holder :: struct {
+	m: map[string]int,
+}
+
+main :: proc() {
+	h: Holder
+	x{*} := h.m
+	_ = x
+}
+`,
+		`package test
+
+Holder :: struct {
+	m: map[string]int,
+}
+
+main :: proc() {
+	h: Holder
+	x: map[string]int
+	x = h.m
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_inferred_field_of_an_unnamed_type_back :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Join declaration with inferred type",
+		`package test
+
+Holder :: struct {
+	m: map[string]int,
+}
+
+main :: proc() {
+	h: Holder
+	x{*}: map[string]int
+	x = h.m
+	_ = x
+}
+`,
+		`package test
+
+Holder :: struct {
+	m: map[string]int,
+}
+
+main :: proc() {
+	h: Holder
+	x := h.m
+	_ = x
+}
+`,
+	)
+}
+
+@(test)
+split_decl_split_refuses_a_typed_inferred_length :: proc(t: ^testing.T) {
+	expect_missing(t, "Split declaration", `package test
+
+main :: proc() {
+	x{*}: [?]int = {1, 2}
+	_ = x
+}
+`)
+}
+
+@(test)
+split_decl_split_refuses_an_inferred_length :: proc(t: ^testing.T) {
+	expect_missing(t, "Split declaration", `package test
+
+main :: proc() {
+	x{*} := [?]int{1, 2}
+	_ = x
+}
+`)
+}
+
+@(test)
+split_decl_split_refuses_a_copy_with_a_poly_parameter :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Split declaration",
+		`package test
+
+gen :: proc(v: $T) {
+	x{*} := v
+	_ = x
+}
+
+main :: proc() {
+	gen(1)
+}
+`,
+	)
+}
+
+@(test)
+split_decl_split_refuses_mixed_untyped_kinds :: proc(t: ^testing.T) {
+	expect_missing(t, "Split declaration", `package test
+
+main :: proc() {
+	x{*} := 'a' + 1
+	_ = x
+}
+`)
+}
+
+@(test)
+split_decl_split_refuses_mixed_untyped_kinds_in_parens :: proc(t: ^testing.T) {
+	expect_missing(t, "Split declaration", `package test
+
+main :: proc() {
+	x{*} := ('a' + 1) * 2
+	_ = x
+}
+`)
+}
+
+@(test)
+split_decl_join_refuses_a_blank_line_between :: proc(t: ^testing.T) {
+	expect_missing(t, "Join declaration", `package test
+
+main :: proc() {
+	x{*}: int
+
+	x = 1
+	_ = x
+}
+`)
+}

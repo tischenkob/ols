@@ -34,26 +34,19 @@ add_const_var_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 
-	type: string
-	if decl.is_mutable {
-		// A constant literal needs a type the compiler can hold as a constant, which the name alone does not tell.
-		if _, is_literal := value.derived.(^ast.Comp_Lit); is_literal {
-			return
-		}
-		gather_locals_at(ctx, decl.end.offset)
-		defer restore_locals(ctx)
-		type, ok = local_type_text(ctx, name)
-	} else {
-		type, ok = constant_default_type(ctx, value)
+	// A constant literal needs a type the compiler can hold as a constant, which the name alone does not tell.
+	if _, is_literal := value.derived.(^ast.Comp_Lit); is_literal {
+		return
 	}
+	type: string
+	type, ok = inferred_type(ctx, name, value, decl.end.offset)
 	if !ok {
 		return
 	}
 
 	checker := Use_Checker {
-		ctx         = ctx,
-		typed       = resolve_entire_file(ctx.document),
-		to_variable = !decl.is_mutable,
+		ctx   = ctx,
+		typed = resolve_entire_file(ctx.document),
 	}
 	symbols := resolve_entire_file_for_references(ctx.document, context.temp_allocator, .Identifier, "")
 	uses := 0
@@ -91,59 +84,6 @@ add_const_var_action :: proc(ctx: ^ActionContext) {
 	append_replace_range(ctx, name.end.offset, value.pos.offset, title, decl.is_mutable ? " :: " : " := ")
 }
 
-// The default type of a constant expression, when its form alone tells it: what `x := v` gives x. A name or a type
-// other than `true` and `false` fails, which also refuses types and procedures.
-@(private = "package")
-constant_default_type :: proc(ctx: ^ActionContext, value: ^ast.Expr) -> (string, bool) {
-	src := ctx.document.ast.src
-	#partial switch v in value.derived {
-	case ^ast.Basic_Lit:
-		return literal_type(v)
-	case ^ast.Ident:
-		return "bool", v.name == "true" || v.name == "false"
-	case ^ast.Paren_Expr:
-		return constant_default_type(ctx, v.expr)
-	case ^ast.Unary_Expr:
-		#partial switch v.op.kind {
-		case .Add, .Sub, .Xor, .Not:
-			return constant_default_type(ctx, v.expr)
-		}
-	case ^ast.Binary_Expr:
-		left, left_ok := constant_default_type(ctx, v.left)
-		right, right_ok := constant_default_type(ctx, v.right)
-		if !left_ok || !right_ok || left != right {
-			return "", false
-		}
-		return is_comparison(v.op.kind) ? "bool" : left, true
-	case ^ast.Call_Expr:
-		if !is_constant(ctx, value) {
-			return "", false
-		}
-		if callee, is_name := v.expr.derived.(^ast.Ident); is_name {
-			switch callee.name {
-			case "size_of", "align_of", "offset_of":
-				return "int", true
-			}
-		}
-		return node_text(src, v.expr), true
-	case ^ast.Type_Cast:
-		if is_constant(ctx, value) {
-			return node_text(src, v.type), true
-		}
-	case ^ast.Comp_Lit:
-		if v.type != nil && is_constant(ctx, value) {
-			return node_text(src, v.type), true
-		}
-	case ^ast.Selector_Expr:
-		// A constant of a package gets the package name, which matches no type, so it passes only where no type is
-		// written.
-		if is_constant(ctx, value) {
-			return node_text(src, v.expr), true
-		}
-	}
-	return "", false
-}
-
 literal_type :: proc(literal: ^ast.Basic_Lit) -> (string, bool) {
 	#partial switch literal.tok.kind {
 	case .Integer:
@@ -158,6 +98,7 @@ literal_type :: proc(literal: ^ast.Basic_Lit) -> (string, bool) {
 	return "", false
 }
 
+@(private = "package")
 is_comparison :: proc(kind: tokenizer.Token_Kind) -> bool {
 	#partial switch kind {
 	case .Cmp_Eq, .Not_Eq, .Lt, .Gt, .Lt_Eq, .Gt_Eq:
@@ -167,14 +108,14 @@ is_comparison :: proc(kind: tokenizer.Token_Kind) -> bool {
 }
 
 Use_Checker :: struct {
-	ctx:         ^ActionContext,
-	typed:       SymbolAndNodeMap,
-	to_variable: bool,
+	ctx:   ^ActionContext,
+	typed: SymbolAndNodeMap,
 }
 
 // A constant has an untyped value, a variable its one type. They read the same only in these places, where the value
-// takes that type either way and no constant is needed. Anything else refuses: `2.0 * x` changes type, `u8(x)` and
-// `10 / x` can stop compiling as a constant, and `y: f32 = x` or `[x]int` stop compiling as a variable.
+// takes that type either way and no constant is needed. Both directions take one list, so each has the other as its
+// reverse. Anything else refuses: `2.0 * x` changes type, `u8(x)`, `10 / x` and `a[x]` can stop compiling as a constant,
+// and `y: f32 = x`, `m[x]` on a `map[u8]int` or `[x]int` stop compiling as a variable.
 keeps_meaning :: proc(checker: ^Use_Checker, parents: []^ast.Node, expr: ^ast.Expr, type: string) -> bool {
 	if len(parents) == 0 {
 		return false
@@ -195,10 +136,6 @@ keeps_meaning :: proc(checker: ^Use_Checker, parents: []^ast.Node, expr: ^ast.Ex
 		return type == "bool" && p.cond == expr
 	case ^ast.For_Stmt:
 		return type == "bool" && p.cond == expr
-	case ^ast.Index_Expr:
-		return checker.to_variable && type == "int" && p.index == expr
-	case ^ast.Slice_Expr:
-		return checker.to_variable && type == "int" && (p.low == expr || p.high == expr)
 	case ^ast.Return_Stmt:
 		return result_has_type(checker, p, expr, type)
 	case ^ast.Call_Expr:
@@ -214,9 +151,6 @@ keeps_meaning :: proc(checker: ^Use_Checker, parents: []^ast.Node, expr: ^ast.Ex
 		#partial switch p.op.kind {
 		case .Cmp_And, .Cmp_Or:
 			return type == "bool" && keeps_meaning(checker, rest, p, type)
-		case .Add, .Sub, .Mul, .Quo, .Mod:
-			// Constant folding fails on what runs as a variable, and it is more exact than f64.
-			return checker.to_variable && type == "int" && keeps_meaning(checker, rest, p, type)
 		}
 	}
 	return false
@@ -276,6 +210,10 @@ param_has_type :: proc(checker: ^Use_Checker, call: ^ast.Call_Expr, expr: ^ast.E
 		if _, is_poly := name.derived.(^ast.Poly_Type); is_poly {
 			return false
 		}
+	}
+	// `name := value` has no written type to compare.
+	if field.type == nil {
+		return false
 	}
 	if names_any(field.type) {
 		return true

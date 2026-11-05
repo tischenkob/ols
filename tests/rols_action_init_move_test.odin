@@ -632,47 +632,6 @@ main :: proc() {
 }
 
 @(test)
-init_move_into_keeps_a_comment_above_the_statement :: proc(t: ^testing.T) {
-	expect_applied(
-		t,
-		"Move into if init",
-		`package test
-
-f :: proc() -> (int, bool) {
-	return 1, true
-}
-g :: proc() -> int {
-	return 1
-}
-
-main :: proc() {
-	x{*}, ok := f()
-	// note
-	if ok {
-		_ = x
-	}
-}
-`,
-		`package test
-
-f :: proc() -> (int, bool) {
-	return 1, true
-}
-g :: proc() -> int {
-	return 1
-}
-
-main :: proc() {
-	// note
-	if x, ok := f(); ok {
-		_ = x
-	}
-}
-`,
-	)
-}
-
-@(test)
 init_move_into_a_case_body :: proc(t: ^testing.T) {
 	expect_applied(
 		t,
@@ -709,55 +668,6 @@ main :: proc() {
 	switch {
 	case:
 		if x, ok := f(); ok {
-			_ = x
-		}
-	}
-}
-`,
-	)
-}
-
-@(test)
-init_move_into_ignores_a_shadow_after_the_statement :: proc(t: ^testing.T) {
-	expect_applied(
-		t,
-		"Move into if init",
-		`package test
-
-f :: proc() -> (int, bool) {
-	return 1, true
-}
-g :: proc() -> int {
-	return 1
-}
-
-main :: proc() {
-	{
-		x{*} := g()
-		if x > 0 {
-		}
-		{
-			x := 2
-			_ = x
-		}
-	}
-}
-`,
-		`package test
-
-f :: proc() -> (int, bool) {
-	return 1, true
-}
-g :: proc() -> int {
-	return 1
-}
-
-main :: proc() {
-	{
-		if x := g(); x > 0 {
-		}
-		{
-			x := 2
 			_ = x
 		}
 	}
@@ -1442,6 +1352,365 @@ main :: proc() {
 		for x < 3 {
 			break
 		}
+	}
+}
+`,
+	)
+}
+
+@(test)
+init_move_for_post_only :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Move into for init",
+		`package test
+
+main :: proc() {
+	i{*} := 0
+	for ; ; i += 1 {
+		break
+	}
+}
+`,
+		`package test
+
+main :: proc() {
+	for i := 0; ; i += 1 {
+		break
+	}
+}
+`,
+	)
+}
+
+@(test)
+init_move_for_post_only_back :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Move out of init",
+		`package test
+
+main :: proc() {
+	for i{*} := 0; ; i += 1 {
+		break
+	}
+}
+`,
+		`package test
+
+main :: proc() {
+	i := 0
+	for ; ; i += 1 {
+		break
+	}
+}
+`,
+	)
+}
+
+@(test)
+init_move_for_do_body :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Move into for init",
+		`package test
+
+main :: proc() {
+	i{*} := 0
+	for i < 3 do i += 1
+}
+`,
+		`package test
+
+main :: proc() {
+	for i := 0; i < 3; do i += 1
+}
+`,
+	)
+}
+
+@(test)
+init_move_for_do_body_back :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Move out of init",
+		`package test
+
+main :: proc() {
+	for i{*} := 0; i < 3; do i += 1
+}
+`,
+		`package test
+
+main :: proc() {
+	i := 0
+	for i < 3 do i += 1
+}
+`,
+	)
+}
+
+@(test)
+init_move_for_post_and_do_body :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Move into for init",
+		`package test
+
+main :: proc() {
+	i{*} := 0
+	for ; i < 3; i += 1 do _ = i
+}
+`,
+		`package test
+
+main :: proc() {
+	for i := 0; i < 3; i += 1 do _ = i
+}
+`,
+	)
+}
+
+@(test)
+init_move_for_post_and_do_body_back :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Move out of init",
+		`package test
+
+main :: proc() {
+	for i{*} := 0; i < 3; i += 1 do _ = i
+}
+`,
+		`package test
+
+main :: proc() {
+	i := 0
+	for ; i < 3; i += 1 do _ = i
+}
+`,
+	)
+}
+
+@(test)
+init_move_if_do_body :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Move into if init",
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	x{*} := g()
+	if x > 0 do _ = x
+}
+`,
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	if x := g(); x > 0 do _ = x
+}
+`,
+	)
+}
+
+@(test)
+init_move_if_do_body_back :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Move out of init",
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	if x{*} := g(); x > 0 do _ = x
+}
+`,
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	x := g()
+	if x > 0 do _ = x
+}
+`,
+	)
+}
+
+@(test)
+init_move_into_refuses_a_comment_line_between :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Move into if init",
+		`package test
+
+f :: proc() -> (int, bool) {
+	return 1, true
+}
+
+main :: proc() {
+	x{*}, ok := f()
+	// note
+	if ok {
+		_ = x
+	}
+}
+`,
+	)
+}
+
+@(test)
+init_move_into_refuses_a_blank_line_between :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Move into if init",
+		`package test
+
+f :: proc() -> (int, bool) {
+	return 1, true
+}
+
+main :: proc() {
+	x{*}, ok := f()
+
+	if ok {
+		_ = x
+	}
+}
+`,
+	)
+}
+
+@(test)
+init_move_into_refuses_a_shadow_after_the_statement :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Move into if init",
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	x{*} := g()
+	if x > 0 {
+	}
+	{
+		x := 2
+		_ = x
+	}
+}
+`,
+	)
+}
+
+@(test)
+init_move_into_refuses_an_outer_name_read_above :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Move into if init",
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	x := 1
+	{
+		_ = x
+		x{*} := g()
+		if x > 0 {
+		}
+	}
+}
+`,
+	)
+}
+
+@(test)
+init_move_into_refuses_a_when_body :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Move into if init",
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	when true {
+		x{*} := g()
+		if x > 0 {
+		}
+	}
+}
+`,
+	)
+}
+
+@(test)
+init_move_into_refuses_for_with_semicolon_and_no_post :: proc(t: ^testing.T) {
+	expect_missing(t, "Move into for init", `package test
+
+main :: proc() {
+	i{*} := 0
+	for ; i < 3; {
+		i += 1
+	}
+}
+`)
+}
+
+@(test)
+init_move_out_refuses_a_statement_that_does_not_use_it :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Move out of init",
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	if x{*} := g(); true {
+	}
+}
+`,
+	)
+}
+
+@(test)
+init_move_out_refuses_an_address_that_can_escape :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Move out of init",
+		`package test
+
+g :: proc() -> int {
+	return 1
+}
+
+main :: proc() {
+	if x{*} := g(); x > 0 {
+		p := &x
+		_ = p
 	}
 }
 `,

@@ -19,7 +19,7 @@ add_init_move_action :: proc(ctx: ^ActionContext) {
 	}
 	if decl, is_decl := stmts[index].derived.(^ast.Value_Decl); is_decl {
 		if index + 1 < len(stmts) {
-			move_into_init(ctx, decl, stmts[index + 1])
+			move_into_init(ctx, stmts, decl, stmts[index + 1])
 		}
 		return
 	}
@@ -48,17 +48,79 @@ header_of :: proc(stmt: ^ast.Stmt) -> (Header, bool) {
 	return {}, false
 }
 
+// What a move needs in both directions, so that each move has the other as its reverse. In the result of a move out,
+// decl stands alone before stmt, and its names must reach only stmt.
+can_move :: proc(
+	ctx: ^ActionContext,
+	stmts: []^ast.Stmt,
+	decl: ^ast.Value_Decl,
+	stmt: ^ast.Stmt,
+	header: Header,
+) -> bool {
+	if !movable_decl(decl) ||
+	   !keyword_starts_line(ctx.document.ast.src, header.at.offset) ||
+	   !fits_header(decl, header.keyword) {
+		return false
+	}
+	function := ctx.position_context.function
+	if in_when_body(function.body, header.at.offset) {
+		return false
+	}
+
+	// Beside the statement the declaration reaches the rest of the block, so its names must be free there. A bare
+	// `return` must also still see a result of the same name.
+	for other in stmts {
+		if other == stmt || other == decl {
+			continue
+		}
+		for use in collect_ident_uses(other) {
+			if !is_member_name(use) && declared_name(decl, use.ident.name) != nil {
+				return false
+			}
+		}
+	}
+	if function.type.results != nil {
+		for field in function.type.results.list {
+			for result in field.names {
+				if ident, is_ident := result.derived.(^ast.Ident); is_ident && declared_name(decl, ident.name) != nil {
+					return false
+				}
+			}
+		}
+	}
+
+	symbols := resolve_entire_file_for_references(ctx.document, context.temp_allocator, .Identifier, "")
+	used := false
+	for use in collect_ident_uses(function.body) {
+		at := use.ident.pos.offset
+		in_decl := decl.pos.offset <= at && at < decl.end.offset
+		if at < stmt.pos.offset || in_decl || is_member_name(use) {
+			continue
+		}
+		name := declared_name(decl, use.ident.name)
+		if name == nil {
+			continue
+		}
+		offset, is_local := local_decl_offset(ctx, symbols, use.ident)
+		is_declared := is_local && offset == name.pos.offset
+		if at < stmt.end.offset {
+			// A pointer or slice to the local can outlive the statement that now holds its scope.
+			if is_declared && (address_taken(use) || aliases(use)) {
+				return false
+			}
+			used ||= is_declared
+		} else if is_declared || !is_local {
+			return false
+		}
+	}
+	return used
+}
+
 // `x, ok := f()` then `if ok {` becomes `if x, ok := f(); ok {`. The value still runs once, right before the header.
-move_into_init :: proc(ctx: ^ActionContext, decl: ^ast.Value_Decl, next: ^ast.Stmt) {
+move_into_init :: proc(ctx: ^ActionContext, stmts: []^ast.Stmt, decl: ^ast.Value_Decl, next: ^ast.Stmt) {
 	src := ctx.document.ast.src
 	header, is_header := header_of(next)
-	if !is_header {
-		return
-	}
-	if header.init != nil || !movable_decl(decl) || len(decl.values) == 0 {
-		return
-	}
-	if !alone_on_line(src, decl) || !keyword_starts_line(src, header.at.offset) || !fits_header(decl, header.keyword) {
+	if !is_header || header.init != nil || len(decl.values) == 0 || !alone_on_line(src, decl) {
 		return
 	}
 	// A trailing comment has no place in the header.
@@ -66,15 +128,14 @@ move_into_init :: proc(ctx: ^ActionContext, decl: ^ast.Value_Decl, next: ^ast.St
 	if line_end < 0 || strings.trim_space(src[decl.end.offset:][:line_end]) != "" {
 		return
 	}
-
-	edits := make([dynamic]TextEdit, context.temp_allocator)
-	// The line of the declaration goes, with any blank lines up to the statement. A comment line stays.
+	// A blank or comment line between the two would have no way back.
 	from := line_start_at(src, decl.pos.offset)
 	to := decl.end.offset + line_end + 1
-	next_line := line_start_at(src, header.at.offset)
-	if strings.trim_space(src[to:next_line]) == "" {
-		to = next_line
+	if line_start_at(src, header.at.offset) != to {
+		return
 	}
+
+	edits := make([dynamic]TextEdit, context.temp_allocator)
 	append(&edits, TextEdit{range = range_of(ctx, from, to)})
 
 	text := node_text(src, decl)
@@ -82,8 +143,8 @@ move_into_init :: proc(ctx: ^ActionContext, decl: ^ast.Value_Decl, next: ^ast.St
 	rest := src[after:header.body.pos.offset]
 	semicolon := after + len(rest) - len(strings.trim_left_space(rest))
 	if header.keyword == "for" && src[semicolon] == ';' {
-		// `for ; ; {` with an init does not parse.
-		if header.cond == nil && header.post == nil {
+		// `for ; ; {` with an init does not parse, and `for ; c; {` would come back as `for c {`.
+		if header.post == nil {
 			return
 		}
 		append(&edits, TextEdit{range = range_of(ctx, after, semicolon), newText = fmt.tprintf(" %s", text)})
@@ -104,32 +165,7 @@ move_into_init :: proc(ctx: ^ActionContext, decl: ^ast.Value_Decl, next: ^ast.St
 			)
 		}
 	}
-
-	function := ctx.position_context.function
-	symbols := resolve_entire_file_for_references(ctx.document, context.temp_allocator, .Identifier, "")
-	used := false
-	for use in collect_ident_uses(function.body) {
-		at := use.ident.pos.offset
-		if at < next.pos.offset || is_member_name(use) || use.ident.name == "_" {
-			continue
-		}
-		name := declared_name(decl, use.ident.name)
-		if name == nil {
-			continue
-		}
-		offset, is_local := local_decl_offset(ctx, symbols, use.ident)
-		is_declared := is_local && offset == name.pos.offset
-		if at < next.end.offset {
-			// A pointer or slice to the local can outlive the statement that now holds its scope.
-			if is_declared && (address_taken(use) || aliases(use)) {
-				return
-			}
-			used ||= is_declared
-		} else if is_declared || !is_local {
-			return
-		}
-	}
-	if !used {
+	if !can_move(ctx, stmts, decl, next, header) {
 		return
 	}
 
@@ -149,37 +185,8 @@ move_out_of_init :: proc(ctx: ^ActionContext, stmts: []^ast.Stmt, stmt: ^ast.Stm
 		return
 	}
 	decl, is_decl := header.init.derived.(^ast.Value_Decl)
-	if !is_decl || !movable_decl(decl) || !keyword_starts_line(src, header.at.offset) {
+	if !is_decl || !can_move(ctx, stmts, decl, stmt, header) {
 		return
-	}
-	if !fits_header(decl, header.keyword) {
-		return
-	}
-	function := ctx.position_context.function
-	if in_when_body(function.body, header.at.offset) {
-		return
-	}
-
-	// The declaration now reaches the rest of the block, so its names must be free there. A bare `return` must also
-	// still see a result of the same name.
-	for other in stmts {
-		if other == stmt {
-			continue
-		}
-		for use in collect_ident_uses(other) {
-			if !is_member_name(use) && declared_name(decl, use.ident.name) != nil {
-				return
-			}
-		}
-	}
-	if function.type.results != nil {
-		for field in function.type.results.list {
-			for result in field.names {
-				if ident, is_ident := result.derived.(^ast.Ident); is_ident && declared_name(decl, ident.name) != nil {
-					return
-				}
-			}
-		}
 	}
 
 	init := decl.pos.offset
@@ -192,23 +199,31 @@ move_out_of_init :: proc(ctx: ^ActionContext, stmts: []^ast.Stmt, stmt: ^ast.Stm
 		TextEdit{range = range_of(ctx, line, line), newText = fmt.tprintf("%s%s\n", indent, node_text(src, decl))},
 	)
 
-	next_part := header.cond != nil ? header.cond.pos.offset : header.body.pos.offset
-	if strings.trim_space(src[init_end:next_part]) != ";" {
-		return
-	}
 	if header.post != nil {
+		// `for i := 0; ; i += 1 {` keeps both semicolons, whatever stands between them.
+		if !strings.has_prefix(strings.trim_left_space(src[init_end:header.body.pos.offset]), ";") {
+			return
+		}
 		append(&edits, TextEdit{range = range_of(ctx, init, init_end)})
 	} else {
+		next_part := header.cond != nil ? header.cond.pos.offset : header.body.pos.offset
+		if strings.trim_space(src[init_end:next_part]) != ";" {
+			return
+		}
 		append(&edits, TextEdit{range = range_of(ctx, init, next_part)})
 		if header.keyword == "for" {
-			// `for i < 3 {` has no semicolons at all, so the one after the condition goes too.
-			if header.cond == nil || strings.trim_space(src[header.cond.end.offset:header.body.pos.offset]) != ";" {
+			// `for i < 3 {` has no semicolons at all, so the one after the condition goes too. A `do` stays.
+			if header.cond == nil {
 				return
 			}
-			append(
-				&edits,
-				TextEdit{range = range_of(ctx, header.cond.end.offset, header.body.pos.offset), newText = " "},
-			)
+			tail := src[header.cond.end.offset:header.body.pos.offset]
+			trimmed := strings.trim_left_space(tail)
+			rest := strings.trim_space(strings.trim_prefix(trimmed, ";"))
+			if !strings.has_prefix(trimmed, ";") || rest != "" && rest != "do" {
+				return
+			}
+			semicolon := header.cond.end.offset + len(tail) - len(trimmed)
+			append(&edits, TextEdit{range = range_of(ctx, header.cond.end.offset, semicolon + 1)})
 		}
 	}
 

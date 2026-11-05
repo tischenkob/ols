@@ -519,60 +519,6 @@ main :: proc() {
 }
 
 @(test)
-const_var_variable_arithmetic_and_index :: proc(t: ^testing.T) {
-	expect_applied(
-		t,
-		"Convert to variable",
-		`package test
-
-f :: proc() -> (int, bool) {
-	return 1, true
-}
-g :: proc() -> int {
-	return 1
-}
-use :: proc(s: string) {
-}
-use_f32 :: proc(v: f32) {
-}
-use_const :: proc($N: int) {
-}
-
-main :: proc() {
-	x{*} :: 2
-	a: [4]int
-	y := a[x]
-	z := x * 2 + 1
-	_, _ = y, z
-}
-`,
-		`package test
-
-f :: proc() -> (int, bool) {
-	return 1, true
-}
-g :: proc() -> int {
-	return 1
-}
-use :: proc(s: string) {
-}
-use_f32 :: proc(v: f32) {
-}
-use_const :: proc($N: int) {
-}
-
-main :: proc() {
-	x := 2
-	a: [4]int
-	y := a[x]
-	z := x * 2 + 1
-	_, _ = y, z
-}
-`,
-	)
-}
-
-@(test)
 const_var_constant_from_a_global_constant :: proc(t: ^testing.T) {
 	expect_applied(
 		t,
@@ -1616,24 +1562,185 @@ main :: proc() {
 	)
 }
 
+
 @(test)
-const_var_variable_from_size_of :: proc(t: ^testing.T) {
+const_var_variable_from_a_global_constant :: proc(t: ^testing.T) {
 	expect_applied(
 		t,
 		"Convert to variable",
 		`package test
 
+MAX :: 5
+
 main :: proc() {
-	x{*} :: size_of(int)
-	y: int = x
+	x{*} :: MAX
+	y := x
 	_ = y
 }
 `,
 		`package test
 
+MAX :: 5
+
 main :: proc() {
-	x := size_of(int)
-	y: int = x
+	x := MAX
+	y := x
+	_ = y
+}
+`,
+	)
+}
+
+@(test)
+const_var_constant_refuses_a_parameter_with_a_default_value :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Convert to constant",
+		`package test
+
+f :: proc(n := 1) {
+}
+
+main :: proc() {
+	x{*} := 5
+	f(x)
+}
+`,
+	)
+}
+
+@(test)
+const_var_constant_refuses_mixed_untyped_kinds :: proc(t: ^testing.T) {
+	expect_missing(t, "Convert to constant", `package test
+
+main :: proc() {
+	x{*} := 'a' + 1
+	y := x
+	_ = y
+}
+`)
+}
+
+@(test)
+const_var_constant_refuses_an_index :: proc(t: ^testing.T) {
+	expect_missing(t, "Convert to constant", `package test
+
+main :: proc() {
+	x{*} := 1
+	a: [3]int
+	_ = a[x]
+}
+`)
+}
+
+@(test)
+const_var_constant_refuses_arithmetic :: proc(t: ^testing.T) {
+	expect_missing(t, "Convert to constant", `package test
+
+main :: proc() {
+	x{*} := 1
+	y := x + 1
+	_ = y
+}
+`)
+}
+
+@(test)
+const_var_variable_refuses_a_parameter_with_a_default_value :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Convert to variable",
+		`package test
+
+f :: proc(n := 1) {
+}
+
+main :: proc() {
+	x{*} :: 5
+	f(x)
+}
+`,
+	)
+}
+
+@(test)
+const_var_variable_refuses_mixed_untyped_kinds :: proc(t: ^testing.T) {
+	expect_missing(t, "Convert to variable", `package test
+
+main :: proc() {
+	x{*} :: 'a' + 1
+	y := x
+	_ = y
+}
+`)
+}
+
+@(test)
+const_var_variable_refuses_an_index :: proc(t: ^testing.T) {
+	expect_missing(t, "Convert to variable", `package test
+
+main :: proc() {
+	x{*} :: 1
+	a: [3]int
+	_ = a[x]
+}
+`)
+}
+
+@(test)
+const_var_variable_refuses_arithmetic :: proc(t: ^testing.T) {
+	expect_missing(t, "Convert to variable", `package test
+
+main :: proc() {
+	x{*} :: 1
+	y := x + 1
+	_ = y
+}
+`)
+}
+
+@(test)
+const_var_variable_refuses_a_map_index :: proc(t: ^testing.T) {
+	expect_missing(t, "Convert to variable", `package test
+
+main :: proc() {
+	K{*} :: 1
+	m: map[u8]int
+	_ = m[K]
+}
+`)
+}
+
+@(test)
+const_var_variable_refuses_arithmetic_in_a_map_index :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Convert to variable",
+		`package test
+
+main :: proc() {
+	K{*} :: 1
+	m: map[u8]int
+	_ = m[K + 1]
+}
+`,
+	)
+}
+
+@(test)
+const_var_variable_refuses_a_literal :: proc(t: ^testing.T) {
+	expect_missing(
+		t,
+		"Convert to variable",
+		`package test
+
+Foo :: struct {
+	a: int,
+}
+
+main :: proc() {
+	x{*} :: Foo{1}
+	y := x
 	_ = y
 }
 `,

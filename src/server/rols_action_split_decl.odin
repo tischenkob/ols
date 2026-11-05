@@ -77,7 +77,8 @@ split_declaration :: proc(ctx: ^ActionContext, decl: ^ast.Value_Decl) {
 	}
 	indent := get_line_indentation(src, decl.pos.offset)
 	if decl.type != nil {
-		if strings.trim_space(src[decl.type.end.offset:value.pos.offset]) != "=" {
+		if strings.trim_space(src[decl.type.end.offset:value.pos.offset]) != "=" ||
+		   !declarable_type(node_text(src, decl.type)) {
 			return
 		}
 		append_replace_range(
@@ -92,10 +93,8 @@ split_declaration :: proc(ctx: ^ActionContext, decl: ^ast.Value_Decl) {
 	if strings.trim_space(src[name.end.offset:value.pos.offset]) != ":=" {
 		return
 	}
-	gather_locals_at(ctx, decl.end.offset)
-	defer restore_locals(ctx)
-	type, ok := local_type_text(ctx, name)
-	if !ok || !names_a_value(ctx, value) {
+	type, ok := inferred_type(ctx, name, value, decl.end.offset)
+	if !ok {
 		return
 	}
 	append_replace_range(
@@ -107,11 +106,56 @@ split_declaration :: proc(ctx: ^ActionContext, decl: ^ast.Value_Decl) {
 	)
 }
 
+// `[?]T` takes its length from a literal in the same declaration, and `$T` declares T only in a signature.
+declarable_type :: proc(type: string) -> bool {
+	return !strings.contains_any(type, "?$")
+}
+
+// The type that `name := value` gives name, as a declaration at offset resolves it. "Split declaration" writes this
+// text and "Join declaration with inferred type" compares it, so a split always has the join that restores it. Convert
+// to constant and to variable compare the uses with it, so each has the other as its reverse.
+@(private = "package")
+inferred_type :: proc(ctx: ^ActionContext, name: ^ast.Ident, value: ^ast.Expr, offset: int) -> (string, bool) {
+	gather_locals_at(ctx, offset)
+	defer restore_locals(ctx)
+	if !names_a_value(ctx, value) || mixes_untyped_kinds(ctx, value) {
+		return "", false
+	}
+	names := []^ast.Expr{name}
+	values := []^ast.Expr{value}
+	get_locals_value_decl(ctx.ast_context.file, {names = names, values = values, is_mutable = true}, ctx.ast_context)
+	ctx.ast_context.use_locals = true
+	symbol, ok := resolve_type_expression(ctx.ast_context, name)
+	if !ok {
+		return "", false
+	}
+	text, printed := symbol_type_text(ctx.ast_context, symbol, name.name, require_import = true)
+	if !printed {
+		return "", false
+	}
+	// A copy of a variable or a field with an unnamed type, such as `x := arr`, carries that name, which is no type.
+	if !strings.contains_any(text, "[]^.") {
+		ctx.ast_context.use_locals = true
+		printed_name := new_type(ast.Ident, name.pos, name.end, context.temp_allocator)
+		printed_name.name = text
+		type_name, is_named := resolve_type_identifier(ctx.ast_context, printed_name^)
+		if !is_named || type_name.flags & {.Mutable, .Parameter} != {} {
+			text, printed = symbol_type_text(ctx.ast_context, symbol, text, require_import = true)
+		}
+	}
+	return text, printed && declarable_type(text)
+}
+
 // A procedure's name or a type's name as a value gives the local a type that only the value's own symbol tells, and
 // symbol_type_text then prints that name.
 names_a_value :: proc(ctx: ^ActionContext, value: ^ast.Expr) -> bool {
-	#partial switch _ in unparen(value).derived {
-	case ^ast.Ident, ^ast.Selector_Expr:
+	inner := unparen(value)
+	#partial switch v in inner.derived {
+	case ^ast.Ident:
+		if v.name == "true" || v.name == "false" {
+			return true
+		}
+	case ^ast.Selector_Expr:
 	case:
 		return true
 	}
@@ -124,6 +168,35 @@ names_a_value :: proc(ctx: ^ActionContext, value: ^ast.Expr) -> bool {
 	case .Variable, .Constant, .EnumMember, .Field:
 		_, is_proc := symbol.value.(SymbolProcedureValue)
 		return !is_proc
+	}
+	return false
+}
+
+// `'a' + 1` is a rune, and the resolver takes the kind of the right operand. An operation on two untyped kinds has no
+// type this server can trust.
+mixes_untyped_kinds :: proc(ctx: ^ActionContext, expr: ^ast.Expr) -> bool {
+	#partial switch e in expr.derived {
+	case ^ast.Paren_Expr:
+		return mixes_untyped_kinds(ctx, e.expr)
+	case ^ast.Unary_Expr:
+		return mixes_untyped_kinds(ctx, e.expr)
+	case ^ast.Binary_Expr:
+		if is_comparison(e.op.kind) {
+			return false
+		}
+		if mixes_untyped_kinds(ctx, e.left) || mixes_untyped_kinds(ctx, e.right) {
+			return true
+		}
+		ctx.ast_context.use_locals = true
+		left, left_ok := resolve_type_expression(ctx.ast_context, e.left)
+		ctx.ast_context.use_locals = true
+		right, right_ok := resolve_type_expression(ctx.ast_context, e.right)
+		if !left_ok || !right_ok {
+			return false
+		}
+		left_value, left_untyped := left.value.(SymbolUntypedValue)
+		right_value, right_untyped := right.value.(SymbolUntypedValue)
+		return left_untyped && right_untyped && left_value.type != right_value.type
 	}
 	return false
 }
@@ -143,33 +216,16 @@ join_declaration :: proc(ctx: ^ActionContext, decl: ^ast.Value_Decl, assign: ^as
 	if !is_ident || target.name != name.name || reads_name(value, name.name) {
 		return
 	}
-	// A comment between the two has no place in the result.
+	// The assignment must start on the next line. A comment or a blank line between has no place in the result.
 	if strings.trim_space(src[decl.end.offset:assign.pos.offset]) != "" ||
+	   strings.count(src[decl.end.offset:assign.pos.offset], "\n") != 1 ||
 	   strings.trim_space(src[target.end.offset:value.pos.offset]) != "=" {
 		return
 	}
 	append_replace_range(ctx, decl.type.end.offset, value.pos.offset, "Join declaration", " = ")
 
-	type := node_text(src, decl.type)
-	inferred, ok := constant_default_type(ctx, value)
-	if !ok {
-		gather_locals_at(ctx, assign.pos.offset)
-		defer restore_locals(ctx)
-		// As `x := v` resolves it, since a resolved call is the procedure and not its result.
-		results := make([dynamic]^ast.Expr, context.temp_allocator)
-		calls := make(map[int]struct{}, context.temp_allocator)
-		get_generic_assignment(ctx.ast_context.file, value, ctx.ast_context, &results, &calls, {}, true)
-		if len(results) != 1 {
-			return
-		}
-		ctx.ast_context.use_locals = true
-		symbol, resolved := resolve_type_expression(ctx.ast_context, results[0])
-		if !resolved {
-			return
-		}
-		inferred, ok = symbol_type_text(ctx.ast_context, symbol, "", require_import = true)
-	}
-	if ok && inferred == type {
+	inferred, ok := inferred_type(ctx, name, value, assign.pos.offset)
+	if ok && inferred == node_text(src, decl.type) {
 		append_replace_range(ctx, name.end.offset, value.pos.offset, "Join declaration with inferred type", " := ")
 	}
 }
