@@ -11,21 +11,27 @@ add_extract_constant_action :: proc(ctx: ^ActionContext) {
 	if !ctx.config.enable_code_action_extract_constant {
 		return
 	}
-	function := ctx.position_context.function
-	if function == nil || function.body == nil {
-		return
-	}
-
 	src := ctx.document.ast.src
-	start, end := trim_range(src, ctx.range.start, ctx.range.end)
+	start, end := trim_selection(src, ctx.range.start, ctx.range.end)
 
-	list, found := find_stmt_list_at(function.body, start, end)
-	if !found || list.first != list.last {
-		return
-	}
-	stmt := list.stmts[list.first]
-	if stmt.pos.offset > start || end > stmt.end.offset {
-		return
+	stmt: ^ast.Stmt
+	if function := ctx.position_context.function; function != nil {
+		if function.body == nil {
+			return
+		}
+		list, found := find_stmt_list_at(function.body, start, end)
+		if !found || list.first != list.last {
+			return
+		}
+		stmt = list.stmts[list.first]
+		if stmt.pos.offset > start || end > stmt.end.offset {
+			return
+		}
+	} else {
+		stmt = package_initializer_at(ctx, start, end)
+		if stmt == nil {
+			return
+		}
 	}
 	if decl, is_decl := stmt.derived.(^ast.Value_Decl); is_decl && !decl.is_mutable {
 		return
@@ -56,11 +62,29 @@ add_extract_constant_action :: proc(ctx: ^ActionContext) {
 	}
 }
 
-// The selected constant expression, or the constant expressions around the cursor, innermost first.
-// A cursor skips names and parentheses, which repeat the expression inside them.
+// The package-level `:=` declaration whose initializer holds [start, end]. It serves as the statement.
+package_initializer_at :: proc(ctx: ^ActionContext, start, end: int) -> ^ast.Stmt {
+	for root in ctx.document.ast.decls {
+		decl, is_decl := root.derived.(^ast.Value_Decl)
+		if !is_decl || !decl.is_mutable {
+			continue
+		}
+		for value in decl.values {
+			if value.pos.offset <= start && end <= value.end.offset {
+				return decl
+			}
+		}
+	}
+	return nil
+}
+
+// The selected constant expression, the smallest one around an inexact selection, or the constant
+// expressions around the cursor, innermost first. A cursor or an inexact selection skips names and
+// parentheses, which repeat the expression inside them.
 @(private = "package")
 constants_at :: proc(ctx: ^ActionContext, stmt: ^ast.Stmt, start, end: int) -> []Node_At {
 	found := make([dynamic]Node_At, context.temp_allocator)
+	exact := selects_exact_node(stmt, start, end)
 	#reverse for at in nodes_at({stmt}, start) {
 		if len(found) == MAX_EXTRACT_WIDTHS {
 			break
@@ -68,17 +92,20 @@ constants_at :: proc(ctx: ^ActionContext, stmt: ^ast.Stmt, start, end: int) -> [
 		if at.parent == nil {
 			continue
 		}
-		if start != end && (at.node.pos.offset != start || at.node.end.offset != end) {
+		if at.node.end.offset < end || (exact && (at.node.pos.offset != start || at.node.end.offset != end)) {
 			continue
 		}
 		#partial switch _ in at.node.derived {
 		case ^ast.Ident, ^ast.Paren_Expr:
-			if start == end {
+			if !exact {
 				continue
 			}
 		}
 		if is_constant(ctx, at.node) {
 			append(&found, at)
+			if start != end && !exact {
+				break
+			}
 		}
 	}
 	return found[:]
@@ -121,8 +148,112 @@ is_constant :: proc(ctx: ^ActionContext, node: ^ast.Node) -> bool {
 		ctx.ast_context.use_locals = true
 		symbol, ok := resolve_type_identifier(ctx.ast_context, n^)
 		return ok && symbol.flags & {.Local, .Mutable, .Parameter} == {}
+	case ^ast.Selector_Expr:
+		return is_constant_selector(ctx, n)
+	case ^ast.Call_Expr:
+		if callee, is_name := n.expr.derived.(^ast.Ident); is_name {
+			switch callee.name {
+			case "size_of", "align_of", "offset_of":
+				return is_builtin_proc(ctx, callee) && len(n.args) > 0 && nameable_at_package(ctx, n.args[0])
+			}
+		}
+		return len(n.args) == 1 && is_constant_type(ctx, n.expr) && is_constant(ctx, n.args[0])
+	case ^ast.Type_Cast:
+		return n.tok.kind == .Cast && is_constant_type(ctx, n.type) && is_constant(ctx, n.expr)
 	}
 	return false
+}
+
+// A package constant or an enum member, reached by names that package scope can write.
+is_constant_selector :: proc(ctx: ^ActionContext, selector: ^ast.Selector_Expr) -> bool {
+	if !nameable_at_package(ctx, selector.expr) {
+		return false
+	}
+	ctx.ast_context.use_locals = true
+	base, base_ok := resolve_type_expression(ctx.ast_context, selector.expr)
+	if !base_ok {
+		return false
+	}
+	#partial switch v in base.value {
+	case SymbolEnumValue:
+		return slice.contains(v.names, selector.field.name)
+	case SymbolPackageValue:
+		ctx.ast_context.use_locals = true
+		symbol, ok := resolve_type_expression(ctx.ast_context, selector)
+		return ok && symbol.type == .Constant && .Mutable not_in symbol.flags
+	}
+	return false
+}
+
+// A type that a constant converts to at compile time.
+is_constant_type :: proc(ctx: ^ActionContext, type: ^ast.Expr) -> bool {
+	#partial switch _ in type.derived {
+	case ^ast.Ident, ^ast.Selector_Expr:
+	case:
+		return false
+	}
+	if !nameable_at_package(ctx, type) {
+		return false
+	}
+	ctx.ast_context.use_locals = true
+	symbol, ok := resolve_type_expression(ctx.ast_context, type)
+	if !ok || .Mutable in symbol.flags || symbol.type == .Variable || symbol.type == .Constant {
+		return false
+	}
+	#partial switch v in symbol.value {
+	case SymbolBasicValue:
+		switch v.ident.name {
+		case "any", "rawptr", "typeid":
+			return false
+		}
+		return true
+	case SymbolEnumValue:
+		return true
+	}
+	return false
+}
+
+// The compiler's own procedure, not something this package or a local declares under its name.
+is_builtin_proc :: proc(ctx: ^ActionContext, callee: ^ast.Ident) -> bool {
+	ctx.ast_context.use_locals = true
+	symbol, ok := resolve_type_identifier(ctx.ast_context, callee^)
+	return !ok || (symbol.pkg != ctx.ast_context.document_package && .Local not_in symbol.flags)
+}
+
+// The constant goes to package scope, so every name inside must mean the same thing there. A local, a parameter, a
+// poly parameter or an implicit selector does not.
+nameable_at_package :: proc(ctx: ^ActionContext, root: ^ast.Node) -> bool {
+	Data :: struct {
+		ctx: ^ActionContext,
+		ok:  bool,
+	}
+	data := Data{ctx, true}
+	visitor := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			data := (^Data)(visitor.data)
+			if node == nil || !data.ok {
+				return nil
+			}
+			#partial switch n in node.derived {
+			case ^ast.Ident:
+				data.ctx.ast_context.use_locals = true
+				symbol, ok := resolve_type_identifier(data.ctx.ast_context, n^)
+				data.ok = ok && symbol.flags & {.Local, .Parameter} == {}
+				return nil
+			case ^ast.Selector_Expr:
+				// The field name is no name in scope.
+				ast.walk(visitor, n.expr)
+				return nil
+			case ^ast.Implicit_Selector_Expr, ^ast.Field_Value, ^ast.Poly_Type:
+				data.ok = false
+				return nil
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, root)
+	return data.ok
 }
 
 // The parameter, variable or compared name the expression feeds, upper-cased.

@@ -77,6 +77,9 @@ get_code_actions :: proc(
 		}
 	}
 
+	// rols: a one-character range counts as a cursor, and a cursor in indentation means the first token of its line
+	range := normalize_cursor_range(document.text[:document.used_text], range)
+
 	position_context, ok := get_document_position_context(document, range.start, .Hover)
 
 	if !ok {

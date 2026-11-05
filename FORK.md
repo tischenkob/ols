@@ -42,6 +42,7 @@ Confirm with `git diff --name-status upstream/master..HEAD | grep '^A' | grep -v
 Registration:
 
 - `src/server/action.odin`: `action_procs` table plus the fork action run, package file collection for cross-file actions, the shared edit builder and the import edits organize-on-save reuses.
+- `src/server/action.odin`: `normalize_cursor_range` before the position context, so a one-code-point range and a cursor in indentation reach the actions as a cursor on the first token.
 - `src/server/requests.odin`: `call_map` entries for the fork handlers.
 
 Config:

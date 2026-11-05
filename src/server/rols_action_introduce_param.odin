@@ -23,7 +23,7 @@ add_introduce_param_action :: proc(ctx: ^ActionContext) {
 	}
 
 	src := ctx.document.ast.src
-	start, end := trim_range(src, ctx.range.start, ctx.range.end)
+	start, end := trim_selection(src, ctx.range.start, ctx.range.end)
 
 	list, found := find_stmt_list_at(function.body, start, end)
 	if !found || list.first != list.last {
@@ -56,6 +56,10 @@ add_introduce_param_action :: proc(ctx: ^ActionContext) {
 	}
 
 	for candidate in candidates {
+		// A caller in another package may not be able to name what a selector or a call refers to.
+		if holds_selector_or_call(candidate.node) {
+			continue
+		}
 		expr, parent := cast(^ast.Expr)candidate.node, candidate.parent
 
 		base := strings.to_lower(const_name(ctx, expr, parent), context.temp_allocator)
@@ -91,6 +95,26 @@ add_introduce_param_action :: proc(ctx: ^ActionContext) {
 			CodeAction{title = "Introduce parameter", kind = "refactor.rewrite", edit = workspace_edit(changes)},
 		)
 	}
+}
+
+holds_selector_or_call :: proc(root: ^ast.Node) -> bool {
+	found := false
+	visitor := ast.Visitor {
+		data = &found,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil {
+				return nil
+			}
+			#partial switch _ in node.derived {
+			case ^ast.Selector_Expr, ^ast.Call_Expr, ^ast.Type_Cast:
+				(^bool)(visitor.data)^ = true
+				return nil
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, root)
+	return found
 }
 
 // The declared type of the parameter the expression is passed to. An untyped literal otherwise

@@ -10,7 +10,7 @@ import "src:common"
 
 @(private = "package")
 add_extract_procedure_action :: proc(ctx: ^ActionContext) {
-	if !ctx.config.enable_code_action_extract_procedure || ctx.range.start >= ctx.range.end {
+	if !ctx.config.enable_code_action_extract_procedure {
 		return
 	}
 
@@ -32,12 +32,26 @@ add_extract_procedure_action :: proc(ctx: ^ActionContext) {
 	stmts := list.stmts[list.first:list.last + 1]
 	sel_start := stmts[0].pos.offset
 	sel_end := stmts[len(stmts) - 1].end.offset
-	if sel_start != start || end < sel_end {
+	// A cursor or a partial selection means the whole statements it touches, which must start their line. A label, a
+	// directive or a `do` in front would stay behind, or move into the new procedure.
+	if strings.trim_space(src[line_start_of(src, sel_start):sel_start]) != "" {
 		return
 	}
 
 	if !can_extract(stmts) {
 		return
+	}
+
+	// Locals are gathered up to the cursor, which can sit inside the statements. The later actions
+	// share them and expect that gathering back.
+	pc := ctx.position_context^
+	pc.position = sel_start
+	pc.nested_position = sel_start
+	clear_locals(ctx.ast_context)
+	get_locals(ctx.ast_context, &pc)
+	defer {
+		clear_locals(ctx.ast_context)
+		get_locals(ctx.ast_context, ctx.position_context)
 	}
 
 	symbols := resolve_entire_file_for_references(ctx.document, context.temp_allocator, .Identifier, "")
@@ -83,7 +97,6 @@ add_extract_procedure_action :: proc(ctx: ^ActionContext) {
 
 	// Locals are gathered up to the cursor only, so re-gather at the selection end to resolve
 	// declarations inside it.
-	pc := ctx.position_context^
 	pc.position = sel_end
 	pc.nested_position = sel_end
 	clear_locals(ctx.ast_context)
@@ -131,11 +144,10 @@ add_extract_procedure_action :: proc(ctx: ^ActionContext) {
 	}
 	strings.write_string(&sb, " {\n")
 
-	line_start := sel_start
-	for line_start > 0 && src[line_start - 1] != '\n' {
-		line_start -= 1
-	}
-	strings.write_string(&sb, reindent(src[line_start:sel_end], get_line_indentation(src, sel_start), "\t"))
+	strings.write_string(
+		&sb,
+		reindent(src[line_start_of(src, sel_start):sel_end], get_line_indentation(src, sel_start), "\t"),
+	)
 	strings.write_byte(&sb, '\n')
 
 	call := strings.builder_make(context.temp_allocator)
@@ -176,6 +188,14 @@ add_extract_procedure_action :: proc(ctx: ^ActionContext) {
 	edits[1] = insert
 
 	append(ctx.actions, make_code_action(ctx, "Extract procedure", "refactor.extract", edits))
+}
+
+line_start_of :: proc(src: string, offset: int) -> int {
+	line_start := offset
+	for line_start > 0 && src[line_start - 1] != '\n' {
+		line_start -= 1
+	}
+	return line_start
 }
 
 Var :: struct {
