@@ -203,7 +203,7 @@ Options:
 
 - `enable_code_action_merge_cases`: Enables the code actions to merge a switch case with the next one when their bodies match, and to split a multi-value case into one case per value. Defaults to true.
 
-- `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&` and to merge nested ifs. Defaults to true.
+- `enable_code_action_split_merge_if`: Enables the code actions to split an if on `&&`, to merge nested ifs, and to split an if at the `||` under the cursor with a copy of the body in each branch, as an else-if chain or as separate ifs. Separate ifs run the body twice when both conditions hold. Defaults to true.
 
 - `enable_code_action_rewrite_expression`: Enables the code actions to flip a comparison, apply De Morgan's law and convert between compound and plain assignment. Defaults to true.
 

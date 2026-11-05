@@ -442,6 +442,7 @@ has_comments_around :: proc(src: string, block: ^ast.Block_Stmt, stmt: ^ast.Stmt
 // rols: the generated text is written with "\n", a CRLF file needs its own endings back
 // The ending comes from the line holding `offset`, so a lone CRLF line elsewhere in an LF file
 // does not turn the replacement into CRLF.
+@(private = "package")
 match_line_endings :: proc(src: string, offset: int, text: string) -> string {
 	crlf: bool
 	if i := strings.index_byte(src[offset:], '\n'); i >= 0 {

@@ -337,7 +337,7 @@
 		},
 		"enable_code_action_split_merge_if": {
 			"type": "boolean",
-			"description": "Enables the code actions to split an if on && and to merge nested ifs.",
+			"description": "Enables the code actions to split an if on &&, to merge nested ifs, and to split an if at the || under the cursor with a copy of the body in each branch, as an else-if chain or as separate ifs.",
 			"default": true
 		},
 		"enable_code_action_rewrite_expression": {
