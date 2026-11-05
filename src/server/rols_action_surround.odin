@@ -3,6 +3,7 @@
 package server
 
 import "core:odin/ast"
+import "core:odin/tokenizer"
 import "core:slice"
 import "core:strings"
 
@@ -46,11 +47,11 @@ add_surround_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 
-	flow := scan_flow(stmts)
 	// Indenting the lines of a multi-line string would change its value.
-	if flow.multiline_string {
+	if has_multiline_string(src[line_start:line_end]) {
 		return
 	}
+	flow := scan_flow(stmts)
 	level := scan_level(ctx, stmts)
 
 	// A new scope ends the life of its names, runs a `defer` or a scope guard earlier, and restores `context`.
@@ -93,11 +94,10 @@ add_surround_action :: proc(ctx: ^ActionContext) {
 }
 
 Flow :: struct {
-	returns:          bool, // a `return` or an `or_return`
-	fallthrough_out:  bool, // a `fallthrough` of a switch outside the statements
-	branch_out:       bool, // a `break` or a `continue` that leaves the statements
-	labeled:          bool, // a labeled branch: `odin check` rejects any of them in a `defer`
-	multiline_string: bool,
+	returns:         bool, // a `return` or an `or_return`
+	fallthrough_out: bool, // a `fallthrough` of a switch outside the statements
+	branch_out:      bool, // a `break` or a `continue` that leaves the statements
+	labeled:         bool, // a labeled branch: `odin check` rejects any of them in a `defer`
 }
 
 Opened :: enum {
@@ -106,11 +106,22 @@ Opened :: enum {
 	Switch,
 }
 
+// Scans tokens, as a string can sit in a nested procedure, a struct tag or an attribute.
+has_multiline_string :: proc(text: string) -> bool {
+	t: tokenizer.Tokenizer
+	tokenizer.init(&t, text, "", proc(pos: tokenizer.Pos, msg: string, args: ..any) {})
+	for token := tokenizer.scan(&t); token.kind != .EOF; token = tokenizer.scan(&t) {
+		if token.kind == .String && strings.contains_rune(token.text, '\n') {
+			return true
+		}
+	}
+	return false
+}
+
 // Nested procedures keep their own control flow.
 scan_flow :: proc(stmts: []^ast.Stmt) -> Flow {
 	Data :: struct {
 		flow:     Flow,
-		src:      string,
 		loops:    int,
 		switches: int,
 		opened:   [dynamic]Opened,
@@ -157,8 +168,6 @@ scan_flow :: proc(stmts: []^ast.Stmt) -> Flow {
 				return nil
 			case ^ast.Return_Stmt, ^ast.Or_Return_Expr:
 				data.flow.returns = true
-			case ^ast.Basic_Lit:
-				data.flow.multiline_string ||= n.tok.kind == .String && strings.contains_rune(n.tok.text, '\n')
 			case ^ast.Branch_Stmt:
 				#partial switch n.tok.kind {
 				case .Break:

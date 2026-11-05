@@ -1494,3 +1494,31 @@ surround_refuses_multiline_string :: proc(t: ^testing.T) {
 		expect_missing(t, title, "package test\n\nf :: proc() {\n\t{*}x := `a\n  b`\n\t_ = x\n}\n")
 	}
 }
+
+@(test)
+surround_refuses_multiline_string_in_nested_procedure :: proc(t: ^testing.T) {
+	for title in ([]string{"Surround with block", "Surround with if", "Surround with for", "Surround with when", "Surround with defer", "Surround with #no_bounds_check"}) {
+		expect_missing(
+			t,
+			title,
+			"package test\n\nf :: proc() {\n\t{*}use(proc() {\n\t\tx := `a\n  b`\n\t\t_ = x\n\t})\n}\n",
+		)
+	}
+}
+
+@(test)
+surround_refuses_multiline_struct_tag :: proc(t: ^testing.T) {
+	for title in ([]string{"Surround with block", "Surround with if", "Surround with for", "Surround with when", "Surround with defer", "Surround with #no_bounds_check"}) {
+		expect_missing(t, title, "package test\n\nf :: proc() {\n\t{*}use(struct {\n\t\ta: int `x\n  y`,\n\t}{})\n}\n")
+	}
+}
+
+@(test)
+surround_keeps_single_line_string_in_nested_procedure :: proc(t: ^testing.T) {
+	expect_applied(
+		t,
+		"Surround with block",
+		"package test\n\nf :: proc() {\n\t{*}use(proc() {\n\t\tx := `a`\n\t\t_ = x\n\t})\n}\n",
+		"package test\n\nf :: proc() {\n\t{\n\t\tuse(proc() {\n\t\t\tx := `a`\n\t\t\t_ = x\n\t\t})\n\t}\n}\n",
+	)
+}

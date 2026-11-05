@@ -363,23 +363,23 @@ is_type_node :: proc(node: ^ast.Node) -> bool {
 }
 
 // `value := 2` is an int whatever the literal fed, so the place the literal feeds must take its default type.
-// The cases that cannot establish the type refuse.
 literal_type_holds :: proc(ctx: ^ActionContext, expr: ^ast.Expr, parent: ^ast.Node) -> bool {
 	literal := expr.derived.(^ast.Basic_Lit)
-	default_type: string
 	#partial switch literal.tok.kind {
 	case .Integer:
-		default_type = "int"
+		return place_takes_default(ctx, expr, parent, "int")
 	case .Float:
-		default_type = "f64"
+		return place_takes_default(ctx, expr, parent, "f64")
 	case .Rune:
-		default_type = "rune"
+		return place_takes_default(ctx, expr, parent, "rune")
 	case .String:
-		default_type = "string"
-	case:
-		return false
+		return place_takes_default(ctx, expr, parent, "string")
 	}
+	return false
+}
 
+// Whether the place that expr feeds takes a value of the default type. The cases that cannot establish the type refuse.
+place_takes_default :: proc(ctx: ^ActionContext, expr: ^ast.Expr, parent: ^ast.Node, default_type: string) -> bool {
 	names_default :: proc(type: ^ast.Expr, default_type: string) -> bool {
 		// `name := value` has no type expression, so the type cannot be established.
 		if type == nil {
@@ -405,6 +405,10 @@ literal_type_holds :: proc(ctx: ^ActionContext, expr: ^ast.Expr, parent: ^ast.No
 		index, found := slice.linear_search(p.rhs, expr)
 		return found && len(p.lhs) == len(p.rhs) && value_has_default(ctx, p.lhs[index], default_type)
 	case ^ast.Binary_Expr:
+		// The left of a shift takes the type around it, and the right must be unsigned.
+		if p.op.kind == .Shl || p.op.kind == .Shr {
+			return false
+		}
 		return value_has_default(ctx, p.left == expr ? p.right : p.left, default_type)
 	case ^ast.Return_Stmt:
 		function := ctx.position_context.function
@@ -708,6 +712,9 @@ occurrence_use :: proc(ctx: ^ActionContext, occurrence: Occurrence) -> Occurrenc
 	if use == .Keep || len(chain) == 0 {
 		return use
 	}
+	if works_on_original(expr, chain) {
+		return .Refuse
+	}
 
 	parent := chain[len(chain) - 1]
 	#partial switch p in parent.derived {
@@ -743,16 +750,6 @@ occurrence_use :: proc(ctx: ^ActionContext, occurrence: Occurrence) -> Occurrenc
 		if len(p.lhs) != len(p.rhs) {
 			return .Refuse
 		}
-	case ^ast.Selector_Expr:
-		// A method receives the address of what precedes the arrow.
-		if expr == p.expr && p.op.kind == .Arrow_Right {
-			return .Refuse
-		}
-	case ^ast.Slice_Expr:
-		// A slice of a copy no longer writes to the original.
-		if expr == p.expr {
-			return .Refuse
-		}
 	case ^ast.Unary_Expr:
 		if p.op.kind == .And {
 			return .Refuse
@@ -763,15 +760,118 @@ occurrence_use :: proc(ctx: ^ActionContext, occurrence: Occurrence) -> Occurrenc
 	if _, is_literal := expr.derived.(^ast.Basic_Lit); is_literal && !literal_type_holds(ctx, expr, parent) {
 		return .Refuse
 	}
+	if is_untyped_bool(expr) && !place_takes_bool(ctx, expr, parent) {
+		return .Refuse
+	}
 	return .Replace
 }
 
+// Whether a slice or a method reaches the expression through fields and elements. A slice of a copy no longer writes
+// to the original, and a method receives the address of what precedes the arrow.
+works_on_original :: proc(expr: ^ast.Expr, chain: []^ast.Node) -> bool {
+	target: rawptr = expr
+	#reverse for parent in chain {
+		#partial switch p in parent.derived {
+		case ^ast.Selector_Expr:
+			if rawptr(p.expr) != target {
+				return false
+			}
+			if p.op.kind == .Arrow_Right {
+				return true
+			}
+		case ^ast.Index_Expr:
+			if rawptr(p.expr) != target {
+				return false
+			}
+		case ^ast.Paren_Expr:
+		case ^ast.Slice_Expr:
+			return rawptr(p.expr) == target
+		case:
+			return false
+		}
+		target = parent
+	}
+	return false
+}
+
+// A comparison is an untyped boolean, so `x: b8 = a < b` compiles where `x: b8 = value` does not. An operand of `&&` and
+// `||` can be untyped too.
+is_untyped_bool :: proc(expr: ^ast.Expr) -> bool {
+	#partial switch e in expr.derived {
+	case ^ast.Paren_Expr:
+		return is_untyped_bool(e.expr)
+	case ^ast.Unary_Expr:
+		return e.op.kind == .Not && is_untyped_bool(e.expr)
+	case ^ast.Binary_Expr:
+		#partial switch e.op.kind {
+		case .Cmp_Eq, .Not_Eq, .Lt, .Lt_Eq, .Gt, .Gt_Eq, .In, .Not_In:
+			return true
+		case .Cmp_And, .Cmp_Or:
+			return is_untyped_bool(e.left) || is_untyped_bool(e.right)
+		}
+	}
+	return false
+}
+
+// A condition takes any boolean, and any other place must take `bool`, which `value := a < b` declares.
+place_takes_bool :: proc(ctx: ^ActionContext, expr: ^ast.Expr, parent: ^ast.Node) -> bool {
+	#partial switch p in parent.derived {
+	case ^ast.If_Stmt:
+		return p.cond == expr
+	case ^ast.For_Stmt:
+		return p.cond == expr
+	case ^ast.Ternary_If_Expr:
+		return p.cond == expr
+	}
+	return place_takes_default(ctx, expr, parent, "bool")
+}
+
+// `c ? 1 : 2`, `1 << n` and `auto_cast n` take their type from the place they feed, where a variable has one type of
+// its own. Any ternary counts, as its branches may not show their type.
+takes_type_from_place :: proc(typed: SymbolAndNodeMap, expr: ^ast.Expr) -> bool {
+	Data :: struct {
+		typed: SymbolAndNodeMap,
+		found: bool,
+	}
+	data := Data {
+		typed = typed,
+	}
+	visitor := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			data := (^Data)(visitor.data)
+			if node == nil || data.found {
+				return nil
+			}
+			#partial switch n in node.derived {
+			case ^ast.Ternary_If_Expr, ^ast.Ternary_When_Expr, ^ast.Auto_Cast:
+				data.found = true
+			case ^ast.Binary_Expr:
+				if n.op.kind == .Shl || n.op.kind == .Shr {
+					data.found = !reads_a_variable(data.typed, n.left)
+				}
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, expr)
+	return data.found
+}
+
+reads_a_variable :: proc(typed: SymbolAndNodeMap, expr: ^ast.Expr) -> bool {
+	for use in collect_ident_uses(expr) {
+		if !is_member_name(use) && is_variable(typed, use.ident) {
+			return true
+		}
+	}
+	return false
+}
+
 // Whether every occurrence in the statements reads the value that the first one computes. The expression must read a
-// variable, as a constant expression takes a type from each place it feeds.
+// variable and must not take its type from each place it feeds, as a constant expression does.
 value_holds_over :: proc(ctx: ^ActionContext, function: ^ast.Proc_Lit, expr: ^ast.Expr, region: []^ast.Stmt) -> bool {
 	typed := resolve_entire_file(ctx.document)
 	names := make([dynamic]string, context.temp_allocator)
-	reads_variable := false
 	for use in collect_ident_uses(expr) {
 		if is_member_name(use) {
 			continue
@@ -780,10 +880,9 @@ value_holds_over :: proc(ctx: ^ActionContext, function: ^ast.Proc_Lit, expr: ^as
 		if !found || resolved.is_unresolved {
 			return false
 		}
-		reads_variable ||= is_variable(typed, use.ident)
 		append(&names, use.ident.name)
 	}
-	if !reads_variable {
+	if !reads_a_variable(typed, expr) || takes_type_from_place(typed, expr) {
 		return false
 	}
 
@@ -792,11 +891,21 @@ value_holds_over :: proc(ctx: ^ActionContext, function: ^ast.Proc_Lit, expr: ^as
 			return false
 		}
 	}
-	if !reads_shared_state(ctx, function, typed, expr) {
+
+	symbols := resolve_entire_file_for_references(ctx.document, context.temp_allocator, .Identifier, "")
+	// A nested procedure sees the static locals of the procedures around it.
+	top: ^ast.Node = function.body
+	for decl in ctx.document.ast.decls {
+		if decl.pos.offset <= function.pos.offset && function.end.offset <= decl.end.offset {
+			top = decl
+		}
+	}
+	stable := stable_locals(ctx, symbols, typed, top, collect_ident_uses(function.body))
+	if !reads_shared_state(typed, stable, expr) {
 		return true
 	}
 	for stmt in region {
-		if may_write_memory(typed, stmt) {
+		if may_write_memory(typed, stable, stmt) {
 			return false
 		}
 	}
@@ -858,21 +967,7 @@ writes_or_declares :: proc(stmt: ^ast.Stmt, names: []string) -> bool {
 
 // Whether the value depends on memory that code without the names in the expression can change: a global, a static
 // local, a local whose address is taken, or anything reached through a pointer, a slice or a map.
-reads_shared_state :: proc(
-	ctx: ^ActionContext,
-	function: ^ast.Proc_Lit,
-	typed: SymbolAndNodeMap,
-	expr: ^ast.Expr,
-) -> bool {
-	symbols := resolve_entire_file_for_references(ctx.document, context.temp_allocator, .Identifier, "")
-	// A nested procedure sees the static locals of the procedures around it.
-	top: ^ast.Node = function.body
-	for decl in ctx.document.ast.decls {
-		if decl.pos.offset <= function.pos.offset && function.end.offset <= decl.end.offset {
-			top = decl
-		}
-	}
-	stable := stable_locals(ctx, symbols, typed, top, collect_ident_uses(function.body))
+reads_shared_state :: proc(typed: SymbolAndNodeMap, stable: map[^ast.Ident]bool, expr: ^ast.Expr) -> bool {
 	for use in collect_ident_uses(expr) {
 		if !is_member_name(use) && is_variable(typed, use.ident) && !stable[use.ident] {
 			return true
@@ -924,15 +1019,17 @@ reaches_through :: proc(typed: SymbolAndNodeMap, base: ^ast.Expr, access: ^ast.N
 	return true
 }
 
-// Whether the statement calls a procedure or writes anything but a plain local. A conversion and a pure builtin do
-// neither. A `for &e` writes through e.
-may_write_memory :: proc(typed: SymbolAndNodeMap, stmt: ^ast.Stmt) -> bool {
+// Whether the statement calls a procedure or writes anything but a local that nothing else reaches. A conversion and a
+// pure builtin do neither. A `for &e` writes through e.
+may_write_memory :: proc(typed: SymbolAndNodeMap, stable: map[^ast.Ident]bool, stmt: ^ast.Stmt) -> bool {
 	Data :: struct {
-		typed: SymbolAndNodeMap,
-		found: bool,
+		typed:  SymbolAndNodeMap,
+		stable: map[^ast.Ident]bool,
+		found:  bool,
 	}
 	data := Data {
-		typed = typed,
+		typed  = typed,
+		stable = stable,
 	}
 	visitor := ast.Visitor {
 		data = &data,
@@ -948,8 +1045,8 @@ may_write_memory :: proc(typed: SymbolAndNodeMap, stmt: ^ast.Stmt) -> bool {
 				data.found = !calls_nothing(data.typed, n)
 			case ^ast.Assign_Stmt:
 				for lhs in n.lhs {
-					_, is_name := lhs.derived.(^ast.Ident)
-					data.found ||= !is_name
+					name, is_name := lhs.derived.(^ast.Ident)
+					data.found ||= !is_name || (name.name != "_" && !data.stable[name])
 				}
 			case ^ast.Range_Stmt:
 				data.found = has_address_binding(n.vals)

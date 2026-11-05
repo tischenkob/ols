@@ -2472,3 +2472,334 @@ f :: proc(a, b: int) {
 
 	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
 }
+
+@(private = "file")
+expect_no_replace_all :: proc(t: ^testing.T, main: string) {
+	source := test.Source {
+		main = main,
+		config = {enable_code_action_extract_variable = true},
+	}
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(private = "file")
+expect_replace_all :: proc(t: ^testing.T, main, expected: string) {
+	source := test.Source {
+		main = main,
+		config = {enable_code_action_extract_variable = true},
+	}
+	test.expect_action_applied(t, &source, "Extract variable (replace all 2)", expected)
+}
+
+@(test)
+action_extract_variable_all_refuses_context_typed_ternary :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+f :: proc(c: bool) {
+	x: f32 = {*}c ? 1 : 2
+	y: f32 = c ? 1 : 2
+	use(x, y)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_refuses_context_typed_shift :: proc(t: ^testing.T) {
+	expect_no_replace_all(t, `package test
+
+f :: proc(n: uint) {
+	x: u64 = 1 <{*}< n
+	y: u64 = 1 << n
+	use(x, y)
+}
+`)
+}
+
+@(test)
+action_extract_variable_all_refuses_auto_cast :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+f :: proc(n: int) {
+	x: f32 = {*}auto_cast n
+	y: f32 = auto_cast n
+	use(x, y)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_refuses_nested_context_typed :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+f :: proc(n: uint, a: u64) {
+	x := a +{*} (1 << n)
+	y := a + (1 << n)
+	use(x, y)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_refuses_comparison_for_other_boolean :: proc(t: ^testing.T) {
+	expect_no_replace_all(t, `package test
+
+f :: proc(a, b: int) {
+	x: b8 = a <{*} b
+	y: b8 = a < b
+	use(x, y)
+}
+`)
+}
+
+@(test)
+action_extract_variable_all_comparison_in_conditions :: proc(t: ^testing.T) {
+	expect_replace_all(
+		t,
+		`package test
+
+g :: proc() {
+}
+
+f :: proc(a, b: int) {
+	if a <{*} b {
+		g()
+	}
+	if a < b {
+		g()
+	}
+}
+`,
+		`package test
+
+g :: proc() {
+}
+
+f :: proc(a, b: int) {
+	value := a < b
+	if value {
+		g()
+	}
+	if value {
+		g()
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_shift_of_variable :: proc(t: ^testing.T) {
+	expect_replace_all(
+		t,
+		`package test
+
+f :: proc(a: u64, n: uint) {
+	x: u64 = a <{*}< n
+	y: u64 = a << n
+	use(x, y)
+}
+`,
+		`package test
+
+f :: proc(a: u64, n: uint) {
+	value := a << n
+	x: u64 = value
+	y: u64 = value
+	use(x, y)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_refuses_literal_shifted_for_other_type :: proc(t: ^testing.T) {
+	for title in ([]string{"Extract variable", "Extract variable (replace all 2)"}) {
+		source := test.Source {
+			main = `package test
+
+f :: proc(n: int) {
+	x: u64 = {*}1 << n
+	y: u64 = 1 << n
+	use(x, y)
+}
+`,
+			config = {enable_code_action_extract_variable = true},
+		}
+		test.expect_action_missing(t, &source, title)
+	}
+}
+
+@(test)
+action_extract_variable_refuses_literal_shift_amount :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(n: int) {
+	x := n << {*}2
+	use(x)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+	test.expect_action_missing(t, &source, "Extract variable")
+}
+
+@(test)
+action_extract_variable_all_refuses_plain_write_to_address_taken_local :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+f :: proc() {
+	v := 1
+	p := &v
+	x := {*}p^ + 1
+	v = 5
+	y := p^ + 1
+	use(x, y)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_refuses_plain_write_to_global :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+G := 1
+
+f :: proc(gp: ^int) {
+	x := gp^ +{*} 1
+	G = 5
+	y := gp^ + 1
+	use(x, y)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_keeps_plain_local_write_over_pointer :: proc(t: ^testing.T) {
+	expect_replace_all(
+		t,
+		`package test
+
+f :: proc(p: ^int) {
+	k := 1
+	x := p^ +{*} 1
+	k = 5
+	_ = k
+	y := p^ + 1
+	use(x, y)
+}
+`,
+		`package test
+
+f :: proc(p: ^int) {
+	k := 1
+	value := p^ + 1
+	x := value
+	k = 5
+	_ = k
+	y := value
+	use(x, y)
+}
+`,
+	)
+}
+
+@(private = "file")
+NESTED_TYPES :: `package test
+
+T :: struct {
+	f: proc(t: ^T),
+}
+
+A :: struct {
+	arr: [3]int,
+	m:   [2][3]int,
+	t:   T,
+}
+
+B :: struct {
+	s: A,
+}
+`
+
+@(test)
+action_extract_variable_all_refuses_slice_further_up :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		NESTED_TYPES + `
+f :: proc() {
+	x: B
+	a := {[x.s]}.arr[:]
+	b := x.s.arr[:]
+	a[0] = 1
+	use(x, b)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_refuses_slice_through_index_and_paren :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		NESTED_TYPES + `
+f :: proc() {
+	x: B
+	a := ({[x.s]}.m)[0][:]
+	b := (x.s.m)[0][:]
+	a[0] = 1
+	use(x, b)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_refuses_method_further_up :: proc(t: ^testing.T) {
+	expect_no_replace_all(t, NESTED_TYPES + `
+f :: proc() {
+	x: B
+	{[x.s]}.t->f()
+	x.s.t->f()
+}
+`)
+}
+
+@(test)
+action_extract_variable_all_keeps_field_read_further_up :: proc(t: ^testing.T) {
+	expect_replace_all(
+		t,
+		NESTED_TYPES + `
+f :: proc() {
+	x: B
+	a := {[x.s]}.arr[0]
+	b := x.s.arr[1]
+	use(a, b)
+}
+`,
+		NESTED_TYPES + `
+f :: proc() {
+	x: B
+	s2 := x.s
+	a := s2.arr[0]
+	b := s2.arr[1]
+	use(a, b)
+}
+`,
+	)
+}
