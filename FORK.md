@@ -423,6 +423,10 @@ line names where a fix would go.
 - Performance: `unused-parameter` builds the workspace import graph on each lint that needs importers (about 70 ms for `requests.odin`); a field rename and an implementation request read every workspace file (0.1 to 0.4 s on this repository); a package imported directly and through an import is parsed twice per `find` or `tests` query. Revisit only on a profile of a much larger workspace.
 - `tests/rols_lint_refresh_test.odin`, `tests/rols_rename_package_open_test.odin` and `tests/imports_test.odin` call `server.setup_index` outside the harness without `collections_mutex`, a data race under parallel runs.
 - `Split declaration` can offer a type that does not compile when a local shadows the printed spelling: `time := 1` then `x := t` with `t: time.Time`, or a local `Item` type then `x := box.items` with `[]Item` from a global `Item` (`inferred_type` in `rols_action_split_decl.odin`).
+- "Extract variable (replace all N)" replaces the operand in `(m[k]) or_else 0`, because `occurrence_use` reads only the direct parent, which drops the optional-ok value.
+- "Extract variable (replace all N)" may replace `m[k]` in a `return` that feeds two results from one value (`occurrence_use`).
+- "Extract variable (replace all N)" replaces the selector in a direct `offset_of_selector(s.x)` call (`needs_constant_args`).
+- Single-occurrence "Extract variable" offers the left side of `or_else` and a `swizzle` index, which do not compile afterwards (`extractable`).
 
 ### Large-file performance
 
