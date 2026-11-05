@@ -377,6 +377,79 @@ apply_kinds "Convert to not_in" 62:10
 apply_kinds "Evaluate constant" 63:7
 apply_kinds "Evaluate constant" 64:14
 rm -rf "$dir/kinds"
+# The create actions, each on a fresh package with one unresolved name, through the compile gate and odin check.
+mkdir "$dir/create"
+echo '{}' > "$dir/create/ols.json"
+cat > "$dir/create/other.odin" <<'ODIN'
+package create
+
+Item :: struct {
+	a: int,
+}
+ODIN
+apply_create() {
+	local title="$1" at="$2" body="$3"
+	cat > "$dir/create/create.odin" <<ODIN
+package create
+
+Foo :: struct {
+	a: int,
+}
+
+Kind :: enum {A, B}
+
+take :: proc(v: []f32) {}
+
+main :: proc() {
+	k: Kind
+	f: Foo
+	i: Item
+	_, _, _ = k, f, i
+	$body
+}
+ODIN
+	expect "create-$title" "\.odin" "$OLS" query actions "$dir/create/create.odin:$at" --apply "$title" --root "$dir/create"
+	odin check "$dir/create" >/dev/null
+	echo "ok create-$title check"
+	cat > "$dir/create/other.odin" <<'ODIN'
+package create
+
+Item :: struct {
+	a: int,
+}
+ODIN
+}
+apply_create "Create field foo" 16:5 'f.foo = "s"'
+apply_create "Create field foo" 16:10 'take(f.foo)'
+apply_create "Create field foo" 16:5 'i.foo = 1.5'
+apply_create "Create enum member Foo" 16:8 'k = .Foo'
+apply_create "Create enum member Foo" 16:12 '_ = k == .Foo'
+apply_create "Create local variable x" 16:2 'x = "s"'
+apply_create "Create local variable x" 16:7 'take(x)'
+apply_create "Create global variable x" 16:7 'take(x)'
+apply_create "Create global variable x" 16:2 'x = 2'
+apply_create "Create constant x" 16:2 'x = 1 + 2'
+apply_create "Create struct Bar" 16:7 '_ = Bar{a = 1, b = "t", c = f}'
+# A struct and an enum outside the workspace, here of the core collection, take no new member.
+cat > "$dir/create/create.odin" <<'ODIN'
+package create
+
+import "core:strings"
+import "core:mem"
+
+main :: proc() {
+	b: strings.Builder
+	b.foo = 1
+	m: mem.Allocator_Mode
+	m = .Foo
+}
+ODIN
+out="$("$OLS" query actions "$dir/create/create.odin:8:5" --root "$dir/create")"
+[[ "$out" != *"Create field"* ]] || { echo "FAIL create-field-outside-workspace: $out"; exit 1; }
+out="$("$OLS" query actions "$dir/create/create.odin:10:8" --root "$dir/create")"
+[[ "$out" != *"Create enum member"* ]] || { echo "FAIL create-enum-outside-workspace: $out"; exit 1; }
+echo "ok create-outside-workspace"
+rm -rf "$dir/create"
 expect generate-test "util_test.odin" "$OLS" query actions "$dir/util.odin:3:1" --apply "Generate test for add"
 grep -q "^test_add :: proc(t: ^testing.T)" "$dir/util_test.odin" && grep -q 'import "core:testing"' "$dir/util_test.odin"
 odin check "$dir" -no-entry-point

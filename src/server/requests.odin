@@ -531,6 +531,10 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_bit_set.(bool) or_else config.enable_code_action_bit_set
 	config.enable_code_action_evaluate =
 		ols_config.enable_code_action_evaluate.(bool) or_else config.enable_code_action_evaluate
+	config.enable_code_action_create_member =
+		ols_config.enable_code_action_create_member.(bool) or_else config.enable_code_action_create_member
+	config.enable_code_action_create_decl =
+		ols_config.enable_code_action_create_decl.(bool) or_else config.enable_code_action_create_decl
 	config.enable_code_action_merge_cases =
 		ols_config.enable_code_action_merge_cases.(bool) or_else config.enable_code_action_merge_cases
 	config.enable_code_action_loop_label =
@@ -1195,6 +1199,8 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_cast = true
 	config.enable_code_action_bit_set = true
 	config.enable_code_action_evaluate = true
+	config.enable_code_action_create_member = true
+	config.enable_code_action_create_decl = true
 	config.enable_code_action_merge_cases = true
 	config.enable_code_action_loop_label = true
 	config.enable_code_action_literal = true

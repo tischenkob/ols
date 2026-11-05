@@ -532,6 +532,8 @@ OlsConfig :: struct {
 	enable_code_action_cast:                 Maybe(bool),
 	enable_code_action_bit_set:              Maybe(bool),
 	enable_code_action_evaluate:             Maybe(bool),
+	enable_code_action_create_member:        Maybe(bool),
+	enable_code_action_create_decl:          Maybe(bool),
 	enable_code_action_merge_cases:          Maybe(bool),
 	enable_code_action_loop_label:           Maybe(bool),
 	enable_code_action_literal:              Maybe(bool),

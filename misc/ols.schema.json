@@ -365,6 +365,16 @@
 			"description": "Enables the code action replacing an expression of integer literals with its value.",
 			"default": true
 		},
+		"enable_code_action_create_member": {
+			"type": "boolean",
+			"description": "Enables the code actions creating a struct field from an unresolved x.foo and an enum member from an unresolved .Foo.",
+			"default": true
+		},
+		"enable_code_action_create_decl": {
+			"type": "boolean",
+			"description": "Enables the code actions creating a local variable, a global variable or a constant from an unresolved name, and a struct from an unresolved Foo{a = 1}.",
+			"default": true
+		},
 		"enable_code_action_loop_label": {
 			"type": "boolean",
 			"description": "Enables the code action adding a label to the loop at the cursor.",

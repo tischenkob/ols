@@ -225,6 +225,10 @@ Options:
 
 - `enable_code_action_evaluate`: Enables the "Evaluate constant" code action, which replaces an expression of integer literals and `+ - * / % << >> & |` with its value. It refuses a float, a name, a zero divisor and a value outside `i64`. Defaults to true.
 
+- `enable_code_action_create_member`: Enables "Create field foo" on `x.foo` when `x` is a struct of the workspace, also in another file, with the type from an assignment, an operand or the parameter that receives it, and "Create enum member Foo" on `.Foo` when the expected enum is in the workspace. They refuse an unknown type, a parametric struct and a member that would leave a positional literal, a switch without `#partial` or an enumerated array literal incomplete. Defaults to true.
+
+- `enable_code_action_create_decl`: Enables "Create local variable x", "Create global variable x" and "Create constant x" on an unresolved name whose use gives a type, and "Create struct Foo" on an unresolved `Foo{a = 1}`, where an untyped integer gives `int`. `x = v` becomes `x := v` for the local form, and the constant form takes `x = 1` to file scope. They refuse when no use gives a type, and "Create struct" refuses a positional literal. Defaults to true.
+
 - `enable_code_action_qualify`: Enables the code actions converting between `.A` and `Enum.A`, and adding or dropping the type of a composite literal, where a declared type, an assignment, a return, a parameter, a field or an element supplies the type. A comparison and a `case` also supply the type of an enum member. Defaults to true.
 
 - `enable_code_action_loop_label`: Enables the code action adding a label to the loop at the cursor, so nested `break` and `continue` can target it. Defaults to true.
