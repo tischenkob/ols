@@ -2,6 +2,7 @@
 
 package server
 
+import "core:fmt"
 import "core:odin/ast"
 import "core:slice"
 import "core:strings"
@@ -41,33 +42,44 @@ add_extract_variable_action :: proc(ctx: ^ActionContext) {
 
 	exact := selects_exact_node(stmt, start, end)
 	count := 0
+	replaced := 0
 	for candidate in find_exprs(stmt, start, end, exact) {
-		if count == MAX_EXTRACT_WIDTHS {
+		if count == MAX_EXTRACT_WIDTHS || replaced == MAX_EXTRACT_WIDTHS {
 			break
 		}
 		expr := candidate.expr
-		if !extractable(ctx, stmt, expr, candidate.chain, exact) {
-			continue
-		}
-		name := pick_name(ctx, expr)
+		single := extractable(ctx, stmt, expr, candidate.chain, exact)
+		if single {
+			name := pick_name(ctx, expr)
 
-		edits := make([]TextEdit, 2, context.temp_allocator)
-		edits[0] = TextEdit {
-			range   = range_of(ctx, line_start, line_start),
-			newText = strings.concatenate(
-				{get_line_indentation(src, stmt.pos.offset), name, " := ", src[expr.pos.offset:expr.end.offset], "\n"},
-				context.temp_allocator,
-			),
-		}
-		edits[1] = TextEdit {
-			range   = range_of(ctx, expr.pos.offset, expr.end.offset),
-			newText = name,
-		}
+			edits := make([]TextEdit, 2, context.temp_allocator)
+			edits[0] = TextEdit {
+				range   = range_of(ctx, line_start, line_start),
+				newText = strings.concatenate(
+					{
+						get_line_indentation(src, stmt.pos.offset),
+						name,
+						" := ",
+						src[expr.pos.offset:expr.end.offset],
+						"\n",
+					},
+					context.temp_allocator,
+				),
+			}
+			edits[1] = TextEdit {
+				range   = range_of(ctx, expr.pos.offset, expr.end.offset),
+				newText = name,
+			}
 
-		append(ctx.actions, make_code_action(ctx, "Extract variable", "refactor.extract", edits))
-		count += 1
+			append(ctx.actions, make_code_action(ctx, "Extract variable", "refactor.extract", edits))
+			count += 1
+		}
 		// An inexact selection means the one smallest expression around it.
-		if start != end && !exact {
+		inexact := start != end && !exact
+		if !(inexact && replaced > 0) && add_replace_all(ctx, function, list.stmts, expr) {
+			replaced += 1
+		}
+		if inexact && single {
 			break
 		}
 	}
@@ -256,6 +268,12 @@ extractable :: proc(ctx: ^ActionContext, stmt: ^ast.Stmt, expr: ^ast.Expr, chain
 		}
 	}
 
+	return runs_with_stmt(ctx, stmt, expr, chain)
+}
+
+// Whether the expression runs once, with the statement that holds it and after nothing it could depend on, so that a
+// declaration above the statement can take its place.
+runs_with_stmt :: proc(ctx: ^ActionContext, stmt: ^ast.Stmt, expr: ^ast.Expr, chain: []^ast.Node) -> bool {
 	// The direct child of the statement on the path to the expression.
 	top: ^ast.Node = len(chain) > 1 ? chain[1] : expr
 
@@ -313,26 +331,35 @@ extractable :: proc(ctx: ^ActionContext, stmt: ^ast.Stmt, expr: ^ast.Expr, chain
 			}
 		case ^ast.Ternary_When_Expr, ^ast.Proc_Lit, ^ast.If_Stmt, ^ast.Switch_Stmt, ^ast.When_Stmt:
 			return false
-		case ^ast.Array_Type,
-		     ^ast.Dynamic_Array_Type,
-		     ^ast.Multi_Pointer_Type,
-		     ^ast.Pointer_Type,
-		     ^ast.Map_Type,
-		     ^ast.Matrix_Type,
-		     ^ast.Bit_Set_Type,
-		     ^ast.Struct_Type,
-		     ^ast.Union_Type,
-		     ^ast.Enum_Type,
-		     ^ast.Bit_Field_Type,
-		     ^ast.Proc_Type,
-		     ^ast.Distinct_Type,
-		     ^ast.Poly_Type:
-			// Part of a type is resolved at compile time, so a variable cannot stand in.
+		}
+		// Part of a type is resolved at compile time, so a variable cannot stand in.
+		if is_type_node(chain[i]) {
 			return false
 		}
 		child = chain[i]
 	}
 	return true
+}
+
+is_type_node :: proc(node: ^ast.Node) -> bool {
+	#partial switch _ in node.derived {
+	case ^ast.Array_Type,
+	     ^ast.Dynamic_Array_Type,
+	     ^ast.Multi_Pointer_Type,
+	     ^ast.Pointer_Type,
+	     ^ast.Map_Type,
+	     ^ast.Matrix_Type,
+	     ^ast.Bit_Set_Type,
+	     ^ast.Struct_Type,
+	     ^ast.Union_Type,
+	     ^ast.Enum_Type,
+	     ^ast.Bit_Field_Type,
+	     ^ast.Proc_Type,
+	     ^ast.Distinct_Type,
+	     ^ast.Poly_Type:
+		return true
+	}
+	return false
 }
 
 // `value := 2` is an int whatever the literal fed, so the place the literal feeds must take its default type.
@@ -490,6 +517,10 @@ iterable_evaluates_once :: proc(ctx: ^ActionContext, iterable: ^ast.Expr) -> boo
 }
 
 pick_name :: proc(ctx: ^ActionContext, expr: ^ast.Expr) -> string {
+	return fresh_name(ctx, pick_base(expr), expr.pos)
+}
+
+pick_base :: proc(expr: ^ast.Expr) -> string {
 	base := "value"
 	#partial switch e in expr.derived {
 	case ^ast.Call_Expr:
@@ -502,6 +533,456 @@ pick_name :: proc(ctx: ^ActionContext, expr: ^ast.Expr) -> string {
 	case ^ast.Selector_Expr:
 		base = e.field.name
 	}
+	return base
+}
 
-	return fresh_name(ctx, base, expr.pos)
+Occurrence :: struct {
+	expr:  ^ast.Expr,
+	chain: []^ast.Node, // the ancestors from the statement of the list down to the parent of expr
+	stmt:  int, // the index of that statement in the list
+}
+
+// "Extract variable (replace all N)": a declaration above the first occurrence of the expression in the block, and
+// its name in place of every occurrence.
+add_replace_all :: proc(ctx: ^ActionContext, function: ^ast.Proc_Lit, stmts: []^ast.Stmt, expr: ^ast.Expr) -> bool {
+	src := ctx.document.ast.src
+	_, is_literal := expr.derived.(^ast.Basic_Lit)
+	if !repeats_same_value(expr) {
+		return false
+	}
+
+	occurrences := make([dynamic]Occurrence, context.temp_allocator)
+	for found in find_occurrences(src, stmts, expr) {
+		switch occurrence_use(ctx, found) {
+		case .Refuse:
+			return false
+		case .Keep:
+		case .Replace:
+			append(&occurrences, found)
+		}
+	}
+	if len(occurrences) < 2 {
+		return false
+	}
+
+	// The first occurrence decides where the value is computed, so it must run whenever any later one does.
+	first := occurrences[0]
+	first_stmt := stmts[first.stmt]
+	if _, is_block := first_stmt.derived.(^ast.Block_Stmt); is_block {
+		return false
+	}
+	for node in first.chain {
+		#partial switch _ in node.derived {
+		case ^ast.Block_Stmt, ^ast.Case_Clause:
+			return false
+		}
+	}
+	line_start, _ := before_on_line(src, first_stmt.pos.offset)
+	if !only_marks_stmt(first_stmt, src[line_start:first_stmt.pos.offset]) ||
+	   marked_by_line_above(src, first_stmt.pos.offset) ||
+	   !runs_with_stmt(ctx, first_stmt, first.expr, first.chain) {
+		return false
+	}
+
+	region := stmts[first.stmt:occurrences[len(occurrences) - 1].stmt + 1]
+	if !is_literal && !value_holds_over(ctx, function, expr, region) {
+		return false
+	}
+
+	base := pick_base(expr)
+	name := fresh_name(ctx, base, expr.pos)
+	for i := 2; names_in_stmts(stmts, name); i += 1 {
+		name = fresh_name(ctx, fmt.tprintf("%s%d", base, i), expr.pos)
+	}
+
+	edits := make([]TextEdit, len(occurrences) + 1, context.temp_allocator)
+	edits[0] = TextEdit {
+		range   = range_of(ctx, line_start, line_start),
+		newText = strings.concatenate(
+			{get_line_indentation(src, first_stmt.pos.offset), name, " := ", node_text(src, expr), "\n"},
+			context.temp_allocator,
+		),
+	}
+	for occurrence, i in occurrences {
+		edits[i + 1] = TextEdit {
+			range   = range_of(ctx, occurrence.expr.pos.offset, occurrence.expr.end.offset),
+			newText = name,
+		}
+	}
+	title := fmt.tprintf("Extract variable (replace all %d)", len(occurrences))
+	append(ctx.actions, make_code_action(ctx, title, "refactor.extract", edits))
+	return true
+}
+
+// A call could run a different number of times. A composite literal is a fresh value each time, and `context` and a
+// directive such as `#line` are not the same at each place.
+repeats_same_value :: proc(expr: ^ast.Expr) -> bool {
+	found := has_side_effect(expr)
+	visitor := ast.Visitor {
+		data = &found,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil {
+				return nil
+			}
+			#partial switch _ in node.derived {
+			case ^ast.Selector_Call_Expr, ^ast.Comp_Lit, ^ast.Proc_Lit, ^ast.Implicit, ^ast.Basic_Directive:
+				(^bool)(visitor.data)^ = true
+				return nil
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, expr)
+	return !found
+}
+
+// Each value expression in the statements with the same text as expr, without looking inside one.
+find_occurrences :: proc(src: string, stmts: []^ast.Stmt, expr: ^ast.Expr) -> []Occurrence {
+	Data :: struct {
+		src, text: string,
+		stmt:      int,
+		stack:     [dynamic]^ast.Node,
+		found:     [dynamic]Occurrence,
+	}
+	data := Data {
+		src   = src,
+		text  = node_text(src, expr),
+		stack = make([dynamic]^ast.Node, context.temp_allocator),
+		found = make([dynamic]Occurrence, context.temp_allocator),
+	}
+	visitor := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			data := (^Data)(visitor.data)
+			if node == nil {
+				pop(&data.stack)
+				return nil
+			}
+			if node_text(data.src, node) == data.text && is_value_expr(node, true) {
+				chain := slice.clone(data.stack[:], context.temp_allocator)
+				append(&data.found, Occurrence{cast(^ast.Expr)node, chain, data.stmt})
+				return nil
+			}
+			append(&data.stack, node)
+			return visitor
+		},
+	}
+	for stmt, i in stmts {
+		data.stmt = i
+		ast.walk(&visitor, stmt)
+	}
+	return data.found[:]
+}
+
+Occurrence_Use :: enum {
+	Replace,
+	Keep, // not a value at run time: it stays as written and does not count
+	Refuse,
+}
+
+occurrence_use :: proc(ctx: ^ActionContext, occurrence: Occurrence) -> Occurrence_Use {
+	expr := occurrence.expr
+	chain := occurrence.chain
+	use := Occurrence_Use.Replace
+	child: ^ast.Node = expr
+	#reverse for node in chain {
+		#partial switch n in node.derived {
+		case ^ast.Proc_Lit, ^ast.Defer_Stmt:
+			// A nested procedure has no access to the variable, and a `defer` runs after anything below it.
+			return .Refuse
+		case ^ast.When_Stmt:
+			if child == n.cond {
+				use = .Keep
+			}
+		case ^ast.Case_Clause:
+			if slice.contains(n.list, cast(^ast.Expr)child) {
+				use = .Keep
+			}
+		case:
+			if is_type_node(node) {
+				use = .Keep
+			}
+		}
+		child = node
+	}
+	if use == .Keep || len(chain) == 0 {
+		return use
+	}
+
+	parent := chain[len(chain) - 1]
+	#partial switch p in parent.derived {
+	case ^ast.Call_Expr:
+		if expr == p.expr {
+			return .Keep
+		}
+	case ^ast.Comp_Lit:
+		if expr == p.type {
+			return .Keep
+		}
+	case ^ast.Field_Value:
+		if expr == p.field {
+			return .Keep
+		}
+	case ^ast.Type_Cast:
+		if expr == p.type {
+			return .Keep
+		}
+	case ^ast.Type_Assertion:
+		if expr == p.type {
+			return .Keep
+		}
+	case ^ast.Value_Decl:
+		if expr == p.type {
+			return .Keep
+		}
+		// `v, ok := m[k]` takes two values from one.
+		if len(p.names) != len(p.values) {
+			return .Refuse
+		}
+	case ^ast.Assign_Stmt:
+		if len(p.lhs) != len(p.rhs) {
+			return .Refuse
+		}
+	case ^ast.Selector_Expr:
+		// A method receives the address of what precedes the arrow.
+		if expr == p.expr && p.op.kind == .Arrow_Right {
+			return .Refuse
+		}
+	case ^ast.Slice_Expr:
+		// A slice of a copy no longer writes to the original.
+		if expr == p.expr {
+			return .Refuse
+		}
+	case ^ast.Unary_Expr:
+		if p.op.kind == .And {
+			return .Refuse
+		}
+	case ^ast.Selector_Call_Expr, ^ast.Expr_Stmt, ^ast.Using_Stmt:
+		return .Refuse
+	}
+	if _, is_literal := expr.derived.(^ast.Basic_Lit); is_literal && !literal_type_holds(ctx, expr, parent) {
+		return .Refuse
+	}
+	return .Replace
+}
+
+// Whether every occurrence in the statements reads the value that the first one computes. The expression must read a
+// variable, as a constant expression takes a type from each place it feeds.
+value_holds_over :: proc(ctx: ^ActionContext, function: ^ast.Proc_Lit, expr: ^ast.Expr, region: []^ast.Stmt) -> bool {
+	typed := resolve_entire_file(ctx.document)
+	names := make([dynamic]string, context.temp_allocator)
+	reads_variable := false
+	for use in collect_ident_uses(expr) {
+		if is_member_name(use) {
+			continue
+		}
+		resolved, found := typed[uintptr(use.ident)]
+		if !found || resolved.is_unresolved {
+			return false
+		}
+		reads_variable ||= is_variable(typed, use.ident)
+		append(&names, use.ident.name)
+	}
+	if !reads_variable {
+		return false
+	}
+
+	for stmt in region {
+		if writes_or_declares(stmt, names[:]) {
+			return false
+		}
+	}
+	if !reads_shared_state(ctx, function, typed, expr) {
+		return true
+	}
+	for stmt in region {
+		if may_write_memory(typed, stmt) {
+			return false
+		}
+	}
+	return true
+}
+
+// Whether the statement writes one of the names, or declares one so that the same text means something else. A `using`
+// can bring in any name.
+writes_or_declares :: proc(stmt: ^ast.Stmt, names: []string) -> bool {
+	for use in collect_ident_uses(stmt) {
+		if is_member_name(use) || !slice.contains(names, use.ident.name) {
+			continue
+		}
+		if is_write(use) {
+			return true
+		}
+		if len(use.parents) == 0 {
+			continue
+		}
+		#partial switch p in use.parents[len(use.parents) - 1].derived {
+		case ^ast.Value_Decl:
+			if slice.contains(p.names, use.ident) {
+				return true
+			}
+		case ^ast.Range_Stmt:
+			if slice.contains(p.vals, use.ident) {
+				return true
+			}
+		case ^ast.Unroll_Range_Stmt:
+			if p.val0 == use.ident || p.val1 == use.ident {
+				return true
+			}
+		case ^ast.Field:
+			if slice.contains(p.names, use.ident) {
+				return true
+			}
+		}
+	}
+
+	found := false
+	visitor := ast.Visitor {
+		data = &found,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			if node == nil {
+				return nil
+			}
+			#partial switch n in node.derived {
+			case ^ast.Using_Stmt:
+				(^bool)(visitor.data)^ = true
+			case ^ast.Value_Decl:
+				(^bool)(visitor.data)^ ||= n.is_using
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, stmt)
+	return found
+}
+
+// Whether the value depends on memory that code without the names in the expression can change: a global, a static
+// local, a local whose address is taken, or anything reached through a pointer, a slice or a map.
+reads_shared_state :: proc(
+	ctx: ^ActionContext,
+	function: ^ast.Proc_Lit,
+	typed: SymbolAndNodeMap,
+	expr: ^ast.Expr,
+) -> bool {
+	symbols := resolve_entire_file_for_references(ctx.document, context.temp_allocator, .Identifier, "")
+	// A nested procedure sees the static locals of the procedures around it.
+	top: ^ast.Node = function.body
+	for decl in ctx.document.ast.decls {
+		if decl.pos.offset <= function.pos.offset && function.end.offset <= decl.end.offset {
+			top = decl
+		}
+	}
+	stable := stable_locals(ctx, symbols, typed, top, collect_ident_uses(function.body))
+	for use in collect_ident_uses(expr) {
+		if !is_member_name(use) && is_variable(typed, use.ident) && !stable[use.ident] {
+			return true
+		}
+	}
+
+	Data :: struct {
+		typed: SymbolAndNodeMap,
+		found: bool,
+	}
+	data := Data {
+		typed = typed,
+	}
+	visitor := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			data := (^Data)(visitor.data)
+			if node == nil || data.found {
+				return nil
+			}
+			#partial switch n in node.derived {
+			case ^ast.Deref_Expr, ^ast.Slice_Expr, ^ast.Matrix_Index_Expr:
+				data.found = true
+			case ^ast.Selector_Expr:
+				data.found = reaches_through(data.typed, n.expr, n)
+			case ^ast.Index_Expr:
+				data.found = reaches_through(data.typed, n.expr, n)
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, expr)
+	return data.found
+}
+
+// Whether the field or element `access` of base lives outside base. A base the resolver misses counts, and so does a
+// variable of another package.
+reaches_through :: proc(typed: SymbolAndNodeMap, base: ^ast.Expr, access: ^ast.Node) -> bool {
+	resolved, found := typed[uintptr(base)]
+	if !found || resolved.is_unresolved || resolved.symbol.pointers > 0 {
+		return true
+	}
+	#partial switch _ in resolved.symbol.value {
+	case SymbolPackageValue:
+		return is_variable(typed, access)
+	case SymbolStructValue, SymbolFixedArrayValue, SymbolEnumValue, SymbolBitFieldValue:
+		return false
+	}
+	return true
+}
+
+// Whether the statement calls a procedure or writes anything but a plain local. A conversion and a pure builtin do
+// neither. A `for &e` writes through e.
+may_write_memory :: proc(typed: SymbolAndNodeMap, stmt: ^ast.Stmt) -> bool {
+	Data :: struct {
+		typed: SymbolAndNodeMap,
+		found: bool,
+	}
+	data := Data {
+		typed = typed,
+	}
+	visitor := ast.Visitor {
+		data = &data,
+		visit = proc(visitor: ^ast.Visitor, node: ^ast.Node) -> ^ast.Visitor {
+			data := (^Data)(visitor.data)
+			if node == nil || data.found {
+				return nil
+			}
+			#partial switch n in node.derived {
+			case ^ast.Selector_Call_Expr:
+				data.found = true
+			case ^ast.Call_Expr:
+				data.found = !calls_nothing(data.typed, n)
+			case ^ast.Assign_Stmt:
+				for lhs in n.lhs {
+					_, is_name := lhs.derived.(^ast.Ident)
+					data.found ||= !is_name
+				}
+			case ^ast.Range_Stmt:
+				data.found = has_address_binding(n.vals)
+			case ^ast.Unroll_Range_Stmt:
+				data.found = is_address_of(n.val0) || is_address_of(n.val1)
+			}
+			return visitor
+		},
+	}
+	ast.walk(&visitor, stmt)
+	return data.found
+}
+
+calls_nothing :: proc(typed: SymbolAndNodeMap, call: ^ast.Call_Expr) -> bool {
+	if builtin_call(typed, call) != .Other {
+		return true
+	}
+	resolved, found := typed[uintptr(call.expr)]
+	if !found || resolved.is_unresolved {
+		return false
+	}
+	#partial switch _ in resolved.symbol.value {
+	case SymbolProcedureValue, SymbolProcedureGroupValue, SymbolAggregateValue:
+		return false
+	}
+	return .Mutable not_in resolved.symbol.flags && .Parameter not_in resolved.symbol.flags
+}
+
+names_in_stmts :: proc(stmts: []^ast.Stmt, name: string) -> bool {
+	for stmt in stmts {
+		if mentions_any(stmt, name) {
+			return true
+		}
+	}
+	return false
 }

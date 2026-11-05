@@ -523,6 +523,8 @@ OlsConfig :: struct {
 	enable_code_action_init_move:            Maybe(bool),
 	enable_code_action_split_decl:           Maybe(bool),
 	enable_code_action_const_var:            Maybe(bool),
+	enable_code_action_range_loop:           Maybe(bool),
+	enable_code_action_surround:             Maybe(bool),
 	enable_code_action_merge_cases:          Maybe(bool),
 	enable_code_action_loop_label:           Maybe(bool),
 	enable_code_action_literal:              Maybe(bool),

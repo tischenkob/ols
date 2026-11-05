@@ -102,6 +102,8 @@ Config :: struct {
 	enable_code_action_init_move:            bool,
 	enable_code_action_split_decl:           bool,
 	enable_code_action_const_var:            bool,
+	enable_code_action_range_loop:           bool,
+	enable_code_action_surround:             bool,
 	enable_code_action_merge_cases:          bool,
 	enable_code_action_loop_label:           bool,
 	enable_code_action_literal:              bool,

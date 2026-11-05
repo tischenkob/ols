@@ -126,6 +126,56 @@ expect actions-apply "main.odin" "$OLS" query actions "$dir/main.odin:10:11-10:2
 grep -q "value \* 3" "$dir/main.odin" && grep -q "total := .* + 1" "$dir/main.odin"
 odin check "$dir" -no-entry-point
 echo "ok actions-apply check"
+# Each range loop, surround and replace-all action, from a fresh copy, through the compile gate and odin check.
+mkdir "$dir/loops"
+echo '{}' > "$dir/loops/ols.json"
+apply_loops() {
+	local title="$1" at="$2"
+	cat > "$dir/loops/loops.odin" <<'ODIN'
+package loops
+
+main :: proc() {
+	xs := []int{1, 2}
+	for x in xs {
+		_ = x
+	}
+	for &z in xs {
+		_ = z
+	}
+	#reverse for w in xs {
+		_ = w
+	}
+	for y in 0..<3 {
+		_ = y
+	}
+	for v in 0..=2 {
+		_ = v
+	}
+	a, b := 2, 3
+	p := a * b
+	q := a * b
+	_, _ = p, q
+}
+ODIN
+	expect "loops-$title" "loops.odin" "$OLS" query actions "$dir/loops/loops.odin:$at" --apply "$title" --root "$dir/loops"
+	odin check "$dir/loops" >/dev/null
+	echo "ok loops-$title check"
+}
+apply_loops "Add index" 5:2
+apply_loops "Iterate by reference" 5:2
+apply_loops "Iterate by value" 8:2
+apply_loops "Toggle #reverse" 5:2
+apply_loops "Toggle #reverse" 11:2
+apply_loops "Convert to ..= range" 14:2
+apply_loops "Convert to ..< range" 17:2
+apply_loops "Surround with block" 23:2
+apply_loops "Surround with if" 23:2
+apply_loops "Surround with for" 23:2
+apply_loops "Surround with #no_bounds_check" 23:2
+apply_loops "Surround with defer" 5:2
+apply_loops "Surround with when" 21:2
+apply_loops "Extract variable (replace all 2)" 21:7-21:12
+rm -rf "$dir/loops"
 expect generate-test "util_test.odin" "$OLS" query actions "$dir/util.odin:3:1" --apply "Generate test for add"
 grep -q "^test_add :: proc(t: ^testing.T)" "$dir/util_test.odin" && grep -q 'import "core:testing"' "$dir/util_test.odin"
 odin check "$dir" -no-entry-point

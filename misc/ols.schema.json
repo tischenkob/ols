@@ -320,6 +320,16 @@
 			"description": "Enables the code actions converting a local variable to a constant and back, where every use keeps its meaning.",
 			"default": true
 		},
+		"enable_code_action_range_loop": {
+			"type": "boolean",
+			"description": "Enables the code actions editing a range loop header: add an index, iterate by reference or by value, toggle #reverse, and convert between ..< and ..= with an integer literal end.",
+			"default": true
+		},
+		"enable_code_action_surround": {
+			"type": "boolean",
+			"description": "Enables the code actions surrounding the statements at the cursor with a block, if, for, when, defer or #no_bounds_check.",
+			"default": true
+		},
 		"enable_code_action_loop_label": {
 			"type": "boolean",
 			"description": "Enables the code action adding a label to the loop at the cursor.",

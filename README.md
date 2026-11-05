@@ -147,7 +147,7 @@ Options:
 
 - `enable_code_action_invert_if`: Enables the code actions to invert if statements and to rewrite them as early returns. Defaults to true.
 
-- `enable_code_action_extract_variable`: Enables the code action to extract an expression into a local variable. With only a cursor, it offers one action for each enclosing expression. Defaults to true.
+- `enable_code_action_extract_variable`: Enables the code action to extract an expression into a local variable. It also offers "Extract variable (replace all N)" when the expression occurs at least twice in the enclosing block with identical text and every occurrence reads the same value. With only a cursor, it offers one action for each enclosing expression. Defaults to true.
 
 - `enable_code_action_inline_variable`: Enables the code action to inline a local variable into its uses, with the cursor on the declaration's name or on any use. With the cursor on one of several uses, a second action inlines only that use and keeps the declaration. A typed declaration keeps its type at each use: `x: f32 = 1` inlines as `f32(1)`. Defaults to true.
 
@@ -208,6 +208,10 @@ Options:
 - `enable_code_action_split_decl`: Enables the code actions splitting a local declaration into a declaration and an assignment, joining them back, and splitting a multi-name declaration into one declaration per name. Defaults to true.
 
 - `enable_code_action_const_var`: Enables the code actions converting a local `x := v` to `x :: v` and back, where every use keeps its meaning. Defaults to true.
+
+- `enable_code_action_range_loop`: Enables the code actions on the header of a range loop: adding an index, iterating by reference or by value, toggling `#reverse`, and converting between `a..<10` and `a..=9`. Defaults to true.
+
+- `enable_code_action_surround`: Enables the code actions surrounding the statement at the cursor, or the statements a selection touches, with a block, `if true`, `for true`, `when true`, `defer` or `#no_bounds_check`. Defaults to true.
 
 - `enable_code_action_loop_label`: Enables the code action adding a label to the loop at the cursor, so nested `break` and `continue` can target it. Defaults to true.
 

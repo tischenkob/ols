@@ -165,6 +165,7 @@ unwrap_leaves_dead_code :: proc(ctx: ^ActionContext, stmt: ^ast.Node, block: ^as
 // A return, branch, panic or diverging call, or a block or `if` whose every path ends in one. A callee
 // that does not resolve to a procedure counts when it is a selector named `exit`, such as `os.exit(1)`.
 // Counting too much only refuses the edit.
+@(private = "package")
 ends_flow :: proc(document: ^Document, stmt: ^ast.Stmt) -> bool {
 	if terminates(stmt) {
 		return true

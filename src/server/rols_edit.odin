@@ -226,6 +226,25 @@ before_on_line :: proc(src: string, offset: int) -> (start, end: int) {
 	return
 }
 
+// Whether a label, a directive or an attribute on a line above a statement starting at offset belongs to it. Blank and
+// comment lines do not count. A `#assert` above counts as well, which only withholds an action.
+marked_by_line_above :: proc(src: string, offset: int) -> bool {
+	line_start, _ := before_on_line(src, offset)
+	for line_start > 0 {
+		previous := strings.last_index_byte(src[:line_start - 1], '\n') + 1
+		line := strings.trim_space(src[previous:line_start - 1])
+		line_start = previous
+		if line == "" || strings.has_prefix(line, "//") {
+			continue
+		}
+		if line[0] == '@' || line[0] == '#' {
+			return true
+		}
+		return strings.has_suffix(line, ":") && line != "case:" && !strings.contains_any(line, " \t")
+	}
+	return false
+}
+
 // Whether a `#+feature` tag of the file names feature.
 file_has_feature :: proc(document: ^Document, feature: string) -> bool {
 	for tag in document.ast.tags {

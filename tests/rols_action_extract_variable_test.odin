@@ -594,3 +594,1881 @@ main :: proc() {
 `,
 	)
 }
+
+@(test)
+action_extract_variable_all_whole_initializers :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}a * b
+	y := a * b
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Extract variable (replace all 2)",
+		`package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	value := a * b
+	x := value
+	y := value
+	use(x, y)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_cursor_on_later_use :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := a * b + 1
+	y := {*}a * b + 2
+	z := a * b
+	use(x, y, z)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Extract variable (replace all 3)",
+		`package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	value := a * b
+	x := value + 1
+	y := value + 2
+	z := value
+	use(x, y, z)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_selection :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {[a * b]} + 1
+	y := a * b + 2
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Extract variable (replace all 2)",
+		`package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	value := a * b
+	x := value + 1
+	y := value + 2
+	use(x, y)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_dominated_branch :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}a * b + 1
+	if c {
+		y := a * b
+		use(y)
+	}
+	use(x)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Extract variable (replace all 2)",
+		`package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	value := a * b
+	x := value + 1
+	if c {
+		y := value
+		use(y)
+	}
+	use(x)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_dominated_loop :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}a * b + 1
+	for i in 0..<3 {
+		use(i, a * b)
+	}
+	use(x)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Extract variable (replace all 2)",
+		`package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	value := a * b
+	x := value + 1
+	for i in 0..<3 {
+		use(i, value)
+	}
+	use(x)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_if_condition_first :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	if {*}a * b > 1 {
+		use(a * b)
+	}
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Extract variable (replace all 2)",
+		`package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	value := a * b
+	if value > 1 {
+		use(value)
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_skips_case_value :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}a * b
+	switch a * b {
+	case a * b:
+	}
+	use(x)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Extract variable (replace all 2)",
+		`package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	value := a * b
+	x := value
+	switch value {
+	case a * b:
+	}
+	use(x)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_avoids_later_name :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}a * b
+	value := 1
+	y := a * b
+	use(x, y, value)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Extract variable (replace all 2)",
+		`package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	value2 := a * b
+	x := value2
+	value := 1
+	y := value2
+	use(x, y, value)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_field_of_value_over_call :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {[s.w + 1]}
+	take(x)
+	y := s.w + 1
+	use(y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Extract variable (replace all 2)",
+		`package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	value := s.w + 1
+	x := value
+	take(x)
+	y := value
+	use(y)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_locals_over_call :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}a * b
+	take(x)
+	y := a * b
+	use(y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Extract variable (replace all 2)",
+		`package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	value := a * b
+	x := value
+	take(x)
+	y := value
+	use(y)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_slice_element_without_call :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {[xs[0]]}
+	y := xs[0]
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Extract variable (replace all 2)",
+		`package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	value := xs[0]
+	x := value
+	y := value
+	use(x, y)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_literal_of_default_type :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}2
+	y := 2
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Extract variable (replace all 2)",
+		`package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	value := 2
+	x := value
+	y := value
+	use(x, y)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_skips_literal_in_type :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	q: [2]int
+	x := {*}2
+	y := 2
+	use(q, x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_applied(
+		t,
+		&source,
+		"Extract variable (replace all 2)",
+		`package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	q: [2]int
+	value := 2
+	x := value
+	y := value
+	use(q, x, y)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_refuses_one_occurrence :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}a * b
+	use(x)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 1)")
+}
+
+@(test)
+action_extract_variable_all_refuses_call :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}bar(a)
+	y := bar(a)
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_conversion :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}int(a)
+	y := int(a)
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_call_inside :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}a + bar(b)
+	y := a + bar(b)
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_write_between :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	u := a
+	x := {*}u * b
+	u = 2
+	y := u * b
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_compound_write_between :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	u := a
+	x := {*}u * b
+	u += 2
+	y := u * b
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_write_in_first_statement :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	u := a
+	u = {*}u * b
+	y := u * b
+	use(y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_write_after_use_in_loop :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	u := a
+	x := {*}u * b
+	for i in 0..<3 {
+		use(i, u * b)
+		u = 2
+	}
+	use(x)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_address_between :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	u := a
+	x := {*}u * b
+	q := &u
+	y := u * b
+	use(x, y, q)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_write_through_pointer :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	u := a
+	q := &u
+	x := {*}u * b
+	q^ = 2
+	y := u * b
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_nested_procedure :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	u := {*}xs[0]
+	h := proc(xs: []int) -> int {
+		return xs[0]
+	}
+	use(u, h)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_defer :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}a * b
+	defer take(a * b)
+	use(x)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_undominated_branch :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	if c {
+		use(a * b)
+	}
+	y := {*}a * b
+	use(y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_undominated_and :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	use(c && a * b > 1)
+	y := {*}a * b
+	use(y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_undominated_ternary :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	use(a * b if c else 1)
+	y := {*}a * b
+	use(y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_undominated_loop_condition :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	for a * b > 1 {
+		break
+	}
+	y := {*}a * b
+	use(y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_inner_block_first :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	{
+		use(a * b)
+	}
+	y := {*}a * b
+	use(y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_shadow :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}a * b
+	{
+		a := 2
+		use(a * b)
+	}
+	use(x)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_loop_shadow :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}a * b
+	for a in 0..<3 {
+		use(a * b)
+	}
+	use(x)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_call_over_slice :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}xs[0]
+	take(1)
+	y := xs[0]
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_call_over_pointer :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}p.w
+	take(1)
+	y := p.w
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_alias_write_over_pointer :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}p.w
+	q := p
+	q.w = 3
+	y := p.w
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_by_reference_loop_over_slice :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}xs[0]
+	for &e in xs {
+		e = 1
+	}
+	y := xs[0]
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_call_over_global :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}G * 2
+	take(1)
+	y := G * 2
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_two_value_use :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}m[a]
+	v, ok := m[a]
+	use(x, v, ok)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_write_target :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}xs[a]
+	xs[a] = 1
+	use(x)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_slice_of_copy :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	z := [1][3]int{}
+	x := {*}z[0]
+	use(x, z[0][:])
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_constant_expression :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}MAX_V * 2
+	y := MAX_V * 2
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_composite_literal :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}S{w = 1}
+	y := S{w = 1}
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_context :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	x := {*}context.user_index
+	y := context.user_index
+	use(x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_refuses_literal_of_other_type :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	q: f32 = 2
+	x := {*}2
+	y := 2
+	use(q, x, y)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 3)")
+}
+
+@(test)
+action_extract_variable_all_refuses_shared_line :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+S :: struct {
+	w: int,
+}
+
+G := 3
+
+MAX_V :: 4
+
+bar :: proc(x: int) -> int {
+	return x
+}
+
+take :: proc(x: int) {
+}
+
+f :: proc(a, b: int, c: bool, s: S, p: ^S, xs: []int, m: map[int]int) {
+	if c do use({*}a * b)
+	use(a * b)
+}
+`,
+		config = {enable_code_action_extract_variable = true},
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
+
+@(test)
+action_extract_variable_all_needs_flag :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = `package test
+
+f :: proc(a, b: int) {
+	x := {*}a * b
+	y := a * b
+	use(x, y)
+}
+`,
+	}
+
+	test.expect_action_missing(t, &source, "Extract variable (replace all 2)")
+}
