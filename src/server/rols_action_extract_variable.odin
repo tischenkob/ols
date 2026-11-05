@@ -694,6 +694,16 @@ occurrence_use :: proc(ctx: ^ActionContext, occurrence: Occurrence) -> Occurrenc
 		case ^ast.Proc_Lit, ^ast.Defer_Stmt:
 			// A nested procedure has no access to the variable, and a `defer` runs after anything below it.
 			return .Refuse
+		case ^ast.Value_Decl:
+			// A variable cannot stand where the compiler needs a constant.
+			names := attribute_names(n.attributes[:])
+			if !n.is_mutable || slice.contains(names, "static") || slice.contains(names, "thread_local") {
+				use = .Keep
+			}
+		case ^ast.Call_Expr:
+			if _, is_directive := n.expr.derived.(^ast.Basic_Directive); is_directive {
+				use = .Keep
+			}
 		case ^ast.When_Stmt:
 			if child == n.cond {
 				use = .Keep

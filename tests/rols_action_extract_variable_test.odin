@@ -2803,3 +2803,66 @@ f :: proc() {
 `,
 	)
 }
+
+// A variable cannot stand where the compiler needs a constant.
+@(test)
+action_extract_variable_all_keeps_literal_in_local_constant :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+main :: proc() {
+	x := {*}2
+	K :: 2
+	use(x, K)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_keeps_literal_nested_in_local_constant :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+main :: proc() {
+	x := {*}2
+	K: int : 1
+	A :: K + 2
+	use(x, A)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_keeps_literal_in_static_local :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+main :: proc() {
+	x := {*}2
+	@(static) s := 2
+	use(x, s)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_keeps_literal_in_assert_directive :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+main :: proc() {
+	x := {*}2
+	K: int : 1
+	#assert(K + 2 > 1)
+	use(x)
+}
+`,
+	)
+}
