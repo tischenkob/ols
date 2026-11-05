@@ -581,6 +581,82 @@ apply_signature "Add to group scale" "$dir/signature/geo/geo.odin:22:1"
 grep -q "^scale :: proc{scale_int, scale_f32}" "$dir/signature/geo/geo.odin"
 echo "ok signature-group-added"
 rm -rf "$dir/signature"
+# The type, field order and procedure tag actions, each on a fresh copy, through the compile gate and odin check.
+mkdir "$dir/layout"
+echo '{}' > "$dir/layout/ols.json"
+apply_layout() {
+	local title="$1" at="$2"
+	rm -rf "$dir/layout/geo"
+	mkdir "$dir/layout/geo"
+	cat > "$dir/layout/main.odin" <<'ODIN'
+package layout
+
+import "core:fmt"
+import "geo"
+
+Count :: int
+
+Foo :: struct {
+	a: u8, // first
+	b: i64,
+	c: u8,
+}
+
+Config :: struct {
+	opts: struct {
+		x: int,
+		y: bool,
+	},
+	cb:   proc(a: int) -> int,
+}
+
+helper :: proc "contextless" (x: int) -> int {
+	return x + len("ab")
+}
+
+calc :: proc(x: Count) -> Count {
+	return Count(helper(x))
+}
+
+main :: proc() {
+	f: Foo
+	f.a = 1
+	c: Config
+	p: geo.Pt = geo.origin()
+	fmt.println(size_of(Foo), calc(2), c.opts.x, f.a, p.x)
+}
+ODIN
+	cat > "$dir/layout/geo/geo.odin" <<'ODIN'
+package geo
+
+Point :: struct {
+	x, y: f32,
+}
+
+Pt :: Point
+
+origin :: proc() -> Pt {
+	return Pt{}
+}
+ODIN
+	expect "layout-$title" "\.odin" "$OLS" query actions "$at" --apply "$title" --root "$dir/layout"
+	odin check "$dir/layout" >/dev/null
+	echo "ok layout-$title check"
+}
+apply_layout "Inline type alias" "$dir/layout/main.odin:6:1"
+apply_layout "Inline type alias" "$dir/layout/geo/geo.odin:7:1"
+grep -q "p: geo.Point = geo.origin()" "$dir/layout/main.odin"
+echo "ok layout-alias-qualified"
+apply_layout "Reorder fields to reduce padding (24 to 16 bytes)" "$dir/layout/main.odin:8:1"
+[ "$(odin run "$dir/layout" | cut -d' ' -f1)" = 16 ]
+echo "ok layout-reorder-size"
+apply_layout "Extract type" "$dir/layout/main.odin:15:10"
+apply_layout "Extract type" "$dir/layout/main.odin:19:10"
+apply_layout "Remove \"contextless\"" "$dir/layout/main.odin:22:1"
+apply_layout "Add \"contextless\"" "$dir/layout/main.odin:26:1"
+apply_layout "Add #force_inline" "$dir/layout/main.odin:26:1"
+apply_layout "Add #force_no_inline" "$dir/layout/main.odin:26:1"
+rm -rf "$dir/layout"
 expect generate-test "util_test.odin" "$OLS" query actions "$dir/util.odin:3:1" --apply "Generate test for add"
 grep -q "^test_add :: proc(t: ^testing.T)" "$dir/util_test.odin" && grep -q 'import "core:testing"' "$dir/util_test.odin"
 odin check "$dir" -no-entry-point

@@ -547,6 +547,12 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_param_object.(bool) or_else config.enable_code_action_param_object
 	config.enable_code_action_proc_group =
 		ols_config.enable_code_action_proc_group.(bool) or_else config.enable_code_action_proc_group
+	config.enable_code_action_extract_type =
+		ols_config.enable_code_action_extract_type.(bool) or_else config.enable_code_action_extract_type
+	config.enable_code_action_reorder_fields =
+		ols_config.enable_code_action_reorder_fields.(bool) or_else config.enable_code_action_reorder_fields
+	config.enable_code_action_proc_tags =
+		ols_config.enable_code_action_proc_tags.(bool) or_else config.enable_code_action_proc_tags
 	config.enable_code_action_merge_cases =
 		ols_config.enable_code_action_merge_cases.(bool) or_else config.enable_code_action_merge_cases
 	config.enable_code_action_loop_label =
@@ -1219,6 +1225,9 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_param_pointer = true
 	config.enable_code_action_param_object = true
 	config.enable_code_action_proc_group = true
+	config.enable_code_action_extract_type = true
+	config.enable_code_action_reorder_fields = true
+	config.enable_code_action_proc_tags = true
 	config.enable_code_action_merge_cases = true
 	config.enable_code_action_loop_label = true
 	config.enable_code_action_literal = true

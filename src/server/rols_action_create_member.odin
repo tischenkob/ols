@@ -344,6 +344,7 @@ append_brace_item :: proc(
 
 // The documents of the workspace files whose text holds one of words, and the open one. ok is false when a file cannot
 // be read, as it could hold anything.
+@(private = "package")
 workspace_documents :: proc(ctx: ^ActionContext, words: ..string) -> (documents: []^Document, ok: bool) {
 	h := Call_Hierarchy{ctx.files, make(map[string]^Document, context.temp_allocator)}
 	h.documents[ctx.uri] = ctx.document
@@ -415,6 +416,7 @@ holds_positional_literal :: proc(ctx: ^ActionContext, name: string) -> bool {
 }
 
 // `Name` or `pkg.Name`.
+@(private = "package")
 names_type :: proc(node: ^ast.Expr, name: string) -> bool {
 	#partial switch n in node.derived {
 	case ^ast.Ident:

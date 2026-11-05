@@ -325,6 +325,21 @@
 			"description": "Enables the code actions making a procedure group from procedures that share a name prefix, and adding a procedure to a group.",
 			"default": true
 		},
+		"enable_code_action_extract_type": {
+			"type": "boolean",
+			"description": "Enables the code actions naming an inline type as a top-level type, and inlining a type alias across the workspace.",
+			"default": true
+		},
+		"enable_code_action_reorder_fields": {
+			"type": "boolean",
+			"description": "Enables the code action reordering the fields of a struct by descending alignment when that reduces its size.",
+			"default": true
+		},
+		"enable_code_action_proc_tags": {
+			"type": "boolean",
+			"description": "Enables the code actions adding and removing #force_inline, #force_no_inline and \"contextless\" on a procedure.",
+			"default": true
+		},
 		"enable_code_action_init_move": {
 			"type": "boolean",
 			"description": "Enables the code actions moving a declaration into the init of the if, switch or for after it, and moving an init out above its statement.",
