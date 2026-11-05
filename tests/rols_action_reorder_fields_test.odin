@@ -123,6 +123,10 @@ reorder_fields_layout_uses :: proc(t: ^testing.T) {
 		"package test\n\nmake_foo :: proc() -> Foo {\n\treturn Foo{1, nil, true}\n}\n",
 		"package test\n\nfoos :: proc() -> []Foo {\n\treturn []Foo{{1, nil, true}}\n}\n",
 		"package test\n\nfoo: Foo = {1, nil, true}\n",
+		"package test\n\nmake_foo :: proc() -> Foo {\n\treturn {1, nil, true}\n}\n",
+		"package test\n\nset_foo :: proc(f: ^Foo) {\n\tf^ = {1, nil, true}\n}\n",
+		"package test\n\ntake :: proc(f: Foo) {}\n\nuse :: proc() {\n\ttake({1, nil, true})\n}\n",
+		"package test\n\nBar :: struct {\n\tf: Foo,\n}\n\nbar := Bar{f = {1, nil, true}}\n",
 		"package test\n\nbytes :: proc(f: Foo) -> [24]u8 {\n\treturn transmute([24]u8)f\n}\n",
 		"package test\n\nforeign import lib \"system:c\"\n\nforeign lib {\n\ttake_foo :: proc(f: ^Foo) ---\n}\n",
 	}

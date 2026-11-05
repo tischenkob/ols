@@ -246,6 +246,22 @@ outer :: proc "contextless" () -> int {
 }
 `,
 	)
+	// A procedure type that requires the convention holds the procedure as a value.
+	expect_no_proc_tag(
+		t,
+		REMOVE_CONTEXTLESS,
+		`package test
+
+ca{*}lc :: proc "contextless" (x: int) -> int {
+	return x
+}
+
+main :: proc() {
+	cb: proc "contextless" (int) -> int = calc
+	_ = cb(1)
+}
+`,
+	)
 	expect_no_proc_tag(
 		t,
 		REMOVE_INLINE,

@@ -67,7 +67,11 @@ add_reorder_fields_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	name := node_text(src, decl.names[0])
-	if layout_exposed(ctx, name) {
+	count := 0
+	for field in list {
+		count += len(field.names)
+	}
+	if layout_exposed(ctx, name, count) {
 		return
 	}
 	start, end, text, ok := reordered_text(src, type, order)
@@ -288,18 +292,21 @@ basic_layout :: proc(name: string) -> (Layout, bool) {
 }
 
 // Whether code of the workspace depends on the field order of the struct named name: a literal that lists its values
-// by position, a `transmute`, or a foreign procedure. A memory cast through a pointer goes unseen.
-layout_exposed :: proc(ctx: ^ActionContext, name: string) -> bool {
+// by position, a `transmute`, or a foreign procedure. An untyped positional literal with one value per field counts,
+// since a return, an assignment or an argument can give it the struct type. A memory cast through a pointer goes unseen.
+layout_exposed :: proc(ctx: ^ActionContext, name: string, count: int) -> bool {
 	documents, ok := workspace_documents(ctx, name)
 	if !ok {
 		return true
 	}
 	Data :: struct {
 		name:  string,
+		count: int,
 		found: bool,
 	}
 	data := Data {
-		name = name,
+		name  = name,
+		count = count,
 	}
 	visitor := ast.Visitor {
 		data = &data,
@@ -311,6 +318,7 @@ layout_exposed :: proc(ctx: ^ActionContext, name: string) -> bool {
 			#partial switch n in node.derived {
 			case ^ast.Comp_Lit:
 				if n.type == nil {
+					data.found ||= len(n.elems) == data.count && is_positional(n)
 					break
 				}
 				if names_type(n.type, data.name) {
