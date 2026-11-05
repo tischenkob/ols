@@ -113,6 +113,8 @@ Config :: struct {
 	enable_code_action_evaluate:             bool,
 	enable_code_action_create_member:        bool,
 	enable_code_action_create_decl:          bool,
+	enable_code_action_generate_lifetime:    bool,
+	enable_code_action_generate_enum:        bool,
 	enable_code_action_merge_cases:          bool,
 	enable_code_action_loop_label:           bool,
 	enable_code_action_literal:              bool,

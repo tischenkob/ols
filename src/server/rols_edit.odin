@@ -1139,7 +1139,6 @@ write_requalified_fields :: proc(
 	return true
 }
 
-@(private = "file")
 document_imports_alias :: proc(document: ^Document, alias: string) -> bool {
 	for imp in document.imports {
 		if imp.base == alias {

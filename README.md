@@ -229,6 +229,10 @@ Options:
 
 - `enable_code_action_create_decl`: Enables "Create local variable x", "Create global variable x" and "Create constant x" on an unresolved name whose use gives a type, and "Create struct Foo" on an unresolved `Foo{a = 1}`, where an untyped integer gives `int`. `x = v` becomes `x := v` for the local form, and the constant form takes `x = 1` to file scope. They refuse when no use gives a type, and "Create struct" refuses a positional literal. Defaults to true.
 
+- `enable_code_action_generate_lifetime`: Enables "Generate destroy_foo" and "Generate init_foo" on the name of a top-level struct `Foo` that is not parametric or a `#raw_union`. `destroy_foo :: proc(foo: ^Foo)` calls `delete` on each `[dynamic]` and map field and names the slice, string and pointer fields in a comment, since they can be borrowed. It refuses a struct with none of these fields. `init_foo :: proc(foo: ^Foo, allocator := context.allocator)` calls `make` for each `[dynamic]` and map field, and refuses a struct with neither. Both refuse a name the package already declares. Defaults to true.
+
+- `enable_code_action_generate_enum`: Enables "Generate bit_set" and "Generate name table" on the name of a top-level enum whose member values are constants. "Generate bit_set" declares `Flags :: bit_set[Flag]` for an enum `Flag`, else `Enum_Set :: bit_set[Enum]`, and refuses a negative value or a value over 127. "Generate name table" declares `ENUM_NAMES := [Enum]string {...}` with one entry per value, `#sparse` when the values have gaps. Both refuse a name the package already declares. Defaults to true.
+
 - `enable_code_action_qualify`: Enables the code actions converting between `.A` and `Enum.A`, and adding or dropping the type of a composite literal, where a declared type, an assignment, a return, a parameter, a field or an element supplies the type. A comparison and a `case` also supply the type of an enum member. Defaults to true.
 
 - `enable_code_action_loop_label`: Enables the code action adding a label to the loop at the cursor, so nested `break` and `continue` can target it. Defaults to true.

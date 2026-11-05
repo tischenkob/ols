@@ -450,6 +450,52 @@ out="$("$OLS" query actions "$dir/create/create.odin:10:8" --root "$dir/create")
 [[ "$out" != *"Create enum member"* ]] || { echo "FAIL create-enum-outside-workspace: $out"; exit 1; }
 echo "ok create-outside-workspace"
 rm -rf "$dir/create"
+# The generate actions on a struct and on enums, each on a fresh copy, through the compile gate and odin check.
+mkdir "$dir/generate"
+echo '{}' > "$dir/generate/ols.json"
+apply_generate() {
+	local title="$1" at="$2"
+	cat > "$dir/generate/generate.odin" <<'ODIN'
+package generate
+
+Item :: struct {
+	a: int,
+}
+
+Foo :: struct {
+	items:  [dynamic]Item,
+	lookup: map[string]int,
+	tags:   []string,
+	name:   string,
+	next:   ^Foo,
+}
+
+Flag :: enum {
+	A,
+	B,
+	C = B,
+}
+
+Code :: enum u8 {
+	Ok = 1,
+	Not_Found = 4,
+}
+
+main :: proc() {}
+ODIN
+	expect "generate-$title" "\.odin" "$OLS" query actions "$dir/generate/generate.odin:$at" --apply "$title" --root "$dir/generate"
+	odin check "$dir/generate" >/dev/null
+	echo "ok generate-$title check"
+}
+apply_generate "Generate destroy_foo" 7:1
+apply_generate "Generate init_foo" 7:1
+apply_generate "Generate bit_set" 15:1
+apply_generate "Generate name table" 15:1
+apply_generate "Generate bit_set" 21:1
+apply_generate "Generate name table" 21:1
+grep -q "^CODE_NAMES := #sparse\[Code\]string {" "$dir/generate/generate.odin"
+echo "ok generate-sparse-table"
+rm -rf "$dir/generate"
 expect generate-test "util_test.odin" "$OLS" query actions "$dir/util.odin:3:1" --apply "Generate test for add"
 grep -q "^test_add :: proc(t: ^testing.T)" "$dir/util_test.odin" && grep -q 'import "core:testing"' "$dir/util_test.odin"
 odin check "$dir" -no-entry-point

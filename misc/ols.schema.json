@@ -375,6 +375,16 @@
 			"description": "Enables the code actions creating a local variable, a global variable or a constant from an unresolved name, and a struct from an unresolved Foo{a = 1}.",
 			"default": true
 		},
+		"enable_code_action_generate_lifetime": {
+			"type": "boolean",
+			"description": "Enables the code actions generating destroy_foo and init_foo procedures on the name of a struct Foo with [dynamic] or map fields.",
+			"default": true
+		},
+		"enable_code_action_generate_enum": {
+			"type": "boolean",
+			"description": "Enables the code actions generating a bit_set type and a table of member names on the name of an enum.",
+			"default": true
+		},
 		"enable_code_action_loop_label": {
 			"type": "boolean",
 			"description": "Enables the code action adding a label to the loop at the cursor.",
