@@ -295,6 +295,16 @@
 			"description": "Enables the code action lifting a selector path into a using statement and removing the path from its uses in the block.",
 			"default": true
 		},
+		"enable_code_action_attr": {
+			"type": "boolean",
+			"description": "Enables the code actions adding and removing the require_results, private and test attributes of the top-level declaration at the cursor.",
+			"default": true
+		},
+		"enable_code_action_swap_param": {
+			"type": "boolean",
+			"description": "Enables the code actions moving the parameter at the cursor one place left or right, across the procedure and its calls.",
+			"default": true
+		},
 		"enable_code_action_loop_label": {
 			"type": "boolean",
 			"description": "Enables the code action adding a label to the loop at the cursor.",

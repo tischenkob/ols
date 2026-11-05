@@ -518,6 +518,8 @@ OlsConfig :: struct {
 	enable_code_action_expand:               Maybe(bool),
 	enable_code_action_checker_fix:          Maybe(bool),
 	enable_code_action_lift_using:           Maybe(bool),
+	enable_code_action_attr:                 Maybe(bool),
+	enable_code_action_swap_param:           Maybe(bool),
 	enable_code_action_merge_cases:          Maybe(bool),
 	enable_code_action_loop_label:           Maybe(bool),
 	enable_code_action_literal:              Maybe(bool),

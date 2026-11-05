@@ -311,6 +311,18 @@ reorder_params :: proc(
 		return {}, sites_reason, false
 	}
 
+	return reorder_params_edit(document, lit, order, variants, sites), "", true
+}
+
+// The edit that reorders the parameters of lit and of its variants, and the arguments of sites. order lists the new
+// order by old index.
+reorder_params_edit :: proc(
+	document: ^Document,
+	lit: ^ast.Proc_Lit,
+	order: []int,
+	variants: []Decl_Variant,
+	sites: []Call_Site,
+) -> WorkspaceEdit {
 	changes := make(Changes, context.temp_allocator)
 
 	reorder_param_list(&changes, document, lit, order)
@@ -330,7 +342,7 @@ reorder_params :: proc(
 			)
 		}
 	}
-	return workspace_edit(changes), "", true
+	return workspace_edit(changes)
 }
 
 // Rewrites the parameter list of lit in document in the new order. A field's doc comment and line comment

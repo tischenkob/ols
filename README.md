@@ -199,6 +199,10 @@ Options:
 
 - `enable_code_action_lift_using`: Enables the code action lifting a selector path such as `a.b` into a `using a.b` statement before its first use in the block at the cursor, removing the path from every use in that block and its nested blocks. It adds `#+feature using-stmt` when the file lacks that tag. Defaults to true.
 
+- `enable_code_action_attr`: Enables the code actions adding and removing `@(require_results)`, `@(private)` and `@(test)` on the top-level declaration at the cursor, where the result compiles. Defaults to true.
+
+- `enable_code_action_swap_param`: Enables the code actions moving the parameter at the cursor one place left or right in a top-level procedure, updating its platform variants and every call. Defaults to true.
+
 - `enable_code_action_loop_label`: Enables the code action adding a label to the loop at the cursor, so nested `break` and `continue` can target it. Defaults to true.
 
 - `enable_code_action_merge_cases`: Enables the code actions to merge a switch case with the next one when their bodies match, and to split a multi-value case into one case per value. Defaults to true.

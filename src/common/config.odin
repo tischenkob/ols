@@ -97,6 +97,8 @@ Config :: struct {
 	enable_code_action_expand:               bool,
 	enable_code_action_checker_fix:          bool,
 	enable_code_action_lift_using:           bool,
+	enable_code_action_attr:                 bool,
+	enable_code_action_swap_param:           bool,
 	enable_code_action_merge_cases:          bool,
 	enable_code_action_loop_label:           bool,
 	enable_code_action_literal:              bool,
