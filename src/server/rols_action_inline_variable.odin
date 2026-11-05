@@ -301,6 +301,7 @@ target_decl :: proc(
 
 // Whether a use can state the declared type. An `any` stores the address of its value, `typeid(int)`
 // does not compile, and each spelling of an inline or distinct type is a new type.
+@(private = "package")
 can_restate_type :: proc(type: ^ast.Expr) -> bool {
 	if type == nil {
 		return true
@@ -704,6 +705,7 @@ is_plain_target :: proc(use: IdentUse) -> bool {
 }
 
 // `x[:]` or `for &e in x` lets writes change x without naming it.
+@(private = "package")
 aliases :: proc(use: IdentUse) -> bool {
 	target: rawptr = use.ident
 	#reverse for parent in use.parents {
@@ -773,6 +775,7 @@ passes_address :: proc(typed: SymbolAndNodeMap, use: IdentUse) -> bool {
 }
 
 // `any` or `..any`.
+@(private = "package")
 names_any :: proc(type: ^ast.Expr) -> bool {
 	if type == nil {
 		return false

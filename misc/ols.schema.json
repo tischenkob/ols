@@ -305,6 +305,21 @@
 			"description": "Enables the code actions moving the parameter at the cursor one place left or right, across the procedure and its calls.",
 			"default": true
 		},
+		"enable_code_action_init_move": {
+			"type": "boolean",
+			"description": "Enables the code actions moving a declaration into the init of the if, switch or for after it, and moving an init out above its statement.",
+			"default": true
+		},
+		"enable_code_action_split_decl": {
+			"type": "boolean",
+			"description": "Enables the code actions splitting a local declaration from its assignment, joining them, and splitting a multi-name declaration.",
+			"default": true
+		},
+		"enable_code_action_const_var": {
+			"type": "boolean",
+			"description": "Enables the code actions converting a local variable to a constant and back, where every use keeps its meaning.",
+			"default": true
+		},
 		"enable_code_action_loop_label": {
 			"type": "boolean",
 			"description": "Enables the code action adding a label to the loop at the cursor.",

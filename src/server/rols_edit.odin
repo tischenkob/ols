@@ -144,6 +144,25 @@ find_stmt_list_at :: proc(root: ^ast.Node, start, end: int) -> (StmtListAt, bool
 	return data.result, data.found
 }
 
+// The statement around the range in the innermost statement list of the procedure at the cursor: the list and
+// the statement's index in it. Fails when the range is outside one statement.
+stmt_at_range :: proc(ctx: ^ActionContext) -> (stmts: []^ast.Stmt, index: int, ok: bool) {
+	function := ctx.position_context.function
+	if function == nil || function.body == nil {
+		return
+	}
+	start, end := trim_selection(ctx.document.ast.src, ctx.range.start, ctx.range.end)
+	list, found := find_stmt_list_at(function.body, start, end)
+	if !found || list.first != list.last {
+		return
+	}
+	stmt := list.stmts[list.first]
+	if stmt.pos.offset > start || end > stmt.end.offset {
+		return
+	}
+	return list.stmts, list.first, true
+}
+
 IdentUse :: struct {
 	ident:   ^ast.Ident,
 	parents: []^ast.Node, // outermost first
@@ -345,6 +364,21 @@ get_line_indentation :: proc(src: string, offset: int) -> string {
 	}
 
 	return src[line_start:indent_end]
+}
+
+// Gathers the locals up to offset, as they are otherwise gathered up to the cursor only. The later actions share them,
+// so the caller restores the cursor gathering with restore_locals.
+gather_locals_at :: proc(ctx: ^ActionContext, offset: int) {
+	pc := ctx.position_context^
+	pc.position = offset
+	pc.nested_position = offset
+	clear_locals(ctx.ast_context)
+	get_locals(ctx.ast_context, &pc)
+}
+
+restore_locals :: proc(ctx: ^ActionContext) {
+	clear_locals(ctx.ast_context)
+	get_locals(ctx.ast_context, ctx.position_context)
 }
 
 // Type of a local as Odin source, resolved with locals gathered up to the current position.

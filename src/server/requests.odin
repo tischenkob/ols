@@ -507,6 +507,12 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_attr.(bool) or_else config.enable_code_action_attr
 	config.enable_code_action_swap_param =
 		ols_config.enable_code_action_swap_param.(bool) or_else config.enable_code_action_swap_param
+	config.enable_code_action_init_move =
+		ols_config.enable_code_action_init_move.(bool) or_else config.enable_code_action_init_move
+	config.enable_code_action_split_decl =
+		ols_config.enable_code_action_split_decl.(bool) or_else config.enable_code_action_split_decl
+	config.enable_code_action_const_var =
+		ols_config.enable_code_action_const_var.(bool) or_else config.enable_code_action_const_var
 	config.enable_code_action_merge_cases =
 		ols_config.enable_code_action_merge_cases.(bool) or_else config.enable_code_action_merge_cases
 	config.enable_code_action_loop_label =
@@ -1159,6 +1165,9 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_lift_using = true
 	config.enable_code_action_attr = true
 	config.enable_code_action_swap_param = true
+	config.enable_code_action_init_move = true
+	config.enable_code_action_split_decl = true
+	config.enable_code_action_const_var = true
 	config.enable_code_action_merge_cases = true
 	config.enable_code_action_loop_label = true
 	config.enable_code_action_literal = true

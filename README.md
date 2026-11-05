@@ -203,6 +203,12 @@ Options:
 
 - `enable_code_action_swap_param`: Enables the code actions moving the parameter at the cursor one place left or right in a top-level procedure, updating its platform variants and every call. Defaults to true.
 
+- `enable_code_action_init_move`: Enables the code actions moving a declaration into the init of the `if`, `switch` or `for` that follows it, and moving an init out above its statement. Defaults to true.
+
+- `enable_code_action_split_decl`: Enables the code actions splitting a local declaration into a declaration and an assignment, joining them back, and splitting a multi-name declaration into one declaration per name. Defaults to true.
+
+- `enable_code_action_const_var`: Enables the code actions converting a local `x := v` to `x :: v` and back, where every use keeps its meaning. Defaults to true.
+
 - `enable_code_action_loop_label`: Enables the code action adding a label to the loop at the cursor, so nested `break` and `continue` can target it. Defaults to true.
 
 - `enable_code_action_merge_cases`: Enables the code actions to merge a switch case with the next one when their bodies match, and to split a multi-value case into one case per value. Defaults to true.
