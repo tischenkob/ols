@@ -701,11 +701,23 @@ occurrence_use :: proc(ctx: ^ActionContext, occurrence: Occurrence) -> Occurrenc
 				use = .Keep
 			}
 		case ^ast.Call_Expr:
-			if _, is_directive := n.expr.derived.(^ast.Basic_Directive); is_directive {
+			if needs_constant_args(n) {
 				use = .Keep
 			}
 		case ^ast.When_Stmt:
 			if child == n.cond {
+				use = .Keep
+			}
+		case ^ast.Ternary_When_Expr:
+			if child == n.cond {
+				use = .Keep
+			}
+		case ^ast.Unroll_Range_Stmt:
+			if child == n.expr {
+				use = .Keep
+			}
+		case ^ast.Field_Value:
+			if child == n.field {
 				use = .Keep
 			}
 		case ^ast.Case_Clause:
@@ -736,10 +748,6 @@ occurrence_use :: proc(ctx: ^ActionContext, occurrence: Occurrence) -> Occurrenc
 		if expr == p.type {
 			return .Keep
 		}
-	case ^ast.Field_Value:
-		if expr == p.field {
-			return .Keep
-		}
 	case ^ast.Type_Cast:
 		if expr == p.type {
 			return .Keep
@@ -748,6 +756,13 @@ occurrence_use :: proc(ctx: ^ActionContext, occurrence: Occurrence) -> Occurrenc
 		if expr == p.type {
 			return .Keep
 		}
+	case ^ast.Or_Else_Expr:
+		// These operators split an optional-ok value, which a variable no longer holds.
+		if expr == p.x {
+			return .Refuse
+		}
+	case ^ast.Or_Return_Expr, ^ast.Or_Branch_Expr:
+		return .Refuse
 	case ^ast.Value_Decl:
 		if expr == p.type {
 			return .Keep
@@ -774,6 +789,20 @@ occurrence_use :: proc(ctx: ^ActionContext, occurrence: Occurrence) -> Occurrenc
 		return .Refuse
 	}
 	return .Replace
+}
+
+// A directive and these builtins read their arguments at compile time, as constants or, for `offset_of`, as a selector.
+needs_constant_args :: proc(call: ^ast.Call_Expr) -> bool {
+	name: string
+	#partial switch callee in call.expr.derived {
+	case ^ast.Basic_Directive:
+		return true
+	case ^ast.Ident:
+		name = callee.name
+	case ^ast.Selector_Expr:
+		name = callee.field.name
+	}
+	return slice.contains([]string{"swizzle", "simd_shuffle", "offset_of", "offset_of_by_string"}, name)
 }
 
 // Whether a slice or a method reaches the expression through fields and elements. A slice of a copy no longer writes

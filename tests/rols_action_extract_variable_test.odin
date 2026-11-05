@@ -2866,3 +2866,135 @@ main :: proc() {
 `,
 	)
 }
+
+@(test)
+action_extract_variable_all_refuses_or_else_operand :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+f :: proc(m: map[int]int, k: int) {
+	a := {*}m[k] or_else 0
+	b := m[k] or_else 1
+	use(a, b)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_refuses_or_return_operand :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+f :: proc(m: map[int]int, k: int) -> (r: int, ok: bool) {
+	a := {*}m[k]
+	b := m[k] or_return
+	use(a, b)
+	return
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_refuses_swizzle_index :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+@builtin
+swizzle :: proc(x: [$N]$T, indices: ..int) -> [len(indices)]T ---
+
+f :: proc(v: [4]int) {
+	a := {*}0
+	b := swizzle(v, 0, 1)
+	use(a, b)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_keeps_literal_in_unroll_range :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+main :: proc() {
+	K: int : 0
+	x := {*}4
+	#unroll for i in K..<4 {
+		use(x, i)
+	}
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_keeps_literal_in_nested_designator :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+main :: proc() {
+	K: int : 0
+	x := {*}1
+	a := [4]int{K + 1 = 2}
+	use(x, a)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_keeps_literal_in_when_ternary_condition :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+main :: proc() {
+	K: int : 1
+	x := {*}2
+	y := 1 when K == 2 else 3
+	use(x, y)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_refuses_swizzle_index_at_cursor :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+f :: proc(v: [4]int) {
+	p := swizzle(v, {*}0, 1)
+	q := swizzle(v, 0, 2)
+	use(p, q)
+}
+`,
+	)
+}
+
+@(test)
+action_extract_variable_all_keeps_offset_of_selector :: proc(t: ^testing.T) {
+	expect_no_replace_all(
+		t,
+		`package test
+
+S :: struct {
+	x: int,
+}
+
+f :: proc(s: S) {
+	a := {*}s.x
+	o := offset_of(s.x)
+	use(a, o)
+}
+`,
+	)
+}
