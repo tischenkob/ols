@@ -330,6 +330,21 @@
 			"description": "Enables the code actions surrounding the statements at the cursor with a block, if, for, when, defer or #no_bounds_check.",
 			"default": true
 		},
+		"enable_code_action_expand_using": {
+			"type": "boolean",
+			"description": "Enables the code actions removing a using statement by qualifying each promoted name, and converting a using struct field to #subtype when nothing uses its promoted members.",
+			"default": true
+		},
+		"enable_code_action_named_form": {
+			"type": "boolean",
+			"description": "Enables the code actions converting a struct literal or a call between positional and named forms.",
+			"default": true
+		},
+		"enable_code_action_qualify": {
+			"type": "boolean",
+			"description": "Enables the code actions converting between .A and Enum.A, and adding or dropping the type of a literal where the context supplies it.",
+			"default": true
+		},
 		"enable_code_action_loop_label": {
 			"type": "boolean",
 			"description": "Enables the code action adding a label to the loop at the cursor.",

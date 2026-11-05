@@ -67,6 +67,7 @@ add_lift_using_action :: proc(ctx: ^ActionContext) {
 }
 
 // A `when` opens no scope, so a `using` in its body would leak into the enclosing block.
+@(private = "package")
 in_when_body :: proc(body: ^ast.Stmt, pos: int) -> bool {
 	nodes := nodes_at({body}, pos)
 	#reverse for at in nodes {
@@ -83,6 +84,7 @@ in_when_body :: proc(body: ^ast.Stmt, pos: int) -> bool {
 }
 
 // The identifier at the root of a chain of `.` selectors, nil for any other expression.
+@(private = "package")
 path_root :: proc(expr: ^ast.Expr) -> ^ast.Ident {
 	#partial switch e in expr.derived {
 	case ^ast.Ident:
@@ -133,6 +135,7 @@ find_paths :: proc(stmt: ^ast.Stmt, start, end: int) -> []^ast.Expr {
 }
 
 // The field names `using` brings into scope, for a variable of struct or single pointer to struct type.
+@(private = "package")
 using_fields :: proc(
 	ctx: ^ActionContext,
 	typed: SymbolAndNodeMap,
@@ -301,6 +304,7 @@ in_offset_of :: proc(use: IdentUse) -> bool {
 	return false
 }
 
+@(private = "package")
 under_using :: proc(use: IdentUse) -> bool {
 	for parent in use.parents {
 		#partial switch p in parent.derived {
@@ -318,6 +322,7 @@ under_using :: proc(use: IdentUse) -> bool {
 // Whether the key of a Field_Value is an expression, which a field would capture. That holds in an
 // array, enumerated array or map literal. A literal without a type counts too, because telling those
 // apart needs the type from its context.
+@(private = "package")
 is_index_key :: proc(ctx: ^ActionContext, use: IdentUse) -> bool {
 	count := len(use.parents)
 	if count < 2 {

@@ -213,6 +213,12 @@ Options:
 
 - `enable_code_action_surround`: Enables the code actions surrounding the statement at the cursor, or the statements a selection touches, with a block, `if true`, `for true`, `when true`, `defer` or `#no_bounds_check`. Defaults to true.
 
+- `enable_code_action_expand_using`: Enables the code actions removing a `using`. On a `using` statement, "Expand using" writes the path before each name the statement promotes in the rest of its block and deletes the statement, so it is the inverse of "Lift using". It leaves a `#+feature using-stmt` tag in place. On a `using` struct field, "Convert using to #subtype" keeps the implicit conversion to the embedded type and drops the promotion, and applies only when a search of the workspace finds no use of a member through the promotion. `core:reflect` and what reads it, such as `core:encoding/json`, stop treating that field as `using`. Defaults to true.
+
+- `enable_code_action_named_form`: Enables the code actions converting a struct literal between `Foo{1, 2}` and `Foo{x = 1, y = 2}`, and a call between `f(1, 2)` and `f(a = 1, b = 2)`. A call with named arguments no longer qualifies for "Move parameter", "Remove parameter", "Introduce parameter" and `ols query reorder-params`, which refuse a call site that names its arguments. Defaults to true.
+
+- `enable_code_action_qualify`: Enables the code actions converting between `.A` and `Enum.A`, and adding or dropping the type of a composite literal, where a declared type, an assignment, a return, a parameter, a field or an element supplies the type. A comparison and a `case` also supply the type of an enum member. Defaults to true.
+
 - `enable_code_action_loop_label`: Enables the code action adding a label to the loop at the cursor, so nested `break` and `continue` can target it. Defaults to true.
 
 - `enable_code_action_merge_cases`: Enables the code actions to merge a switch case with the next one when their bodies match, and to split a multi-value case into one case per value. Defaults to true.

@@ -517,6 +517,12 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_range_loop.(bool) or_else config.enable_code_action_range_loop
 	config.enable_code_action_surround =
 		ols_config.enable_code_action_surround.(bool) or_else config.enable_code_action_surround
+	config.enable_code_action_expand_using =
+		ols_config.enable_code_action_expand_using.(bool) or_else config.enable_code_action_expand_using
+	config.enable_code_action_named_form =
+		ols_config.enable_code_action_named_form.(bool) or_else config.enable_code_action_named_form
+	config.enable_code_action_qualify =
+		ols_config.enable_code_action_qualify.(bool) or_else config.enable_code_action_qualify
 	config.enable_code_action_merge_cases =
 		ols_config.enable_code_action_merge_cases.(bool) or_else config.enable_code_action_merge_cases
 	config.enable_code_action_loop_label =
@@ -1174,6 +1180,9 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_const_var = true
 	config.enable_code_action_range_loop = true
 	config.enable_code_action_surround = true
+	config.enable_code_action_expand_using = true
+	config.enable_code_action_named_form = true
+	config.enable_code_action_qualify = true
 	config.enable_code_action_merge_cases = true
 	config.enable_code_action_loop_label = true
 	config.enable_code_action_literal = true

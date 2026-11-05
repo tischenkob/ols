@@ -146,6 +146,7 @@ inferred_type :: proc(ctx: ^ActionContext, name: ^ast.Ident, value: ^ast.Expr, o
 
 // Whether the name of symbol, looked up where symbol lives, finds a type at the place that symbol came from. A field's
 // symbol takes the name of the field, and a type can share that name and even its text (`Sl :: distinct []int`).
+@(private = "package")
 declares_type :: proc(ctx: ^ActionContext, at: ^ast.Ident, symbol: Symbol) -> bool {
 	set_ast_package_set_scoped(ctx.ast_context, symbol.pkg)
 	ctx.ast_context.use_locals = symbol.pkg == ctx.ast_context.document_package
@@ -168,6 +169,7 @@ declares_type :: proc(ctx: ^ActionContext, at: ^ast.Ident, symbol: Symbol) -> bo
 // cursor. In another package only a builtin type can be sure to: `[]Item` there means that package's Item, and `[2]int`
 // that package's own `int`, if it declares one. `distinct` is no name here, so an inline `distinct [3]int`, which
 // declares a new type each time it is written, refuses.
+@(private = "package")
 spelled_names_hold :: proc(ctx: ^ActionContext, at: ^ast.Ident, text: string, pkg: string) -> bool {
 	is_separator :: proc(r: rune) -> bool {
 		return r != '_' && r != '.' && !unicode.is_letter(r) && !unicode.is_digit(r)

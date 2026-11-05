@@ -176,6 +176,95 @@ apply_loops "Surround with defer" 5:2
 apply_loops "Surround with when" 21:2
 apply_loops "Extract variable (replace all 2)" 21:7-21:12
 rm -rf "$dir/loops"
+# Expand using, the named forms and the qualified forms, from a fresh copy, through the compile gate and odin check.
+mkdir "$dir/forms"
+echo '{}' > "$dir/forms/ols.json"
+apply_forms() {
+	local title="$1" at="$2"
+	cat > "$dir/forms/forms.odin" <<'ODIN'
+#+feature using-stmt
+package forms
+
+Base :: struct {
+	n: int,
+}
+
+Derived :: struct {
+	using base: Base,
+	own:        int,
+}
+
+P :: struct {
+	x, y: int,
+}
+
+Kind :: enum {
+	A,
+	B,
+}
+
+Holder :: struct {
+	p: P,
+	k: Kind,
+}
+
+two :: proc(a, b: int) -> int {
+	return a + b
+}
+
+take :: proc(p: P, k: Kind) -> P {
+	return p
+}
+
+back :: proc() -> P {
+	return P{1, 2}
+}
+
+main :: proc() {
+	s: P
+	using s
+	x = 1
+	_ = two(x, y)
+	_ = two(a = 1, b = 2)
+	v := P{1, 2}
+	w := P{x = 1, y = 2}
+	d: P = P{1, 2}
+	e: P = {1, 2}
+	k: Kind = .A
+	m: Kind = Kind.B
+	h := Holder{p = {1, 2}, k = .A}
+	i := Holder{p = P{1, 2}, k = Kind.A}
+	_ = take({1, 2}, .B)
+	_ = take(P{1, 2}, Kind.B)
+	_, _, _, _, _, _, _, _ = v, w, d, e, k, m, h, i
+	own: Derived
+	_ = own.base.n
+}
+ODIN
+	expect "forms-$title" "forms.odin" "$OLS" query actions "$dir/forms/forms.odin:$at" --apply "$title" --root "$dir/forms"
+	odin check "$dir/forms" >/dev/null
+	echo "ok forms-$title check"
+}
+apply_forms "Expand using" 41:2
+apply_forms "Convert using to #subtype" 9:2
+apply_forms "Convert to named arguments" 43:6
+apply_forms "Convert to positional arguments" 44:6
+apply_forms "Convert to named fields" 45:9
+apply_forms "Convert to positional fields" 46:9
+apply_forms "Drop literal type" 47:9
+apply_forms "Add literal type" 48:9
+apply_forms "Qualify enum member" 49:13
+apply_forms "Drop enum type" 50:17
+apply_forms "Add literal type" 51:18
+apply_forms "Qualify enum member" 51:31
+apply_forms "Drop literal type" 52:18
+apply_forms "Drop enum type" 52:36
+apply_forms "Add literal type" 53:11
+apply_forms "Qualify enum member" 53:20
+apply_forms "Drop literal type" 54:12
+apply_forms "Drop enum type" 54:25
+apply_forms "Drop literal type" 36:9
+rm -rf "$dir/forms"
 expect generate-test "util_test.odin" "$OLS" query actions "$dir/util.odin:3:1" --apply "Generate test for add"
 grep -q "^test_add :: proc(t: ^testing.T)" "$dir/util_test.odin" && grep -q 'import "core:testing"' "$dir/util_test.odin"
 odin check "$dir" -no-entry-point
