@@ -1,3 +1,4 @@
+#+feature dynamic-literals
 package tests
 
 import "core:strings"
@@ -176,4 +177,41 @@ cast_off_with_its_flag :: proc(t: ^testing.T) {
 		}
 		test.expect_action_missing(t, &source, item[0])
 	}
+}
+
+// A distinct type does not take its base type, so the cast names the distinct type.
+@(test)
+cast_from_auto_assigns_a_distinct_type :: proc(t: ^testing.T) {
+	expect_cast(
+		t,
+		TO_CAST,
+		"Handle :: distinct u32\n\th: Handle\n\th = auto{*}_cast f\n\t_ = h",
+		"Handle :: distinct u32\n\th: Handle\n\th = cast(Handle)f\n\t_ = h",
+	)
+}
+
+@(test)
+cast_from_auto_assigns_a_distinct_field :: proc(t: ^testing.T) {
+	expect_cast(
+		t,
+		TO_CAST,
+		"Handle :: distinct u32\n\tS :: struct {\n\t\tid: Handle,\n\t}\n\ts: S\n\ts.id = auto{*}_cast f\n\t_ = s",
+		"Handle :: distinct u32\n\tS :: struct {\n\t\tid: Handle,\n\t}\n\ts: S\n\ts.id = cast(Handle)f\n\t_ = s",
+	)
+}
+
+@(test)
+cast_from_auto_qualifies_a_distinct_type_of_another_package :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = "package test\nimport \"core:other\"\nmain :: proc() {\n\tf: f32\n\th: other.Handle\n\th = auto{*}_cast f\n\t_ = h\n}\n",
+		packages = {{pkg = "other", source = "package other\nHandle :: distinct u32\n"}},
+		collections = {"core" = "test"},
+		config = {enable_code_action_cast = true},
+	}
+	test.expect_action_applied(
+		t,
+		&source,
+		TO_CAST,
+		"package test\nimport \"core:other\"\nmain :: proc() {\n\tf: f32\n\th: other.Handle\n\th = cast(other.Handle)f\n\t_ = h\n}\n",
+	)
 }

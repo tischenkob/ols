@@ -234,7 +234,11 @@ add_from_auto :: proc(ctx: ^ActionContext, nodes: []Node_At, form: Cast_Form) {
 	at := position_ident(form.node, "")
 	text, printed := "", false
 	if basic, is_basic := expected.symbol.value.(SymbolBasicValue);
-	   is_basic && expected.type == nil && expected.symbol.pointers == 0 && basic.ident != nil {
+	   is_basic &&
+	   expected.type == nil &&
+	   expected.symbol.pointers == 0 &&
+	   basic.ident != nil &&
+	   .Distinct not_in expected.symbol.flags {
 		text, printed = basic.ident.name, true
 	} else {
 		text, printed = expected_text(ctx, at, expected, &edits)

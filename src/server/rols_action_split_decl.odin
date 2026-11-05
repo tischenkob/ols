@@ -210,8 +210,9 @@ resolve_name_at :: proc(ctx: ^ActionContext, at: ^ast.Ident, name: string) -> (S
 	ident := new_type(ast.Ident, at.pos, at.end, context.temp_allocator)
 	ident.name = name
 	found, ok := resolve_type_identifier(ctx.ast_context, ident^)
-	// The resolver answers a builtin type's name before it looks at the locals and globals that can shadow it.
-	if ok && found.type == .Keyword {
+	// The resolver answers a builtin type's name before it looks at the locals and globals that can shadow it. A
+	// distinct type of a builtin has the same kind and is a declaration of its own.
+	if ok && found.type == .Keyword && .Distinct not_in found.flags {
 		_, is_local := get_local(ctx.ast_context^, ident^)
 		_, is_global := ctx.ast_context.globals[name]
 		if is_local || is_global {
