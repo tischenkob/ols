@@ -158,6 +158,7 @@ written_type :: proc(src: string, type: ^ast.Expr) -> string {
 }
 
 // Whether name is an identifier and not a keyword such as `context` or `map`, nor a builtin type name.
+@(private = "package")
 is_plain_name :: proc(name: string) -> bool {
 	if name in keyword_map {
 		return false

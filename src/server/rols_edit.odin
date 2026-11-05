@@ -395,6 +395,17 @@ gather_locals_at :: proc(ctx: ^ActionContext, offset: int) {
 	get_locals(ctx.ast_context, &pc)
 }
 
+// gather_locals_at for an offset in function, which need not hold the cursor.
+gather_locals_in :: proc(ctx: ^ActionContext, function: ^ast.Proc_Lit, offset: int) {
+	pc := ctx.position_context^
+	pc.function = function
+	pc.position = offset
+	pc.nested_position = offset
+	reset_ast_context(ctx.ast_context)
+	clear_locals(ctx.ast_context)
+	get_locals(ctx.ast_context, &pc)
+}
+
 restore_locals :: proc(ctx: ^ActionContext) {
 	clear_locals(ctx.ast_context)
 	get_locals(ctx.ast_context, ctx.position_context)

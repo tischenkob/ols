@@ -201,6 +201,14 @@ Options:
 
 - `enable_code_action_attr`: Enables the code actions adding and removing `@(require_results)`, `@(private)` and `@(test)` on the top-level declaration at the cursor, where the result compiles. Defaults to true.
 
+- `enable_code_action_add_allocator`: Enables "Add allocator parameter" and "Add caller location" on the name of a top-level procedure. They add `allocator := context.allocator` or `loc := #caller_location`, pass `allocator = allocator` or `loc = loc` to each call in the body whose callee takes that parameter and gets none, such as `make` or `new` (and `append` for the location), and make each caller that has a parameter of that kind pass it. They refuse a contextless or foreign procedure, a variadic one, one that has the parameter or reads the name already, one with platform variants, one used other than as a callee, and one whose body has no call to pass it to. Defaults to true.
+
+- `enable_code_action_param_pointer`: Enables "Pass by pointer" and "Pass by value" on a parameter of a top-level procedure. "Pass by pointer" turns `x: T` into `x: ^T`, reads `x^` in the body, or `x.f` for a struct, and passes `&arg`, refusing an argument without an address. "Pass by value" does the reverse and refuses when the body writes through the pointer, compares it with `nil`, or stores or passes it on. Defaults to true.
+
+- `enable_code_action_param_object`: Enables "Introduce parameter object" on a selection of two or more adjacent parameters of a top-level procedure `foo`. It declares `Foo_Params :: struct {...}` after the procedure, takes `params: Foo_Params` in their place, reads `params.a` in the body and passes `Foo_Params{a = ..., b = ...}` at each call. It refuses a default value, `using`, a parametric parameter, and a taken name. Defaults to true.
+
+- `enable_code_action_proc_group`: Enables "Make group foo" and "Add to group foo" on the name of a top-level procedure `foo_a`. "Make group foo" declares `foo :: proc{foo_a, foo_b}` over the procedures of the file named with the prefix before the last `_`, and refuses a taken name. "Add to group foo" adds the procedure to a group `foo` of the package that lacks it, and refuses when a call of the group could pick the new member. Defaults to true.
+
 - `enable_code_action_swap_param`: Enables the code actions moving the parameter at the cursor one place left or right in a top-level procedure, updating its platform variants and every call. Defaults to true.
 
 - `enable_code_action_init_move`: Enables the code actions moving a declaration into the init of the `if`, `switch` or `for` that follows it, and moving an init out above its statement. Defaults to true.

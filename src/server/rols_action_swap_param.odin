@@ -42,6 +42,7 @@ add_swap_param_action :: proc(ctx: ^ActionContext) {
 }
 
 // A declared type keeps the old order, and a variable may take another procedure of that order.
+@(private = "package")
 swappable :: proc(decl: ^ast.Value_Decl) -> bool {
 	return !decl.is_mutable && decl.type == nil
 }
@@ -75,6 +76,7 @@ offer_swap :: proc(
 
 // The index of the parameter that holds the range, or -1. In `a, b: int` the type belongs to both names and selects
 // neither.
+@(private = "package")
 param_at_range :: proc(params: []Param_Name, range: common.AbsoluteRange) -> int {
 	for param, i in params {
 		if param.name == nil {

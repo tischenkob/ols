@@ -539,6 +539,14 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_generate_lifetime.(bool) or_else config.enable_code_action_generate_lifetime
 	config.enable_code_action_generate_enum =
 		ols_config.enable_code_action_generate_enum.(bool) or_else config.enable_code_action_generate_enum
+	config.enable_code_action_add_allocator =
+		ols_config.enable_code_action_add_allocator.(bool) or_else config.enable_code_action_add_allocator
+	config.enable_code_action_param_pointer =
+		ols_config.enable_code_action_param_pointer.(bool) or_else config.enable_code_action_param_pointer
+	config.enable_code_action_param_object =
+		ols_config.enable_code_action_param_object.(bool) or_else config.enable_code_action_param_object
+	config.enable_code_action_proc_group =
+		ols_config.enable_code_action_proc_group.(bool) or_else config.enable_code_action_proc_group
 	config.enable_code_action_merge_cases =
 		ols_config.enable_code_action_merge_cases.(bool) or_else config.enable_code_action_merge_cases
 	config.enable_code_action_loop_label =
@@ -1207,6 +1215,10 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_create_decl = true
 	config.enable_code_action_generate_lifetime = true
 	config.enable_code_action_generate_enum = true
+	config.enable_code_action_add_allocator = true
+	config.enable_code_action_param_pointer = true
+	config.enable_code_action_param_object = true
+	config.enable_code_action_proc_group = true
 	config.enable_code_action_merge_cases = true
 	config.enable_code_action_loop_label = true
 	config.enable_code_action_literal = true

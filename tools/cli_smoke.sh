@@ -496,6 +496,81 @@ apply_generate "Generate name table" 21:1
 grep -q "^CODE_NAMES := #sparse\[Code\]string {" "$dir/generate/generate.odin"
 echo "ok generate-sparse-table"
 rm -rf "$dir/generate"
+# The signature actions, each on a fresh copy of a two-package project, through the compile gate and odin check.
+mkdir "$dir/signature"
+echo '{}' > "$dir/signature/ols.json"
+apply_signature() {
+	local title="$1" at="$2"
+	rm -rf "$dir/signature/geo"
+	mkdir "$dir/signature/geo"
+	cat > "$dir/signature/main.odin" <<'ODIN'
+package signature
+
+import "geo"
+
+grow :: proc(n: int) -> []int {
+	xs := make([]int, n)
+	d: [dynamic]int
+	append(&d, 1)
+	delete(d)
+	return xs
+}
+
+build :: proc(n: int, allocator := context.allocator) -> []int {
+	return grow(n)
+}
+
+area :: proc(p: geo.Point, scale: f32) -> f32 {
+	return p.x * p.y * scale
+}
+
+draw_int :: proc(v: int) {}
+draw_str :: proc(s: string) {}
+
+main :: proc() {
+	pt := geo.Point{1, 2}
+	_ = area(pt, 2)
+	_ = geo.shift(&pt, 1)
+	_ = geo.mix(1, 2, 3)
+	delete(build(3))
+	draw_int(1)
+	draw_str("a")
+}
+ODIN
+	cat > "$dir/signature/geo/geo.odin" <<'ODIN'
+package geo
+
+Point :: struct {
+	x, y: f32,
+}
+
+shift :: proc(p: ^Point, d: f32) -> f32 {
+	return p^.x + p.y + d
+}
+
+mix :: proc(a: int, b: int, c: int) -> int {
+	return a + b * c
+}
+
+helper :: proc() -> int {
+	return mix(4, 5, 6)
+}
+ODIN
+	expect "signature-$title" "\.odin" "$OLS" query actions "$at" --apply "$title" --root "$dir/signature"
+	odin check "$dir/signature" >/dev/null
+	echo "ok signature-$title check"
+}
+apply_signature "Add allocator parameter" "$dir/signature/main.odin:5:1"
+grep -q "xs := make(\[\]int, n, allocator = allocator)" "$dir/signature/main.odin" && grep -q "append(&d, 1)$" "$dir/signature/main.odin" && grep -q "return grow(n, allocator = allocator)" "$dir/signature/main.odin"
+echo "ok signature-allocator-threaded"
+apply_signature "Add caller location" "$dir/signature/main.odin:5:1"
+apply_signature "Pass by pointer" "$dir/signature/main.odin:17:14"
+apply_signature "Pass by value" "$dir/signature/geo/geo.odin:7:15"
+apply_signature "Introduce parameter object" "$dir/signature/geo/geo.odin:11:13-11:22"
+grep -q "geo.mix(geo.Mix_Params{a = 1, b = 2}, 3)" "$dir/signature/main.odin"
+echo "ok signature-object-qualified"
+apply_signature "Make group draw" "$dir/signature/main.odin:21:1"
+rm -rf "$dir/signature"
 expect generate-test "util_test.odin" "$OLS" query actions "$dir/util.odin:3:1" --apply "Generate test for add"
 grep -q "^test_add :: proc(t: ^testing.T)" "$dir/util_test.odin" && grep -q 'import "core:testing"' "$dir/util_test.odin"
 odin check "$dir" -no-entry-point

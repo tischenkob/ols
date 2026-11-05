@@ -305,6 +305,26 @@
 			"description": "Enables the code actions moving the parameter at the cursor one place left or right, across the procedure and its calls.",
 			"default": true
 		},
+		"enable_code_action_add_allocator": {
+			"type": "boolean",
+			"description": "Enables the code actions adding an allocator or a caller location parameter to a procedure and passing it to the calls in its body.",
+			"default": true
+		},
+		"enable_code_action_param_pointer": {
+			"type": "boolean",
+			"description": "Enables the code actions passing a parameter by pointer or by value, across the procedure and its calls.",
+			"default": true
+		},
+		"enable_code_action_param_object": {
+			"type": "boolean",
+			"description": "Enables the code action replacing adjacent parameters with a struct parameter, across the procedure and its calls.",
+			"default": true
+		},
+		"enable_code_action_proc_group": {
+			"type": "boolean",
+			"description": "Enables the code actions making a procedure group from procedures that share a name prefix, and adding a procedure to a group.",
+			"default": true
+		},
 		"enable_code_action_init_move": {
 			"type": "boolean",
 			"description": "Enables the code actions moving a declaration into the init of the if, switch or for after it, and moving an init out above its statement.",
