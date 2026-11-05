@@ -278,6 +278,89 @@ main :: proc() {
 }
 
 @(test)
+swap_param_keeps_a_nested_call_it_does_not_cross :: proc(t: ^testing.T) {
+	source := swap_source(
+		`package test
+
+place :: proc(x{*}: int, y: int, z: int) -> int {
+	return z
+}
+
+main :: proc() {
+	_ = place(1, 2, place(3, 4, 5))
+}
+`,
+	)
+	test.expect_action_applied(
+		t,
+		&source,
+		RIGHT,
+		`package test
+
+place :: proc(y: int, x: int, z: int) -> int {
+	return z
+}
+
+main :: proc() {
+	_ = place(2, 1, place(4, 3, 5))
+}
+`,
+	)
+}
+
+@(test)
+swap_param_refuses_a_nested_call_it_crosses :: proc(t: ^testing.T) {
+	source := swap_source(
+		`package test
+
+place :: proc(x{*}: int, y: int) -> int {
+	return y
+}
+
+main :: proc() {
+	_ = place(place(1, 2), 3)
+}
+`,
+	)
+	test.expect_action_missing(t, &source, RIGHT)
+}
+
+@(test)
+swap_param_refuses_a_variable_or_a_declared_type :: proc(t: ^testing.T) {
+	typed_variable := swap_source(`package test
+
+place: proc(x: int, y: string) = proc(x{*}: int, y: string) {
+}
+`)
+	test.expect_action_missing(t, &typed_variable, RIGHT)
+	variable := swap_source(`package test
+
+place := proc(x{*}: int, y: string) {
+}
+`)
+	test.expect_action_missing(t, &variable, RIGHT)
+	typed_constant := swap_source(`package test
+
+place: proc(x: int, y: string) : proc(x{*}: int, y: string) {
+}
+`)
+	test.expect_action_missing(t, &typed_constant, RIGHT)
+	typed_variant := swap_source(
+		`package test
+
+when ODIN_OS == .Windows {
+	place :: proc(x{*}: int, y: string) {
+	}
+} else {
+	place: proc(x: int, y: string) : proc(x: int, y: string) {
+	}
+}
+`,
+	)
+	test.expect_action_missing(t, &typed_variant, RIGHT)
+}
+
+@(test)
 swap_param_disappears_with_its_flag :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test

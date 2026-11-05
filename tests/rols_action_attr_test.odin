@@ -621,6 +621,71 @@ foreign lib {
 }
 
 @(test)
+attr_refuses_a_procedure_in_a_variable :: proc(t: ^testing.T) {
+	expect_no_attr(t, "Add @(require_results)", `package test
+
+va{*}lue := proc() -> int {
+	return 1
+}
+`)
+	expect_no_attr(t, "Add @(require_results)", `package test
+
+va{*}lue: proc() -> int = proc() -> int {
+	return 1
+}
+`)
+	expect_no_attr(t, "Add @(test)", `package test
+
+import "core:testing"
+
+va{*}lue := proc(t: ^testing.T) {
+}
+`)
+}
+
+@(test)
+attr_add_private_to_a_procedure_in_a_variable :: proc(t: ^testing.T) {
+	expect_attr(
+		t,
+		"Add @(private)",
+		`package test
+
+va{*}lue := proc() -> int {
+	return 1
+}
+`,
+		`package test
+
+@(private)
+value := proc() -> int {
+	return 1
+}
+`,
+	)
+}
+
+@(test)
+attr_add_require_results_to_a_typed_constant :: proc(t: ^testing.T) {
+	expect_attr(
+		t,
+		"Add @(require_results)",
+		`package test
+
+va{*}lue: proc() -> int : proc() -> int {
+	return 1
+}
+`,
+		`package test
+
+@(require_results)
+value: proc() -> int : proc() -> int {
+	return 1
+}
+`,
+	)
+}
+
+@(test)
 attr_disappears_with_its_flag :: proc(t: ^testing.T) {
 	source := test.Source {
 		main = `package test

@@ -333,6 +333,10 @@ reorder_params_edit :: proc(
 	for site in sites {
 		args := site.call.args
 		for i, k in order {
+			// An argument that stays may hold another call of the procedure, whose edits must not overlap this one.
+			if i == k {
+				continue
+			}
 			append_edit(
 				&changes,
 				site.document,

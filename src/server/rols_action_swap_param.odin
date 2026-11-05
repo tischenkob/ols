@@ -23,13 +23,13 @@ add_swap_param_action :: proc(ctx: ^ActionContext) {
 		return
 	}
 	decl, is_top := proc_decl_of(ctx.document, function)
-	if !is_top || signature_problem(decl, function) != "" {
+	if !is_top || !swappable(decl) || signature_problem(decl, function) != "" {
 		return
 	}
 	h := Call_Hierarchy{ctx.files, make(map[string]^Document, context.temp_allocator)}
 	variants := top_level_variants(&h, ctx.document, decl)
 	for variant in variants {
-		if variant_problem(variant, params, ctx.document.ast.src) != "" {
+		if !swappable(variant.decl) || variant_problem(variant, params, ctx.document.ast.src) != "" {
 			return
 		}
 	}
@@ -39,6 +39,11 @@ add_swap_param_action :: proc(ctx: ^ActionContext) {
 	}
 	offer_swap(ctx, function, variants, sites, index, index - 1, "Move parameter left")
 	offer_swap(ctx, function, variants, sites, index, index + 1, "Move parameter right")
+}
+
+// A declared type keeps the old order, and a variable may take another procedure of that order.
+swappable :: proc(decl: ^ast.Value_Decl) -> bool {
+	return !decl.is_mutable && decl.type == nil
 }
 
 offer_swap :: proc(

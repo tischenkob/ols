@@ -127,8 +127,10 @@ decl_at_range :: proc(ctx: ^ActionContext) -> ^ast.Value_Decl {
 	}
 }
 
+// The procedure that decl declares. A variable holding a procedure takes the attributes of a variable, which leave out
+// require_results and test.
 proc_lit_of :: proc(decl: ^ast.Value_Decl) -> ^ast.Proc_Lit {
-	if len(decl.names) != 1 || len(decl.values) != 1 {
+	if decl.is_mutable || len(decl.names) != 1 || len(decl.values) != 1 {
 		return nil
 	}
 	return decl.values[0].derived.(^ast.Proc_Lit) or_else nil
