@@ -555,13 +555,20 @@ mix :: proc(a: int, b: int, c: int) -> int {
 helper :: proc() -> int {
 	return mix(4, 5, 6)
 }
+
+scale :: proc{scale_int}
+
+scale_int :: proc(v: int) {}
+scale_f32 :: proc(f: f32) {}
 ODIN
 	expect "signature-$title" "\.odin" "$OLS" query actions "$at" --apply "$title" --root "$dir/signature"
 	odin check "$dir/signature" >/dev/null
 	echo "ok signature-$title check"
 }
 apply_signature "Add allocator parameter" "$dir/signature/main.odin:5:1"
-grep -q "xs := make(\[\]int, n, allocator = allocator)" "$dir/signature/main.odin" && grep -q "append(&d, 1)$" "$dir/signature/main.odin" && grep -q "return grow(n, allocator = allocator)" "$dir/signature/main.odin"
+grep -q "xs := make(\[\]int, n, allocator = allocator)" "$dir/signature/main.odin"
+grep -q "append(&d, 1)$" "$dir/signature/main.odin"
+grep -q "return grow(n, allocator = allocator)" "$dir/signature/main.odin"
 echo "ok signature-allocator-threaded"
 apply_signature "Add caller location" "$dir/signature/main.odin:5:1"
 apply_signature "Pass by pointer" "$dir/signature/main.odin:17:14"
@@ -570,6 +577,9 @@ apply_signature "Introduce parameter object" "$dir/signature/geo/geo.odin:11:13-
 grep -q "geo.mix(geo.Mix_Params{a = 1, b = 2}, 3)" "$dir/signature/main.odin"
 echo "ok signature-object-qualified"
 apply_signature "Make group draw" "$dir/signature/main.odin:21:1"
+apply_signature "Add to group scale" "$dir/signature/geo/geo.odin:22:1"
+grep -q "^scale :: proc{scale_int, scale_f32}" "$dir/signature/geo/geo.odin"
+echo "ok signature-group-added"
 rm -rf "$dir/signature"
 expect generate-test "util_test.odin" "$OLS" query actions "$dir/util.odin:3:1" --apply "Generate test for add"
 grep -q "^test_add :: proc(t: ^testing.T)" "$dir/util_test.odin" && grep -q 'import "core:testing"' "$dir/util_test.odin"
