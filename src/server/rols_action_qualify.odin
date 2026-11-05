@@ -18,6 +18,7 @@ add_qualify_action :: proc(ctx: ^ActionContext) {
 }
 
 // The type a place expects. type is nil when the place only has a value, such as the left side of an assignment.
+@(private = "package")
 Expected :: struct {
 	symbol: Symbol,
 	type:   ^ast.Expr,
@@ -188,6 +189,7 @@ add_literal_type_form :: proc(ctx: ^ActionContext, nodes: []Node_At) {
 
 // The type that the place of node supplies: a typed declaration, a plain assignment, a return, a parameter, a field, or
 // an element of an array or a bit set. A place that is not listed, such as `x := Foo{}`, supplies none.
+@(private = "package")
 expected_of :: proc(ctx: ^ActionContext, nodes: []Node_At, node: ^ast.Node) -> (expected: Expected, ok: bool) {
 	parent := parent_of_node(nodes, node)
 	if parent == nil {
@@ -367,6 +369,7 @@ is_polymorphic :: proc(value: SymbolProcedureValue) -> bool {
 	return found
 }
 
+@(private = "package")
 type_at :: proc(ctx: ^ActionContext, type: ^ast.Expr, pkg: string) -> (expected: Expected, ok: bool) {
 	set_ast_package_set_scoped(ctx.ast_context, pkg)
 	reset_ast_context(ctx.ast_context)
@@ -391,6 +394,7 @@ same_named :: proc(a, b: Symbol) -> bool {
 }
 
 // Whether a literal written with its type has the type that the place expects. An unnamed type compares by its text.
+@(private = "package")
 same_type_written :: proc(ctx: ^ActionContext, written, expected: Expected) -> bool {
 	if same_named(written.symbol, expected.symbol) {
 		return true
@@ -404,6 +408,7 @@ same_type_written :: proc(ctx: ^ActionContext, written, expected: Expected) -> b
 	return a_ok && b_ok && a == b
 }
 
+@(private = "package")
 expected_text :: proc(
 	ctx: ^ActionContext,
 	at: ^ast.Ident,
@@ -433,6 +438,7 @@ takes_literal :: proc(text: string) -> bool {
 }
 
 // Whether the names in text mean types at the position of at.
+@(private = "package")
 name_holds :: proc(ctx: ^ActionContext, at: ^ast.Ident, text: string) -> bool {
 	return spelled_names_hold(ctx, at, text, ctx.ast_context.document_package)
 }
@@ -464,6 +470,7 @@ in_header :: proc(nodes: []Node_At, lit: ^ast.Comp_Lit) -> bool {
 }
 
 // An identifier with the position of node, which a name lookup takes as the place of the lookup.
+@(private = "package")
 position_ident :: proc(node: ^ast.Node, name: string) -> ^ast.Ident {
 	ident := new_type(ast.Ident, node.pos, node.pos, context.temp_allocator)
 	ident.name = name
@@ -479,6 +486,7 @@ contains_node :: proc(list: []^ast.Expr, node: ^ast.Node) -> bool {
 	return false
 }
 
+@(private = "package")
 parent_of_node :: proc(nodes: []Node_At, node: ^ast.Node) -> ^ast.Node {
 	for at in nodes {
 		if at.node == node {

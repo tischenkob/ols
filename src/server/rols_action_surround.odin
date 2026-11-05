@@ -107,6 +107,7 @@ Opened :: enum {
 }
 
 // Scans tokens, as a string can sit in a nested procedure, a struct tag or an attribute.
+@(private = "package")
 has_multiline_string :: proc(text: string) -> bool {
 	t: tokenizer.Tokenizer
 	tokenizer.init(&t, text, "", proc(pos: tokenizer.Pos, msg: string, args: ..any) {})

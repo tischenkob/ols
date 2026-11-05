@@ -523,6 +523,14 @@ read_ols_initialize_options :: proc(config: ^common.Config, ols_config: OlsConfi
 		ols_config.enable_code_action_named_form.(bool) or_else config.enable_code_action_named_form
 	config.enable_code_action_qualify =
 		ols_config.enable_code_action_qualify.(bool) or_else config.enable_code_action_qualify
+	config.enable_code_action_type_switch =
+		ols_config.enable_code_action_type_switch.(bool) or_else config.enable_code_action_type_switch
+	config.enable_code_action_cast =
+		ols_config.enable_code_action_cast.(bool) or_else config.enable_code_action_cast
+	config.enable_code_action_bit_set =
+		ols_config.enable_code_action_bit_set.(bool) or_else config.enable_code_action_bit_set
+	config.enable_code_action_evaluate =
+		ols_config.enable_code_action_evaluate.(bool) or_else config.enable_code_action_evaluate
 	config.enable_code_action_merge_cases =
 		ols_config.enable_code_action_merge_cases.(bool) or_else config.enable_code_action_merge_cases
 	config.enable_code_action_loop_label =
@@ -1183,6 +1191,10 @@ apply_default_config :: proc(config: ^common.Config) {
 	config.enable_code_action_expand_using = true
 	config.enable_code_action_named_form = true
 	config.enable_code_action_qualify = true
+	config.enable_code_action_type_switch = true
+	config.enable_code_action_cast = true
+	config.enable_code_action_bit_set = true
+	config.enable_code_action_evaluate = true
 	config.enable_code_action_merge_cases = true
 	config.enable_code_action_loop_label = true
 	config.enable_code_action_literal = true

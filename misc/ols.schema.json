@@ -345,6 +345,26 @@
 			"description": "Enables the code actions converting between .A and Enum.A, and adding or dropping the type of a literal where the context supplies it.",
 			"default": true
 		},
+		"enable_code_action_type_switch": {
+			"type": "boolean",
+			"description": "Enables the code actions converting between an if chain of type assertions and a type switch, adding or removing #partial, and adding a default case.",
+			"default": true
+		},
+		"enable_code_action_cast": {
+			"type": "boolean",
+			"description": "Enables the code actions converting between cast(T)x and T(x), to and from auto_cast where the place expects T, and to and from transmute between pointer types.",
+			"default": true
+		},
+		"enable_code_action_bit_set": {
+			"type": "boolean",
+			"description": "Enables the code actions converting between .A in flags and flags & {.A} != {}, and between .A not_in flags and flags & {.A} == {}.",
+			"default": true
+		},
+		"enable_code_action_evaluate": {
+			"type": "boolean",
+			"description": "Enables the code action replacing an expression of integer literals with its value.",
+			"default": true
+		},
 		"enable_code_action_loop_label": {
 			"type": "boolean",
 			"description": "Enables the code action adding a label to the loop at the cursor.",

@@ -265,6 +265,118 @@ apply_forms "Drop literal type" 54:12
 apply_forms "Drop enum type" 54:25
 apply_forms "Drop literal type" 36:9
 rm -rf "$dir/forms"
+# Fill missing keys, the type switch forms, the cast forms, the bit set forms and Evaluate constant, from a fresh copy, through the compile gate and odin check.
+mkdir "$dir/kinds"
+echo '{}' > "$dir/kinds/ols.json"
+apply_kinds() {
+	local title="$1" at="$2"
+	cat > "$dir/kinds/kinds.odin" <<'ODIN'
+package kinds
+
+Kind :: enum {
+	A,
+	B,
+}
+
+T :: struct {
+	x: int,
+}
+
+U :: union {
+	int,
+	string,
+	T,
+}
+
+Set :: bit_set[Kind]
+
+take :: proc(a: f32) {}
+
+main :: proc() {
+	u: U
+	f: f32 = 1
+	n := 1
+	p := &n
+	fl: Set
+	a := [Kind]int{}
+	b := #partial [Kind]int{.A = 1}
+	if v, ok := u.(int); ok {
+		_ = v
+	} else if _, ok := u.(string); ok {
+		_ = 1
+	} else {
+		_ = 2
+	}
+	switch v in u {
+	case int:
+		_ = v
+	case string:
+		_ = 1
+	case T:
+		_ = v
+	}
+	#partial switch v in u {
+	case int:
+		_ = v
+	}
+	c := cast(int)f
+	d := int(f)
+	e: int = cast(int)f
+	g: int = auto_cast f
+	take(cast(f32)n)
+	h := cast(^f32)p
+	i := transmute(^f32)p
+	j := (^f32)(p)
+	k := (cast(^T)p).x
+	m := (^T)(p).x
+	q := .A in fl
+	r := .A not_in fl
+	s := fl & {.A} != {}
+	w := fl & {.A} == {}
+	x := 1 + 2 * (3 << 2)
+	y := n - (1 - 2)
+	_, _, _, _, _, _, _, _, _, _ = a, b, c, d, e, g, h, i, j, k
+	_, _, _, _, _, _, _, _ = m, q, r, s, w, x, y, n
+	#partial switch v in u {
+	case int:
+		_ = v
+	case string:
+	case T:
+	}
+}
+ODIN
+	expect "kinds-$title" "kinds.odin" "$OLS" query actions "$dir/kinds/kinds.odin:$at" --apply "$title" --root "$dir/kinds"
+	odin check "$dir/kinds" >/dev/null
+	echo "ok kinds-$title check"
+}
+apply_kinds "Fill missing keys" 28:17
+apply_kinds "Fill missing keys" 29:27
+apply_kinds "Convert to type switch" 30:2
+apply_kinds "Convert to type switch" 32:12
+apply_kinds "Convert to if chain" 37:2
+apply_kinds "Add default case" 37:2
+apply_kinds "Add #partial" 37:2
+apply_kinds "Convert to if chain" 45:11
+apply_kinds "Add default case" 45:11
+apply_kinds "Remove #partial" 67:2
+apply_kinds "Convert to T(x)" 49:7
+apply_kinds "Convert to cast(T)x" 50:7
+apply_kinds "Convert to auto_cast" 51:11
+apply_kinds "Convert to cast(T)x" 52:11
+apply_kinds "Convert to auto_cast" 53:7
+apply_kinds "Convert to T(x)" 54:7
+apply_kinds "Convert to transmute" 54:7
+apply_kinds "Convert to cast(T)x" 55:7
+apply_kinds "Convert to cast(T)x" 56:7
+apply_kinds "Convert to transmute" 56:7
+apply_kinds "Convert to cast(T)x" 58:9
+apply_kinds "Convert to set intersection" 59:7
+apply_kinds "Convert to empty intersection" 60:7
+apply_kinds "Convert to in" 61:10
+apply_kinds "Convert to not_in" 62:10
+apply_kinds "Evaluate constant" 63:7
+apply_kinds "Evaluate constant" 64:14
+rm -rf "$dir/kinds"
 expect generate-test "util_test.odin" "$OLS" query actions "$dir/util.odin:3:1" --apply "Generate test for add"
 grep -q "^test_add :: proc(t: ^testing.T)" "$dir/util_test.odin" && grep -q 'import "core:testing"' "$dir/util_test.odin"
 odin check "$dir" -no-entry-point

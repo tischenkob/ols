@@ -217,6 +217,14 @@ Options:
 
 - `enable_code_action_named_form`: Enables the code actions converting a struct literal between `Foo{1, 2}` and `Foo{x = 1, y = 2}`, and a call between `f(1, 2)` and `f(a = 1, b = 2)`. A call with named arguments no longer qualifies for "Move parameter", "Remove parameter", "Introduce parameter" and `ols query reorder-params`, which refuse a call site that names its arguments. Defaults to true.
 
+- `enable_code_action_type_switch`: Enables the code actions on type assertions and type switches. "Convert to type switch" turns `if v, ok := u.(T); ok {...}` and its `else if` chain over one subject into `switch v in u`, with the `else` as `case:`. "Convert to if chain" turns a type switch of at most eight cases back. "Add #partial" and "Remove #partial" change the switch, and removal needs a case for every variant. "Add default case" adds `case:`. Defaults to true.
+
+- `enable_code_action_cast`: Enables the code actions on casts. "Convert to T(x)" and "Convert to cast(T)x" switch between the two forms, with parentheses around a type such as `^T` or `[]u8`. "Convert to auto_cast" and its reverse apply where the place of the expression expects `T`. "Convert to transmute" and its reverse apply only between pointer types, where both keep the value. Defaults to true.
+
+- `enable_code_action_bit_set`: Enables the code actions converting `.A in flags` to `flags & {.A} != {}` and `.A not_in flags` to `flags & {.A} == {}`, and back, for one member and a `flags` that resolves to a `bit_set`. Defaults to true.
+
+- `enable_code_action_evaluate`: Enables the "Evaluate constant" code action, which replaces an expression of integer literals and `+ - * / % << >> & |` with its value. It refuses a float, a name, a zero divisor and a value outside `i64`. Defaults to true.
+
 - `enable_code_action_qualify`: Enables the code actions converting between `.A` and `Enum.A`, and adding or dropping the type of a composite literal, where a declared type, an assignment, a return, a parameter, a field or an element supplies the type. A comparison and a `case` also supply the type of an enum member. Defaults to true.
 
 - `enable_code_action_loop_label`: Enables the code action adding a label to the loop at the cursor, so nested `break` and `continue` can target it. Defaults to true.
