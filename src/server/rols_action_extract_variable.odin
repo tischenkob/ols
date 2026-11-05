@@ -354,6 +354,10 @@ literal_type_holds :: proc(ctx: ^ActionContext, expr: ^ast.Expr, parent: ^ast.No
 	}
 
 	names_default :: proc(type: ^ast.Expr, default_type: string) -> bool {
+		// `name := value` has no type expression, so the type cannot be established.
+		if type == nil {
+			return false
+		}
 		name, is_name := type.derived.(^ast.Ident)
 		return is_name && (name.name == default_type || name.name == "any")
 	}
@@ -400,8 +404,10 @@ literal_type_holds :: proc(ctx: ^ActionContext, expr: ^ast.Expr, parent: ^ast.No
 			return false
 		}
 		for field in callee.arg_types {
-			if ellipsis, is_variadic := field.type.derived.(^ast.Ellipsis); is_variadic {
-				return names_default(ellipsis.expr, default_type)
+			if field.type != nil {
+				if ellipsis, is_variadic := field.type.derived.(^ast.Ellipsis); is_variadic {
+					return names_default(ellipsis.expr, default_type)
+				}
 			}
 			for name in field.names {
 				if index == 0 {

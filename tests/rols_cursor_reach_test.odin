@@ -483,6 +483,19 @@ main :: proc(a: []int) {
 		`package test
 
 main :: proc(a: []int) {
+	x := true && le{*}n(a) > 0
+	_ = x
+}
+`,
+		"Extract variable",
+		"Extract variable (len(a))",
+		"Extract variable (len(a) > 0)",
+	)
+	expect_refused(
+		t,
+		`package test
+
+main :: proc(a: []int) {
 	x := false || le{*}n(a) > 0
 	_ = x
 }
@@ -1131,4 +1144,35 @@ main :: proc() {
 		"Remove parameter a",
 		"Remove parameter b",
 	)
+}
+
+// A parameter or a result written `name := value` has no type expression to compare a literal against.
+@(test)
+rols_cursor_reach_literal_inferred_type_refused :: proc(t: ^testing.T) {
+	expect_refused(t, `package test
+
+foo :: proc(a := 1) {}
+
+main :: proc() {
+	foo({*}2)
+}
+`, "Extract variable")
+	expect_refused(
+		t,
+		`package test
+
+foo :: proc(a: int, b := 5) {}
+
+main :: proc() {
+	foo(1, {*}2)
+}
+`,
+		"Extract variable",
+	)
+	expect_refused(t, `package test
+
+f :: proc() -> (n := 0) {
+	return {*}5
+}
+`, "Extract variable")
 }
