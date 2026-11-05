@@ -215,3 +215,17 @@ cast_from_auto_qualifies_a_distinct_type_of_another_package :: proc(t: ^testing.
 		"package test\nimport \"core:other\"\nmain :: proc() {\n\tf: f32\n\th: other.Handle\n\th = cast(other.Handle)f\n\t_ = h\n}\n",
 	)
 }
+
+@(test)
+cast_from_auto_assigns_a_distinct_type_at_file_scope :: proc(t: ^testing.T) {
+	source := test.Source {
+		main = "package test\nHandle :: distinct u32\nmain :: proc() {\n\tf: f32\n\th: Handle\n\th = auto{*}_cast f\n\t_ = h\n}\n",
+		config = {enable_code_action_cast = true},
+	}
+	test.expect_action_applied(
+		t,
+		&source,
+		TO_CAST,
+		"package test\nHandle :: distinct u32\nmain :: proc() {\n\tf: f32\n\th: Handle\n\th = cast(Handle)f\n\t_ = h\n}\n",
+	)
+}

@@ -443,6 +443,13 @@ line names where a fix would go.
 - "Extract variable (replace all N)" may replace `m[k]` in a `return` that feeds two results from one value (`occurrence_use`).
 - "Extract variable (replace all N)" replaces the selector in a direct `offset_of_selector(s.x)` call (`needs_constant_args`).
 - Single-occurrence "Extract variable" offers the left side of `or_else` and a `swizzle` index, which do not compile afterwards (`extractable`).
+- "Convert to positional fields" offers a single-field `#raw_union` literal, which the compiler rejects (`rols_action_named_form.odin`).
+- `plain_callee` takes a group whose member has the group's name for a plain procedure, such as `add :: proc{other.add}` (`rols_action_named_form.odin`).
+- "Add literal type" offers a typeless literal for a union, and for an unnamed type that holds an inline struct (`takes_literal`).
+- "Expand using" prefixes a member of a local enum that has the name of a promoted field (`rols_action_expand_using.odin`).
+- "Expand using" reads other files from disk for its name filter, so it misses an unsaved promoted use in another open file (`rols_action_expand_using.odin`).
+- "Convert to cast(T)x" compares a distinct type of a builtin by name, so a local `Handle` shadowing a file-scope `Handle` writes the local one (`declares_type`).
+- "Convert to if chain" keeps a comment on a `case` line at its written indentation (`rols_action_type_switch.odin`).
 
 ### Large-file performance
 
